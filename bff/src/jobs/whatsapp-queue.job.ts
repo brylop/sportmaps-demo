@@ -22,7 +22,9 @@
 import { APP_PUBLICA_PROD } from '../utils/url-publica-familias';
 import crypto from 'node:crypto';
 import { supabase } from '../config/supabase';
-import { downloadMedia, sendTextMessage, aFormatoWhatsApp, type WhatsAppIntegration } from '../services/whatsapp.service';
+import {
+    downloadMedia, sendTextMessage, sendInteractiveButtons, aFormatoWhatsApp, type WhatsAppIntegration,
+} from '../services/whatsapp.service';
 import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from '../services/whatsapp-optin.service';
 import { extractReceipt } from '../services/ocr.service';
 import { extractEnrollmentForm, type EnrollmentFormResult } from '../services/enrollment-ocr.service';
@@ -30,7 +32,7 @@ import { buildVerdictContext } from '../services/receipt-context.service';
 import { normalizeDestination, normalizeReference, evaluateVerdict, destinationMatchesRegistered } from '../services/receipt-verdict';
 import { evaluatePaymentReceipt, redRejectionMessage } from '../services/receipt-approval.service';
 import { debeAtender, type TipoDeContacto } from '../services/whatsapp-atencion.service';
-import { anunciaComprobante, normalizarFrase, type ComprobanteAnunciado } from '../services/whatsapp-reglas-turno';
+import { anunciaComprobante, normalizarFrase, PASOS_SIN_CUENTA, type ComprobanteAnunciado } from '../services/whatsapp-reglas-turno';
 import {
     pagosPendientesDe, resolverPago, describirPago, mensajeElegirPago,
     type PagoPendiente,
@@ -423,6 +425,10 @@ export async function aplicarComprobante(
             );
             await cerrar(ctx.queueId, 'ignored', {
                 result_type: 'none',
+                // El pago que YA tiene esa referencia: la Bandeja cierra la fila
+                // sola con él. `result_type` sigue 'none': el aviso de desenlace
+                // (whatsapp-payment-outcome) no la toma.
+                ...(yaAplicado?.id ? { result_ref_id: yaAplicado.id } : {}),
                 error_message: `referencia ya usada: ${ctx.ocr.reference}`,
             });
             ctx.log?.info?.({ queueId: ctx.queueId, referencia: ctx.ocr.reference }, '[wa-queue] comprobante repetido');
@@ -984,7 +990,148 @@ async function escalarALaEscuela(
     log?.info?.({ queueId: fila.id, motivo }, '[wa-queue] escalado a la escuela');
 }
 
-async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
+// ─── Una respuesta por comprobante (2026-10-07) ─────────────────────────────
+//
+// Medido en Dynasty (6-7 oct, 81 ráfagas de adjuntos en 48 h): de las 38 que
+// recibieron respuesta, la mediana fue 2 mensajes del bot y el máximo 8; 18
+// tuvieron 3 o más. El acuse inmediato del webhook («Recibí tu comprobante 📄
+// Lo reviso…») + el resultado de la cola ~50 s después + la pregunta del
+// consentimiento pegada + el párrafo de «no tienes cuenta» repetido.
+//
+// Ahora: el resultado sale en UN mensaje (con la presentación delante si es el
+// primer contacto y la pregunta del consentimiento al pie, con sus botones). El
+// acuse solo sale si a los ACUSE_DIFERIDO_MS de llegado el archivo todavía no
+// hay resultado. Lo manda el worker que tiene la fila (lease de
+// `wa_queue_claim`): uno solo entre los 3 BFF, sin reserva extra en la base.
+
+/** A partir de cuánto (desde que llegó el archivo) se acusa sin resultado. La cola tarda ~40–60 s. */
+export const ACUSE_DIFERIDO_MS = 90_000;
+let esperaAcuseMs = ACUSE_DIFERIDO_MS;
+/** Solo para pruebas. */
+export function _fijarEsperaAcuse(ms: number): void { esperaAcuseMs = ms; }
+
+/** Pasos que son PREGUNTAS: salen en el acto (llevan su `queue_id` y esperan respuesta). */
+const PASOS_PREGUNTA = new Set(['ask_cual_pago', 'confirmar_combinacion']);
+
+/** Respuestas de una ráfaga de archivos del mismo contacto, para mandarlas en UN mensaje. */
+export interface RespuestaEnRafaga { texto: string; paso: string; queueId: string }
+export interface Rafaga {
+    respuestas: RespuestaEnRafaga[];
+    /** El envío de la última fila (con su conversación, baja, acudiente). */
+    enviar?: (texto: string, payload: Record<string, unknown>, conConsentimiento: boolean) => Promise<unknown>;
+}
+
+/**
+ * Pura: las respuestas de varias fotos en un mensaje. Textos iguales van una
+ * vez («Recibí tus 2 comprobantes 📄 Como todavía…»); distintos, numerados.
+ */
+export function resumirRafaga(respuestas: RespuestaEnRafaga[]): { texto: string; paso: string } {
+    const n = respuestas.length;
+    const unicos: RespuestaEnRafaga[] = [];
+    for (const r of respuestas) if (!unicos.some((u) => u.texto === r.texto)) unicos.push(r);
+    if (n <= 1 || unicos.length === 1) {
+        const r = unicos[0];
+        const texto = n > 1 && r.texto.startsWith('Recibí tu comprobante')
+            ? `Recibí tus ${n} comprobantes${r.texto.slice('Recibí tu comprobante'.length)}`
+            : r.texto;
+        return { texto, paso: r.paso };
+    }
+    return {
+        texto: `Recibí tus ${n} comprobantes:\n\n` + unicos.map((r, i) => `*${i + 1}.* ${r.texto}`).join('\n\n'),
+        paso: 'resultado_rafaga',
+    };
+}
+
+/** ¿Ya se le dijo «todavía no tienes tu cuenta» en las últimas 24 h? */
+async function yaSeDijoSinCuenta(conversationId: string | null): Promise<boolean> {
+    if (!conversationId) return false;
+    try {
+        const { data } = await supabase.from('whatsapp_messages')
+            .select('id')
+            .eq('conversation_id', conversationId)
+            .eq('direction', 'outbound')
+            .in('payload->>step', PASOS_SIN_CUENTA)
+            .gte('created_at', new Date(Date.now() - 24 * 3600_000).toISOString())
+            .limit(1);
+        return Array.isArray(data) && data.length > 0;
+    } catch {
+        return false;
+    }
+}
+
+// ─── Para la Bandeja de comprobantes (2026-10-07) ───────────────────────────
+
+/** Palabras con las que alguien anuncia un pago («mi pago de este mes», «Mes octubre»). */
+const PISTA_DE_PAGO_DESCONOCIDO = new RegExp(
+    '\\b(pagos?|pague|comprobantes?|soportes?|transferencias?|consignacion|consigno|mensualidad|recibo|abono|cuota|nequi|daviplata)\\b'
+    + '|\\bmes (de )?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\\b');
+
+/** Pura: ¿el pie o los textos alrededor del archivo hablan de un pago? Sin OCR. */
+export function textosHablanDePago(textos: (string | null | undefined)[]): boolean {
+    return textos.some((t) => {
+        const n = normalizarFrase(t);
+        return !!n && PISTA_DE_PAGO_DESCONOCIDO.test(n);
+    });
+}
+
+/** El pie del archivo y lo que el contacto escribió 15 min antes / 5 min después. */
+async function textosDelContacto(fila: FilaCola, conversationId: string | null): Promise<(string | null | undefined)[]> {
+    const textos: (string | null | undefined)[] = [fila.media_caption];
+    if (!conversationId) return textos;
+    try {
+        const base = fila.created_at ? new Date(fila.created_at).getTime() : Date.now();
+        const { data } = await supabase.from('whatsapp_messages')
+            .select('text_body')
+            .eq('conversation_id', conversationId)
+            .eq('direction', 'inbound')
+            .gte('created_at', new Date(base - 15 * 60_000).toISOString())
+            .lte('created_at', new Date(base + 5 * 60_000).toISOString())
+            .limit(30);
+        for (const m of (Array.isArray(data) ? data : []) as any[]) textos.push(m?.text_body);
+    } catch { /* solo el pie */ }
+    return textos;
+}
+
+/**
+ * Familia sin cuenta: el atleta de la ficha con ese celular (`parent_phone_temp`),
+ * si es UNO solo, en `matched_child_id` de la fila escalada. La Bandeja lo
+ * muestra y la escuela lo aplica sin buscarlo. Nunca lanza.
+ */
+async function anotarAtletaDeLaFicha(fila: FilaCola): Promise<void> {
+    try {
+        const tel = String(fila.wa_phone_number ?? '').replace(/\D/g, '').slice(-10);
+        if (!/^3\d{9}$/.test(tel)) return;
+        const { data } = await supabase.from('children')
+            .select('id')
+            .eq('school_id', fila.school_id)
+            .eq('is_active', true)
+            .ilike('parent_phone_temp', `%${tel}`)
+            .limit(2);
+        if (!Array.isArray(data) || data.length !== 1) return;
+        await supabase.from('whatsapp_inbound_queue')
+            .update({ matched_child_id: (data[0] as any).id })
+            .eq('id', fila.id)
+            .eq('result_type', 'escalated');
+    } catch { /* sin atleta: la escuela lo busca */ }
+}
+
+async function procesarFila(fila: FilaCola, log?: Logger, rafaga?: Rafaga): Promise<void> {
+    // Acuse diferido: se arma cuando se sabe que a esta familia se le va a
+    // contestar, y se desarma al salir.
+    let acuseTimer: ReturnType<typeof setTimeout> | null = null;
+    try {
+        await procesarFilaInterna(fila, log, rafaga, (t) => { acuseTimer = t; });
+    } finally {
+        if (acuseTimer) clearTimeout(acuseTimer);
+    }
+}
+
+async function procesarFilaInterna(
+    fila: FilaCola,
+    log: Logger | undefined,
+    rafaga: Rafaga | undefined,
+    armarTimer: (t: ReturnType<typeof setTimeout>) => void,
+): Promise<void> {
     // 1. La integración, que trae el token para bajar el archivo.
     const { data: integration } = await supabase
         .from('school_whatsapp_integrations')
@@ -1025,13 +1172,40 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
     // se le habría dicho queda en el log y el resultado se ve en el panel de
     // comprobantes. Se fija después de `debeAtender` (abajo).
     let tomada = false;
-    const responder = async (texto: string, paso: string) => {
-        if (tomada) {
-            log?.info?.({ queueId: fila.id, paso }, '[wa-queue] conversación tomada: no se le escribe a la familia');
-            return { ok: true, silenciado: true };
+    /** ¿Ya se le contestó (o quedó en la ráfaga)? Desarma el acuse diferido. */
+    let respondio = false;
+    /** El acudiente, cuando se conoce: decide si la pregunta del consentimiento va al pie. */
+    let parentIdConocido: string | null = null;
+
+    /**
+     * El envío en sí: presentación (primer contacto) y consentimiento al pie
+     * (resultado de un comprobante) EN EL MISMO MENSAJE, anti-repetición, y
+     * registro en whatsapp_messages.
+     */
+    const enviar = async (texto: string, payload: Record<string, unknown>, conConsentimiento: boolean) => {
+        let cuerpo = texto;
+        let botones: any[] | null = null;
+        let extra: Record<string, unknown> = {};
+        // Import perezoso: el bot arrastra el modelo y media app. Cada pieza
+        // por separado y sin poder tumbar el envío: la respuesta sale igual.
+        let bot: any = null;
+        try { bot = await import('../services/whatsapp-bot.service'); } catch { bot = null; }
+        if (conversationId && bot) {
+            try {
+                cuerpo = await bot.conPresentacionSiEsPrimera(wa, conversationId, cuerpo);
+            } catch { /* sin presentación */ }
+            if (conConsentimiento && parentIdConocido) {
+                try {
+                    const anexo = await bot.anexoDeConsentimiento(wa, conversationId, fila.wa_phone_number, parentIdConocido);
+                    if (anexo?.texto) {
+                        cuerpo = `${cuerpo}\n\n${anexo.texto}`;
+                        botones = bot.BOTONES_CONSENTIMIENTO ?? null;
+                        extra = { pregunta: 'ask_consent' };
+                    }
+                } catch { /* sin consentimiento: sale la respuesta sola */ }
+            }
         }
-        pasosEnviados.add(paso);
-        const final = aFormatoWhatsApp(dadoDeBaja ? texto + AVISO_DADO_DE_BAJA : texto);
+        const final = aFormatoWhatsApp(dadoDeBaja ? cuerpo + AVISO_DADO_DE_BAJA : cuerpo);
 
         // Si ese MISMO texto ya salió hace poco a este contacto, no se repite.
         // Medido el 2026-09-11: 8 imágenes de golpe produjeron 7 mensajes
@@ -1049,25 +1223,79 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
                 .gte('created_at', desde)
                 .limit(1);
             if (repetido && repetido.length > 0) {
-                log?.info?.({ queueId: fila.id, paso }, '[wa-queue] mismo mensaje reciente, no se repite');
+                log?.info?.({ queueId: fila.id, paso: payload.step }, '[wa-queue] mismo mensaje reciente, no se repite');
                 return { ok: true };
             }
         }
 
-        const enviado = await sendTextMessage(wa, fila.wa_phone_number, final);
+        let tipo = 'text';
+        let enviado = botones?.length
+            ? await sendInteractiveButtons(wa, fila.wa_phone_number, final, botones)
+            : null;
+        if (enviado?.ok) {
+            tipo = 'interactive';
+        } else {
+            // Sin botones, o Meta los rechazó: el texto plano SIEMPRE sale (la
+            // pregunta dice «Responde *SÍ*», que se lee igual que el botón).
+            enviado = await sendTextMessage(wa, fila.wa_phone_number, final);
+        }
         if (conversationId) {
             await supabase.rpc('wa_record_outbound_message', {
                 p_conversation_id: conversationId,
                 p_integration_id: fila.integration_id,
                 p_wa_message_id: enviado.waMessageId || `local-${crypto.randomUUID()}`,
-                p_type: 'text',
+                p_type: tipo,
                 p_text_body: final,
-                p_payload: { step: paso, queue_id: fila.id },
+                p_payload: { ...payload, ...extra, ...(tipo === 'interactive' ? { botones } : {}) },
                 p_ai_generated: true,
                 p_to_wa_id: fila.wa_phone_number,
             });
         }
         return enviado;
+    };
+
+    const responder = async (texto: string, paso: string) => {
+        if (tomada) {
+            log?.info?.({ queueId: fila.id, paso }, '[wa-queue] conversación tomada: no se le escribe a la familia');
+            return { ok: true, silenciado: true };
+        }
+        respondio = true;
+        pasosEnviados.add(paso);
+        // Ráfaga: la respuesta se junta con las de las otras fotos y sale UNA
+        // vez al final (`runWhatsAppQueue`). Las preguntas salen ya.
+        if (rafaga && !PASOS_PREGUNTA.has(paso)) {
+            rafaga.respuestas.push({ texto, paso, queueId: fila.id });
+            rafaga.enviar = enviar;
+            return { ok: true, enRafaga: true };
+        }
+        return enviar(texto, { step: paso, queue_id: fila.id }, paso === 'resultado_comprobante');
+    };
+
+    /**
+     * Acuse diferido: si a los ACUSE_DIFERIDO_MS de llegado el archivo esta
+     * fila todavía no contestó, «Recibí tu comprobante 📄 Lo reviso…» por
+     * `acusarAdjunto` (respeta modo, baja, persona escribiendo y ráfaga; se
+     * calla si el bot ya dijo algo después del archivo). Solo en el primer
+     * intento: un reintento ya tuvo el suyo.
+     */
+    const armarAcuseDiferido = () => {
+        if (fila.retries > 0 || !conversationId || tomada) return;
+        const llegada = fila.created_at ? Date.parse(fila.created_at) : NaN;
+        const espera = Math.max(0, (Number.isFinite(llegada) ? llegada : Date.now()) + esperaAcuseMs - Date.now());
+        const conv = conversationId;
+        armarTimer(setTimeout(() => {
+            if (respondio) return;
+            respondio = true;
+            void (async () => {
+                try {
+                    const { acusarAdjunto } = await import('../services/whatsapp-bot.service');
+                    const r = await acusarAdjunto(wa, conv, fila.wa_phone_number, fila.wa_message_id, fila.media_caption ?? null);
+                    log?.info?.({ queueId: fila.id, acuse: r }, '[wa-queue] acuse diferido');
+                } catch (e: any) {
+                    log?.warn?.({ queueId: fila.id, err: e?.message }, '[wa-queue] no se pudo acusar');
+                }
+            })();
+        }, espera));
     };
 
     // 2. ¿Quién es? Se busca la conversación PRIMERO —tanto el camino de
@@ -1113,17 +1341,33 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
         return;
     }
     if (decision === 'silencio') {
+        // Número desconocido que ANUNCIA un pago («Mira mile mi pago de este
+        // mes», 06-oct: Helen, Andrés Vargas, Mauricio…): no se le responde,
+        // pero el archivo se guarda (`storage_path`) para que la escuela lo vea
+        // en la Bandeja — antes se perdía con la URL de Meta. Solo por el texto
+        // (sin OCR) y nunca a contactos marcados como personales.
+        if (atencion.tipo === 'desconocido' && textosHablanDePago(await textosDelContacto(fila, conversationId))) {
+            const bajada = await bajarYGuardarArchivo(fila, wa, log);
+            if (!bajada.ok) return;
+        }
         await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'contacto_no_atendido' });
         return;
     }
+    armarAcuseDiferido();
     if (decision === 'staff_admin') {
         // §4.1/§4.2 de alta-atleta-por-foto-hoja-matricula.md.
         await procesarComoStaffAdmin(fila, wa, conv, responder, log);
         return;
     }
     if (decision === 'escalar_sin_cuenta') {
-        await escalarALaEscuela(fila, wa, responder, await mensajeSinCuenta(fila),
+        //
+        // «No tienes cuenta» UNA vez cada 24 h por conversación: si el bot (o
+        // la cola) ya lo dijo, el comprobante se acusa corto, sin el párrafo
+        // (…8804c0, 07-oct: tres veces el mismo aviso en 14 min).
+        await escalarALaEscuela(fila, wa, responder,
+            (await yaSeDijoSinCuenta(conversationId)) ? M.escaladoSinAcudiente : await mensajeSinCuenta(fila),
             'familia_sin_cuenta', 'familia_sin_cuenta', log);
+        await anotarAtletaDeLaFicha(fila);
         return;
     }
     if (decision === 'escalar_ambiguo') {
@@ -1150,6 +1394,7 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
             ? (identificacion as any).parent_id as string
             : null;
     if (!parentId && conv?.identified && conv.parent_id) parentId = conv.parent_id as string;
+    parentIdConocido = parentId;
 
     if (!parentId) {
         // 'familia' sin acudiente resoluble: no debería pasar. NO se pide el
@@ -1183,20 +1428,9 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
 
     await continuarComoComprobante(fila, parentId, responder, base64, mime, storagePath, ocr, log);
 
-    // P2 (análisis 2026-10-06): la pregunta del consentimiento va al final de
-    // un turno resuelto, y el resultado de un comprobante es uno. Import
-    // perezoso: el bot arrastra el modelo y media app, y este job no lo
-    // necesita para nada más. Nunca tumba el procesamiento.
-    if (conversationId && pasosEnviados.has('resultado_comprobante')) {
-        try {
-            const { ofrecerConsentimientoSiFalta } = await import('../services/whatsapp-bot.service');
-            if (typeof ofrecerConsentimientoSiFalta === 'function') {
-                await ofrecerConsentimientoSiFalta(wa, conversationId, fila.wa_phone_number, parentId);
-            }
-        } catch (e: any) {
-            log?.warn?.({ queueId: fila.id, err: e?.message }, '[wa-queue] no se pudo ofrecer el consentimiento');
-        }
-    }
+    // La pregunta del consentimiento ya NO sale como mensaje aparte después
+    // del resultado (…b62e3f, 06-oct: resultado y 2 s después la pregunta): va
+    // al pie del resultado, con sus botones (`enviar`).
 }
 
 // ─── Preguntas que nadie va a contestar ──────────────────────────────────────
@@ -1305,16 +1539,41 @@ export async function runWhatsAppQueue(log?: Logger): Promise<{ tomadas: number;
     const lote = (filas ?? []) as FilaCola[];
     if (lote.length === 0) return { tomadas: 0, errores: 0 };
 
-    let errores = 0;
+    // Ráfaga: varias fotos del MISMO contacto en el lote se procesan una por
+    // una (cada comprobante se aplica a su cobro, como siempre), pero la
+    // respuesta sale UNA vez al final: «Recibí tus 2 comprobantes: …».
+    const grupos = new Map<string, FilaCola[]>();
     for (const fila of lote) {
-        try {
-            await procesarFila(fila, log);
-        } catch (err: any) {
-            errores++;
-            // Una excepción inesperada no puede dejar la fila colgada en
-            // 'processing': se devuelve a la rueda con su motivo.
-            await reintentar(fila, `excepción: ${err?.message ?? err}`, log).catch(() => {});
-            log?.error?.({ err: err?.message ?? err, queueId: fila.id }, '[wa-queue] fila explotó');
+        const k = `${fila.integration_id}|${fila.wa_phone_number}`;
+        grupos.set(k, [...(grupos.get(k) ?? []), fila]);
+    }
+
+    let errores = 0;
+    for (const filas of grupos.values()) {
+        const rafaga: Rafaga | undefined = filas.length > 1 ? { respuestas: [] } : undefined;
+        for (const fila of filas) {
+            try {
+                await procesarFila(fila, log, rafaga);
+            } catch (err: any) {
+                errores++;
+                // Una excepción inesperada no puede dejar la fila colgada en
+                // 'processing': se devuelve a la rueda con su motivo.
+                await reintentar(fila, `excepción: ${err?.message ?? err}`, log).catch(() => {});
+                log?.error?.({ err: err?.message ?? err, queueId: fila.id }, '[wa-queue] fila explotó');
+            }
+        }
+        if (rafaga?.respuestas.length && rafaga.enviar) {
+            const { texto, paso } = resumirRafaga(rafaga.respuestas);
+            const pasos = rafaga.respuestas.map((r) => r.paso);
+            const ids = rafaga.respuestas.map((r) => r.queueId);
+            try {
+                await rafaga.enviar(texto,
+                    { step: paso, queue_id: ids[0], ...(ids.length > 1 ? { queue_ids: ids, pasos } : {}) },
+                    pasos.includes('resultado_comprobante'));
+            } catch (err: any) {
+                errores++;
+                log?.error?.({ err: err?.message ?? err, queueIds: ids }, '[wa-queue] no salió la respuesta de la ráfaga');
+            }
         }
     }
     return { tomadas: lote.length, errores };

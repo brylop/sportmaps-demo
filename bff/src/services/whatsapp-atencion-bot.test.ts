@@ -210,17 +210,14 @@ describe('webhook: filtro de atención antes de responder', () => {
         expect(borradores()).toHaveLength(0);
     });
 
-    it('los adjuntos se encolan siempre; el ACUSE pasa por el filtro y por deliver (P6)', async () => {
+    it('los adjuntos se encolan siempre y el webhook NO acusa: responde la cola (acuse diferido, 2026-10-07)', async () => {
         h.encolarAdjunto.mockResolvedValue('encolado');
         h.debeAtender.mockResolvedValue({ atender: true, tipo: 'familia', botEncendido: true });
         await handleBotTurn(req, INTEGRATION, CONV, mensaje({ type: 'image', textBody: null }));
         expect(h.encolarAdjunto).toHaveBeenCalledTimes(1);
-        expect(h.debeAtender).toHaveBeenCalledTimes(1);
-        // Modo asistido: el acuse queda como borrador (registrado), con texto veraz.
-        expect(borradores()).toHaveLength(1);
-        expect(borradores()[0].row.tool_context).toMatchObject({ step: 'acuse_adjunto' });
-        expect(borradores()[0].row.proposed_text).toContain('Recibí tu archivo');
-        expect(borradores()[0].row.proposed_text).not.toContain('te confirmo en un momento');
+        // Ni acuse enviado ni borrador: el resultado (o el acuse a los 90 s) lo manda el worker.
+        expect(borradores()).toHaveLength(0);
+        expect(h.sendTextMessage).not.toHaveBeenCalled();
     });
 
     it('adjunto de un contacto que no se atiende (personal / bot apagado): se encola y NO se acusa', async () => {
