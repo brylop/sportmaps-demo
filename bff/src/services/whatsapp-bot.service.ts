@@ -29,6 +29,7 @@
  * responde neutro y escala; jamás inventa datos de menores.
  */
 
+import { APP_PUBLICA_PROD } from '../utils/url-publica-familias';
 import crypto from 'crypto';
 import { AsyncLocalStorage } from 'async_hooks';
 import { supabase } from '../config/supabase';
@@ -966,7 +967,10 @@ async function historialDeConversacion(
 
 // ─── 1. Identificación (OTP por email) ────────────────────────────────────────
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://app.sportmaps.co';
+// Los enlaces salen a familias reales por el número de la escuela: siempre la
+// app de producción. Con FRONTEND_URL, el BFF de dev mandaba dev.sportmaps.co
+// (la base es una sola y dev también procesa la cola; 2026-10-06).
+const FRONTEND_URL = APP_PUBLICA_PROD;
 
 /**
  * Identificacion por el NUMERO desde el que escribe. Va antes que el correo.
