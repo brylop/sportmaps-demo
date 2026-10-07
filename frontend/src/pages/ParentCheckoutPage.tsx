@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { mensajeErrorDeMonto } from '@/lib/paymentAmountError';
 import { todayColombia } from '@/lib/dateUtils';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -468,7 +469,7 @@ export default function ParentCheckoutPage() {
           ? 'Este comprobante ya está vinculado a otro pago en esta escuela. Si crees que es un error, contacta a la administración.'
           : isPeriodDuplicate
           ? 'Ya existe un cobro activo para este mes de este atleta. Vuelve a la lista de cobros y paga el que aparece pendiente.'
-          : 'No se pudo registrar el pago en la base de datos',
+          : (mensajeErrorDeMonto(insertError) ?? 'No se pudo registrar el pago en la base de datos'),
         variant: 'destructive',
       });
       return false;

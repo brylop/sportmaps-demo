@@ -135,6 +135,9 @@ async function clasificarSinGuardar(
     if (estado === 'identificado') return 'familia';
     if (estado === 'debe_registrarse') return 'familia_sin_cuenta';
     if (estado === 'ambiguo') return 'ambiguo';
+    // Número que pasó a otra cuenta: es familia, y el bot tiene que atenderlo
+    // para pedirle el código por correo (wa-revinculacion.service).
+    if (estado === 'revinculacion_pendiente') return 'familia';
 
     // Se identificó por OTP desde otro teléfono: el número no lo resuelve,
     // pero la persona ya probó quién es.

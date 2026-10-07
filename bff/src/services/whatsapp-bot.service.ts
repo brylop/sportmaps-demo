@@ -34,6 +34,7 @@ import crypto from 'crypto';
 import { AsyncLocalStorage } from 'async_hooks';
 import { supabase } from '../config/supabase';
 import { emailClient } from '../utils/emailClient';
+import { atenderRevinculacion, revinculacionPendiente, OTP_REVINCULACION_TTL_MIN } from './wa-revinculacion.service';
 import { chatWithTools, type LlmTool, type LlmMessage, type LlmFalla } from './llm.service';
 import { filtrarSalidaDelModelo } from './whatsapp-salida-segura';
 import {
@@ -1082,6 +1083,13 @@ async function revisarVinculoPorTelefono(
     });
     if (error) return 'sin_cambio';
 
+    // El número pasó a OTRA cuenta: la RPC ya desvinculó y no revincula sin el
+    // código que va al correo del acudiente nuevo (wa-revinculacion.service).
+    if (revinculacionPendiente(data)) {
+        await revincularConCodigo(integration, conversationId, contactWaId, '');
+        return 'corto';
+    }
+
     const estado = (data as any)?.estado;
     const porTelefono = (data as any)?.parent_id as string | undefined;
 
@@ -1357,6 +1365,36 @@ export async function reservarPasoUnaVez(conversationId: string, step: string, h
 /** Solo para pruebas. */
 export function _olvidarReservasDePaso(): void { reservasDePaso.clear(); }
 
+/**
+ * Turno con la revinculación pendiente (el número pasó a otra cuenta): código
+ * al CORREO del acudiente nuevo, con el OTP de siempre. Nunca entrega datos.
+ */
+async function revincularConCodigo(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    text: string,
+): Promise<void> {
+    const r = await atenderRevinculacion({ integrationId: integration.id, contactWaId, texto: text }, {
+        verificarCodigo: (codigo) => verificarCodigo(integration, conversationId, contactWaId, codigo),
+        enviar: (texto, paso) => deliver(integration, conversationId, contactWaId, texto, { step: paso }),
+        escalar: (motivo) => escalate(integration, conversationId, contactWaId, motivo),
+        enviarCorreo: (para, codigo) => emailClient.send({
+            to: para,
+            subject: 'Tu código de verificación de SportMaps',
+            html: `<p>Alguien pidió ver tu información de SportMaps por WhatsApp desde el número que tienes registrado.</p>
+                   <p>Si fuiste tú, tu código es:</p>
+                   <h2 style="letter-spacing:3px">${codigo}</h2>
+                   <p>Vence en ${OTP_REVINCULACION_TTL_MIN} minutos. Si no fuiste tú, ignora este correo: sin el código nadie ve tus datos.</p>`,
+            text: `Tu código de verificación de SportMaps es ${codigo} (vence en ${OTP_REVINCULACION_TTL_MIN} min). Si no lo pediste, ignora este correo.`,
+        }),
+    });
+    if (r === 'sin_revinculacion') {
+        await escalate(integration, conversationId, contactWaId,
+            'Número de WhatsApp que pasó a otra cuenta: no se pudo verificar por correo');
+    }
+}
+
 async function identificarPorTelefono(
     integration: WhatsAppIntegration,
     conversationId: string,
@@ -1371,6 +1409,11 @@ async function identificarPorTelefono(
     if (error) {
         console.warn('[whatsapp-bot] wa_identify_by_phone fallo', { err: error.message });
         return false;   // se cae al camino del correo, que sigue existiendo
+    }
+
+    if (revinculacionPendiente(data)) {
+        await revincularConCodigo(integration, conversationId, contactWaId, text);
+        return true;
     }
 
     const estado = (data as any)?.estado;

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { mensajeErrorDeMonto } from '@/lib/paymentAmountError';
 import { todayColombia } from '@/lib/dateUtils';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -480,7 +481,7 @@ export function PaymentCheckoutModal({
           effectivePaymentId = inserted?.id;
         }
       } catch (err: any) {
-        toast({ title: 'Error iniciando el pago', description: err?.message || 'No se pudo crear el cobro.', variant: 'destructive' });
+        toast({ title: 'Error iniciando el pago', description: mensajeErrorDeMonto(err) ?? (err?.message || 'No se pudo crear el cobro.'), variant: 'destructive' });
         return;
       }
     }
@@ -728,7 +729,7 @@ export function PaymentCheckoutModal({
       setTimeout(() => { onSuccess?.(); onOpenChange(false); }, 2500);
     } catch (error: any) {
       setPaymentStatus('error');
-      toast({ title: 'Error registrando el pago', description: error?.message ?? 'Error desconocido', variant: 'destructive' });
+      toast({ title: 'Error registrando el pago', description: mensajeErrorDeMonto(error) ?? error?.message ?? 'Error desconocido', variant: 'destructive' });
       setTimeout(() => setPaymentStatus('idle'), 2000);
     } finally {
       setProcessing(false);
@@ -955,7 +956,7 @@ export function PaymentCheckoutModal({
         title: isDuplicate ? "Comprobante ya usado" : "Error en el pago",
         description: isDuplicate
           ? "Este comprobante ya está vinculado a otro pago en esta escuela. Si crees que es un error, contacta a la administración."
-          : (err.message || "No se pudo procesar tu pago."),
+          : (mensajeErrorDeMonto(err) ?? (err.message || "No se pudo procesar tu pago.")),
         variant: "destructive",
       });
       setTimeout(() => setPaymentStatus('idle'), 2000);
