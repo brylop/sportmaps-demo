@@ -23,6 +23,11 @@
  * llaves (type 'payment_link'), va como botón «Pagar con tarjeta, PSE o Nequi
  * (Wompi)» antes de la transferencia; detrás del pago en línea propio si existe.
  *
+ * Pago en línea con el monto ya puesto (2026-10-06): el botón «Pagar $X en
+ * línea» lleva al Web Checkout de Wompi con el valor firmado por el BFF
+ * (`checkoutUrl`, wompi-link-con-monto); el webhook lo aplica solo. Si el BFF no
+ * manda `checkoutUrl` (versión anterior), se abre el Widget como antes.
+ *
  * Factura electrónica (2026-10-05): bloque «¿Quieres factura electrónica?» con
  * id="factura" — el correo del estado de cuenta enlaza a /p/<token>#factura.
  * Solo aparece si el BFF dice que está disponible (migración aplicada y el
@@ -123,7 +128,17 @@ export default function CobroPublicoPage() {
         let resultado: ReturnType<typeof abrirWidgetWompi> = null;
         try {
             const checkout = await iniciarPagoCobroPublico(token);
-            resultado = abrirWidgetWompi(checkout, `${window.location.origin}/p/${encodeURIComponent(token)}`);
+            const vuelta = `${window.location.origin}/p/${encodeURIComponent(token)}`;
+            // Link de Web Checkout con el monto ya puesto y firmado (BFF ≥ 2026-10-06):
+            // se navega a Wompi en la misma pestaña y al terminar vuelve aquí con
+            // ?id=<tx>, que dispara el sondeo. No depende del script del Widget,
+            // que en algunos celulares no carga. redirect-url no va en la firma.
+            const url = (checkout as typeof checkout & { checkoutUrl?: string }).checkoutUrl;
+            if (url && url.startsWith('https://checkout.wompi.co/')) {
+                window.location.assign(`${url}&redirect-url=${encodeURIComponent(vuelta)}`);
+                return;
+            }
+            resultado = abrirWidgetWompi(checkout, vuelta);
             if (!resultado) {
                 setAviso('No pudimos abrir la pasarela de pago. Intenta de nuevo o paga por transferencia.');
             }
@@ -249,8 +264,11 @@ export default function CobroPublicoPage() {
                             {v.enLinea.recargo > 0 && ` Incluye ${cop(v.enLinea.recargo)} de recargo por pago en línea (${v.enLinea.recargoPct}%).`}
                         </p>
                         <Button className="mt-4 h-12 w-full text-base" onClick={pagarEnLinea} disabled={pagando}>
-                            {pagando ? <Loader2 className="h-5 w-5 animate-spin" /> : `Pagar ${cop(v.enLinea.total)}`}
+                            {pagando ? <Loader2 className="h-5 w-5 animate-spin" /> : `Pagar ${cop(v.enLinea.total)} en línea`}
                         </Button>
+                        <p className="mt-2 text-xs text-gray-600">
+                            El valor ya va puesto. Al aprobarse, el pago queda aplicado solo: no tienes que mandar comprobante.
+                        </p>
                     </section>
                 )}
 

@@ -438,7 +438,31 @@ const PROSPECTO_FUERTE: RegExp[] = [
     /\b(quiero|quisiera|queremos|deseo|me gustaria)\s+(entrenar|practicar (voley|volley|voleibol)\w*|jugar (voley|volley|voleibol)\w*)\b/,
     // «horarios… para poder pasar y mirar las instalaciones»
     /\b(mirar|conocer|visitar|ver) (las )?instalaciones\b/,
+    // Dynasty 2026-10-06, 5 prospectos sin respuesta: «me gustaría conocer el
+    // club», «¿la edad permitida?», «estoy averiguando un club de vóley»,
+    // «¿puedo llevar a una niña con mi hija a una cortesía?».
+    /\b(conocer|saber (mas )?(de|del|sobre)|informacion (de|del|sobre)) (el |la |los |las |su |sus )?(club|academia|escuela|programa|programas|equipo|equipos|grupos?|categorias?)\b/,
+    /\bedad(es)? (permitidas?|minimas?|maximas?|requeridas?|para (entrar|entrenar|inscrib\w*|ingresar|jugar))\b/,
+    /\b(hasta|desde) (que|cual) edad\b/,
+    /\b(una|la|a la|a una) cortesia\b/,
 ];
+
+/** «averiguar / averiguando»: con contexto de escuela, o casi solo («quiero averiguar»). */
+const AVERIGUAR = /\baverigu\w*/;
+
+/**
+ * Palabras que, junto al RELLENO, arman un pedido de información SIN tema
+ * ajeno: «info», «más información», «me das info por favor», «información del
+ * club». Si aparece cualquier otra palabra («info del restaurante») no cuenta.
+ */
+const PEDIDO_DE_INFO = /\b(info|informacion|informes)\b/;
+const SOLO_PEDIDO_DE_INFO = new Set([
+    'info', 'informacion', 'informes', 'quiero', 'quisiera', 'queria', 'mas', 'me', 'das', 'da', 'regalas', 'regala',
+    'puedes', 'puede', 'podrias', 'podria', 'podrian', 'dar', 'enviar', 'envias', 'envia', 'pasar', 'pasas', 'pasa',
+    'brindar', 'brindas', 'solicito', 'necesito', 'pido', 'sobre', 'del', 'el', 'la', 'los', 'las', 'su', 'club',
+    'academia', 'escuela', 'porfa', 'porfavor', 'una', 'un', 'algo', 'deseo', 'desearia', 'gustaria', 'nos',
+    'ustedes', 'saber', 'tener', 'recibir', 'para', 'con',
+]);
 
 /** «interesado/a» (y «esoty interesada») — se exige contexto o mensaje corto. */
 const INTERES = /\binteresad[oa]s?\b/;
@@ -472,6 +496,17 @@ export function intencionDeProspecto(texto: string | null | undefined): boolean 
         // «esoty interesada», «Estoy interesado en iniciar»: corto o con contexto.
         const utiles = t.split(' ').filter((w) => !RELLENO.has(w));
         if (utiles.length <= 2 || CONTEXTO_PROSPECTO.test(t)) return true;
+    }
+
+    // «Info», «más información por favor», «información del club».
+    if (PEDIDO_DE_INFO.test(t) && t.split(' ').every((w) => RELLENO.has(w) || SOLO_PEDIDO_DE_INFO.has(w))) return true;
+
+    // «Estoy averiguando un club de vóley», «quiero averiguar».
+    //  Corto solo en primera persona: «averigua eso» es un encargo entre amigos.
+    if (AVERIGUAR.test(t)) {
+        if (CONTEXTO_PROSPECTO.test(t)) return true;
+        const utiles = t.split(' ').filter((w) => !RELLENO.has(w));
+        if (utiles.length <= 2 && /\b(quiero|quisiera|queremos|estoy|estamos|ando) averigu/.test(t)) return true;
     }
 
     // Precio/valor/costos de entrenar o del club (no de un cobro: YA_LE_PAGA arriba).

@@ -721,3 +721,62 @@ export async function createTransactionWithToken(params: {
         return { ok: false, error: err.message || 'createTransactionWithToken error' };
     }
 }
+
+// ─── Web Checkout por URL: link con el monto ya puesto ─────────────────────────
+//
+// Wompi Web Checkout (docs.wompi.co/docs/colombia/widget-checkout-web, verificado
+// 2026-10-06): un GET a https://checkout.wompi.co/p/ con public-key, currency,
+// amount-in-cents, reference y signature:integrity (obligatorios) + redirect-url
+// y expiration-time (opcionales). El monto va firmado: si alguien lo cambia en la
+// URL, Wompi rechaza la firma. La misma URL sirve para sandbox y producción (lo
+// decide la llave pública). Solo necesita la llave pública y el secreto de
+// integridad; la privada no. A diferencia de POST /v1/payment_links, la
+// transacción conserva NUESTRA referencia (SCH-*), así que el webhook la concilia
+// por payment_links.wompi_reference sin nada nuevo.
+
+export const WOMPI_WEB_CHECKOUT_URL = 'https://checkout.wompi.co/p/';
+
+/**
+ * Firma de integridad con fecha de expiración. Según la doc, con
+ * `expiration-time` se concatena: referencia + monto + moneda + expiración + secreto.
+ * `expirationTime` debe ser EXACTAMENTE el valor que va en la URL (ISO 8601 UTC,
+ * p.ej. 2023-06-09T20:28:50.000Z).
+ */
+export function signIntegrityWithExpiration(
+    payload: WompiSignaturePayload & { expirationTime: string },
+    creds: WompiCreds,
+): string {
+    if (!creds.integritySecret) {
+        throw new Error('La cuenta Wompi no tiene integrity_secret: no se puede firmar el checkout.');
+    }
+    const { reference, amountInCents, currency = 'COP', expirationTime } = payload;
+    return crypto
+        .createHash('sha256')
+        .update(`${reference}${amountInCents}${currency}${expirationTime}${creds.integritySecret}`)
+        .digest('hex');
+}
+
+/**
+ * URL de Web Checkout con monto fijo. Los nombres de parámetro llevan ':' tal
+ * cual (signature:integrity), por eso no se usa URLSearchParams, que lo codifica.
+ */
+export function buildWebCheckoutUrl(p: {
+    publicKey: string;
+    reference: string;
+    amountInCents: number;
+    signature: string;
+    currency?: string;
+    expirationTime?: string | null;
+    redirectUrl?: string | null;
+}): string {
+    const partes: [string, string][] = [
+        ['public-key', p.publicKey],
+        ['currency', p.currency ?? 'COP'],
+        ['amount-in-cents', String(p.amountInCents)],
+        ['reference', p.reference],
+        ['signature:integrity', p.signature],
+    ];
+    if (p.expirationTime) partes.push(['expiration-time', p.expirationTime]);
+    if (p.redirectUrl) partes.push(['redirect-url', p.redirectUrl]);
+    return WOMPI_WEB_CHECKOUT_URL + '?' + partes.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+}

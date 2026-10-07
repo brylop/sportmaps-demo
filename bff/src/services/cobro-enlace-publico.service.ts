@@ -51,7 +51,7 @@ import { supabase } from '../config/supabase';
 import { resolveProvider } from './payment-provider.resolver';
 import {
     assertUserNotBlocked, UserPaymentBlockedError, copToCents, generateReference,
-    signIntegrity, wompiCredsFrom,
+    signIntegrity, wompiCredsFrom, buildWebCheckoutUrl, signIntegrityWithExpiration,
 } from './wompi.service';
 import { mediosDePago } from './whatsapp-medios-de-pago.service';
 import { categoriaDeCobro } from './payment-accounts';
@@ -447,23 +447,69 @@ export type ResultadoIniciar =
         amountInCents: number;
         total: number;
         reused: boolean;
+        /**
+         * Link de Web Checkout con el monto ya puesto y firmado (sin redirect-url:
+         * quien lo use lo agrega; no entra en la firma). Ver buildWebCheckoutUrl.
+         */
+        checkoutUrl: string;
+        /** Hasta cuándo sirve `checkoutUrl` (expiration-time de Wompi, ISO UTC). */
+        checkoutUrlVenceEn: string;
+        /** Monto del cobro sin recargo y recargo en línea (total = base + recargo). */
+        base: number;
+        recargo: number;
     }
     | { ok: false; status: number; code: string; error: string };
 
 const NO_EN_LINEA = (code: string, error: string, status = 409): ResultadoIniciar => ({ ok: false, status, code, error });
 
+/** Vigencia por defecto del link con monto (el «tienes 1 hora para pagar»). */
+export const MINUTOS_LINK_CON_MONTO = 60;
+
+/** Cobro por id, sin exigir escuela (para quien parte del id, p.ej. el bot). */
+export async function leerCobroPorId(paymentId: string) {
+    const { data, error } = await supabase
+        .from('payments')
+        .select(COLS_COBRO)
+        .eq('id', paymentId)
+        .maybeSingle();
+    if (error) throw new Error(`payments: ${error.message}`);
+    return data as any | null;
+}
+
 /**
  * Crea (o reusa) la sesión de checkout del cobro del token. El cobro sale SIEMPRE
  * del token: el cuerpo de la petición no puede nombrar otro cobro.
+ */
+export async function iniciarPagoEnLinea(r: Extract<ResultadoResolver, { ok: true }>): Promise<ResultadoIniciar> {
+    const p = await leerCobro(r.paymentId, r.schoolId);
+    if (!p) return NO_EN_LINEA('no_existe', 'Este enlace de pago no es válido.', 404);
+    return prepararCheckoutDeCobro(p);
+}
+
+/**
+ * Checkout Wompi de UN cobro ya leído: valida que se pueda pagar, calcula el
+ * monto en el servidor y crea (o reusa) su `payment_links` 'pending' con
+ * referencia SCH-*. Devuelve lo necesario para el Widget Y un link de Web
+ * Checkout con el monto fijo (`checkoutUrl`). El webhook concilia las dos cosas
+ * igual: por payment_links.wompi_reference.
  *
  * Réplica de create-session §4-§7 (payments.routes.ts). Se replica en vez de
  * extraerla porque ese archivo es el checkout vivo de Dynasty y tocarlo para
  * esto no era imprescindible. Si se cambia la regla allá, cambiarla acá; las
  * pruebas de cobro-enlace-publico.routes.test.ts fijan el comportamiento.
+ *
+ * Idempotente entre los 3 BFF: el índice único uq_payment_links_one_pending_per_payment
+ * deja UNA 'pending' por cobro; el que pierde la carrera (23505) reusa la del otro.
+ *
+ * `minutosUrl`: vigencia del link (expiration-time). Un 'pending' que vence antes
+ * de ese plazo no se reusa (se expira y se crea otro): así el link entregado
+ * nunca nace a punto de vencer.
  */
-export async function iniciarPagoEnLinea(r: Extract<ResultadoResolver, { ok: true }>): Promise<ResultadoIniciar> {
-    const p = await leerCobro(r.paymentId, r.schoolId);
-    if (!p) return NO_EN_LINEA('no_existe', 'Este enlace de pago no es válido.', 404);
+export async function prepararCheckoutDeCobro(
+    p: any,
+    opts: { minutosUrl?: number } = {},
+): Promise<ResultadoIniciar> {
+    const minutosUrl = Math.max(5, Math.floor(opts.minutosUrl ?? MINUTOS_LINK_CON_MONTO));
 
     if (p.status === 'paid') return NO_EN_LINEA('ya_pagado', 'Este cobro ya está pagado.');
     if (!['pending', 'overdue'].includes(p.status)) {
@@ -496,8 +542,16 @@ export async function iniciarPagoEnLinea(r: Extract<ResultadoResolver, { ok: tru
     const baseAmount = Number(p.amount);
     const { recargo: sportmapsFee, total: grossAmount } = montosEnLinea(baseAmount, feePct);
 
-    const ok = (link: { reference: string; gross: number }, reused: boolean): ResultadoIniciar => {
+    const ahora = Date.now();
+    const plazo = ahora + minutosUrl * 60 * 1000;
+    const umbral = new Date(plazo).toISOString();
+
+    const ok = (link: { reference: string; gross: number; base: number; expiresAt: string }, reused: boolean): ResultadoIniciar => {
         const amountInCents = copToCents(link.gross);
+        // expiration-time = lo que vence primero: el payment_links o el plazo del link.
+        // Formato EXACTO de toISOString (…T20:28:50.000Z): es lo que se firma.
+        const venceFila = new Date(link.expiresAt).getTime();
+        const expirationTime = new Date(Number.isFinite(venceFila) ? Math.min(venceFila, plazo) : plazo).toISOString();
         return {
             ok: true,
             provider: 'wompi',
@@ -507,26 +561,43 @@ export async function iniciarPagoEnLinea(r: Extract<ResultadoResolver, { ok: tru
             amountInCents,
             total: link.gross,
             reused,
+            checkoutUrl: buildWebCheckoutUrl({
+                publicKey: creds.publicKey,
+                reference: link.reference,
+                amountInCents,
+                expirationTime,
+                signature: signIntegrityWithExpiration({ reference: link.reference, amountInCents, expirationTime }, creds),
+            }),
+            checkoutUrlVenceEn: expirationTime,
+            base: link.base,
+            recargo: link.gross - link.base,
         };
     };
 
     const linkActivo = () => supabase
         .from('payment_links')
-        .select('id, provider_reference, wompi_reference, gross_amount, base_amount, fee_pct')
+        .select('id, provider_reference, wompi_reference, gross_amount, base_amount, fee_pct, expires_at')
         .eq('payment_id', p.id)
         .eq('payment_provider', 'wompi')
         .eq('status', 'pending')
-        .gte('expires_at', new Date().toISOString())
+        .gte('expires_at', umbral)
         .maybeSingle();
+
+    const ref = (l: any) => l?.provider_reference || l?.wompi_reference;
+    const desdeFila = (l: any) => ({
+        reference: ref(l) as string,
+        gross: Number(l.gross_amount),
+        base: Number(l.base_amount),
+        expiresAt: String(l.expires_at),
+    });
 
     // Reuso solo si los montos siguen vigentes (create-session §5.b: el caso
     // Dynasty de un link con fee_pct=0 cobrando la tarifa vieja).
     const { data: existente } = await linkActivo();
-    const ref = (l: any) => l?.provider_reference || l?.wompi_reference;
     if (existente && ref(existente)) {
         const igual = Number((existente as any).fee_pct) === feePct
             && Math.abs(Number((existente as any).base_amount) - baseAmount) <= 0.5;
-        if (igual) return ok({ reference: ref(existente), gross: Number((existente as any).gross_amount) }, true);
+        if (igual) return ok(desdeFila(existente), true);
         await supabase
             .from('payment_links')
             .update({ status: 'expired', updated_at: new Date().toISOString() })
@@ -534,15 +605,17 @@ export async function iniciarPagoEnLinea(r: Extract<ResultadoResolver, { ok: tru
             .eq('status', 'pending');
     }
 
-    // Expirar 'pending' vencidos por tiempo (create-session §6.b).
+    // Expirar 'pending' vencidos (create-session §6.b) o que vencen antes del plazo
+    // del link: si no, el insert chocaría con el índice de una-pending-por-cobro.
     await supabase
         .from('payment_links')
         .update({ status: 'expired', updated_at: new Date().toISOString() })
         .eq('payment_id', p.id)
         .eq('status', 'pending')
-        .lt('expires_at', new Date().toISOString());
+        .lt('expires_at', umbral);
 
     const reference = generateReference('school_payment');
+    const expiresAt = new Date(ahora + 72 * 60 * 60 * 1000).toISOString();
     const { error: insErr } = await supabase.from('payment_links').insert({
         payment_id: p.id,
         school_id: p.school_id,
@@ -555,18 +628,16 @@ export async function iniciarPagoEnLinea(r: Extract<ResultadoResolver, { ok: tru
         sportmaps_fee: sportmapsFee,
         fee_pct: feePct,
         status: 'pending',
-        expires_at: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
+        expires_at: expiresAt,
         failed_attempts: 0,
     });
 
     if (insErr) {
-        // 23505: otra pestaña/otro acudiente abrió el checkout del mismo cobro a la vez
-        // (uq_payment_links_one_pending_per_payment). Se reusa el suyo.
+        // 23505: otra pestaña/otro acudiente/otro BFF abrió el checkout del mismo
+        // cobro a la vez (uq_payment_links_one_pending_per_payment). Se reusa el suyo.
         if ((insErr as any).code === '23505') {
             const { data: ganador } = await linkActivo();
-            if (ganador && ref(ganador)) {
-                return ok({ reference: ref(ganador), gross: Number((ganador as any).gross_amount) }, true);
-            }
+            if (ganador && ref(ganador)) return ok(desdeFila(ganador), true);
             // La 'pending' que ganó es de otra pasarela (p.ej. un checkout MP abierto
             // desde la app). No se pisa: se pide esperar a que venza (72 h máx).
             return NO_EN_LINEA('checkout_en_curso', 'Ya hay un pago en curso para este cobro. Intenta de nuevo más tarde.');
@@ -574,5 +645,5 @@ export async function iniciarPagoEnLinea(r: Extract<ResultadoResolver, { ok: tru
         throw new Error(`payment_links insert: ${insErr.message}`);
     }
 
-    return ok({ reference, gross: grossAmount }, false);
+    return ok({ reference, gross: grossAmount, base: baseAmount, expiresAt }, false);
 }

@@ -11,7 +11,7 @@ vi.mock('../config/supabase', () => ({ supabase: {} }));
 
 import {
     payloadDeBotones, sendInteractiveButtons, parseInboundMessages, encryptToken,
-    MAX_BOTONES, MAX_TITULO_BOTON,
+    MAX_BOTONES, MAX_TITULO_BOTON, payloadDeLista, sendList, debeIrComoLista, MAX_FILAS_LISTA,
 } from './whatsapp.service';
 
 const TEL = '573001112233';
@@ -112,5 +112,79 @@ describe('webhook: la respuesta a un botón trae su id', () => {
     it('texto normal → botonId null', () => {
         const [msg] = parseInboundMessages(webhook({ type: 'text', text: { body: 'hola' } }));
         expect(msg.botonId).toBeNull();
+    });
+});
+
+describe('lista interactiva (más de 3 opciones)', () => {
+    beforeAll(() => { process.env.WHATSAPP_TOKEN_ENC_KEY = 'clave-de-prueba'; });
+    afterEach(() => { vi.unstubAllGlobals(); });
+
+    const filas = [
+        { id: 'sm_cc_f:1', title: '1. INFANTIL FEMENINO', descripcion: '6:30 p. m. a 8:30 p. m.', seccion: 'Miércoles 7 oct' },
+        { id: 'sm_cc_f:2', title: '2. MENORES FEMENINO', seccion: 'Sábado 10 oct' },
+        { id: 'sm_cc_f:3', title: '3. INFANTIL FEMENINO', seccion: 'Sábado 10 oct' },
+        { id: 'sm_cc_mas', title: 'Ver más horarios', seccion: 'Más' },
+    ];
+
+    it('agrupa por sección en el orden de llegada; type list', () => {
+        const p: any = payloadDeLista(TEL, 'Elige un horario', filas, 'Ver horarios');
+        expect(p.interactive.type).toBe('list');
+        expect(p.interactive.action.button).toBe('Ver horarios');
+        expect(p.interactive.action.sections.map((s: any) => [s.title, s.rows.map((r: any) => r.id)])).toEqual([
+            ['Miércoles 7 oct', ['sm_cc_f:1']],
+            ['Sábado 10 oct', ['sm_cc_f:2', 'sm_cc_f:3']],
+            ['Más', ['sm_cc_mas']],
+        ]);
+        expect(p.interactive.action.sections[0].rows[0]).toEqual(
+            { id: 'sm_cc_f:1', title: '1. INFANTIL FEMENINO', description: '6:30 p. m. a 8:30 p. m.' });
+    });
+
+    it(`recorta a ${MAX_FILAS_LISTA} filas, títulos de 24 y descripciones de 72; cuerpo > 4096 → null`, () => {
+        const muchas = Array.from({ length: 14 }, (_, i) => ({ id: `f${i}`, title: `Título larguísimo número ${i} que no cabe`, descripcion: 'x'.repeat(100) }));
+        const p: any = payloadDeLista(TEL, 'cuerpo', muchas);
+        const rows = p.interactive.action.sections.flatMap((s: any) => s.rows);
+        expect(rows).toHaveLength(MAX_FILAS_LISTA);
+        for (const r of rows) {
+            expect(Array.from(r.title).length).toBeLessThanOrEqual(24);
+            expect(Array.from(r.description).length).toBeLessThanOrEqual(72);
+        }
+        expect(p.interactive.action.sections[0].title).toBe('Opciones');
+        expect(payloadDeLista(TEL, 'x'.repeat(4097), filas)).toBeNull();
+        expect(payloadDeLista(TEL, 'x', [])).toBeNull();
+    });
+
+    it('debeIrComoLista: más de 3, o con sección', () => {
+        expect(debeIrComoLista([{ id: 'a', title: 'A' }, { id: 'b', title: 'B' }, { id: 'c', title: 'C' }])).toBe(false);
+        expect(debeIrComoLista(filas)).toBe(true);
+        expect(debeIrComoLista([{ id: 'a', title: 'A', seccion: 'Hoy' }])).toBe(true);
+    });
+
+    it('sendInteractiveButtons con 4 opciones manda una LISTA (antes recortaba a 3)', async () => {
+        const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ messages: [{ id: 'wamid.list' }] }) }));
+        vi.stubGlobal('fetch', fetchMock);
+        const integration = { phone_number_id: 'pn-1', access_token_encrypted: encryptToken('tok') } as any;
+        const r = await sendInteractiveButtons(integration, TEL, 'cuerpo', filas);
+        expect(r).toEqual({ ok: true, waMessageId: 'wamid.list' });
+        const body = JSON.parse((fetchMock.mock.calls[0] as any)[1].body);
+        expect(body.interactive.type).toBe('list');
+        expect(body.interactive.action.sections.flatMap((s: any) => s.rows)).toHaveLength(4);
+    });
+
+    it('sendList sin filas no llama a Meta (el que llama manda el texto numerado)', async () => {
+        const fetchMock = vi.fn();
+        vi.stubGlobal('fetch', fetchMock);
+        const integration = { phone_number_id: 'pn-1', access_token_encrypted: encryptToken('tok') } as any;
+        expect((await sendList(integration, TEL, 'x', [])).ok).toBe(false);
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('webhook: list_reply → botonId = id de la fila', () => {
+        const [msg] = parseInboundMessages({ entry: [{ changes: [{ field: 'messages', value: {
+            metadata: { phone_number_id: 'pn-1' }, contacts: [{ wa_id: TEL, profile: { name: 'A' } }],
+            messages: [{ from: TEL, id: 'wamid.in', timestamp: '1759590000', type: 'interactive',
+                interactive: { type: 'list_reply', list_reply: { id: 'sm_cc_f:2', title: '2. MENORES FEMENINO' } } }],
+        } }] }] });
+        expect(msg.botonId).toBe('sm_cc_f:2');
+        expect(msg.textBody).toBe('2. MENORES FEMENINO');
     });
 });

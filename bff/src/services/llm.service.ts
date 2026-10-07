@@ -41,6 +41,30 @@ export interface LlmResult {
     /** Texto final (cuando no hay tool call). */
     text?: string;
     provider: LlmProvider;
+    /**
+     * Proveedores que fallaron ANTES del que respondió (vacío o ausente si
+     * respondió el primero). Para dejarlo consultable en la base (P1-6 de la
+     * auditoría 2026-10-06): hasta acá la causa solo quedaba en los logs.
+     */
+    fallas?: LlmFalla[];
+}
+
+/** Una falla de un proveedor: quién, qué dijo y cuánto tardó en fallar. */
+export interface LlmFalla {
+    proveedor: LlmProvider;
+    error: string;
+    ms: number;
+}
+
+/** El error que lanza `chatWithTools` cuando fallan todos: lleva el detalle. */
+export interface LlmErrorTotal extends Error {
+    fallas: LlmFalla[];
+}
+
+/** Las fallas que trae un error de `chatWithTools` (o [] si no es de acá). */
+export function fallasDeError(err: unknown): LlmFalla[] {
+    const f = (err as any)?.fallas;
+    return Array.isArray(f) ? f : [];
 }
 
 // 2026-09-04: gemini-2.5-flash quedó 404 ("no longer available to new users")
@@ -328,8 +352,9 @@ export async function chatWithTools(params: {
         .filter((p) => p !== 'claude' || !!process.env.ANTHROPIC_API_KEY);
 
     let lastErr: any;
-    const fallas: string[] = [];
+    const fallas: LlmFalla[] = [];
     for (const p of order) {
+        const inicio = Date.now();
         // Un 429 NO es que el proveedor este caido: es que llegamos muy rapido.
         // Antes se pasaba al siguiente sin esperar ni un segundo, y si el
         // siguiente tambien venia saturado la cadena entera se caia y el padre
@@ -344,7 +369,8 @@ export async function chatWithTools(params: {
         // el webhook y el padre esta mirando la pantalla.
         for (let intento = 0; intento < 3; intento++) {
             try {
-                return await run(p);
+                const r = await run(p);
+                return fallas.length ? { ...r, fallas } : r;
             } catch (err: any) {
                 lastErr = err;
                 const msg = String(err?.message ?? '');
@@ -352,7 +378,7 @@ export async function chatWithTools(params: {
 
                 if (!saturado || intento === 2) {
                     console.warn(`[llm.service] ${p} falló (${msg}); intento siguiente proveedor`);
-                    fallas.push(`${p}: ${msg}`);
+                    fallas.push({ proveedor: p, error: msg.slice(0, 300), ms: Date.now() - inicio });
                     break;
                 }
                 // 400 ms, 1200 ms. Con jitter para que treinta webhooks
@@ -366,8 +392,11 @@ export async function chatWithTools(params: {
     }
     // El error final nombra a TODOS: antes solo quedaba el del último y la causa
     // de que el primero (Gemini) fallara no se veía en ningún lado.
-    throw new Error(fallas.length ? `todos los proveedores LLM fallaron — ${fallas.join(' | ')}`
-        : (lastErr?.message || 'todos los proveedores LLM fallaron'));
+    const total = new Error(fallas.length
+        ? `todos los proveedores LLM fallaron — ${fallas.map((f) => `${f.proveedor}: ${f.error}`).join(' | ')}`
+        : (lastErr?.message || 'todos los proveedores LLM fallaron')) as LlmErrorTotal;
+    total.fallas = fallas;
+    throw total;
 }
 
 function safeParse(s: unknown): any {

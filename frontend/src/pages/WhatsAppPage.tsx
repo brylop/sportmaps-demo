@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { bffClient } from '@/lib/api/bffClient';
+import { supabase } from '@/integrations/supabase/client';
 import { type ResultadoDelAlta } from '@/components/whatsapp/ConectarNumero';
 import { AltaDelCanal } from '@/components/whatsapp/AltaDelCanal';
 import { Conversaciones } from '@/components/whatsapp/Conversaciones';
@@ -522,12 +523,13 @@ export default function WhatsAppPage() {
                 <TabsContent value="horarios" className="space-y-4">
                     {schoolId && <HorariosDeEntrenamiento schoolId={schoolId} />}
                 </TabsContent>
-                <TabsContent value="config">
+                <TabsContent value="config" className="space-y-4">
                     <PanelConfig
                         ajustes={estado?.ajustes ?? null}
                         guardando={guardando}
                         onGuardar={guardarAjustes}
                     />
+                    {schoolId && <AjusteAudiosSinConsentimiento schoolId={schoolId} />}
                 </TabsContent>
             </Tabs>
         </div>
@@ -650,6 +652,86 @@ function PanelPlantillas({ schoolId, plantillas, cargando, onCreada }: {
 }
 
 // ─── Configuración ──────────────────────────────────────────────────────────
+
+/**
+ * Ajuste por escuela `school_settings.wa_transcribir_sin_consentimiento`
+ * (mig. 20261006232151). Se guarda directo en `school_settings` con la RLS
+ * de admin de la escuela, como los demás ajustes wa_* del asistente. Si la
+ * columna todavía no existe en la base, el interruptor queda deshabilitado.
+ */
+function AjusteAudiosSinConsentimiento({ schoolId }: { schoolId: string }) {
+    const { toast } = useToast();
+    const [valor, setValor] = useState<boolean | null>(null);
+    const [disponible, setDisponible] = useState(true);
+    const [guardando, setGuardando] = useState(false);
+
+    useEffect(() => {
+        let vivo = true;
+        (async () => {
+            const { data, error } = await (supabase as any)
+                .from('school_settings')
+                .select('wa_transcribir_sin_consentimiento')
+                .eq('school_id', schoolId)
+                .maybeSingle();
+            if (!vivo) return;
+            if (error) { setDisponible(false); setValor(false); return; }
+            setValor(data?.wa_transcribir_sin_consentimiento === true);
+        })();
+        return () => { vivo = false; };
+    }, [schoolId]);
+
+    const cambiar = async (v: boolean) => {
+        setGuardando(true);
+        const { error } = await (supabase as any)
+            .from('school_settings')
+            .upsert({ school_id: schoolId, wa_transcribir_sin_consentimiento: v }, { onConflict: 'school_id' });
+        setGuardando(false);
+        if (error) {
+            toast({ title: 'No se pudo guardar', description: error.message, variant: 'destructive' });
+            return;
+        }
+        setValor(v);
+        toast({ title: v ? 'Notas de voz activadas' : 'Notas de voz desactivadas' });
+    };
+
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                    <MessageSquare className="h-4 w-4" /> Notas de voz
+                </CardTitle>
+            </CardHeader>
+            <CardContent>
+                <div className="flex items-start justify-between gap-4">
+                    <div>
+                        <Label htmlFor="wa-audios-sin-consentimiento">
+                            Escuchar las notas de voz de familias e interesados
+                        </Label>
+                        <p className="text-sm text-muted-foreground">
+                            El asistente pasa a texto los audios que le mandan las familias y quienes preguntan
+                            por inscripciones, aunque no hayan aceptado los avisos por WhatsApp. Nunca los de tus
+                            contactos personales ni los del equipo. El audio no se guarda, y en su primera
+                            respuesta el asistente le avisa a la persona que convierte sus audios en texto.
+                            Apagado, solo escucha a las familias que aceptaron los avisos.
+                        </p>
+                        {!disponible && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                                Disponible cuando se active en la plataforma.
+                            </p>
+                        )}
+                    </div>
+                    <Switch
+                        id="wa-audios-sin-consentimiento"
+                        className="shrink-0"
+                        checked={valor === true}
+                        disabled={guardando || valor === null || !disponible}
+                        onCheckedChange={(v) => void cambiar(v)}
+                    />
+                </div>
+            </CardContent>
+        </Card>
+    );
+}
 
 function PanelConfig({ ajustes, guardando, onGuardar }: {
     ajustes: Ajustes | null; guardando: boolean; onGuardar: (c: Partial<Ajustes>) => void;
