@@ -49,6 +49,7 @@ import {
     FLUJO_CORTESIA, QUE_LLEVAR, BOTON_CANCELAR_MI_CLASE, bloqueFranja, sedeConDireccion,
     fechaLegible, horaLegible, direccionDeSede, type FranjaCortesia,
 } from './whatsapp-clase-cortesia.service';
+import { indicacionesCortesiaDeEscuela } from './whatsapp-ajustes-escuela.service';
 
 export type TipoRecordatorio = 'vispera' | 'mismo_dia';
 
@@ -103,13 +104,17 @@ export function nombresDelLead(l: { full_name: string | null; guardian_name: str
 
 export function textoRecordatorio(
     tipo: TipoRecordatorio,
-    a: { saludo: string; atleta: string | null; esAcudiente: boolean; escuela: string; franja: FranjaCortesia },
+    a: {
+        saludo: string; atleta: string | null; esAcudiente: boolean; escuela: string; franja: FranjaCortesia;
+        /** school_settings.wa_cortesia_indicaciones: reemplaza el «qué llevar» genérico. */
+        indicaciones?: string | null;
+    },
 ): string {
     const cuando = tipo === 'vispera' ? 'mañana' : 'hoy';
     const de = a.esAcudiente && a.atleta ? `la clase de cortesía de *${a.atleta}*` : 'tu clase de cortesía';
     return `Hola ${a.saludo} 👋 Te recuerdo ${de} ${cuando} en *${a.escuela}*:\n\n`
         + `${bloqueFranja(a.franja)}\n\n`
-        + `🎒 Qué llevar: ${QUE_LLEVAR}.\n\n`
+        + (a.indicaciones?.trim() ? `🎒 ${a.indicaciones.trim()}\n\n` : `🎒 Qué llevar: ${QUE_LLEVAR}.\n\n`)
         + 'Si no puedes ir, responde *CANCELAR* y liberamos el cupo para otra persona.';
 }
 
@@ -147,7 +152,11 @@ export interface DepsRecordatorio {
     reservasDelDia: (fecha: string) => Promise<ReservaParaRecordar[]>;
     integracion: (schoolId: string) => Promise<WhatsAppIntegration | null>;
     conversacion: (integrationId: string, waId: string) => Promise<{ id: string; last_inbound_at: string | null } | null>;
-    escuela: (schoolId: string) => Promise<{ nombre: string; sedes: { name: string | null; address: string | null; is_main?: boolean | null }[] }>;
+    escuela: (schoolId: string) => Promise<{
+        nombre: string; sedes: { name: string | null; address: string | null; is_main?: boolean | null }[];
+        /** Qué llevar / a quién buscar (school_settings.wa_cortesia_indicaciones); null = genérico. */
+        indicaciones?: string | null;
+    }>;
     /** 'ok' = este BFF lo tomó; 'ya' = otro lo tomó; 'sin_tabla' = migración sin aplicar. */
     reservar: (r: ReservaParaRecordar, tipo: TipoRecordatorio, waId: string) => Promise<{ estado: 'ok'; id: string } | { estado: 'ya' | 'sin_tabla' | 'error'; detalle?: string }>;
     cerrar: (id: string, c: Cierre) => Promise<void>;
@@ -202,11 +211,12 @@ const DEPS: DepsRecordatorio = {
         return (data as any) ?? null;
     },
     async escuela(schoolId) {
-        const [{ data: s }, { data: b }] = await Promise.all([
+        const [{ data: s }, { data: b }, indicaciones] = await Promise.all([
             supabase.from('schools').select('name').eq('id', schoolId).maybeSingle(),
             supabase.from('school_branches').select('name, address, is_main').eq('school_id', schoolId).limit(50),
+            indicacionesCortesiaDeEscuela(schoolId),
         ]);
-        return { nombre: (s as any)?.name ?? 'la escuela', sedes: ((b as any[]) ?? []) };
+        return { nombre: (s as any)?.name ?? 'la escuela', sedes: ((b as any[]) ?? []), indicaciones };
     },
     async reservar(r, tipo, waId) {
         const { data, error } = await supabase.from('school_trial_reminders')
@@ -346,6 +356,7 @@ async function enviarUno(
         if (await d.dadoDeBaja(integ.id, waId)) return { estado: 'no_enviado', motivo: 'dado_de_baja' };
         const texto = aFormatoWhatsApp(textoRecordatorio(tipo, {
             saludo, atleta, esAcudiente: !!r.acudiente, escuela: esc.nombre, franja,
+            indicaciones: esc.indicaciones ?? null,
         }));
         const env = await d.enviarTexto(integ, waId, texto);
         if (env.ok) {

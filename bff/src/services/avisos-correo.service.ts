@@ -231,7 +231,11 @@ export async function hayEnvioReciente(tipo: string, refId: string, ventanaMs: n
 
 // ─── Envío por la edge function send-email ──────────────────────────────────
 
-export interface Respaldo { subject: string; titulo: string; lineas: string[]; enlace?: { url: string; texto: string } }
+export interface Respaldo {
+    subject: string; titulo: string; lineas: string[]; enlace?: { url: string; texto: string };
+    /** HTML ya armado (y escapado) por quien llama: reemplaza al de `lineas`. Lo usa el informe de cartera (tablas). */
+    html?: string;
+}
 
 /**
  * HTML sencillo para cuando la edge function desplegada todavía no conoce la
@@ -239,6 +243,7 @@ export interface Respaldo { subject: string; titulo: string; lineas: string[]; e
  * aviso llega aunque el deploy de send-email vaya detrás del del BFF.
  */
 export function htmlDeRespaldo(r: Respaldo): string {
+    if (r.html) return r.html;
     const lineas = r.lineas.map((l) => `<p style="color:#4a4a4a;line-height:1.6;margin:0 0 10px;">${escaparHtml(l)}</p>`).join('');
     const boton = r.enlace
         ? `<p style="margin-top:20px;"><a href="${escaparHtml(r.enlace.url)}" style="display:inline-block;padding:12px 24px;background:#FB9F1E;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold;">${escaparHtml(r.enlace.texto)}</a></p>`
@@ -267,10 +272,20 @@ async function llamarSendEmail(body: unknown): Promise<{ ok: boolean; status: nu
  * una vez con el HTML de respaldo.
  */
 export async function enviarPlantilla(
-    tipo: string, destinos: string[], data: Record<string, string>, respaldo: Respaldo,
+    tipo: string | null, destinos: string[], data: Record<string, string>, respaldo: Respaldo,
 ): Promise<{ ok: boolean; error?: string; messageId?: string | null }> {
     if (!destinos.length) return { ok: false, error: 'sin destinatarios' };
     const lote = destinos.slice(0, 100);
+
+    // tipo null = sin plantilla en send-email: va directo el HTML del respaldo.
+    if (tipo === null) {
+        const html = htmlDeRespaldo(respaldo);
+        const d = await llamarSendEmail({ batch: lote.map((to) => ({ to, subject: respaldo.subject, html })) });
+        if (!d.ok) return { ok: false, error: `send-email ${d.status}: ${d.texto}` };
+        let id: string | null = null;
+        try { id = JSON.parse(d.texto)?.results?.[0]?.id ?? null; } catch { /* sin id, no importa */ }
+        return { ok: true, messageId: id };
+    }
 
     let r = await llamarSendEmail({ batch: lote.map((to) => ({ type: tipo, to, data })) });
     if (!r.ok && /no soportado/i.test(r.texto)) {
@@ -289,12 +304,12 @@ export async function enviarPlantilla(
 export async function enviarConReserva(p: {
     clave: string; tipo: string; schoolId: string | null; refId: string | null;
     destinos: string[]; data: Record<string, string>; respaldo: Respaldo;
-    /** Plantilla de send-email, si difiere del tipo que se registra en el log. */
-    plantilla?: string;
+    /** Plantilla de send-email, si difiere del tipo que se registra en el log. null = sin plantilla (HTML del respaldo). */
+    plantilla?: string | null;
 }): Promise<'enviado' | 'duplicado' | 'fallo'> {
     const reserva = await reservarEnvio(p);
     if (!reserva) return 'duplicado';
-    const r = await enviarPlantilla(p.plantilla ?? p.tipo, p.destinos, p.data, p.respaldo);
+    const r = await enviarPlantilla(p.plantilla === null ? null : (p.plantilla ?? p.tipo), p.destinos, p.data, p.respaldo);
     await cerrarEnvio(reserva, r);
     if (!r.ok) console.error('[avisos-correo] envío fallido', { tipo: p.tipo, clave: p.clave, error: r.error });
     return r.ok ? 'enviado' : 'fallo';
