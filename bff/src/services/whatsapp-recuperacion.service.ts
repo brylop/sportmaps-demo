@@ -19,11 +19,15 @@
  *     auto-aprueba. Por eso se usa `estamparComprobante` y NO
  *     `evaluatePaymentReceipt`: con la auto-aprobación de la escuela prendida
  *     esa función aprueba sola (y le manda correo al acudiente).
- *  2. **Nunca se le escribe a nadie.** Ni WhatsApp ni correo. Estos
- *     comprobantes tienen días; una respuesta del bot ahora sería un mensaje
- *     fuera de contexto a una familia que ya habló con la dueña por su celular.
- *     Se marca `outcome_notified_at` para que el job de desenlace
- *     (whatsapp-payment-outcome.job) tampoco avise cuando la escuela apruebe.
+ *  2. **Solo se le avisa a la familia cuyo comprobante quedó en un cobro**
+ *     (2026-10-07; antes no se le decía nada a nadie y la familia seguía
+ *     creyendo que su pago se había perdido). Dentro de la ventana de 24 h, un
+ *     texto: «quedó en revisión de la escuela» (`avisarRecuperacion`). Fuera,
+ *     nada en el momento —no hay plantilla de «recibido»—, pero la fila queda
+ *     SIN `outcome_notified_at`: cuando la escuela apruebe o rechace, el job de
+ *     desenlace (whatsapp-payment-outcome.job) avisa, por plantilla si la
+ *     ventana está cerrada. Lo demás (buzón, ya registrado, no es comprobante)
+ *     no le escribe a nadie. El importador de chats exportados no avisa.
  *  3. **Nunca un doble pago.** Muchos de estos pagos la dueña ya los registró a
  *     mano o con las planillas de papel. Si la familia ya tiene un pago
  *     registrado por ese monto en esas fechas, es `ya_registrado` y no se toca
@@ -48,7 +52,14 @@ import {
     type FilaCola,
 } from '../jobs/whatsapp-queue.job';
 import { normalizarFrase } from './whatsapp-reglas-turno';
-import type { WhatsAppIntegration } from './whatsapp.service';
+import { sendTextMessage, aFormatoWhatsApp, type WhatsAppIntegration } from './whatsapp.service';
+import {
+    detectarOtroConcepto, decidirOtroConcepto, motivoOtroConcepto, NOMBRE_OTRO_CONCEPTO,
+} from './whatsapp-otro-concepto.service';
+import { ventanaAbierta } from './whatsapp-plantillas.service';
+import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from './whatsapp-optin.service';
+import { conversacionTomada } from './whatsapp-tomada.service';
+import { botEncendido } from './whatsapp-atencion.service';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -77,6 +88,7 @@ export type DecisionRecuperacion =
     | 'sin_pendientes'
     | 'varios_cobros'        // el monto no desempata, o puede ser uno ya registrado
     | 'monto_distinto'       // un solo cobro pendiente, pero el comprobante es por otro valor
+    | 'otro_concepto'        // el pie/chat/comprobante nombra otra cosa (uniforme, torneo…) y no hay cobro de eso
     | 'familia_sin_cuenta'
     | 'numero_ambiguo'
     | 'sin_familia'
@@ -105,6 +117,8 @@ export interface ResultadoRecuperacion {
     pagoRegistradoId?: string | null;
     parentId?: string | null;
     veredicto?: string | null;
+    /** Qué se le dijo a la familia (solo cuando quedó en un cobro y se aplicó). */
+    aviso?: AvisoRecuperacion;
 }
 
 // ─── Fechas ──────────────────────────────────────────────────────────────────
@@ -173,6 +187,8 @@ export function decidirRecuperacion(e: {
     registrados?: PagoRegistrado[];
     /** Pie de foto, mensajes de la familia cerca de la foto y descripción del comprobante. */
     textos?: (string | null | undefined)[];
+    /** El pie de la foto solo: pesa más que el chat para decir de qué concepto es. */
+    pie?: string | null;
 }): { decision: DecisionRecuperacion; motivo: string; pago?: PagoPendiente; pagoRegistradoId?: string | null } {
     const { ocr } = e;
     if (ocr.isReceipt === false) return { decision: 'no_es_comprobante', motivo: 'el archivo no es un comprobante de pago' };
@@ -217,6 +233,21 @@ export function decidirRecuperacion(e: {
             pagoRegistradoId: reg.id,
         };
     }
+
+    // ¿Nombra otro concepto? (P0, 2026-10-07: perfeccionamiento y uniformes
+    // aplicados a la mensualidad.) Misma regla que el worker.
+    const otro = decidirOtroConcepto(
+        detectarOtroConcepto({ pie: e.pie, descripcion: ocr.description, chat: e.textos }),
+        e.pendientes, monto,
+    );
+    if (otro.tipo === 'aplicar') {
+        return {
+            decision: 'en_revision',
+            motivo: `a ${describirPago(otro.pago)} (la familia lo nombra como ${NOMBRE_OTRO_CONCEPTO[otro.senal.concepto]})`,
+            pago: otro.pago,
+        };
+    }
+    if (otro.tipo === 'a_la_escuela') return { decision: 'otro_concepto', motivo: motivoOtroConcepto(otro.senal) };
 
     const match = resolverPago(e.pendientes, monto);
     if (match.tipo === 'sin_pendientes') {
@@ -397,13 +428,18 @@ export const PREFIJO_RECUPERADO = 'recuperado:';
  * result_type payment_receipt|glosa|escalated|none. Lo que necesita a una
  * persona va `ignored` + `escalated`, que es lo que lista el buzón.
  */
-export function cierreDeFila(r: ResultadoRecuperacion, ahoraIso: string): Record<string, unknown> | null {
+export function cierreDeFila(
+    r: ResultadoRecuperacion,
+    ahoraIso: string,
+    opciones: { avisarDesenlace?: boolean } = {},
+): Record<string, unknown> | null {
     if (r.decision === 'reintentar') return null;
     const base = {
         processed_at: ahoraIso,
         locked_until: null,
         error_message: `${PREFIJO_RECUPERADO} ${r.decision} — ${r.motivo}`.slice(0, 500),
-        // Rule 2: el job de desenlace no avisa por WhatsApp de estos pagos.
+        // Regla 2: el job de desenlace no avisa de estos pagos, salvo que el
+        // llamador pida avisar (la recuperación de la cola, ver arriba).
         outcome_notified_at: ahoraIso,
         matched_parent_id: r.parentId ?? null,
     };
@@ -413,6 +449,7 @@ export function cierreDeFila(r: ResultadoRecuperacion, ahoraIso: string): Record
             return {
                 ...base, status: 'done', result_type: 'payment_receipt',
                 result_ref_id: r.pago?.id ?? null, matched_child_id: r.pago?.child_id ?? null,
+                ...(opciones.avisarDesenlace ? { outcome_notified_at: null } : {}),
             };
         case 'ya_registrado':
             return { ...base, status: 'ignored', result_type: 'none', result_ref_id: r.pagoRegistradoId ?? null };
@@ -563,6 +600,8 @@ export interface EntradaComprobante {
     log?: Logger;
     /** Pie de foto y mensajes de la familia cerca de la foto: pista del cobro. */
     textos?: (string | null | undefined)[];
+    /** El pie de la foto solo (pesa más para decir de qué concepto es). */
+    pie?: string | null;
     /** Nombre de los deportistas sin registrar (id → nombre), para describir sus cobros. */
     nombresSinRegistrar?: Map<string, string>;
     /** Inyectable para pruebas. */
@@ -614,6 +653,7 @@ export async function procesarComprobanteRecuperado(e: EntradaComprobante): Prom
     const d = decidirRecuperacion({
         familia: e.familia, ocr, destinoDeLaEscuela, yaUsadoEn, pagadosQueCubren, pendientes, registrados,
         textos: [...(e.textos ?? []), ocr.description],
+        pie: e.pie ?? null,
     });
     const resultado: ResultadoRecuperacion = { ...d, ocr, parentId };
 
@@ -886,9 +926,14 @@ const LEASE_RECUPERACION_MIN = 15;
 export async function recuperarFilaDeCola(
     fila: FilaParaRecuperar,
     wa: WhatsAppIntegration,
-    opciones: { aplicar: boolean; log?: Logger; cache?: CacheEscuela; ocrFn?: EntradaComprobante['ocrFn'] },
+    opciones: {
+        aplicar: boolean; log?: Logger; cache?: CacheEscuela; ocrFn?: EntradaComprobante['ocrFn'];
+        /** false = no avisarle a la familia (por defecto sí, ver regla 2). */
+        avisar?: boolean;
+    },
 ): Promise<ResultadoRecuperacion> {
     const { aplicar } = opciones;
+    const avisar = opciones.avisar !== false;
 
     if (aplicar) {
         let toma = supabase.from('whatsapp_inbound_queue')
@@ -914,7 +959,7 @@ export async function recuperarFilaDeCola(
     };
     const cerrarCon = async (r: ResultadoRecuperacion) => {
         if (!aplicar) return;
-        const cierre = cierreDeFila(r, new Date().toISOString());
+        const cierre = cierreDeFila(r, new Date().toISOString(), { avisarDesenlace: avisar });
         if (!cierre) { await devolver(); return; }
         const { error } = await supabase.from('whatsapp_inbound_queue').update(cierre).eq('id', fila.id);
         if (error) opciones.log?.error?.({ id: fila.id, err: error.message }, '[wa-recuperar] no se pudo cerrar la fila');
@@ -943,12 +988,87 @@ export async function recuperarFilaDeCola(
             fechaMensaje: fila.wa_timestamp ?? fila.created_at,
             aplicar, queueId: fila.id, log: opciones.log, ocrFn: opciones.ocrFn,
             textos: await textosCercanos(fila),
+            pie: fila.media_caption ?? null,
             nombresSinRegistrar: opciones.cache?.nombresSinRegistrar,
         });
         await cerrarCon(r);
+        if (aplicar && avisar && (r.decision === 'en_revision' || r.decision === 'abono_en_revision')) {
+            r.aviso = await avisarRecuperacion(fila, wa, r, opciones.log)
+                .catch((err: any): AvisoRecuperacion => `error: ${err?.message ?? err}`);
+        }
         return r;
     } catch (err: any) {
         await devolver();
         return { decision: 'reintentar', motivo: `excepción: ${err?.message ?? err}`, ocr: null };
     }
+}
+
+// ─── Aviso a la familia (regla 2) ────────────────────────────────────────────
+
+export type AvisoRecuperacion =
+    | 'avisado'
+    | 'fuera_de_ventana'      // nada ahora; el desenlace sale por plantilla cuando la escuela decida
+    | 'bot_apagado'
+    | 'conversacion_tomada'
+    | 'sin_conversacion'
+    | `error: ${string}`;
+
+/** El texto para la familia. Pura. */
+export function mensajeRecuperacion(r: Pick<ResultadoRecuperacion, 'decision' | 'pago' | 'ocr'>): string | null {
+    if (!r.pago) return null;
+    const monto = r.ocr?.amount
+        ? new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(r.ocr.amount)
+        : null;
+    const de = monto ? ` de ${monto}` : '';
+    const cierre = '\n\nLa escuela lo está revisando y te confirmo por aquí cuando lo apruebe.';
+    if (r.decision === 'abono_en_revision') {
+        return `Recibí tu comprobante${de} y quedó como abono a *${describirPago(r.pago)}* 📄${cierre}`;
+    }
+    if (r.decision === 'en_revision') {
+        return `Recibí tu comprobante${de} y quedó aplicado a *${describirPago(r.pago)}* 📄${cierre}`;
+    }
+    return null;
+}
+
+/**
+ * Le cuenta a la familia que su comprobante quedó en revisión. Solo dentro de
+ * la ventana de 24 h, con el bot prendido y la conversación sin tomar. Envía
+ * y REGISTRA (como el worker), para que la escuela vea qué se le dijo.
+ */
+export async function avisarRecuperacion(
+    fila: FilaParaRecuperar,
+    wa: WhatsAppIntegration,
+    r: ResultadoRecuperacion,
+    log?: Logger,
+): Promise<AvisoRecuperacion> {
+    const texto = mensajeRecuperacion(r);
+    if (!texto) return 'sin_conversacion';
+    const { data: conv } = await supabase.from('whatsapp_conversations')
+        .select('id, last_inbound_at')
+        .eq('integration_id', fila.integration_id).eq('contact_wa_id', fila.wa_phone_number)
+        .maybeSingle();
+    const convId = (conv as any)?.id as string | undefined;
+    if (!convId) return 'sin_conversacion';
+    if (!ventanaAbierta((conv as any)?.last_inbound_at ?? null)) return 'fuera_de_ventana';
+    if (!(await botEncendido(fila.integration_id))) return 'bot_apagado';
+    if (await conversacionTomada(convId)) return 'conversacion_tomada';
+
+    const dadoDeBaja = await estaDadoDeBaja(fila.integration_id, fila.wa_phone_number);
+    const final = aFormatoWhatsApp(dadoDeBaja ? texto + AVISO_DADO_DE_BAJA : texto);
+    const enviado = await sendTextMessage(wa, fila.wa_phone_number, final);
+    if (!enviado.ok) {
+        log?.warn?.({ queueId: fila.id, err: enviado.error }, '[wa-recuperar] no salió el aviso');
+        return `error: ${enviado.error ?? 'envío fallido'}`;
+    }
+    await supabase.rpc('wa_record_outbound_message', {
+        p_conversation_id: convId,
+        p_integration_id: fila.integration_id,
+        p_wa_message_id: enviado.waMessageId || `local-${crypto.randomUUID()}`,
+        p_type: 'text',
+        p_text_body: final,
+        p_payload: { step: `recuperado_${r.decision}`, queue_id: fila.id, payment_id: r.pago?.id ?? null },
+        p_ai_generated: true,
+        p_to_wa_id: fila.wa_phone_number,
+    });
+    return 'avisado';
 }

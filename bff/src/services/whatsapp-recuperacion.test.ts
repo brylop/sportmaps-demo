@@ -2,7 +2,9 @@
  * Recuperación en lote de comprobantes de WhatsApp (whatsapp-recuperacion.service).
  *
  * Lo que NO puede pasar nunca, y por eso se prueba con efectos y no leyendo:
- *   - que se le escriba a alguien (WhatsApp o correo);
+ *   - que se le escriba a alguien (WhatsApp o correo) — salvo el aviso de
+ *     «quedó en revisión» a la familia cuyo comprobante quedó en un cobro,
+ *     dentro de la ventana de 24 h y con el bot prendido (2026-10-07);
  *   - que un comprobante quede aprobado (aunque la escuela tenga auto-aprobación);
  *   - que se registre dos veces un pago que la escuela ya registró a mano;
  *   - que la simulación escriba algo;
@@ -27,6 +29,8 @@ const state = {
     fichas: [{ id: 'child-1', parent_id: 'parent-1', parent_phone_temp: null }] as any[],
     sinRegistrar: [] as any[],
     mensajes: [] as any[],
+    ultimoEntrante: null as string | null,
+    bot: true,
 };
 
 function resultado(o: Op): { data: any; error: any } {
@@ -45,7 +49,7 @@ function resultado(o: Op): { data: any; error: any } {
     }
     if (o.table === 'children') return { data: [{ id: 'child-1' }], error: null };
     if (o.table === 'unregistered_athletes') return { data: state.sinRegistrar, error: null };
-    if (o.table === 'whatsapp_conversations') return { data: { id: 'conv-1' }, error: null };
+    if (o.table === 'whatsapp_conversations') return { data: { id: 'conv-1', last_inbound_at: state.ultimoEntrante }, error: null };
     if (o.table === 'whatsapp_messages') return { data: state.mensajes, error: null };
     if (o.table === 'profiles') return { data: [{ id: 'parent-1', phone: '+57 300 123 4567' }], error: null };
     return { data: null, error: null };
@@ -92,6 +96,15 @@ vi.mock('./whatsapp.service', () => ({
     sendTextMessage: (...a: any[]) => { enviar(...a); return Promise.resolve({ ok: true }); },
     sendInteractiveButtons: (...a: any[]) => { enviar(...a); return Promise.resolve({ ok: true }); },
     aFormatoWhatsApp: (t: string) => t,
+}));
+
+vi.mock('./whatsapp-atencion.service', async (orig) => ({
+    ...(await orig<typeof import('./whatsapp-atencion.service')>()),
+    botEncendido: () => Promise.resolve(state.bot),
+}));
+vi.mock('./whatsapp-tomada.service', async (orig) => ({
+    ...(await orig<typeof import('./whatsapp-tomada.service')>()),
+    conversacionTomada: () => Promise.resolve(false),
 }));
 
 const evaluar = vi.fn();
@@ -149,6 +162,8 @@ beforeEach(() => {
     state.fichas = [{ id: 'child-1', parent_id: 'parent-1', parent_phone_temp: null }];
     state.sinRegistrar = [];
     state.mensajes = [];
+    state.ultimoEntrante = null;
+    state.bot = true;
     extraer.mockReset();
     extraer.mockImplementation(() => Promise.resolve({ ...OCR }));
 });
@@ -279,12 +294,50 @@ describe('recuperarFilaDeCola', () => {
 
         expect(evaluar).not.toHaveBeenCalled();               // ni auto-aprobación ni glosa
         expect(rpcs).not.toContain('auto_approve_payment');
-        expect(enviar).not.toHaveBeenCalled();                // ni WhatsApp…
+        expect(enviar).not.toHaveBeenCalled();                // fuera de la ventana: ni WhatsApp…
         expect(correo).not.toHaveBeenCalled();                // …ni correo
+        expect(r.aviso).toBe('fuera_de_ventana');
 
         const cierre = updatesDe('whatsapp_inbound_queue').at(-1)!.values;
         expect(cierre).toMatchObject({ status: 'done', result_type: 'payment_receipt', result_ref_id: 'p-oct' });
-        expect(cierre.outcome_notified_at).toBeTruthy();
+        // El desenlace (aprobado/rechazado) sí se le avisa: lo manda el job de desenlace.
+        expect(cierre.outcome_notified_at).toBeNull();
+    });
+
+    it('APLICAR dentro de la ventana: le avisa a la familia UNA vez que quedó en revisión', async () => {
+        state.ultimoEntrante = new Date(Date.now() - 2 * 3600_000).toISOString();
+        const r = await recuperarFilaDeCola({ ...FILA }, WA, { aplicar: true, ocrFn });
+        expect(r.decision).toBe('en_revision');
+        expect(r.aviso).toBe('avisado');
+        expect(enviar).toHaveBeenCalledTimes(1);
+        expect(String(enviar.mock.calls[0][2])).toMatch(/quedó aplicado a \*.*\*.*revisando/s);
+        expect(rpcs).toContain('wa_record_outbound_message');
+        expect(evaluar).not.toHaveBeenCalled();
+        expect(correo).not.toHaveBeenCalled();
+    });
+
+    it('APLICAR con el bot apagado: no le escribe, aunque la ventana esté abierta', async () => {
+        state.ultimoEntrante = new Date(Date.now() - 3600_000).toISOString();
+        state.bot = false;
+        const r = await recuperarFilaDeCola({ ...FILA }, WA, { aplicar: true, ocrFn });
+        expect(r.aviso).toBe('bot_apagado');
+        expect(enviar).not.toHaveBeenCalled();
+    });
+
+    it('avisar: false deja el desenlace sin aviso, como antes', async () => {
+        state.ultimoEntrante = new Date(Date.now() - 3600_000).toISOString();
+        const r = await recuperarFilaDeCola({ ...FILA }, WA, { aplicar: true, ocrFn, avisar: false });
+        expect(r.aviso).toBeUndefined();
+        expect(enviar).not.toHaveBeenCalled();
+        expect(updatesDe('whatsapp_inbound_queue').at(-1)!.values.outcome_notified_at).toBeTruthy();
+    });
+
+    it('lo que va al buzón no le escribe a nadie, ni dentro de la ventana', async () => {
+        state.ultimoEntrante = new Date(Date.now() - 3600_000).toISOString();
+        state.pendientes = [PEND('p-sep', 150000), PEND('p-oct', 150000)];
+        const r = await recuperarFilaDeCola({ ...FILA }, WA, { aplicar: true, ocrFn });
+        expect(r.decision).toBe('varios_cobros');
+        expect(enviar).not.toHaveBeenCalled();
     });
 
     it('ya registrado a mano: no toca ningún cobro y la fila queda con el pago que lo cubre', async () => {

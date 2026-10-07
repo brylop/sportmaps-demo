@@ -49,7 +49,8 @@ export type ConceptoCobro =
     | 'pendiente_directo'     // día +7
     | 'aviso_final'           // día +12
     | 'pago_confirmado'       // evento
-    | 'abono_recibido';       // evento
+    | 'abono_recibido'        // evento
+    | 'comprobante_rechazado'; // evento: la escuela no validó el comprobante
 
 /** Datos del cobro ya formateados para mostrar (COP, fechas en español). */
 export interface DatosCobro {
@@ -62,6 +63,8 @@ export interface DatosCobro {
     diasVencido?: number | null;
     montoAbono?: string | null;
     saldoPendiente?: string | null;
+    /** Por qué no se validó un comprobante (comprobante_rechazado). */
+    motivo?: string | null;
 }
 
 interface DefConcepto {
@@ -118,7 +121,34 @@ export const CONCEPTOS: Record<ConceptoCobro, DefConcepto> = {
         plantilla: 'abono_recibido', idioma: 'es_CO', esCobro: false,
         variables: (d) => [d.montoAbono, d.nombreAtleta, d.saldoPendiente, d.fechaVencimiento],
     },
+    // "Hola {{1}}, revisamos el comprobante que enviaste por {{2}} de {{3}} y no pudimos validarlo: {{4}}."
+    comprobante_rechazado: {
+        plantilla: 'comprobante_rechazado', idioma: 'es_CO', esCobro: false,
+        variables: (d) => [d.nombreContacto, d.monto, d.nombreAtleta, d.motivo],
+    },
 };
+
+// ─── Ventana de 24 h ─────────────────────────────────────────────────────────
+
+/** Horas en que Meta deja mandar texto libre después del último mensaje del contacto. */
+export const HORAS_VENTANA = 24;
+
+/**
+ * ¿Se le puede escribir texto libre? Solo si la familia escribió en las últimas
+ * 24 h (con 15 min de margen: el aviso puede tardar en salir). Sin dato, no:
+ * fuera de la ventana Meta rechaza el texto con 131047 y el mensaje se pierde.
+ */
+export function ventanaAbierta(ultimoEntrante: string | null | undefined, ahora: number = Date.now()): boolean {
+    if (!ultimoEntrante) return false;
+    const t = new Date(ultimoEntrante).getTime();
+    if (Number.isNaN(t)) return false;
+    return ahora - t < HORAS_VENTANA * 3600_000 - 15 * 60_000;
+}
+
+/** ¿El error de Meta es la ventana cerrada? (131047, «Re-engagement message»). */
+export function esErrorDeVentana(detalle: string | null | undefined): boolean {
+    return /131047|re-?engagement/i.test(String(detalle ?? ''));
+}
 
 // ─── Motivos de no envío ──────────────────────────────────────────────────────
 

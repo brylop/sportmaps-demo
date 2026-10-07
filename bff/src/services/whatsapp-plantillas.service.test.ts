@@ -251,8 +251,9 @@ describe('enviarCobroPorPlantilla — variables de _v3 / _v4', () => {
             vence_hoy: 'pago_vence_hoy_v4.json', pendiente_suave: 'pago_pendiente_suave.json',
             pendiente_directo: 'pago_pendiente_directo.json', aviso_final: 'pago_aviso_final.json',
             pago_confirmado: 'pago_confirmado.json', abono_recibido: 'abono_recibido.json',
+            comprobante_rechazado: 'comprobante_rechazado.json',
         };
-        const datos = { ...DATOS, diasVencido: 7, montoAbono: '$75.000', saldoPendiente: '$75.000' };
+        const datos = { ...DATOS, diasVencido: 7, montoAbono: '$75.000', saldoPendiente: '$75.000', motivo: 'no coincide el valor' };
         for (const [concepto, def] of Object.entries(CONCEPTOS)) {
             const json = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../whatsapp-templates', archivo[concepto]), 'utf8'));
             expect(json.name, concepto).toBe(def.plantilla);

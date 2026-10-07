@@ -241,3 +241,119 @@ describe('pista del cobro anunciado', () => {
         expect(elegirPorPista(pendientes, null)).toBeNull();
     });
 });
+
+// Item 3 (2026-10-07): una fila `waiting_user` cuya pregunta nadie va a
+// contestar (borrador sin enviar, conversación tomada, familia que no responde)
+// vence a las 24 h y pasa al buzón de la escuela con el motivo.
+describe('preguntas vencidas', () => {
+    it('motivo: el borrador manda sobre «no respondió»', async () => {
+        const { motivoPreguntaVencida } = await import('./whatsapp-queue.job');
+        expect(motivoPreguntaVencida({ enviada: true, enBorrador: true }).codigo).toBe('pregunta_en_borrador');
+        expect(motivoPreguntaVencida({ enviada: false, enBorrador: false }).codigo).toBe('pregunta_no_enviada');
+        expect(motivoPreguntaVencida({ enviada: true, enBorrador: false }).codigo).toBe('sin_respuesta');
+        expect(motivoPreguntaVencida({ enviada: true, enBorrador: false }).texto).toMatch(/^pregunta_vencida: /);
+    });
+
+    it('caso real …9366: pregunta enviada, repregunta en borrador → ignored + escalated con el motivo', async () => {
+        const { vencerPreguntasSinRespuesta } = await import('./whatsapp-queue.job');
+        const updates: any[] = [];
+        const ahora = Date.parse('2026-10-07T15:00:00Z');
+        const filas = [{
+            id: 'q-9366', integration_id: 'int-1', wa_phone_number: '573232849366',
+            pregunta_at: '2026-10-06T14:32:10Z', updated_at: '2026-10-06T14:32:38Z',
+        }];
+        const tabla = (t: string) => {
+            const o: any = { t, op: 'select', vals: null };
+            const c: any = {
+                select: () => c, eq: () => c, in: () => c, lt: () => c, gte: () => c, limit: () => c,
+                update: (v: any) => { o.op = 'update'; o.vals = v; updates.push(o); return c; },
+                maybeSingle: () => Promise.resolve({ data: t === 'whatsapp_conversations' ? { id: 'conv-1' } : null, error: null }),
+                then: (ok: any, ko: any) => {
+                    let r: any = { data: [], error: null };
+                    if (t === 'whatsapp_inbound_queue') r = o.op === 'update' ? { data: [{ id: 'q-9366' }] } : { data: filas, error: null };
+                    if (t === 'whatsapp_messages') r = { data: [{ id: 'm-1' }], error: null };
+                    if (t === 'whatsapp_message_drafts') r = { data: [{ id: 'd-1', tool_context: { step: 'ask_cual_pago_reintento' } }], error: null };
+                    return Promise.resolve(r).then(ok, ko);
+                },
+            };
+            return c;
+        };
+        const prev = (supabase.from as any).getMockImplementation();
+        (supabase.from as any).mockImplementation(tabla);
+        try {
+            expect(await vencerPreguntasSinRespuesta(undefined, ahora)).toBe(1);
+        } finally {
+            (supabase.from as any).mockImplementation(prev);
+        }
+        expect(updates).toHaveLength(1);
+        expect(updates[0].vals).toMatchObject({ status: 'ignored', result_type: 'escalated' });
+        expect(updates[0].vals.error_message).toMatch(/borrador sin enviar/);
+    });
+
+    it('una pregunta de hace 3 h no vence', async () => {
+        const { vencerPreguntasSinRespuesta } = await import('./whatsapp-queue.job');
+        const ahora = Date.parse('2026-10-06T17:32:00Z');
+        const updates: any[] = [];
+        const c: any = {
+            select: () => c, eq: () => c, lt: () => c, limit: () => c,
+            update: (v: any) => { updates.push(v); return c; },
+            then: (ok: any, ko: any) => Promise.resolve({
+                data: [{ id: 'q', integration_id: 'i', wa_phone_number: 'w', pregunta_at: '2026-10-06T14:32:10Z', updated_at: '2026-10-05T00:00:00Z' }],
+                error: null,
+            }).then(ok, ko),
+        };
+        const prev = (supabase.from as any).getMockImplementation();
+        (supabase.from as any).mockImplementation(() => c);
+        try {
+            expect(await vencerPreguntasSinRespuesta(undefined, ahora)).toBe(0);
+        } finally {
+            (supabase.from as any).mockImplementation(prev);
+        }
+        expect(updates).toHaveLength(0);
+    });
+});
+
+// Item 1 (P0, 2026-10-07): el pie nombra otro concepto → no se aplica a la mensualidad.
+describe('comprobante de otro concepto', () => {
+    it('pie «Clase perfeccionamiento» con la mensualidad pendiente: a la escuela con motivo otro_concepto', async () => {
+        state.rpcStaffAdmin = { data: { estado: 'no_es_staff_admin' } };
+        state.rpcIdentifyByPhone = { data: { estado: 'identificado', parent_id: 'parent-1' } };
+        const { debeAtender } = await import('../services/whatsapp-atencion.service');
+        (debeAtender as any).mockResolvedValueOnce({ atender: true, tipo: 'familia', botEncendido: true });
+        (supabase.rpc as any).mockImplementation((name: string) => {
+            if (name === 'wa_queue_claim') {
+                return Promise.resolve({ data: [{ ...FILA_BASE, media_caption: 'Clase perfeccionamiento Luis Parra' }], error: null });
+            }
+            if (name === 'wa_identify_staff_admin_by_phone') return Promise.resolve(state.rpcStaffAdmin);
+            if (name === 'wa_identify_by_phone') return Promise.resolve(state.rpcIdentifyByPhone);
+            return Promise.resolve({ data: null, error: null });
+        });
+        extractReceiptMock.mockResolvedValue({
+            isReceipt: true, isTransactionList: false, amount: 25000, reference: 'M123456', date: '2026-10-06',
+            bank: 'Nequi', destination: null, description: null, provider: 'test',
+        });
+        pagosPendientesDeMock.mockResolvedValue([
+            { id: 'p-oct', amount: 180000, concept: 'Mensualidad 10/2026 - LUIS PARRA', due_date: null, child_id: 'c1', atleta: null },
+        ]);
+        const updates: any[] = [];
+        const prev = (supabase.from as any).getMockImplementation();
+        (supabase.from as any).mockImplementation((t: string) => {
+            const ch = makeChain(fromResults[t] ?? { data: null, error: null });
+            const upd = ch.update;
+            ch.update = (v: any) => { updates.push({ t, v }); return upd(v); };
+            return ch;
+        });
+        const { sendTextMessage } = await import('../services/whatsapp.service');
+        try {
+            await runWhatsAppQueue();
+        } finally {
+            (supabase.from as any).mockImplementation(prev);
+        }
+        expect(resolverPagoMock).not.toHaveBeenCalled();
+        expect(updates.some((u) => u.t === 'payments')).toBe(false);
+        const cierre = updates.filter((u) => u.t === 'whatsapp_inbound_queue').at(-1)!.v;
+        expect(cierre).toMatchObject({ status: 'ignored', result_type: 'escalated' });
+        expect(cierre.error_message).toMatch(/^otro_concepto: clase de perfeccionamiento/);
+        expect(String((sendTextMessage as any).mock.calls.at(-1)?.[2])).toMatch(/clase de perfeccionamiento/);
+    });
+});
