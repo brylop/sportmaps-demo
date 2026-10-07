@@ -182,6 +182,14 @@ export interface CtxCortesia {
         botones?: BotonInteractivo[], enTexto?: string) => Promise<void>;
     /** Nombre del acudiente ya identificado (familia con cuenta); null si no se sabe. */
     nombreAcudiente?: () => Promise<string | null>;
+    /**
+     * Todo lo que escribió desde la última respuesta (la ráfaga), si quien
+     * llama agrupó varios mensajes en un turno. En la pregunta de perfil se lee
+     * también esto: Dynasty 2026-10-07 (`…edc0e7`), «Tengo 23 años y soy mujer»
+     * + «Qué horarios tiene. ?» corrieron como UN turno con el texto del último
+     * y el perfil se perdió.
+     */
+    rafaga?: string | null;
     // Inyectables (pruebas). Por defecto, los de Supabase de abajo.
     leerEstado?: (conversationId: string) => Promise<EstadoCortesia | null>;
     franjas?: (schoolId: string) => Promise<FranjaCortesia[]>;
@@ -314,6 +322,12 @@ export function quiereSalirDelFlujo(texto: string | null | undefined): boolean {
  */
 function esPreguntaDeOtroTema(texto: string): boolean {
     return /^(cuanto|cuanta|cuantos|donde|como|quien|cuando|por que|porque|precio|valor|mensualidad|tienen|hay|me pueden|me puede|necesito|quiero saber|informacion|info)\b/
+        .test(normalizar(texto));
+}
+
+/** «¿Qué horarios tiene?», «a qué hora entrenan», «qué días son». */
+export function preguntaPorHorarios(texto: string | null | undefined): boolean {
+    return /\b(horarios?|a que hora|que dias|cuando (entrenan|son|es|practican)|dias de entrenamiento)\b/
         .test(normalizar(texto));
 }
 
@@ -857,6 +871,34 @@ export async function iniciarCortesia(
 }
 
 /**
+ * Los horarios de cortesía para quien YA recibió la primera respuesta y
+ * pregunta de nuevo (seguimiento de prospecto): filtra con lo que dijo en
+ * `texto` (edad, género, adulto, grupo) y NUNCA vuelve a preguntar el perfil.
+ * false = no hay franjas vigentes (quien llama responde con otra cosa).
+ * El día solo se toma de `textoDelDia` (el mensaje actual): un «sábado» de
+ * hace cuatro días no es lo que pide hoy.
+ */
+export async function ofrecerHorariosDeCortesia(
+    ctx: CtxCortesia,
+    opciones: { texto: string; textoDelDia?: string | null; intro: string; step: string },
+): Promise<boolean> {
+    const d = deps(ctx);
+    const franjas = filtrarVigentes(await d.franjas(ctx.schoolId), d.ahora);
+    if (!franjas.length) return false;
+    const dia = leerDia(opciones.textoDelDia ?? null);
+    const grupo = grupoMencionado(opciones.texto, franjas);
+    if (grupo) {
+        const delGrupo = franjas.filter((f) => baseGrupo(f.grupo) === grupo);
+        await ofrecerFranjas(ctx, delGrupo.length ? delGrupo : franjas, 0, { dia }, opciones.intro, opciones.step,
+            { yaFiltradas: true });
+        return true;
+    }
+    const perfil = leerPerfil(opciones.texto);
+    await ofrecerFranjas(ctx, franjas, 0, { perfil, dia, ...edadDelPerfil(perfil) }, opciones.intro, opciones.step);
+    return true;
+}
+
+/**
  * Ofrece las franjas. ≤ 3 → botones; más → lista de WhatsApp (≤ 10 filas,
  * secciones por día; 9 + «Ver más» si hay más). El texto lleva las mismas
  * opciones numeradas y agrupadas por día: es lo que sale si la lista no sale
@@ -1084,10 +1126,22 @@ async function responderPerfil(
             { yaFiltradas: true });
         return true;
     }
-    const perfil = botonId === BOTON_CC.VER_MAS ? { todos: true } : leerPerfil(texto, { soloNumero: true });
+    // El perfil sale del mensaje o, si el turno agrupó varios, de la ráfaga
+    // entera («Tengo 23 años y soy mujer» + «Qué horarios tiene?»).
+    const perfil = botonId === BOTON_CC.VER_MAS ? { todos: true }
+        : leerPerfil(texto, { soloNumero: true }) ?? (ctx.rafaga ? leerPerfil(ctx.rafaga) : null);
+    const diaPedido = dia ?? (ctx.rafaga ? leerDia(ctx.rafaga) : null);
     if (perfil) {
-        await ofrecerFranjas(ctx, franjas, 0, { perfil, dia, ...edadDelPerfil(perfil) },
+        await ofrecerFranjas(ctx, franjas, 0, { perfil, dia: diaPedido, ...edadDelPerfil(perfil) },
             perfil.todos ? 'Listo, estos son los horarios de *todos los grupos*:' : 'Perfecto. 👍',
+            'cortesia_ofrecer');
+        return true;
+    }
+    // «¿Qué horarios tiene?» sin decir para quién: se muestran todos en vez de
+    // soltar el flujo (que dejaba al prospecto sin respuesta) o repetir la pregunta.
+    if (!botonId && preguntaPorHorarios(texto)) {
+        await ofrecerFranjas(ctx, franjas, 0, { dia: diaPedido },
+            'Estos son los próximos horarios. Si me dices *para quién es* y *qué edad tiene*, te muestro solo los de su grupo.',
             'cortesia_ofrecer');
         return true;
     }
