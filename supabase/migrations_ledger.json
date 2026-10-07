@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 702,
-  "head": "20261007095911",
+  "count": 704,
+  "head": "20261007163321",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -705,6 +705,8 @@
     {"v":"20261006232151","file":"20261006232151_whatsapp_transcribir_sin_consentimiento.sql","sha256":"ddba4d70cbd059ed45d4bd73e47d806c18f8569b070497b7e7113e09a4adae5a","added":"2026-10-07","by":"Brayan Steven Lopez"},
     {"v":"20261006233034","file":"20261006233034_wa_queue_result_payment_link.sql","sha256":"4e78cffbddf22cbb1aff1a5fb119070f26492c5c41598e444c5ff7a416c032eb","added":"2026-10-07","by":"Brayan Steven Lopez"},
     {"v":"20261007095845","file":"20261007095845_recordatorio_clase_cortesia.sql","sha256":"fd13fdff713904aa1c6b7be65f965fdf0e4639d39d0e2cdc90b8421abb996710","added":"2026-10-07","by":"Brayan Steven Lopez"},
-    {"v":"20261007095911","file":"20261007095911_ventas_wa_f0_carril_b.sql","sha256":"dbed0fc45103cf03304c71f99aaabdefdbcae960814eb91858118fe6cf0c4a33","added":"2026-10-07","by":"Brayan Steven Lopez"}
+    {"v":"20261007095911","file":"20261007095911_ventas_wa_f0_carril_b.sql","sha256":"dbed0fc45103cf03304c71f99aaabdefdbcae960814eb91858118fe6cf0c4a33","added":"2026-10-07","by":"Brayan Steven Lopez"},
+    {"v":"20261007134859","file":"20261007134859_autopay_f2_motor.sql","sha256":"dfddf7dbcf21a9da652beb315504de01e090d36414e6f676a270a57ecc0d48cf","added":"2026-10-07","by":"Brayan Steven Lopez"},
+    {"v":"20261007163321","file":"20261007163321_autopay_f3_familia_escuela.sql","sha256":"8c1c262a910a2fc4f5b4295737e84ffff30edc648a0b092c52332703bc79e2b6","added":"2026-10-07","by":"Brayan Steven Lopez"}
   ]
 }

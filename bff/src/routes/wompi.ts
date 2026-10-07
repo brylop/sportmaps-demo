@@ -48,6 +48,7 @@ import {
     markWebhookIgnored,
 } from '../services/webhook-events.service';
 import { sendPaymentAttemptFailedEmails } from '../services/paymentFailureEmail.service';
+import { autopayAlResultado, autopayCobroDoble } from '../services/autopay.service';
 
 const router = Router();
 
@@ -348,7 +349,7 @@ async function handleSchoolPayment({
     // 1. Buscar payment_link por referencia
     const { data: link, error: linkErr } = await supabase
         .from('payment_links')
-        .select('id, payment_id, school_id, gross_amount, base_amount, sportmaps_fee, status, expires_at, failed_attempts')
+        .select('id, payment_id, school_id, gross_amount, base_amount, sportmaps_fee, status, expires_at, failed_attempts, origin, recurring_attempt_id')
         .eq('wompi_reference', txReference)
         .maybeSingle();
 
@@ -367,6 +368,9 @@ async function handleSchoolPayment({
     if (existingSplit) {
         return { status: 200, body: { status: 'already_processed' } };
     }
+
+    // Débito automático: el enlace lo creó el motor (autopay.service) para un intento.
+    const autopayAttemptId: string | null = (link as any).origin === 'autopay' ? (link as any).recurring_attempt_id ?? null : null;
 
     if (internalStatus === 'paid') {
         // 3. Verificar monto
@@ -417,6 +421,15 @@ async function handleSchoolPayment({
             });
             if (flagErr) {
                 req.log?.error({ err: flagErr, paymentId: link.payment_id }, 'No se pudo marcar el doble pago para revisión');
+            }
+            // §8.3 del débito: si el cobro es del débito automático, incidente + suspensión.
+            try {
+                await autopayCobroDoble({
+                    paymentId: link.payment_id, schoolId: link.school_id, txId, amount: txAmountCop,
+                    attemptId: autopayAttemptId, reference: txReference, linkId: link.id,
+                });
+            } catch (e: any) {
+                req.log?.error({ err: e?.message, paymentId: link.payment_id }, 'autopay: no se pudo registrar el cobro doble');
             }
             req.log?.warn({ paymentId: link.payment_id, txReference, txId }, 'School payment: el cobro ya estaba pagado — doble pago a revisión');
             return { status: 200, body: { status: 'ok', kind: 'school_payment', duplicate_payment: true } };
@@ -523,6 +536,18 @@ async function handleSchoolPayment({
             req.log?.warn({ err: padreErr, paymentId: link.payment_id }, 'notify_parent_payment_paid falló (no-bloqueante)');
         }
 
+        if (autopayAttemptId) {
+            try {
+                await autopayAlResultado({
+                    attemptId: autopayAttemptId, paymentId: link.payment_id, txId, reference: txReference,
+                    linkId: link.id, internalStatus,
+                });
+            } catch (e: any) {
+                // El pago ya quedó paid; el intento lo cierra el barrido al reconsultar.
+                req.log?.error({ err: e?.message, attemptId: autopayAttemptId }, 'autopay: no se pudo cerrar el intento aprobado');
+            }
+        }
+
         req.log?.info({ paymentId: link.payment_id, txReference }, 'School payment confirmed');
         return { status: 200, body: { status: 'ok', kind: 'school_payment' } };
     }
@@ -548,6 +573,22 @@ async function handleSchoolPayment({
             { err: linkUpdErr, linkId: link.id, internalStatus },
             'No se pudo marcar el payment_link como fallido — el intento queda sin rastro',
         );
+    }
+
+    // Débito automático rechazado: NO es un pago fallido de la familia (no lo intentó
+    // ella, no se bloquea ni se le manda el aviso genérico). Se cierra el intento y el
+    // motor avisa con la fecha del reintento o que se agotó (§10.1).
+    if (autopayAttemptId) {
+        try {
+            await autopayAlResultado({
+                attemptId: autopayAttemptId, paymentId: link.payment_id, txId, reference: txReference,
+                linkId: link.id, internalStatus,
+            });
+        } catch (e: any) {
+            req.log?.error({ err: e?.message, attemptId: autopayAttemptId }, 'autopay: no se pudo cerrar el intento rechazado');
+            return { status: 500, body: { error: 'autopay_finish_failed' } };
+        }
+        return { status: 200, body: { status: 'ok', kind: 'school_payment', autopay: true, internalStatus } };
     }
 
     // Solo lo AMBIGUO bloquea. Una declinación ordinaria (el banco dijo que no,

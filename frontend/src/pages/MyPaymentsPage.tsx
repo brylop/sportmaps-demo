@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -21,6 +21,8 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { calcEarlyPaymentDiscount } from '@/lib/earlyPaymentDiscount';
 import { MiFacturaElectronicaCard } from '@/components/billing/MiFacturaElectronicaCard';
+import { DebitoAutomaticoCard, DebitoSugerenciaBanner } from '@/components/autopay/DebitoAutomaticoCard';
+import { useMiDebito } from '@/components/autopay/useMiDebito';
 
 interface Enrollment {
   id: string;
@@ -122,22 +124,10 @@ const TERMINAL_STATES_FOR_FAILURE_CHIP = ['approved', 'cancelled', 'rejected', '
 // `?pay=` del dashboard puede abrir solo).
 const DIRECTLY_PAYABLE_STATES = ['pending', 'overdue', 'rejected', 'failed'];
 
-interface Subscription {
-  id: string;
-  team_id: string;
-  amount: number;
-  payment_method: string;
-  status: string;
-  next_charge_date: string;
-  card_last4?: string;
-  bank_name?: string;
-}
-
 export default function MyPaymentsPage() {
   const { user, profile } = useAuth();
   const { toast } = useToast();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   // Glosas abiertas del acudiente, indexadas por payment_id (para el botón Responder).
   const [glosaMap, setGlosaMap] = useState<Map<string, Glosa>>(new Map());
   const [respondingGlosa, setRespondingGlosa] = useState<Glosa | null>(null);
@@ -157,6 +147,11 @@ export default function MyPaymentsPage() {
   } | null>(null);
 
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+
+  // Débito automático (F3): si el BFF no responde, `debito.data` queda null y
+  // la sección no se muestra (nunca rompe Mis Pagos).
+  const debito = useMiDebito(!!user && profile?.role === 'parent');
+  const [activarDebitoSchoolId, setActivarDebitoSchoolId] = useState<string | null>(null);
 
   // Atajo `?pay=<id>` o `?pay=auto` (banner del dashboard, correos, WhatsApp):
   // abre el modal de pago sin que el padre tenga que buscar el cobro y tocar
@@ -496,8 +491,6 @@ export default function MyPaymentsPage() {
       } else {
         setEnrollments([]);
       }
-
-      setSubscriptions([]);
     } catch (error) {
       console.error('Error fetching payment data:', error);
     } finally {
@@ -564,14 +557,6 @@ export default function MyPaymentsPage() {
         variant: 'destructive',
       });
     }
-  };
-
-  const handleCancelSubscription = async (subscriptionId: string) => {
-    toast({
-      title: 'Suscripción cancelada',
-      description: 'Tu suscripción ha sido cancelada exitosamente',
-    });
-    setSubscriptions(prev => prev.filter(s => s.id !== subscriptionId));
   };
 
   const summary = {
@@ -648,13 +633,16 @@ export default function MyPaymentsPage() {
             <CreditCard className="h-7 w-7 text-primary" />
             Mis Pagos
           </h1>
-          <p className="text-sm md:text-base text-muted-foreground truncate">Gestiona tus pagos y suscripciones</p>
+          <p className="text-sm md:text-base text-muted-foreground truncate">Tus mensualidades, pagos y débito automático</p>
         </div>
         <Button onClick={() => setShowChildPicker(true)} size="sm" className="w-full md:w-auto">
           <Plus className="h-4 w-4 mr-2" />
           Nuevo Pago
         </Button>
       </div>
+
+      {/* Invitación a activar el débito desde donde la familia ya paga. */}
+      <DebitoSugerenciaBanner data={debito.data} userId={user?.id} onActivar={setActivarDebitoSchoolId} />
 
       {/* Estado de Cuenta por hijo — misma pantalla que usa la escuela
           (get_athlete_account_statement), acotada a lo suyo por el gate de la
@@ -713,51 +701,16 @@ export default function MyPaymentsPage() {
         </Card>
       </div>
 
-      {/* Active Subscriptions */}
-      {subscriptions.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Suscripciones Activas</CardTitle>
-            <CardDescription>
-              {subscriptions.length} suscripción(es) con cobro automático
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {subscriptions.map((sub) => (
-              <div key={sub.id} className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <CreditCard className="h-4 w-4 text-primary" />
-                    <p className="font-semibold">Equipo {sub.team_id}</p>
-                    <Badge variant="default">Activo</Badge>
-                  </div>
-                  <p className="text-2xl font-bold text-primary">{formatCurrency(sub.amount)}/mes</p>
-                  <p className="text-sm text-muted-foreground">
-                    Próximo cobro: {new Date(sub.next_charge_date).toLocaleDateString('es-CO')}
-                  </p>
-                  {sub.card_last4 && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      💳 Tarjeta terminada en {sub.card_last4}
-                    </p>
-                  )}
-                  {sub.bank_name && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      🏦 {sub.bank_name}
-                    </p>
-                  )}
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleCancelSubscription(sub.id)}
-                >
-                  Cancelar
-                </Button>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
+      {/* Débito automático (F3). Reemplaza la tarjeta falsa de "Suscripciones
+          Activas". Los avisos enlazan a /my-payments#debito. */}
+      <div id="debito" className="scroll-mt-20">
+        <DebitoAutomaticoCard
+          data={debito.data}
+          reload={debito.reload}
+          activarSchoolId={activarDebitoSchoolId}
+          onActivarSchoolIdChange={setActivarDebitoSchoolId}
+        />
+      </div>
 
       {/* ¿Quiere factura electrónica a su nombre? Mismo bloque que /p/:token. */}
       <MiFacturaElectronicaCard />
