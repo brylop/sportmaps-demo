@@ -7,7 +7,8 @@
  *  · Plantillas de Meta con su estado y categoría. Importa porque si Meta
  *    desactiva o recategoriza una plantilla de cobranza, los envíos dejan de
  *    salir y el primer síntoma sería que nadie paga.
- *  · Bandeja: los comprobantes que llegaron y quedaron sin resolver.
+ *  · Bandeja: los comprobantes que llegaron y quedaron sin resolver, agrupados
+ *    (requiere acción / para revisar / informativo). Ver BandejaComprobantes.
  *  · Configuración: modo, IA y horario de atención.
  */
 
@@ -23,6 +24,7 @@ import { HorariosDeEntrenamiento } from '@/components/whatsapp/HorariosDeEntrena
 import { Metricas } from '@/components/whatsapp/Metricas';
 import { ClasesCortesia } from '@/components/whatsapp/ClasesCortesia';
 import { ImportarChatExportado } from '@/components/whatsapp/ImportarChatExportado';
+import { BandejaComprobantes, type ResumenBandeja } from '@/components/whatsapp/BandejaComprobantes';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -59,6 +61,8 @@ interface Estado {
     ajustes: Ajustes | null;
     consumo: Consumo | null;
     bandeja?: FilaBandeja[];
+    /** Conteo por grupo. Ausente si el BFF es anterior al 2026-10-07. */
+    bandeja_resumen?: ResumenBandeja;
     eventos?: EventoMeta[];
     /** Borradores `pending` que quedaron de un rato en asistido (solo en modo auto). */
     borradores_huerfanos?: Huerfanos;
@@ -100,6 +104,11 @@ export default function WhatsAppPage() {
     const [estado, setEstado] = useState<Estado | null>(null);
     const [plantillas, setPlantillas] = useState<Plantilla[]>([]);
     const [bandeja, setBandeja] = useState<FilaBandeja[]>([]);
+    const [resumenBandeja, setResumenBandeja] = useState<ResumenBandeja | null>(null);
+    // «Ver chat» desde la bandeja: abre esa conversación en su pestaña.
+    const [conversacionAbrir, setConversacionAbrir] = useState<string | null>(conversacionInicial);
+    // Sube al importar un chat: remonta la bandeja para que relea.
+    const [versionBandeja, setVersionBandeja] = useState(0);
     const [eventos, setEventos] = useState<EventoMeta[]>([]);
     const [cargando, setCargando] = useState(true);
     const [cargandoPlantillas, setCargandoPlantillas] = useState(false);
@@ -121,6 +130,7 @@ export default function WhatsAppPage() {
             const e = await bffClient.get<Estado>(`/api/v1/whatsapp/${schoolId}`);
             setEstado(e);
             setBandeja(e.bandeja ?? []);
+            setResumenBandeja(e.bandeja_resumen ?? null);
             setEventos(e.eventos ?? []);
         } catch (err: any) {
             setErrorDeCarga(err?.message ?? 'Error desconocido');
@@ -209,6 +219,9 @@ export default function WhatsAppPage() {
     };
 
     const consumo = estado?.consumo;
+    // El contador es lo que requiere acción, no todo lo que el bot no aplicó.
+    const pendientesBandeja = resumenBandeja ? resumenBandeja.accion : bandeja.length;
+    const verChat = (id: string) => { setConversacionAbrir(id); setPestana('conversaciones'); };
     const porcentaje = useMemo(() => {
         if (!consumo?.incluidos) return 0;
         return Math.min(Math.round((consumo.facturables / consumo.incluidos) * 100), 100);
@@ -380,7 +393,7 @@ export default function WhatsAppPage() {
                     </TabsTrigger>
                     <TabsTrigger value="bandeja">
                         <Inbox className="h-4 w-4 mr-1" /> Bandeja
-                        {bandeja.length > 0 && <Badge variant="secondary" className="ml-2">{bandeja.length}</Badge>}
+                        {pendientesBandeja > 0 && <Badge variant="secondary" className="ml-2">{pendientesBandeja}</Badge>}
                     </TabsTrigger>
                     <TabsTrigger value="horarios">
                         <Clock className="mr-1 h-3.5 w-3.5" /> Horarios
@@ -417,8 +430,10 @@ export default function WhatsAppPage() {
                         <Card>
                             <CardHeader className="pb-2"><CardDescription>Sin resolver</CardDescription></CardHeader>
                             <CardContent>
-                                <div className="text-2xl font-bold">{bandeja.length}</div>
-                                <p className="text-xs text-muted-foreground">comprobantes en la bandeja</p>
+                                <div className="text-2xl font-bold">{pendientesBandeja}</div>
+                                <p className="text-xs text-muted-foreground">
+                                    {resumenBandeja ? 'comprobantes requieren tu acción' : 'comprobantes en la bandeja'}
+                                </p>
                             </CardContent>
                         </Card>
                     </div>
@@ -460,7 +475,7 @@ export default function WhatsAppPage() {
 
                 {/* ── Plantillas ── */}
                 <TabsContent value="conversaciones">
-                    <Conversaciones schoolId={schoolId!} conversacionInicial={conversacionInicial} />
+                    <Conversaciones schoolId={schoolId!} conversacionInicial={conversacionAbrir} />
                 </TabsContent>
 
                 {/* ── Clases de cortesía: dónde quedó agendado cada prospecto ── */}
@@ -478,45 +493,24 @@ export default function WhatsAppPage() {
                 </TabsContent>
 
                 {/* ── Bandeja ── */}
-                <TabsContent value="bandeja">
-                    <Card>
-                        <CardHeader>
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                <CardTitle className="text-base">Comprobantes sin resolver</CardTitle>
-                                {/* Comprobantes viejos que solo están en el celular de la escuela. */}
-                                {schoolId && <ImportarChatExportado schoolId={schoolId} alTerminar={() => void cargar()} />}
-                            </div>
-                            <CardDescription>
-                                Los que llegaron por el chat y necesitan que alguien los mire: archivos que no
-                                eran comprobantes, acudientes sin cobros pendientes, o fallos al procesarlos.
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            {bandeja.length === 0 ? (
-                                <p className="text-sm text-muted-foreground py-8 text-center">
-                                    No hay nada pendiente. Todo lo que llegó se resolvió solo.
-                                </p>
-                            ) : (
-                                <div className="space-y-2">
-                                    {bandeja.map((f) => (
-                                        <div key={f.id} className="flex items-center justify-between border-b pb-2 last:border-0 text-sm">
-                                            <div>
-                                                <span className="font-mono text-xs">{f.wa_phone_number}</span>
-                                                <span className="text-muted-foreground"> · {f.message_type}</span>
-                                                {f.error_message && <div className="text-muted-foreground">{f.error_message}</div>}
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                <Badge variant="outline">{f.status}</Badge>
-                                                <span className="text-xs text-muted-foreground">
-                                                    {new Date(f.created_at).toLocaleString('es-CO')}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
+                <TabsContent value="bandeja" className="space-y-3">
+                    {/* Comprobantes viejos que solo están en el celular de la escuela. */}
+                    {schoolId && (
+                        <div className="flex justify-end">
+                            <ImportarChatExportado schoolId={schoolId} alTerminar={() => {
+                                setVersionBandeja((v) => v + 1);
+                                void cargar();
+                            }} />
+                        </div>
+                    )}
+                    {schoolId && (
+                        <BandejaComprobantes
+                            key={versionBandeja}
+                            schoolId={schoolId}
+                            onVerChat={verChat}
+                            onCambio={setResumenBandeja}
+                        />
+                    )}
                 </TabsContent>
 
                 {/* ── Configuración ── */}
