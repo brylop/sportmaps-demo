@@ -23,7 +23,7 @@ describe('searchHelpArticles', () => {
 
 describe('appendHelpArticleLinks', () => {
     const found = [
-        { slug: 'registrar-nuevo-atleta', title: 'Registrar un nuevo atleta manualmente', excerpt: '', snippet: '', href: '/ayuda/registrar-nuevo-atleta' },
+        { slug: 'registrar-nuevo-atleta', title: 'Registrar un nuevo atleta manualmente', excerpt: '', contenido: '', href: '/ayuda/registrar-nuevo-atleta' },
     ];
 
     it('agrega el link si el texto del LLM no lo trae', () => {

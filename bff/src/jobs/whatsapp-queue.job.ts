@@ -37,6 +37,7 @@ import {
     pagosPendientesDe, resolverPago, describirPago, mensajeElegirPago,
     type PagoPendiente,
 } from '../services/whatsapp-receipt-matching.service';
+import { invitacionPendienteVigente } from '../services/whatsapp-invitacion-vigente.service';
 
 // El mismo Logger que usa receipt-approval.service, para poder pasárselo tal cual
 // a evaluatePaymentReceipt sin castear.
@@ -108,12 +109,60 @@ export function pistaDesdeTextos(textos: (string | null | undefined)[]): PistaDe
     return mejor?.concepto ? { ref: null, concepto: mejor.concepto } : null;
 }
 
-async function pistaDeCobro(fila: FilaCola): Promise<PistaDeCobro | null> {
+// ─── Adjunto que NO es un comprobante (análisis 2026-10-06, Dynasty) ────────
+//
+// Caso real: una mamá SIN cuenta escribió «acabo de ver un correo», mandó la
+// captura del correo de estado de cuenta y siguió con «llevo varios meses sin
+// asistir» y «no entiendo porque me estan cobrando?». El camino de familia sin
+// cuenta no leía la imagen ni el texto: respondió «Recibí tu comprobante 📄 …
+// se lo paso a la escuela para que lo aplique» y dejó la fila en el buzón de
+// comprobantes (`escalated`) como si fuera un pago. Era un reclamo.
+
+/**
+ * ¿Lo que la familia escribe alrededor del adjunto es un reclamo o una
+ * pregunta sobre un cobro? Entonces el adjunto acompaña una CONSULTA, no un
+ * pago: lo atiende una persona, y no se le dice «Recibí tu comprobante».
+ */
+const SENALES_DE_CONSULTA: RegExp[] = [
+    /\b(por ?que|porq|xq|pq)\b.*\bcobr/,                                   // ¿por qué me cobran?
+    /\bno entiendo\b/,
+    /\bcobr\w* (de mas|doble|dos veces|equivocad\w*|indebid\w*|errad\w*|mal)\b/,
+    /\bsin asistir\b/,
+    /\bno (he|ha|hemos|han) (ido|asistido|venido|vuelto)\b/,
+    /\bno (asiste|asisto|asistio|asistimos|asisten)\b/,
+    /\bno (le )?(debo|debemos)\b/,
+    /\b(reclamo|queja)\b/,
+    /\baclar\w*/,                                                          // «me puedes aclarar»
+    /\bestado de cuenta\b/,
+    /\b(vi|ver|veo|llego|llega|recibi|mandaron|enviaron|enviaste|mandaste) (un|el|este|ese|su|tu) correo\b/,
+];
+
+export function esConsultaSobreCobro(textos: (string | null | undefined)[]): boolean {
+    return textos.some((t) => {
+        const n = normalizarFrase(t);
+        return !!n && SENALES_DE_CONSULTA.some((re) => re.test(n));
+    });
+}
+
+/**
+ * ¿La lectura muestra un comprobante de pago de verdad? Monto, y una prueba de
+ * la transacción: la referencia, o la fecha con el banco. Un correo de cobro o
+ * un estado de cuenta trae monto y fecha, pero ni referencia ni banco.
+ */
+export function pareceComprobanteDePago(ocr: Partial<Awaited<ReturnType<typeof extractReceipt>>> | null | undefined): boolean {
+    if (!ocr || ocr.isReceipt === false || ocr.isTransactionList === true) return false;
+    if (!(typeof ocr.amount === 'number' && ocr.amount > 0)) return false;
+    if (ocr.reference && String(ocr.reference).trim()) return true;
+    return !!ocr.date && !!ocr.bank && ocr.bank !== 'Otro';
+}
+
+/** Los textos de la familia alrededor del adjunto: el pie y lo que escribió cerca. */
+async function textosCercanos(fila: FilaCola): Promise<(string | null | undefined)[]> {
+    const textos: (string | null | undefined)[] = [fila.media_caption];
     try {
         const { data: conv } = await supabase.from('whatsapp_conversations')
             .select('id').eq('integration_id', fila.integration_id).eq('contact_wa_id', fila.wa_phone_number)
             .maybeSingle();
-        const textos: (string | null | undefined)[] = [fila.media_caption];
         if ((conv as any)?.id) {
             const base = fila.created_at ? new Date(fila.created_at).getTime() : Date.now();
             const { data } = await supabase.from('whatsapp_messages')
@@ -125,7 +174,15 @@ async function pistaDeCobro(fila: FilaCola): Promise<PistaDeCobro | null> {
                 .limit(30);
             for (const m of (Array.isArray(data) ? data : []) as any[]) textos.push(m?.text_body);
         }
-        return pistaDesdeTextos(textos);
+    } catch {
+        // Sin textos se decide solo con el pie y la lectura.
+    }
+    return textos;
+}
+
+async function pistaDeCobro(fila: FilaCola): Promise<PistaDeCobro | null> {
+    try {
+        return pistaDesdeTextos(await textosCercanos(fila));
     } catch {
         return null;
     }
@@ -175,6 +232,13 @@ const M = {
     noSePudoLeer:
         'Recibí tu comprobante pero no logré leerlo bien 😕 La escuela lo va a ' +
         'revisar a mano y te confirma.',
+
+    // El adjunto acompaña una pregunta o un reclamo sobre un cobro (o no es un
+    // comprobante y la familia no tiene cuenta): no se dice «comprobante», no se
+    // promete aplicar nada y no se ofrece el registro — lo atiende una persona.
+    consulta:
+        'Recibí tu mensaje 🙏 Se lo paso a la escuela para que lo revise contigo ' +
+        'y te responda por aquí.',
 } as const;
 
 const cop = (n: number) =>
@@ -952,15 +1016,47 @@ const FRONTEND_URL = APP_PUBLICA_PROD;
  * vincula `children`, solo `accept_invitation_pro` lo hace.
  */
 async function mensajeSinCuenta(fila: FilaCola): Promise<string> {
-    const { data: inv } = await supabase.rpc('wa_invitacion_pendiente_por_telefono', {
-        p_integration_id: fila.integration_id,
-        p_contact_wa_id: fila.wa_phone_number,
-    });
-    const invitacion = inv as { invite_id?: string; email?: string } | null;
+    // Solo la invitación de un atleta ACTIVO (whatsapp-invitacion-vigente): a la
+    // familia de un atleta dado de baja no se le ofrece crear la cuenta.
+    const { invitacion } = await invitacionPendienteVigente(
+        fila.integration_id, fila.wa_phone_number, fila.school_id);
     if (!invitacion?.invite_id) return M.sinCuenta;
     const enlace = `${FRONTEND_URL}/register?invite=${invitacion.invite_id}` +
         (invitacion.email ? `&email=${encodeURIComponent(invitacion.email)}` : '');
     return `${M.sinCuenta}\n\nSi creas tu cuenta aquí, la próxima vez tu comprobante se aplica solo: ${enlace}`;
+}
+
+/**
+ * El adjunto acompaña una consulta, no un pago: se le dice a la familia que lo
+ * atiende una persona y la CONVERSACIÓN pasa a la escuela (abierta en el buzón,
+ * con push al staff), igual que el escalamiento del bot. La fila NO queda como
+ * comprobante a aplicar (`result_type='none'`, no `escalated`): no es un pago.
+ * El paso es 'escalated' para que cuente como escalamiento y para que el bot
+ * no le conteste encima a la persona que lo va a atender.
+ */
+async function derivarConsulta(
+    fila: FilaCola,
+    wa: WhatsAppIntegration,
+    conversationId: string | null,
+    responder: (texto: string, paso: string) => Promise<unknown>,
+    origen: string,
+    log?: Logger,
+): Promise<void> {
+    await responder(M.consulta, 'escalated');
+    if (conversationId) {
+        try {
+            // Import perezoso, como `ofrecerConsentimientoSiFalta`: el bot arrastra media app.
+            const { abrirConsultaParaLaEscuela } = await import('../services/whatsapp-bot.service');
+            await abrirConsultaParaLaEscuela(wa, conversationId, fila.wa_phone_number, 'consulta_con_adjunto');
+        } catch (e: any) {
+            log?.warn?.({ queueId: fila.id, err: e?.message }, '[wa-queue] no se pudo avisar a la escuela; se abre la conversación');
+            await supabase.from('whatsapp_conversations')
+                .update({ status: 'open', updated_at: new Date().toISOString() })
+                .eq('id', conversationId);
+        }
+    }
+    await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: `consulta_no_comprobante:${origen}` });
+    log?.info?.({ queueId: fila.id, origen }, '[wa-queue] adjunto con consulta: a la escuela como conversación');
 }
 
 /**
@@ -977,15 +1073,35 @@ async function mensajeSinCuenta(fila: FilaCola): Promise<string> {
 async function escalarALaEscuela(
     fila: FilaCola,
     wa: WhatsAppIntegration,
+    conversationId: string | null,
     responder: (texto: string, paso: string) => Promise<unknown>,
-    mensaje: string,
+    mensaje: string | (() => Promise<string>),
     paso: string,
     motivo: string,
     log?: Logger,
 ): Promise<void> {
     const bajada = await bajarYGuardarArchivo(fila, wa, log);
     if (!bajada.ok) return;
-    await responder(mensaje, paso);
+
+    // ¿Es siquiera un comprobante? (2026-10-06, ver `esConsultaSobreCobro`.)
+    // Primero lo que escribió —no cuesta nada—; si no lo dice, la lectura. Antes
+    // este camino no leía nada y a una captura de un correo de cobro con un
+    // reclamo le contestaba «Recibí tu comprobante».
+    let consulta = esConsultaSobreCobro(await textosCercanos(fila));
+    if (!consulta) {
+        try {
+            consulta = !pareceComprobanteDePago(await extractReceipt(bajada.base64, bajada.mime));
+        } catch (err: any) {
+            // Sin lectura no hay veredicto: sigue como antes —lo mira una persona igual—.
+            log?.warn?.({ queueId: fila.id, err: err?.message ?? err }, '[wa-queue] OCR no disponible al escalar');
+        }
+    }
+    if (consulta) {
+        await derivarConsulta(fila, wa, conversationId, responder, motivo, log);
+        return;
+    }
+
+    await responder(typeof mensaje === 'function' ? await mensaje() : mensaje, paso);
     await cerrar(fila.id, 'ignored', { result_type: 'escalated', error_message: motivo });
     log?.info?.({ queueId: fila.id, motivo }, '[wa-queue] escalado a la escuela');
 }
@@ -1360,18 +1476,20 @@ async function procesarFilaInterna(
         return;
     }
     if (decision === 'escalar_sin_cuenta') {
+        // El mensaje (con el enlace de registro) se arma solo si de verdad es un
+        // comprobante: a una consulta no se le ofrece registrarse.
         //
         // «No tienes cuenta» UNA vez cada 24 h por conversación: si el bot (o
         // la cola) ya lo dijo, el comprobante se acusa corto, sin el párrafo
         // (…8804c0, 07-oct: tres veces el mismo aviso en 14 min).
-        await escalarALaEscuela(fila, wa, responder,
-            (await yaSeDijoSinCuenta(conversationId)) ? M.escaladoSinAcudiente : await mensajeSinCuenta(fila),
+        await escalarALaEscuela(fila, wa, conversationId, responder,
+            async () => (await yaSeDijoSinCuenta(conversationId)) ? M.escaladoSinAcudiente : mensajeSinCuenta(fila),
             'familia_sin_cuenta', 'familia_sin_cuenta', log);
         await anotarAtletaDeLaFicha(fila);
         return;
     }
     if (decision === 'escalar_ambiguo') {
-        await escalarALaEscuela(fila, wa, responder, M.numeroAmbiguo,
+        await escalarALaEscuela(fila, wa, conversationId, responder, M.numeroAmbiguo,
             'numero_ambiguo', 'numero_ambiguo', log);
         return;
     }
@@ -1399,7 +1517,7 @@ async function procesarFilaInterna(
     if (!parentId) {
         // 'familia' sin acudiente resoluble: no debería pasar. NO se pide el
         // correo (ver `M`); lo resuelve la escuela.
-        await escalarALaEscuela(fila, wa, responder, M.escaladoSinAcudiente,
+        await escalarALaEscuela(fila, wa, conversationId, responder, M.escaladoSinAcudiente,
             'familia_sin_acudiente', 'familia sin parent_id resoluble', log);
         return;
     }
@@ -1415,6 +1533,17 @@ async function procesarFilaInterna(
         ocr = await extractReceipt(base64, mime);
     } catch (err: any) {
         await reintentar(fila, `OCR no disponible: ${err?.message ?? err}`, log);
+        return;
+    }
+
+    // 4.5. ¿Acompaña un reclamo o una pregunta sobre un cobro, y la lectura no
+    //      muestra un pago? (captura del correo de estado de cuenta + «¿por qué
+    //      me cobran?», 2026-10-06). Va a una persona como consulta. Un
+    //      comprobante real con un reclamo al lado SÍ se aplica: lo que la
+    //      escuela revisa es el pago, y un falso positivo del texto no puede
+    //      dejar sin aplicar un comprobante bueno.
+    if (!pareceComprobanteDePago(ocr) && esConsultaSobreCobro(await textosCercanos(fila))) {
+        await derivarConsulta(fila, wa, conversationId, responder, 'familia', log);
         return;
     }
 

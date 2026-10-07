@@ -103,7 +103,7 @@ vi.mock('./whatsapp-plantillas.service', async (orig) => {
 });
 
 import {
-    agruparPorFamilia, claveEstadoDeCuenta, cuerpoCorreoEstado, elegirCanal, enviarEstadoDeCuenta,
+    agruparPorFamilia, claveEstadoDeCuenta, cobrosDeAtletaInactivo, cuerpoCorreoEstado, elegirCanal, enviarEstadoDeCuenta,
     escuelasConEstadoPendiente, esDiaHabil, esHoraDelEnvioMensual, primerDiaHabilDesde, runEstadoDeCuentaMensual,
     type Familia, type PagoEstado,
 } from './estado-de-cuenta.service';
@@ -522,5 +522,59 @@ describe('convivencia con el aviso por cobro', () => {
         const f3 = creaFiltroEstadoDeCuenta(MIE_4_NOV_0900); // al día siguiente ya puede
         await f3.inicializar([ESCUELA]);
         expect(await f3.debeEsperar({ school_id: ESCUELA }, contacto('caro@x.co', null))).toBeNull();
+    });
+});
+
+// Caso Dynasty 2026-10-06: la familia de un atleta dado de baja no recibe estado de cuenta.
+describe('atleta dado de baja', () => {
+    it('matriz de cobrosDeAtletaInactivo (child, ficha, adulto por membresía; NULL = activo)', () => {
+        const pagos = [
+            pago('hijo-inactivo', { child_id: 'c1' }),
+            pago('hijo-activo', { child_id: 'c2' }),
+            pago('hijo-null', { child_id: 'c3' }),
+            pago('ficha-inactiva', { child_id: null, unregistered_athlete_id: 'u1' }),
+            pago('ficha-activa', { child_id: null, unregistered_athlete_id: 'u2' }),
+            pago('adulto-inactivo', { child_id: null, parent_id: null, user_id: 'a1' }),
+            pago('adulto-reactivado', { child_id: null, parent_id: null, user_id: 'a2' }),
+            pago('adulto-sin-membresia', { child_id: null, parent_id: null, user_id: 'a3' }),
+        ];
+        const r = cobrosDeAtletaInactivo(pagos, {
+            hijos: new Map<string, any>([['c1', { is_active: false }], ['c2', { is_active: true }], ['c3', { is_active: null }]]),
+            noRegistrados: new Map<string, any>([['u1', { is_active: false }], ['u2', { is_active: true }]]),
+            membresiasAtleta: new Map([['a1', ['inactive']], ['a2', ['inactive', 'active']]]),
+        });
+        expect([...r].sort()).toEqual(['adulto-inactivo', 'ficha-inactiva', 'hijo-inactivo']);
+    });
+
+    it('el envío salta los cobros del atleta inactivo y lo cuenta en el resumen', async () => {
+        estado.tablas.children.find((c) => c.id === 'c2')!.is_active = false;      // Sara, hermana de Samuel
+        estado.tablas.children.find((c) => c.id === 'c3')!.is_active = false;      // Luis: Jorge queda sin nada
+        estado.tablas.payments.push(
+            pago('pay-ficha', { parent_id: 'p2', child_id: null, unregistered_athlete_id: 'u1' }),
+            pago('pay-adulto', { parent_id: null, child_id: null, user_id: 'p-adulto' }),
+        );
+        estado.tablas.unregistered_athletes = [{ id: 'u1', full_name: 'Ficha Baja', is_active: false }];
+        estado.tablas.profiles.push({ id: 'p-adulto', full_name: 'Adulto Baja', email: 'adulto@x.co', phone: null });
+        estado.tablas.school_members = [{ school_id: ESCUELA, profile_id: 'p-adulto', role: 'athlete', status: 'inactive' }];
+
+        const r = await enviarEstadoDeCuenta(ESCUELA, { modo: 'manual', aplicar: true, canal: 'correo', ahora: MAR_3_NOV_0800, pausaMs: 0 });
+        expect(r.cobros_atleta_inactivo).toBe(4);   // pay-b, pay-c, pay-ficha, pay-adulto
+        expect(estado.correos.map((c) => c.to)).toEqual(['caro@x.co']);
+        const caro = estado.correos[0].html;
+        expect(caro).toContain('Samuel');
+        expect(caro).not.toContain('Sara');
+        // Ningún cobro excluido queda estampado como avisado.
+        const p = (id: string) => estado.tablas.payments.find((x) => x.id === id)!;
+        expect(p('pay-b').charge_notice_sent_at).toBeNull();
+        expect(p('pay-adulto').charge_notice_sent_at).toBeNull();
+    });
+
+    it('la membresía athlete inactiva de OTRA escuela no excluye', async () => {
+        estado.tablas.payments = [pago('pay-adulto', { parent_id: null, child_id: null, user_id: 'p-adulto' })];
+        estado.tablas.profiles.push({ id: 'p-adulto', full_name: 'Adulto', email: 'adulto@x.co', phone: null });
+        estado.tablas.school_members = [{ school_id: 'otra', profile_id: 'p-adulto', role: 'athlete', status: 'inactive' }];
+        const r = await enviarEstadoDeCuenta(ESCUELA, { modo: 'manual', aplicar: false, canal: 'correo', ahora: MAR_3_NOV_0800 });
+        expect(r.cobros_atleta_inactivo).toBe(0);
+        expect(r.por_correo).toBe(1);
     });
 });

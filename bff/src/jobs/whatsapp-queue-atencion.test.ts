@@ -22,6 +22,10 @@ const state = {
     rpcIdentifyByPhone: { data: { estado: 'desconocido' } as any },
     rpcInvitacion: { data: null as any },
     atencion: { atender: true, tipo: 'familia', botEncendido: true } as any,
+    /** Mensajes entrantes de la familia alrededor del adjunto. */
+    mensajes: [] as { text_body: string | null }[],
+    /** Lo que devuelve invitacionPendienteVigente. */
+    vigente: { invitacion: null, atletaInactivo: false } as any,
 };
 
 /** Cada UPDATE a la cola queda acá, para ver cómo se cerró la fila. */
@@ -34,6 +38,8 @@ function makeChain(result: any, table?: string) {
         in: () => chain,
         or: () => chain,
         gte: () => chain,
+        lte: () => chain,
+        ilike: () => chain,
         limit: () => chain,
         order: () => chain,
         insert: () => chain,
@@ -73,7 +79,16 @@ vi.mock('../config/supabase', () => ({
                 return makeChain({ data: { id: 'int-1', school_id: 'school-1', access_token: 'tok', phone_number_id: 'pn-1' } }, table);
             }
             if (table === 'whatsapp_conversations') return makeChain(state.conv, table);
-            if (table === 'whatsapp_messages') return makeChain({ data: [], error: null }, table);
+            if (table === 'whatsapp_messages') {
+                // Entrantes = los textos de la familia; salientes (anti-repetición) = nada.
+                const result = { data: state.mensajes as any[], error: null };
+                const chain = makeChain(result, table);
+                chain.eq = (col: string, val: any) => {
+                    if (col === 'direction' && val === 'outbound') result.data = [];
+                    return chain;
+                };
+                return chain;
+            }
             return makeChain({ data: null, error: null }, table);
         }),
         rpc: (...args: any[]) => (rpcMock as any)(...args),
@@ -101,6 +116,17 @@ vi.mock('../services/whatsapp-optin.service', () => ({
 const debeAtenderMock = vi.fn((..._args: any[]) => Promise.resolve(state.atencion));
 vi.mock('../services/whatsapp-atencion.service', () => ({
     debeAtender: (...a: any[]) => debeAtenderMock(...a),
+}));
+
+const invitacionPendienteVigenteMock = vi.fn((..._a: any[]) => Promise.resolve(state.vigente));
+vi.mock('../services/whatsapp-invitacion-vigente.service', () => ({
+    invitacionPendienteVigente: (...a: any[]) => invitacionPendienteVigenteMock(...a),
+}));
+
+const abrirConsultaMock = vi.fn((..._a: any[]) => Promise.resolve());
+vi.mock('../services/whatsapp-bot.service', () => ({
+    abrirConsultaParaLaEscuela: (...a: any[]) => abrirConsultaMock(...a),
+    ofrecerConsentimientoSiFalta: vi.fn(() => Promise.resolve()),
 }));
 
 const extractReceiptMock = vi.fn();
@@ -134,7 +160,7 @@ vi.mock('../services/whatsapp-receipt-matching.service', () => ({
     mensajeElegirPago: () => 'elige',
 }));
 
-const { runWhatsAppQueue, decidirAdjunto } = await import('./whatsapp-queue.job');
+const { runWhatsAppQueue, decidirAdjunto, esConsultaSobreCobro, pareceComprobanteDePago } = await import('./whatsapp-queue.job');
 
 const COMPROBANTE = {
     isReceipt: true, isTransactionList: false, amount: 150000, destination: null,
@@ -152,6 +178,8 @@ beforeEach(() => {
     state.rpcStaffAdmin = { data: { estado: 'desconocido' } };
     state.rpcIdentifyByPhone = { data: { estado: 'desconocido' } };
     state.rpcInvitacion = { data: null };
+    state.mensajes = [];
+    state.vigente = { invitacion: null, atletaInactivo: false };
     state.atencion = { atender: true, tipo: 'familia', botEncendido: true };
     extractReceiptMock.mockResolvedValue(COMPROBANTE);
     resolverPagoMock.mockReturnValue({ tipo: 'sin_pendientes' });
@@ -236,7 +264,7 @@ describe('runWhatsAppQueue — la puerta de atención', () => {
         expect(pagosPendientesDeMock).toHaveBeenCalledWith('parent-otp', 'school-1');
     });
 
-    it('familia_sin_cuenta: mensaje de escalamiento una vez, sin OCR, sin pedir correo, fila escalated', async () => {
+    it('familia_sin_cuenta: mensaje de escalamiento una vez, sin pedir correo, fila escalated', async () => {
         state.atencion = { atender: true, tipo: 'familia_sin_cuenta', botEncendido: true };
 
         await runWhatsAppQueue();
@@ -246,7 +274,8 @@ describe('runWhatsAppQueue — la puerta de atención', () => {
         expect(texto).toMatch(/todavía no tienes tu cuenta creada/);
         expect(texto).toMatch(/escuela/);
         expect(texto).not.toMatch(/correo|código/i);
-        expect(extractReceiptMock).not.toHaveBeenCalled();
+        // Se lee (2026-10-06): sin lectura no se sabe si es un comprobante.
+        expect(extractReceiptMock).toHaveBeenCalledTimes(1);
         // El archivo SÍ se guarda: la escuela tiene que verlo para aplicarlo.
         expect(downloadMediaMock).toHaveBeenCalled();
         expect(pagosPendientesDeMock).not.toHaveBeenCalled();
@@ -255,7 +284,7 @@ describe('runWhatsAppQueue — la puerta de atención', () => {
 
     it('familia_sin_cuenta con invitación pendiente: el mensaje trae SU enlace', async () => {
         state.atencion = { atender: true, tipo: 'familia_sin_cuenta', botEncendido: true };
-        state.rpcInvitacion = { data: { invite_id: 'inv-1', email: 'mama@x.com' }, error: null };
+        state.vigente = { invitacion: { invite_id: 'inv-1', email: 'mama@x.com' }, atletaInactivo: false };
 
         await runWhatsAppQueue();
 
@@ -270,7 +299,6 @@ describe('runWhatsAppQueue — la puerta de atención', () => {
         const [texto] = textosEnviados();
         expect(texto).toMatch(/más de una cuenta/);
         expect(texto).not.toMatch(/correo|código/i);
-        expect(extractReceiptMock).not.toHaveBeenCalled();
         expect(ultimoCierre()).toMatchObject({ status: 'ignored', result_type: 'escalated', error_message: 'numero_ambiguo' });
     });
 
@@ -319,5 +347,165 @@ describe('runWhatsAppQueue — conversación tomada por una persona', () => {
         expect(downloadMediaMock).toHaveBeenCalled();
         expect(sendTextMessageMock).not.toHaveBeenCalled();
         expect(ultimoCierre()).toMatchObject({ status: 'ignored', result_type: 'escalated' });
+    });
+});
+
+// ─── Adjunto que acompaña una consulta (Dynasty, 2026-10-06) ────────────────
+//
+// Beverly (sin cuenta): «acabo de ver un correo» + captura del correo de estado
+// de cuenta + «te comento que llevo varios meses sin asistir» + «no entiendo
+// porque me estan cobrando?». El bot contestó «Recibí tu comprobante 📄 …» con
+// el enlace de registro y dejó la fila en el buzón de comprobantes.
+
+const TEXTOS_BEVERLY = [
+    'acabo de ver un correo',
+    'te comento que llevo varios meses sin asistir',
+    'no entiendo porque me estan cobrando?',
+];
+
+/** Lo que el OCR saca de la captura de un correo de cobro: monto y fecha, sin transacción. */
+const CORREO_DE_COBRO = {
+    isReceipt: true, isTransactionList: false, amount: 180000, destination: null,
+    reference: null, bank: null, date: '2026-10-05', provider: 'gemini',
+    missingFields: ['reference', 'bank', 'destination'],
+};
+
+describe('esConsultaSobreCobro — la regla', () => {
+    it('el caso real es una consulta', () => {
+        expect(esConsultaSobreCobro(TEXTOS_BEVERLY)).toBe(true);
+        expect(esConsultaSobreCobro(['no entiendo porque me estan cobrando?'])).toBe(true);
+        expect(esConsultaSobreCobro(['llevo varios meses sin asistir'])).toBe(true);
+        expect(esConsultaSobreCobro(['acabo de ver un correo'])).toBe(true);
+        expect(esConsultaSobreCobro(['¿Por qué me cobran octubre si no fue?'])).toBe(true);
+        expect(esConsultaSobreCobro(['me llegó el estado de cuenta'])).toBe(true);
+        expect(esConsultaSobreCobro(['me puedes aclarar eso'])).toBe(true);
+    });
+
+    it('anunciar o mandar un comprobante NO es una consulta', () => {
+        expect(esConsultaSobreCobro([
+            'Hola, envío el comprobante de pago de Mensualidad 10/2026 - Sub 13 (octubre 2026) de Ana. (ref. ABCD1234)',
+        ])).toBe(false);
+        expect(esConsultaSobreCobro(['ya pagué', 'te mando el soporte de la mensualidad'])).toBe(false);
+        expect(esConsultaSobreCobro(['Muy buenos dias', 'Cómo estas', null, undefined, ''])).toBe(false);
+    });
+});
+
+describe('pareceComprobanteDePago — la regla', () => {
+    it('comprobante con monto y referencia, o con fecha y banco', () => {
+        expect(pareceComprobanteDePago(COMPROBANTE as any)).toBe(true);
+        expect(pareceComprobanteDePago({ ...COMPROBANTE, reference: null } as any)).toBe(true);
+    });
+    it('correo de cobro / estado de cuenta: monto y fecha sin transacción → no', () => {
+        expect(pareceComprobanteDePago(CORREO_DE_COBRO as any)).toBe(false);
+        expect(pareceComprobanteDePago({ ...COMPROBANTE, reference: null, bank: 'Otro' } as any)).toBe(false);
+    });
+    it('no es comprobante, es listado, o sin monto → no', () => {
+        expect(pareceComprobanteDePago({ ...COMPROBANTE, isReceipt: false } as any)).toBe(false);
+        expect(pareceComprobanteDePago({ ...COMPROBANTE, isTransactionList: true } as any)).toBe(false);
+        expect(pareceComprobanteDePago({ ...COMPROBANTE, amount: null } as any)).toBe(false);
+        expect(pareceComprobanteDePago(null)).toBe(false);
+    });
+});
+
+describe('runWhatsAppQueue — adjunto con consulta', () => {
+    it('familia sin cuenta + reclamo (caso Beverly): consulta a la escuela, sin «comprobante», sin enlace, fila NO escalated', async () => {
+        state.atencion = { atender: true, tipo: 'familia_sin_cuenta', botEncendido: true };
+        state.mensajes = TEXTOS_BEVERLY.map((t) => ({ text_body: t }));
+        state.vigente = { invitacion: { invite_id: 'inv-1', email: 'mama@x.com' }, atletaInactivo: false };
+        extractReceiptMock.mockResolvedValue(CORREO_DE_COBRO);
+
+        await runWhatsAppQueue();
+
+        expect(sendTextMessageMock).toHaveBeenCalledTimes(1);
+        const [texto] = textosEnviados();
+        expect(texto).not.toMatch(/comprobante/i);
+        expect(texto).not.toContain('/register');
+        expect(texto).toMatch(/escuela/);
+        // El texto ya lo decide: no se gasta OCR ni se busca la invitación.
+        expect(extractReceiptMock).not.toHaveBeenCalled();
+        expect(invitacionPendienteVigenteMock).not.toHaveBeenCalled();
+        // Handoff humano: la conversación pasa a la escuela.
+        expect(abrirConsultaMock).toHaveBeenCalledWith(expect.anything(), 'conv-1', '573001234567', 'consulta_con_adjunto');
+        // No queda como comprobante a aplicar.
+        expect(ultimoCierre()).toMatchObject({ status: 'ignored', result_type: 'none' });
+        expect(ultimoCierre().error_message).toMatch(/^consulta_no_comprobante/);
+        // El archivo sí se guarda: la escuela lo ve en la conversación.
+        expect(downloadMediaMock).toHaveBeenCalled();
+    });
+
+    it('familia sin cuenta, sin texto, la lectura es un correo de cobro: consulta, no «Recibí tu comprobante»', async () => {
+        state.atencion = { atender: true, tipo: 'familia_sin_cuenta', botEncendido: true };
+        extractReceiptMock.mockResolvedValue(CORREO_DE_COBRO);
+
+        await runWhatsAppQueue();
+
+        expect(extractReceiptMock).toHaveBeenCalledTimes(1);
+        expect(textosEnviados()[0]).not.toMatch(/comprobante/i);
+        expect(abrirConsultaMock).toHaveBeenCalled();
+        expect(ultimoCierre()).toMatchObject({ status: 'ignored', result_type: 'none' });
+    });
+
+    it('familia sin cuenta, la imagen NO es comprobante (isReceipt=false): consulta', async () => {
+        state.atencion = { atender: true, tipo: 'familia_sin_cuenta', botEncendido: true };
+        extractReceiptMock.mockResolvedValue({ isReceipt: false, isTransactionList: false, provider: 'gemini' });
+
+        await runWhatsAppQueue();
+
+        expect(textosEnviados()[0]).not.toMatch(/comprobante/i);
+        expect(ultimoCierre()).toMatchObject({ status: 'ignored', result_type: 'none' });
+    });
+
+    it('familia sin cuenta, OCR caído y sin reclamo: sigue como antes (escalated a la escuela)', async () => {
+        state.atencion = { atender: true, tipo: 'familia_sin_cuenta', botEncendido: true };
+        extractReceiptMock.mockRejectedValue(new Error('503'));
+
+        await runWhatsAppQueue();
+
+        expect(textosEnviados()[0]).toMatch(/todavía no tienes tu cuenta creada/);
+        expect(ultimoCierre()).toMatchObject({ status: 'ignored', result_type: 'escalated', error_message: 'familia_sin_cuenta' });
+        expect(abrirConsultaMock).not.toHaveBeenCalled();
+    });
+
+    it('número ambiguo + reclamo: consulta, no «más de una cuenta… lo aplique»', async () => {
+        state.atencion = { atender: true, tipo: 'ambiguo', botEncendido: true };
+        state.mensajes = [{ text_body: 'no entiendo porque me estan cobrando?' }];
+
+        await runWhatsAppQueue();
+
+        expect(textosEnviados()[0]).not.toMatch(/comprobante/i);
+        expect(ultimoCierre()).toMatchObject({ status: 'ignored', result_type: 'none' });
+    });
+
+    it('familia identificada + reclamo + captura de un correo: consulta, no se busca a qué cobro aplicarlo', async () => {
+        state.rpcIdentifyByPhone = { data: { estado: 'identificado', parent_id: 'parent-9' } };
+        state.mensajes = TEXTOS_BEVERLY.map((t) => ({ text_body: t }));
+        extractReceiptMock.mockResolvedValue(CORREO_DE_COBRO);
+
+        await runWhatsAppQueue();
+
+        expect(pagosPendientesDeMock).not.toHaveBeenCalled();
+        expect(textosEnviados()[0]).not.toMatch(/comprobante/i);
+        expect(abrirConsultaMock).toHaveBeenCalled();
+        expect(ultimoCierre()).toMatchObject({ status: 'ignored', result_type: 'none' });
+    });
+
+    it('familia identificada + reclamo + comprobante REAL: el comprobante se aplica igual', async () => {
+        state.rpcIdentifyByPhone = { data: { estado: 'identificado', parent_id: 'parent-9' } };
+        state.mensajes = [{ text_body: 'ya pagué, no entiendo porque me siguen cobrando' }];
+
+        await runWhatsAppQueue();
+
+        expect(pagosPendientesDeMock).toHaveBeenCalledWith('parent-9', 'school-1');
+        expect(abrirConsultaMock).not.toHaveBeenCalled();
+    });
+
+    it('familia sin cuenta con comprobante real pero atleta inactivo: sin enlace de registro', async () => {
+        state.atencion = { atender: true, tipo: 'familia_sin_cuenta', botEncendido: true };
+        state.vigente = { invitacion: null, atletaInactivo: true };
+
+        await runWhatsAppQueue();
+
+        expect(textosEnviados()[0]).toMatch(/todavía no tienes tu cuenta creada/);
+        expect(textosEnviados()[0]).not.toContain('/register');
     });
 });
