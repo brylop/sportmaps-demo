@@ -2,6 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { todayInZone, addDaysToDateString } from '../utils/businessDate';
+import { armarInformeCartera, guardarAjusteInforme, informeACsv, leerAjusteInforme } from '../services/informe-cartera.service';
 
 const router = Router();
 
@@ -999,6 +1000,66 @@ router.get(
         } catch (err: any) {
             req.log?.error({ err: err.message || err }, 'Error en reporte de documentos');
             return res.status(500).json({ error: 'Error interno obteniendo documentos.' });
+        }
+    }
+);
+
+// ── Informe de cartera (morosos, pendientes, inactivos) ─────────────────────
+// Misma lógica que el correo semanal (services/informe-cartera.service). Lo
+// usa Finanzas → Cartera: «Descargar informe» (CSV para Excel) y el
+// interruptor del correo de los lunes.
+const ROLES_CARTERA = ['owner', 'super_admin', 'admin', 'school_admin', 'auditor', 'reporter'] as const;
+
+router.get(
+    '/school/cartera',
+    requireAuth,
+    requireRole(...ROLES_CARTERA),
+    async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+        try {
+            if (!req.schoolId) return res.status(400).json({ error: 'Falta la escuela (x-school-id).' });
+            const [informe, ajuste] = await Promise.all([
+                armarInformeCartera(req.schoolId),
+                leerAjusteInforme(req.schoolId),
+            ]);
+            res.json({ informe, ajuste, csv: informeACsv(informe), archivo: `cartera-${informe.hoy}.csv` });
+        } catch (error) {
+            next(error);
+        }
+    }
+);
+
+router.get(
+    '/school/cartera/ajuste',
+    requireAuth,
+    requireRole(...ROLES_CARTERA),
+    async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+        try {
+            if (!req.schoolId) return res.status(400).json({ error: 'Falta la escuela (x-school-id).' });
+            res.json({ ajuste: await leerAjusteInforme(req.schoolId) });
+        } catch (error) {
+            next(error);
+        }
+    }
+);
+
+router.put(
+    '/school/cartera/ajuste',
+    requireAuth,
+    requireRole('owner', 'super_admin', 'admin', 'school_admin'),
+    async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+        try {
+            if (!req.schoolId) return res.status(400).json({ error: 'Falta la escuela (x-school-id).' });
+            const v = req.body?.enabled;
+            if (v !== true && v !== false && v !== null) {
+                return res.status(400).json({ error: 'enabled debe ser true, false o null (automático).' });
+            }
+            await guardarAjusteInforme(req.schoolId, v);
+            res.json({ ajuste: await leerAjusteInforme(req.schoolId) });
+        } catch (error: any) {
+            if (/cartera_report_enabled/.test(error?.message ?? '')) {
+                return res.status(409).json({ error: 'El ajuste todavía no está disponible (falta aplicar la migración 20261007182206).' });
+            }
+            next(error);
         }
     }
 );

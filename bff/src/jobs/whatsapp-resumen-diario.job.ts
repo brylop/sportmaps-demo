@@ -43,6 +43,7 @@ import {
 } from '../services/cortesia-reservas.service';
 import { contarBorradoresHuerfanos, HUERFANO_MIN_MS } from '../services/whatsapp-ponerse-al-dia.service';
 import { estaCerrada } from '../services/whatsapp-bandeja.service';
+import { lineaCarteraParaResumen } from '../services/informe-cartera.service';
 
 /** El paso con que el bot contesta a un desconocido con tema escolar.
  *  Copia de PASO_DESCONOCIDO_ESCOLAR (whatsapp-bot.service): importarlo de ahí
@@ -268,6 +269,11 @@ export async function runWhatsAppResumenDiario(ahora = Date.now()): Promise<{ es
                 r.borradoresHuerfanos?.borradores
                     ? `${r.borradoresHuerfanos.borradores} borrador(es) sin enviar en ${r.borradoresHuerfanos.conversaciones} conversación(es)` : '',
             ].filter(Boolean);
+            // Cartera (informe-cartera.service): una línea, solo si la escuela
+            // tiene el informe activo. Va DESPUÉS de resumenVacio: nunca dispara
+            // el resumen por sí sola (eso es el correo semanal de los lunes).
+            const lineaCartera = await lineaCarteraParaResumen(integ.school_id, new Date(ahora));
+            if (lineaCartera) partes.push(lineaCartera);
             const cortesias = r.cortesias ?? [];
             const leads = r.leadsSinAgendar ?? [];
 
@@ -302,6 +308,7 @@ export async function runWhatsAppResumenDiario(ahora = Date.now()): Promise<{ es
                     subject: `WhatsApp de ${escuela}: ${partes.join(', ')}`,
                     titulo: 'Lo que quedó esperando en WhatsApp',
                     lineas: [
+                        ...(lineaCartera ? [`Cartera: ${lineaCartera.replace(/^cartera: /, '')}. Detalle en Finanzas → Cartera.`] : []),
                         ...(r.borradoresHuerfanos?.borradores
                             ? [`Borradores sin enviar: ${r.borradoresHuerfanos.borradores} en ${r.borradoresHuerfanos.conversaciones} conversación(es) — el bot está en automático y nadie los va a aprobar. Ábrelos en Configuración → «Responder ahora».`]
                             : []),

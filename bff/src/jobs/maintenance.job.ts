@@ -29,6 +29,7 @@ import { vencerComprobantesColgados } from './whatsapp-cola-vencimiento.job';
 import { runWhatsAppPlantillasSync } from './whatsapp-plantillas-sync.job';
 import { runWhatsAppResumenDiario } from './whatsapp-resumen-diario.job';
 import { runBotResumenSemanal } from './bot-resumen-semanal.job';
+import { runInformeCarteraSemanal } from '../services/informe-cartera.service';
 import { runFranjasCortesia } from '../services/franjas-cortesia.service';
 import { anularCobrosSueltosVencidos } from '../services/ventas-servicios.service';
 import { runRecordatorioCortesia } from '../services/recordatorio-cortesia.service';
@@ -630,6 +631,29 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Resumen semanal de los bots registrado para los lunes 07:05 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Informe de CARTERA semanal a owner + admins — lunes 07:10 COT, con ticks
+    // hasta las 11:10 para recoger un BFF dormido o reiniciado. Morosos,
+    // pendientes del mes, comprobantes en revisión, inactivos y bajas con
+    // saldo. Activo por escuela con school_settings.cartera_report_enabled (NULL
+    // = automático: solo si auto_cancel_overdue_enabled = false). Uno por
+    // escuela y semana entre los tres BFF (email_sends, id determinístico).
+    // Kill-switch: DISABLE_INFORME_CARTERA=true.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('10 7-11 * * 1', async () => {
+        if (process.env.DISABLE_INFORME_CARTERA === 'true') return;
+        try {
+            const r = await runInformeCarteraSemanal();
+            const enviados = Object.values(r).filter((x) => x === 'enviado').length;
+            if (enviados > 0) console.log(`[CRON] Informe de cartera: ${enviados} de ${Object.keys(r).length} escuela(s).`);
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en el informe de cartera semanal:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Informe de cartera semanal registrado para los lunes 07:10 COT.');
 
     // ────────────────────────────────────────────────────────────────────────
     // Banco de horas por torniquete (F5) — auto-cierre de visitas 'open'.
