@@ -21,6 +21,8 @@ export interface AjustesWhatsAppEscuela {
     cortesiaDias: number;
     ayudaApp: boolean;
     reclamosDeValor: boolean;
+    /** Al desconocido que pregunta el precio, los valores de los planes (sin enlace de pago). */
+    responderPrecios: boolean;
 }
 
 export const AJUSTES_POR_DEFECTO: Readonly<AjustesWhatsAppEscuela> = Object.freeze({
@@ -29,6 +31,7 @@ export const AJUSTES_POR_DEFECTO: Readonly<AjustesWhatsAppEscuela> = Object.free
     cortesiaDias: 7,
     ayudaApp: false,
     reclamosDeValor: false,
+    responderPrecios: false,
 });
 
 /** Fila cruda → ajustes. Cualquier valor raro cae al default. */
@@ -41,20 +44,30 @@ export function ajustesDesdeFila(fila: Record<string, unknown> | null | undefine
         cortesiaDias: Number.isInteger(dias) && dias >= 1 && dias <= 60 ? dias : AJUSTES_POR_DEFECTO.cortesiaDias,
         ayudaApp: fila.wa_ayuda_app === true,
         reclamosDeValor: fila.wa_reclamos_de_valor === true,
+        responderPrecios: fila.wa_responder_precios === true,
     };
 }
+
+// De la consulta más completa a la más pobre: cada columna llegó con una
+// migración distinta, y una que falte no puede apagar las demás.
+const COLUMNAS = [
+    'wa_modo_cortesia, wa_cortesia_qr_id, wa_cortesia_dias, wa_ayuda_app, wa_reclamos_de_valor, wa_responder_precios',
+    'wa_modo_cortesia, wa_cortesia_qr_id, wa_cortesia_dias, wa_ayuda_app, wa_reclamos_de_valor',
+];
 
 /** Nunca lanza. */
 export async function ajustesWhatsAppDeEscuela(schoolId: string | null | undefined): Promise<AjustesWhatsAppEscuela> {
     if (!schoolId) return { ...AJUSTES_POR_DEFECTO };
     try {
-        const { data, error } = await supabase
-            .from('school_settings')
-            .select('wa_modo_cortesia, wa_cortesia_qr_id, wa_cortesia_dias, wa_ayuda_app, wa_reclamos_de_valor')
-            .eq('school_id', schoolId)
-            .maybeSingle();
-        if (error) return { ...AJUSTES_POR_DEFECTO };
-        return ajustesDesdeFila(data as Record<string, unknown> | null);
+        for (const columnas of COLUMNAS) {
+            const { data, error } = await supabase
+                .from('school_settings')
+                .select(columnas)
+                .eq('school_id', schoolId)
+                .maybeSingle();
+            if (!error) return ajustesDesdeFila(data as Record<string, unknown> | null);
+        }
+        return { ...AJUSTES_POR_DEFECTO };
     } catch {
         return { ...AJUSTES_POR_DEFECTO };
     }

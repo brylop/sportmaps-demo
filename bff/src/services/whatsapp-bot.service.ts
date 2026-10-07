@@ -71,6 +71,7 @@ import {
 import { atenderAusenciaEnBot } from './whatsapp-ausencias.service';
 import { ajustesWhatsAppDeEscuela, type AjustesWhatsAppEscuela } from './whatsapp-ajustes-escuela.service';
 import { mensajeSemanaDeCortesia } from './whatsapp-cortesia-semana.service';
+import { textoDePreciosDeEscuela } from './whatsapp-precios.service';
 import { pideAyudaDeApp, textoAyudaApp } from './whatsapp-ayuda-app.service';
 import {
     reclamaValor, cobrosAbiertos, textoReclamoDeValor, motivoReclamoDeValor,
@@ -1557,7 +1558,7 @@ const FRENO_DESCONOCIDO_DIAS = 30;
 export type ResultadoDesconocido =
     | 'otp_codigo' | 'otp_correo' | 'inscripcion' | 'inscripcion_sin_enlace' | 'pagos'
     | 'pagos_y_precio' | 'pagos_y_precio_sin_enlace'
-    | 'clase_cortesia' | 'clase_cortesia_en_curso' | 'cortesia_semana' | 'ayuda_app'
+    | 'clase_cortesia' | 'clase_cortesia_en_curso' | 'cortesia_semana' | 'ayuda_app' | 'precios'
     | 'prospecto_seguimiento' | 'escuela_atendiendo'
     | 'frenado' | 'silencio';
 
@@ -1609,6 +1610,29 @@ export async function atenderDesconocido(
     const ajustesEscuela = await ajustesWhatsAppDeEscuela(integration.school_id);
     if (await responderAyudaDeApp(integration, conversationId, contactWaId, text, ajustesEscuela, false)) {
         return 'ayuda_app';
+    }
+
+    // 1d. «¿Cuánto cuesta?» con `wa_responder_precios`: los valores de los
+    //     planes, SIN enlace de pago, y la semana de cortesía si la escuela la
+    //     tiene. Sin el ajuste no cambia nada: «cuánto cuesta» suelto no es tema
+    //     escolar (silencio) y «cuánto vale la mensualidad» recibe el enlace.
+    //     Mismo step y mismo freno de 30 días que el resto de respuestas al desconocido.
+    if (ajustesEscuela.responderPrecios && preguntaPrecioComoProspecto(text)
+        && !(await yaSeLeContestoEscolar(conversationId))
+        && !humanoReciente(await mensajesRecientes(conversationId), SILENCIO_HUMANO_MIN)) {
+        const precios = await textoDePreciosDeEscuela(integration.school_id);
+        if (precios) {
+            const semana = await mensajeSemanaDeCortesia(integration.school_id, ajustesEscuela);
+            await deliver(integration, conversationId, contactWaId,
+                `Hola 👋 Soy el *asistente automático* de *${await nombreDeEscuela(integration.school_id)}*. 🤖` +
+                `\n\n${precios}` +
+                (semana
+                    ? `\n\nY antes de decidir:\n\n${semana}`
+                    : '\n\nSi quieres inscribirte o tienes dudas, escríbelas por aquí y la escuela te responde.') +
+                '\n\nSi ya eres familia de la escuela y quieres saber *tu* saldo, escríbeme el correo con el que estás registrado.',
+                { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'precios', con_enlace: Boolean(semana) });
+            return 'precios';
+        }
     }
 
     // 2. ¿Es de la escuela? Si no, silencio.

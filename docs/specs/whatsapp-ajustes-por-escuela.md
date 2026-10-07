@@ -32,6 +32,7 @@ Ninguna de las tres puede cambiarle el comportamiento a Dynasty ni a otra escuel
 | `wa_cortesia_dias` | smallint CHECK 1–60 | 7 | Los días que se anuncian |
 | `wa_ayuda_app` | boolean | false | Responde ingreso / contraseña / pagar en la app |
 | `wa_reclamos_de_valor` | boolean | false | «El valor no coincide» → buzón como reclamo |
+| `wa_responder_precios` | boolean | false | Al desconocido que pregunta «¿cuánto cuesta?», los valores de los planes activos (`offering_plans` con precio > 0) y la semana de cortesía si aplica, **sin enlace de pago**. Mig `20261006224322`. Sin el ajuste, «cuánto cuesta» suelto no se contesta y «cuánto vale la mensualidad» recibe el enlace de inscripción |
 
 ## Dónde se engancha (BFF)
 
@@ -52,7 +53,8 @@ Lógica en archivos nuevos; en `whatsapp-bot.service.ts` solo hay puntos de enga
 ```sql
 update school_settings set wa_modo_cortesia = 'semana_app',
   wa_cortesia_qr_id = '6e06d933-594e-445c-93f7-88166dee0500',   -- besser-cortesia
-  wa_cortesia_dias = 7, wa_ayuda_app = true, wa_reclamos_de_valor = true
+  wa_cortesia_dias = 7, wa_ayuda_app = true, wa_reclamos_de_valor = true,
+  wa_responder_precios = true
 where school_id = '759eee9d-05cb-4958-b84a-2560f77e3683';
 ```
 

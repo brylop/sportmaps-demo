@@ -10,6 +10,33 @@ import {
 } from './whatsapp-cortesia-semana.service';
 import { pideAyudaDeApp, textoAyudaApp } from './whatsapp-ayuda-app.service';
 import { reclamaValor, textoReclamoDeValor, motivoReclamoDeValor, pesos } from './whatsapp-reclamo-valor.service';
+import { nombreDePlan, textoDePrecios } from './whatsapp-precios.service';
+
+describe('precios (wa_responder_precios)', () => {
+    it('nombreDePlan: mayúsculas sostenidas → oración, «/ semana» → «por semana»', () => {
+        expect(nombreDePlan('4 DÍAS / SEMANA (PROFUNDIZACIÓN) ')).toBe('4 días por semana (profundización)');
+        expect(nombreDePlan('Plan Pro')).toBe('Plan Pro');
+    });
+
+    it('lista de Besser de menor a mayor, sin el plan CORTESÍA en $0 ni repetidos', () => {
+        expect(textoDePrecios([
+            { nombre: 'CORTESÍA', precio: 0 },
+            { nombre: '6 DÍAS / SEMANA (ALTO RENDIMIENTO)', precio: 380000 },
+            { nombre: '2 DÍAS / SEMANA (FINES DE SEMANA)', precio: '210000.00' },
+            { nombre: '4 DÍAS / SEMANA (PROFUNDIZACIÓN) ', precio: 340000 },
+            { nombre: '4 días / semana (profundización)', precio: 340000 },
+        ])).toBe(
+            '💰 Estos son los valores de la mensualidad:\n' +
+            '• 2 días por semana (fines de semana): *$210.000*\n' +
+            '• 4 días por semana (profundización): *$340.000*\n' +
+            '• 6 días por semana (alto rendimiento): *$380.000*');
+    });
+
+    it('sin planes con valor → null (no se inventa un precio)', () => {
+        expect(textoDePrecios([{ nombre: 'CORTESÍA', precio: 0 }])).toBeNull();
+        expect(textoDePrecios([])).toBeNull();
+    });
+});
 
 describe('ajustesDesdeFila', () => {
     it('sin fila o sin columnas → defaults = comportamiento de siempre', () => {
@@ -21,8 +48,11 @@ describe('ajustesDesdeFila', () => {
     it('Besser', () => {
         expect(ajustesDesdeFila({
             wa_modo_cortesia: 'semana_app', wa_cortesia_qr_id: 'qr-1', wa_cortesia_dias: 7,
-            wa_ayuda_app: true, wa_reclamos_de_valor: true,
-        })).toEqual({ modoCortesia: 'semana_app', cortesiaQrId: 'qr-1', cortesiaDias: 7, ayudaApp: true, reclamosDeValor: true });
+            wa_ayuda_app: true, wa_reclamos_de_valor: true, wa_responder_precios: true,
+        })).toEqual({
+            modoCortesia: 'semana_app', cortesiaQrId: 'qr-1', cortesiaDias: 7,
+            ayudaApp: true, reclamosDeValor: true, responderPrecios: true,
+        });
     });
 
     it('valores raros caen al default', () => {

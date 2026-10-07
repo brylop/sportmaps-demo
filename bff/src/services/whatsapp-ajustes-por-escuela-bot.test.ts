@@ -115,6 +115,13 @@ const EQUIPOS = [
     { name: 'INFANTIL FEMENINO', schedule: [2, 4].map((day) => ({ day, time: '16:00', end: '18:00', place: SITIO })) },
 ];
 const COBROS = [{ concept: 'Mensualidad Octubre 2026 - Juan', amount: 380000, status: 'pending', due_date: '2026-10-10' }];
+const PLANES = [
+    { name: 'CORTESÍA', price: 0, is_active: true },
+    { name: '2 DÍAS / SEMANA (FINES DE SEMANA)', price: 210000, is_active: true },
+    { name: '4 DÍAS / SEMANA (PROFUNDIZACIÓN) ', price: 340000, is_active: true },
+    { name: '6 DÍAS / SEMANA (ALTO RENDIMIENTO)', price: 380000, is_active: true },
+];
+const BESSER_CON_PRECIOS = { ...BESSER, wa_responder_precios: true };
 
 const borradores = () => h.state.inserts.filter((i) => i.table === 'whatsapp_message_drafts');
 
@@ -145,6 +152,7 @@ function base(op: {
         }
         if (table === 'teams') return { data: EQUIPOS, error: null };
         if (table === 'payments') return { data: COBROS, error: null };
+        if (table === 'offering_plans') return { data: PLANES, error: null };
         if (table === 'whatsapp_settings') return { data: { ai_enabled: true, mode: 'assisted' }, error: null };
         if (table === 'schools') {
             return { data: { name: 'Club Deportivo Besser', owner_id: 'owner-1', slug: 'club-deportivo-besser' }, error: null };
@@ -243,6 +251,44 @@ describe('prospecto (número desconocido)', () => {
         base({ ajustes: null });
         await handleBotTurn(req, INTEGRATION, CONV, mensaje({ textBody: 'No puedo entrar a la app' }));
         expect(borradores()).toHaveLength(0);
+    });
+});
+
+describe('prospecto pregunta el precio (wa_responder_precios)', () => {
+    it.each(['¿Cuánto cuesta?', 'cuánto vale la mensualidad', 'Hola, info de precios por favor'])(
+        'Besser: «%s» → los valores y la semana gratis, SIN enlace de pago', async (texto) => {
+            base({ ajustes: BESSER_CON_PRECIOS });
+            await handleBotTurn(req, INTEGRATION, CONV, mensaje({ textBody: texto }));
+            expect(h.chatWithTools).not.toHaveBeenCalled();
+            expect(borradores()).toHaveLength(1);
+            const b = borradores()[0].row;
+            expect(b.proposed_text).toContain('• 2 días por semana (fines de semana): *$210.000*');
+            expect(b.proposed_text).toContain('• 6 días por semana (alto rendimiento): *$380.000*');
+            expect(b.proposed_text).not.toContain('CORTESÍA');
+            expect(b.proposed_text).toContain('*gratis durante una semana*');
+            expect(b.proposed_text).toContain('/join/besser-cortesia');
+            expect(b.proposed_text).not.toContain('besser-inscripciones');
+            expect(b.tool_context).toMatchObject({ step: 'desconocido_tema_escolar', intencion: 'precios' });
+        });
+
+    it('SIN el ajuste: «¿cuánto cuesta?» suelto sigue sin respuesta, como antes', async () => {
+        base({ ajustes: BESSER });
+        await handleBotTurn(req, INTEGRATION, CONV, mensaje({ textBody: '¿Cuánto cuesta?' }));
+        expect(borradores()).toHaveLength(0);
+    });
+
+    it('SIN el ajuste: «cuánto vale la mensualidad» recibe el enlace de inscripción, como antes', async () => {
+        base({ ajustes: null });
+        await handleBotTurn(req, INTEGRATION, CONV, mensaje({ textBody: 'cuánto vale la mensualidad' }));
+        const b = borradores()[0].row;
+        expect(b.proposed_text).toContain('/join/besser-inscripciones');
+        expect(b.tool_context).toMatchObject({ intencion: 'pagos_y_precio' });
+    });
+
+    it('freno de 30 días: si ya se le contestó, no repite la lista', async () => {
+        base({ ajustes: BESSER_CON_PRECIOS, pasos: ['desconocido_tema_escolar'] });
+        await handleBotTurn(req, INTEGRATION, CONV, mensaje({ textBody: '¿Cuánto cuesta?' }));
+        expect(borradores().some((d) => String(d.row.proposed_text).includes('$210.000'))).toBe(false);
     });
 });
 
