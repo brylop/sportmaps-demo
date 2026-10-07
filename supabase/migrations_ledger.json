@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 691,
-  "head": "20261006110920",
+  "count": 695,
+  "head": "20261006111003",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -694,6 +694,10 @@
     {"v":"20261006101656","file":"20261006101656_recordatorios_cobro_whatsapp.sql","sha256":"2e522bfd1ea5621ff8fce27fc4b437c9f6a4f5ea817175ee01b78d1a597b1cb1","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261006104251","file":"20261006104251_factura_electronica_pagador_v2.sql","sha256":"19d137568e1e20288b03a1f37d8b443ca279c3a096cea81e78f03d4c4d5222a1","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261006104254","file":"20261006104254_aviso_ausencia_familia_v2.sql","sha256":"8c06f4165d0debdc3b9aa87a2621101cb800d62c2c60d3896200bd250629cbed","added":"2026-10-06","by":"Brayan Steven Lopez"},
-    {"v":"20261006110920","file":"20261006110920_whatsapp_responder_prospectos.sql","sha256":"e798e095cf0ddb586ac6130d7a4d30b051e7f9e5cd9d0b594e45e807621037e0","added":"2026-10-06","by":"Brayan Steven Lopez"}
+    {"v":"20261006110920","file":"20261006110920_whatsapp_responder_prospectos.sql","sha256":"e798e095cf0ddb586ac6130d7a4d30b051e7f9e5cd9d0b594e45e807621037e0","added":"2026-10-06","by":"Brayan Steven Lopez"},
+    {"v":"20261006094145","file":"20261006094145_profesionales_f0_seguridad_agenda.sql","sha256":"c61f85874fe4995080e34f4d5cc993ea653e0218ada4b7704c55ea28ccb9533c","added":"2026-10-06","by":"Brayan Steven Lopez"},
+    {"v":"20261006094147","file":"20261006094147_profesionales_f1_f2_pacientes_historia_clinica.sql","sha256":"04b8e5d216eb8a4228d641cc353c63da8063a7ebaf97e07a3532015267a28df5","added":"2026-10-06","by":"Brayan Steven Lopez"},
+    {"v":"20261006094149","file":"20261006094149_profesionales_f3_lesiones_ejercicios.sql","sha256":"5d3a295f46cc4ec0c8d2f369dd297348f96560fd860bb976cef72d5153a8b764","added":"2026-10-06","by":"Brayan Steven Lopez"},
+    {"v":"20261006111003","file":"20261006111003_profesionales_gates_i7.sql","sha256":"4a569620255440843d2e5652d4227b626a912940e2a41f33917db77bd8178083","added":"2026-10-06","by":"Brayan Steven Lopez"}
   ]
 }

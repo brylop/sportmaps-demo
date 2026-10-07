@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PhoneInput } from '@/components/ui/phone-input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { CityCombobox } from '@/components/common/CityCombobox';
@@ -26,6 +27,14 @@ const SPECIALTIES = [
   'Masoterapia',
 ];
 
+/** Especialidad principal → vendor_profiles.professional_specialty (módulo clínico). */
+const MAIN_SPECIALTIES: { value: string; label: string }[] = [
+  { value: 'fisioterapia', label: 'Fisioterapia' },
+  { value: 'nutricion', label: 'Nutrición' },
+  { value: 'psicologia', label: 'Psicología' },
+  { value: 'medicina_deportiva', label: 'Medicina deportiva' },
+];
+
 export default function WellnessOnboarding() {
   const { user, profile, loading: authLoading, updateProfile } = useAuth();
   const navigate = useNavigate();
@@ -40,6 +49,9 @@ export default function WellnessOnboarding() {
   const [specialties, setSpecialties] = useState<string[]>([]);
   const [city, setCity] = useState('');
   const [description, setDescription] = useState(profile?.bio ?? '');
+  const [mainSpecialty, setMainSpecialty] = useState('fisioterapia');
+  const [license, setLicense] = useState('');
+  const [rethus, setRethus] = useState('');
 
   if (authLoading) {
     return (
@@ -55,7 +67,9 @@ export default function WellnessOnboarding() {
     setSpecialties((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
 
   const step1Done = fullName.trim().length >= 2 && phone.trim().length >= 7;
-  const step2Done = displayName.trim().length >= 2 && specialties.length > 0 && !!city;
+  // La tarjeta profesional es obligatoria para fisioterapia (Ley 528/1999).
+  const licenseOk = mainSpecialty !== 'fisioterapia' || license.trim().length >= 3;
+  const step2Done = displayName.trim().length >= 2 && specialties.length > 0 && !!city && !!mainSpecialty && licenseOk;
 
   const handleFinish = async () => {
     setSaving(true);
@@ -87,6 +101,9 @@ export default function WellnessOnboarding() {
             phone: phone.trim(),
             city,
             capabilities: { can_sell_products: false, can_sell_services: true },
+            professional_specialty: mainSpecialty,
+            professional_license: license.trim() || null,
+            rethus_number: rethus.trim() || null,
             is_active: true,
           },
           { onConflict: 'user_id' },
@@ -98,7 +115,8 @@ export default function WellnessOnboarding() {
 
       await updateProfile({}, { silent: true });
       toast.success('¡Perfil profesional creado!');
-      navigate('/dashboard', { replace: true });
+      // Lo siguiente que necesita un profesional es su horario de atención.
+      navigate('/disponibilidad', { replace: true });
     } catch (err) {
       console.error('Wellness onboarding failed:', err);
       toast.error(getUserFriendlyError(err));
@@ -173,7 +191,31 @@ export default function WellnessOnboarding() {
             <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Ej: Centro de Fisioterapia Deportiva" maxLength={120} />
           </div>
           <div className="space-y-2">
-            <Label>Especialidades *</Label>
+            <Label>Especialidad principal *</Label>
+            <Select value={mainSpecialty} onValueChange={setMainSpecialty}>
+              <SelectTrigger><SelectValue placeholder="Elige tu especialidad" /></SelectTrigger>
+              <SelectContent>
+                {MAIN_SPECIALTIES.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Tarjeta profesional{mainSpecialty === 'fisioterapia' ? ' *' : ''}</Label>
+              <Input value={license} onChange={(e) => setLicense(e.target.value)} placeholder="Número de tarjeta profesional" maxLength={40} />
+              {mainSpecialty === 'fisioterapia' && !licenseOk && (
+                <p className="text-xs text-muted-foreground">Obligatoria para fisioterapia: aparece en tu historia clínica.</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label>Número ReTHUS (opcional)</Label>
+              <Input value={rethus} onChange={(e) => setRethus(e.target.value)} placeholder="Registro ReTHUS" maxLength={40} />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Otras especialidades *</Label>
             <div className="flex flex-wrap gap-2">
               {SPECIALTIES.map((s) => (
                 <Badge

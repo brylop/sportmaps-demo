@@ -71,7 +71,10 @@ export default function LoginPage() {
     }
   });
 
-  const redirectTo = searchParams.get('redirectTo');
+  // Solo rutas internas: nada de URLs absolutas ni "//host".
+  const redirectParam = searchParams.get('redirectTo');
+  const redirectTo = redirectParam && redirectParam.startsWith('/') && !redirectParam.startsWith('//')
+    ? redirectParam : null;
 
   // Redirect if already logged in
   if (user) {

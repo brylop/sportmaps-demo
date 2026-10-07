@@ -161,9 +161,18 @@ const StoreInventoryPage = lazy(() => import("./pages/StoreInventoryPage"));
 
 // ─── Wellness pages (lazy) ────────────────────────────────────────────────────
 const WellnessSchedulePage = lazy(() => import("./pages/WellnessSchedulePage"));
-const WellnessPatientsPage = lazy(() => import("./pages/WellnessPatientsPage"));
-const MedicalHistoryPage = lazy(() => import("./pages/MedicalHistoryPage"));
 const NutritionPage = lazy(() => import("./pages/NutritionPage"));
+// Profesionales de salud: historia clínica (custodio = el profesional), lesiones,
+// ejercicios, y lo que ven familia y escuela. Spec: docs/specs/profesionales-salud-fisioterapia.md
+const PatientsPage = lazy(() => import("./pages/clinical/PatientsPage"));
+const PatientDetailPage = lazy(() => import("./pages/clinical/PatientDetailPage"));
+const PatientRecordPrintPage = lazy(() => import("./pages/clinical/PatientRecordPrintPage"));
+const FollowUpsPage = lazy(() => import("./pages/clinical/FollowUpsPage"));
+const AvailabilityPage = lazy(() => import("./pages/clinical/AvailabilityPage"));
+const ProfessionalReportsPage = lazy(() => import("./pages/clinical/ProfessionalReportsPage"));
+const MyHealthPage = lazy(() => import("./pages/clinical/MyHealthPage"));
+const ClinicalInviteAcceptPage = lazy(() => import("./pages/clinical/ClinicalInviteAcceptPage"));
+const SchoolAvailabilityPage = lazy(() => import("./pages/clinical/SchoolAvailabilityPage"));
 const SchoolSetupPage = lazy(() => import("./pages/SchoolSetupPage"));
 const SchoolOnboardingPage = lazy(() => import("./pages/SchoolOnboardingPage"));
 const AthleteOnboarding = lazy(() => import("./pages/onboarding/AthleteOnboarding"));
@@ -883,40 +892,66 @@ const App = () => (
                         </ProtectedRoute>
                       } />
 
-                      {/* Wellness routes */}
-                      <Route path="athletes" element={
-                        <ProtectedRoute allowedRoles={['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin']}>
-                          <WellnessPatientsPage />
+                      {/* Profesionales de salud */}
+                      <Route path="pacientes" element={
+                        <ProtectedRoute allowedRoles={['wellness_professional']}>
+                          <PatientsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="pacientes/:patientId" element={
+                        <ProtectedRoute allowedRoles={['wellness_professional']}>
+                          <PatientDetailPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="pacientes/:patientId/imprimir" element={
+                        <ProtectedRoute allowedRoles={['wellness_professional']}>
+                          <PatientRecordPrintPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="historias" element={
+                        <ProtectedRoute allowedRoles={['wellness_professional']}>
+                          <FollowUpsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="disponibilidad" element={
+                        <ProtectedRoute allowedRoles={['wellness_professional']}>
+                          <AvailabilityPage />
                         </ProtectedRoute>
                       } />
                       <Route path="schedule" element={
-                        <ProtectedRoute allowedRoles={['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin']}>
+                        <ProtectedRoute allowedRoles={['wellness_professional']}>
                           <WellnessSchedulePage />
-                        </ProtectedRoute>
-                      } />
-                      <Route path="evaluations/new" element={
-                        <ProtectedRoute allowedRoles={['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin']}>
-                          <WellnessSchedulePage />
-                        </ProtectedRoute>
-                      } />
-                      <Route path="medical-history" element={
-                        <ProtectedRoute allowedRoles={['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin']}>
-                          <MedicalHistoryPage />
-                        </ProtectedRoute>
-                      } />
-                      <Route path="follow-ups" element={
-                        <ProtectedRoute allowedRoles={['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin']}>
-                          <WellnessPatientsPage />
-                        </ProtectedRoute>
-                      } />
-                      <Route path="nutrition" element={
-                        <ProtectedRoute allowedRoles={['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin']}>
-                          <NutritionPage />
                         </ProtectedRoute>
                       } />
                       <Route path="wellness-reports" element={
-                        <ProtectedRoute allowedRoles={['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin']}>
-                          <ReportsPage />
+                        <ProtectedRoute allowedRoles={['wellness_professional']}>
+                          <ProfessionalReportsPage />
+                        </ProtectedRoute>
+                      } />
+                      {/* Rutas viejas del profesional: eran pantallas vacías o rotas. */}
+                      <Route path="athletes" element={<Navigate to="/pacientes" replace />} />
+                      <Route path="evaluations/new" element={<Navigate to="/pacientes" replace />} />
+                      <Route path="medical-history" element={<Navigate to="/historias" replace />} />
+                      <Route path="follow-ups" element={<Navigate to="/historias" replace />} />
+                      <Route path="nutrition" element={
+                        <ProtectedRoute allowedRoles={['wellness_professional', 'admin', 'super_admin']}>
+                          <NutritionPage />
+                        </ProtectedRoute>
+                      } />
+                      {/* Lado del paciente / acudiente y de la escuela */}
+                      <Route path="salud" element={
+                        <ProtectedRoute>
+                          <MyHealthPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="salud/invitacion/:token" element={
+                        <ProtectedRoute>
+                          <ClinicalInviteAcceptPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="disponibilidad-medica" element={
+                        <ProtectedRoute allowedRoles={['school', 'school_admin', 'coach', 'admin', 'super_admin']}>
+                          <SchoolAvailabilityPage />
                         </ProtectedRoute>
                       } />
 

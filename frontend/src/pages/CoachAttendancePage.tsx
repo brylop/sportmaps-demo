@@ -29,6 +29,8 @@ import { useUpdatePTAttendance, useHandleNoShow } from '@/hooks/useAthleteSessio
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useActiveWorkPage } from '@/hooks/useActiveWorkPage';
 import { CoachPostTrainingRatingDialog } from '@/components/attendance/CoachPostTrainingRatingDialog';
+import { useSchoolAthleteAvailability } from '@/hooks/useSchoolAthleteAvailability';
+import { AvailabilityBadge } from '@/components/clinical/AvailabilityBadge';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
@@ -275,6 +277,8 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
   useActiveWorkPage();
   const { user, profile } = useAuth();
   const { schoolId } = useSchoolContext();
+  // Disponibilidad médica (solo lo que la familia autorizó compartir; nunca diagnóstico).
+  const { byChildId: availabilityByChild, byProfileId: availabilityByProfile } = useSchoolAthleteAvailability(schoolId);
   const { coachHideFinancialInfo, coachAttendanceRetroDays } = useEntitlements();
   // Besser: el coach no ve mensualidad ni estado de pago en ninguna pantalla.
   // El BFF ya manda price/payment_status en null; esto además evita que el
@@ -1387,6 +1391,14 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <p className="font-bold text-sm truncate uppercase tracking-tight">{student.full_name}</p>
+                              {(() => {
+                                const av = student.athlete_type === 'child' ? availabilityByChild.get(student.id)
+                                  : student.athlete_type === 'adult' ? availabilityByProfile.get(student.id) : undefined;
+                                return av ? (
+                                  <AvailabilityBadge status={av.availability_status} stage={av.rtp_stage} restrictions={av.restrictions}
+                                    expectedReturn={av.expected_return} bodyRegion={av.body_region} professionalName={av.professional_name} />
+                                ) : null;
+                              })()}
                               {student.athlete_type === 'unregistered' && (
                                 <Badge variant="outline" className="text-[10px] h-4 px-1 gap-1">
                                   <UserX className="w-2.5 h-2.5" /> Invitado

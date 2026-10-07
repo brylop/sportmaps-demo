@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { useNavigate } from 'react-router-dom';
-import { Package, Calendar, DollarSign, ShoppingBag, Plus, BarChart3, Clock, Star } from 'lucide-react';
+import {
+  Package, Calendar, DollarSign, ShoppingBag, Plus, BarChart3, Clock, Star, Users, Inbox, type LucideIcon,
+} from 'lucide-react';
+import { countMyAppointments, currentMonthColombia, getMyVendorSummary, monthRangeISO } from '@/lib/clinical/agenda-extra';
+import { todayColombia } from '@/lib/dateUtils';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -14,6 +18,8 @@ interface VendorStats {
   total_orders: number;
   vendor_type: string;
 }
+
+interface StatCard { title: string; value: string | number; icon: LucideIcon; color: string; onClick?: () => void }
 
 export default function VendorDashboardPage() {
   const { session, profile } = useAuth();
@@ -40,44 +46,78 @@ export default function VendorDashboardPage() {
     if (session) fetchStats();
   }, [session]);
 
-  const statCards = isWellness
+  // Rating real del perfil (si tiene reseñas).
+  const vendorQ = useQuery({
+    queryKey: ['agenda', 'vendor-summary', session?.user?.id],
+    queryFn: getMyVendorSummary,
+    enabled: !!session,
+  });
+
+  // Citas del profesional (agenda), no pedidos de productos.
+  const month = currentMonthColombia();
+  const aptQ = useQuery({
+    queryKey: ['agenda', 'vendor-dashboard-counts', month],
+    queryFn: async () => {
+      const { from, to } = monthRangeISO(month);
+      const [monthCount, pendingCount] = await Promise.all([
+        countMyAppointments({ from, to, statuses: ['pending', 'confirmed', 'completed', 'no_show'] }),
+        countMyAppointments({ from: todayColombia(), statuses: ['pending'] }),
+      ]);
+      return { monthCount, pendingCount };
+    },
+    enabled: isWellness && !!session,
+  });
+
+  const vendor = vendorQ.data;
+  const ratingCard: StatCard[] = vendor && (vendor.reviews_count ?? 0) > 0 && vendor.avg_rating != null
+    ? [{
+      title: `Calificación (${vendor.reviews_count} ${vendor.reviews_count === 1 ? 'reseña' : 'reseñas'})`,
+      value: Number(vendor.avg_rating).toFixed(1), icon: Star, color: 'text-amber-500',
+    }]
+    : [];
+
+  const statCards: StatCard[] = isWellness
     ? [
-        { title: 'Servicios Activos', value: stats?.total_services || 0, icon: Calendar, color: 'text-blue-600' },
-        { title: 'Citas Recibidas', value: stats?.total_orders || 0, icon: Clock, color: 'text-green-600' },
-        { title: 'Ingresos', value: '$0', icon: DollarSign, color: 'text-emerald-600' },
-        { title: 'Rating', value: '-', icon: Star, color: 'text-amber-500' },
-      ]
+      { title: 'Servicios activos', value: loading ? '-' : stats?.total_services ?? 0, icon: Calendar, color: 'text-blue-600', onClick: () => navigate('/vendor/services') },
+      { title: 'Citas este mes', value: aptQ.isLoading ? '-' : aptQ.data?.monthCount ?? 0, icon: Clock, color: 'text-green-600', onClick: () => navigate('/schedule') },
+      { title: 'Por confirmar', value: aptQ.isLoading ? '-' : aptQ.data?.pendingCount ?? 0, icon: Inbox, color: 'text-amber-600', onClick: () => navigate('/schedule') },
+      ...ratingCard,
+    ]
     : [
-        { title: 'Productos Activos', value: stats?.total_products || 0, icon: Package, color: 'text-blue-600' },
-        { title: 'Ordenes', value: stats?.total_orders || 0, icon: ShoppingBag, color: 'text-green-600' },
-        { title: 'Ingresos', value: '$0', icon: DollarSign, color: 'text-emerald-600' },
-        { title: 'Rating', value: '-', icon: Star, color: 'text-amber-500' },
-      ];
+      { title: 'Productos activos', value: loading ? '-' : stats?.total_products ?? 0, icon: Package, color: 'text-blue-600' },
+      { title: 'Órdenes', value: loading ? '-' : stats?.total_orders ?? 0, icon: ShoppingBag, color: 'text-green-600' },
+      ...ratingCard,
+    ];
 
   return (
     <div className="container mx-auto px-4 py-6 max-w-7xl">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold">{isWellness ? 'Dashboard Profesional' : 'Dashboard Vendedor'}</h1>
-          <p className="text-muted-foreground">Gestiona tu presencia en el marketplace</p>
+          <h1 className="text-2xl font-bold">{isWellness ? 'Panel profesional' : 'Panel de vendedor'}</h1>
+          <p className="text-muted-foreground">
+            {isWellness ? 'Tu agenda, tus pacientes y tu presencia en el marketplace' : 'Gestiona tu presencia en el marketplace'}
+          </p>
         </div>
         <Button onClick={() => navigate(isWellness ? '/vendor/services' : '/vendor/products')}>
           <Plus className="h-4 w-4 mr-2" />
-          {isWellness ? 'Nuevo Servicio' : 'Nuevo Producto'}
+          {isWellness ? 'Nuevo servicio' : 'Nuevo producto'}
         </Button>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         {statCards.map((card) => (
-          <Card key={card.title}>
+          <Card
+            key={card.title}
+            className={card.onClick ? 'cursor-pointer transition hover:shadow-md' : undefined}
+            onClick={card.onClick}
+          >
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
                 <div className={`p-2 rounded-lg bg-muted ${card.color}`}>
                   <card.icon className="h-5 w-5" />
                 </div>
-                <div>
-                  <p className="text-2xl font-bold">{loading ? '-' : card.value}</p>
+                <div className="min-w-0">
+                  <p className="text-2xl font-bold">{card.value}</p>
                   <p className="text-xs text-muted-foreground">{card.title}</p>
                 </div>
               </div>
@@ -86,41 +126,40 @@ export default function VendorDashboardPage() {
         ))}
       </div>
 
-      {/* Quick Actions */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Acciones Rapidas</CardTitle>
+          <CardTitle className="text-lg">Accesos rápidos</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {isWellness ? (
               <>
-                <Button variant="outline" className="h-auto py-4 flex flex-col gap-2" onClick={() => navigate('/vendor/services')}>
-                  <Calendar className="h-5 w-5" />
-                  <span className="text-xs">Mis Servicios</span>
-                </Button>
-                <Button variant="outline" className="h-auto py-4 flex flex-col gap-2" onClick={() => navigate('/vendor/appointments')}>
-                  <Clock className="h-5 w-5" />
-                  <span className="text-xs">Citas</span>
-                </Button>
                 <Button variant="outline" className="h-auto py-4 flex flex-col gap-2" onClick={() => navigate('/schedule')}>
                   <Calendar className="h-5 w-5" />
                   <span className="text-xs">Agenda</span>
                 </Button>
-                <Button variant="outline" className="h-auto py-4 flex flex-col gap-2" onClick={() => navigate('/athletes')}>
+                <Button variant="outline" className="h-auto py-4 flex flex-col gap-2" onClick={() => navigate('/pacientes')}>
+                  <Users className="h-5 w-5" />
+                  <span className="text-xs">Pacientes</span>
+                </Button>
+                <Button variant="outline" className="h-auto py-4 flex flex-col gap-2" onClick={() => navigate('/disponibilidad')}>
+                  <Clock className="h-5 w-5" />
+                  <span className="text-xs">Disponibilidad</span>
+                </Button>
+                <Button variant="outline" className="h-auto py-4 flex flex-col gap-2" onClick={() => navigate('/vendor/services')}>
                   <BarChart3 className="h-5 w-5" />
-                  <span className="text-xs">Mis Atletas</span>
+                  <span className="text-xs">Mis servicios</span>
                 </Button>
               </>
             ) : (
               <>
                 <Button variant="outline" className="h-auto py-4 flex flex-col gap-2" onClick={() => navigate('/vendor/products')}>
                   <Package className="h-5 w-5" />
-                  <span className="text-xs">Mis Productos</span>
+                  <span className="text-xs">Mis productos</span>
                 </Button>
                 <Button variant="outline" className="h-auto py-4 flex flex-col gap-2" onClick={() => navigate('/orders')}>
                   <ShoppingBag className="h-5 w-5" />
-                  <span className="text-xs">Ordenes</span>
+                  <span className="text-xs">Órdenes</span>
                 </Button>
                 <Button variant="outline" className="h-auto py-4 flex flex-col gap-2" onClick={() => navigate('/inventory')}>
                   <BarChart3 className="h-5 w-5" />
