@@ -38,6 +38,7 @@ import {
     type PagoPendiente,
 } from '../services/whatsapp-receipt-matching.service';
 import { invitacionPendienteVigente } from '../services/whatsapp-invitacion-vigente.service';
+import { esErrorDeVentana } from '../services/whatsapp-plantillas.service';
 
 // El mismo Logger que usa receipt-approval.service, para poder pasárselo tal cual
 // a evaluatePaymentReceipt sin castear.
@@ -528,7 +529,13 @@ export async function aplicarComprobante(
             + restantes.map((r) => `• ${describirPago(r)}`).join('\n');
     }
 
-    await ctx.responder(respuesta, 'resultado_comprobante');
+    const salida = await ctx.responder(respuesta, 'resultado_comprobante') as { ok?: boolean; error?: string } | undefined;
+    // En revisión y Meta rechazó el texto por ventana cerrada (cola atrasada
+    // más de 24 h): `comprobante_en_revision` si está aprobada; si no, como antes.
+    if (resultado.action !== 'approved' && resultado.action !== 'rejected'
+        && salida?.ok === false && esErrorDeVentana(salida.error)) {
+        await avisarRevisionTrasVentana(ctx, pago).catch(() => undefined);
+    }
 
     await cerrar(ctx.queueId, 'done', {
         result_type: 'payment_receipt',
@@ -538,6 +545,20 @@ export async function aplicarComprobante(
         error_message: null,
     });
     ctx.log?.info?.({ queueId: ctx.queueId, paymentId: pago.id, accion: resultado.action }, '[wa-queue] aplicado');
+}
+/** Ver `aplicarComprobante`: la plantilla de «en revisión» cuando el texto no pudo salir por ventana. */
+async function avisarRevisionTrasVentana(ctx: ContextoAplicacion, pago: PagoPendiente): Promise<void> {
+    const { data: fila } = await supabase.from('whatsapp_inbound_queue')
+        .select('wa_phone_number').eq('id', ctx.queueId).maybeSingle();
+    const telefono = (fila as any)?.wa_phone_number as string | undefined;
+    if (!telefono) return;
+    const { avisarRevisionPorPlantilla } = await import('../services/whatsapp-aviso-revision.service');
+    const r = await avisarRevisionPorPlantilla({
+        schoolId: ctx.schoolId, telefono, paymentId: pago.id, parentId: ctx.parentId,
+        monto: ctx.ocr?.amount ?? null, atleta: pago.atleta, paso: 'resultado_comprobante_plantilla',
+    });
+    ctx.log?.info?.({ queueId: ctx.queueId, paymentId: pago.id, enviado: r.enviado, motivo: (r as any).motivo },
+        '[wa-queue] ventana cerrada: aviso de revisión por plantilla');
 }
 /** Resultado de bajar y guardar el archivo — el llamador solo revisa `ok`; en `false` la fila ya quedó cerrada/reintentando y hay que retornar sin hacer nada más. */
 type ArchivoBajado =
