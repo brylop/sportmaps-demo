@@ -69,7 +69,9 @@ import { celular10, type DuenoFactura } from './factura-pagador.service';
 import {
     atenderTurnoCortesia, iniciarCortesia, pideClaseDeCortesia, franjasDeSupabase, filtrarVigentes, quiereSalirDelFlujo,
     FLUJO_CORTESIA, type CtxCortesia, ofrecerHorariosDeCortesia, leerPerfil, normalizar as normalizarCortesia,
+    responderGrupoPorEdad, perfilReciente, listadoDeHorariosReciente,
 } from './whatsapp-clase-cortesia.service';
+import { preguntaGrupoPorEdad } from './grupos-por-edad.service';
 import {
     anunciaComprobante, nombreDelCobroAnunciado, yaPagoYReclama, textoYaPague, pideALaPersona,
     vocativosDelEquipo, esCierreSuelto, esAutoRespuesta, rutaSinModelo, humanoReciente,
@@ -332,6 +334,14 @@ async function cuerpoDelTurno(
     if (pideClaseDeCortesia(text) && (
         await cortesiaSemanaEnBot(integration, conversationId, contactWaId, ajustesEscuela)
         || await atenderCortesiaEnBot(integration, conversationId, contactWaId, text, botonId, conv.parent_id))) {
+        return;
+    }
+
+    // 2.36. «¿Qué grupo le corresponde a mi hija de 12?» / «¿desde qué edad
+    //       reciben?»: sin modelo (el prompt le prohíbe traducir nombres a
+    //       edades). El rango sale de grupos-por-edad.service.
+    if (!botonId && preguntaGrupoPorEdad(text) && await grupoPorEdadEnBot(
+        integration, conversationId, contactWaId, conv.parent_id, text, 'grupo_por_edad')) {
         return;
     }
 
@@ -1241,7 +1251,28 @@ function ctxCortesia(
                 return ((data as any)?.full_name as string | undefined)?.trim() || null;
             }
             : undefined,
+        // Lo que dijo del deportista en 7 días (gana lo más reciente): la edad
+        // no se vuelve a preguntar.
+        perfilPrevio: async () => perfilReciente((await entrantesDeTexto(conversationId, 7)).join('\n')),
+        listadoReciente: () => listadoDeHorariosReciente(conversationId),
     };
+}
+
+/** «¿Qué grupo le corresponde…?» / «¿desde qué edad…?». Nunca lanza. */
+async function grupoPorEdadEnBot(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    parentId: string | null,
+    text: string,
+    step: string,
+): Promise<boolean> {
+    try {
+        return await responderGrupoPorEdad(ctxCortesia(integration, conversationId, contactWaId, parentId), text, { step });
+    } catch (e: any) {
+        console.warn('[whatsapp-bot] grupo por edad falló', { conversationId, err: e?.message });
+        return false;
+    }
 }
 
 /** Turno de clase de cortesía. Nunca lanza: si falla, lo atiende el bot normal. */
@@ -2138,6 +2169,12 @@ async function responderSeguimientoDeProspecto(
     // 2. Horarios, para quién es («tengo 23 años, soy mujer»), cortesía o visita.
     const pideHorarios = intereses.some((i) => i === 'horarios' || i === 'cortesia' || i === 'visita')
         || perfilNuevo !== null;
+    // «¿Qué grupo le corresponde a mi hija de 12?»: el grupo y «¿te reservo?»
+    // (hasta 3 horarios), aunque la lista completa ya haya salido.
+    if (preguntaGrupoPorEdad(nuevo)
+        && await grupoPorEdadEnBot(integration, conversationId, contactWaId, null, nuevo, PASO_PROSPECTO_HORARIOS)) {
+        return 'prospecto_horarios';
+    }
     if (pideHorarios) {
         // Las franjas acaban de salir (el flujo de cortesía las mostró): no se repiten.
         if (await pasoReciente(conversationId, 'cortesia_ofrecer', 10 / 60)
