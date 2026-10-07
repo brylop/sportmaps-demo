@@ -66,9 +66,9 @@ export const iniciarPagoCobroPublico = (token: string) =>
  * Abre el Widget de Wompi con la firma que calculó el BFF.
  *
  * No reusa openWompiCheckout (lib/api/wompi.ts) a propósito: ese camino arma
- * customerData con el correo del usuario logueado y, si falta la firma, la pide
- * a la Edge Function con el JWT de la sesión — aquí no hay sesión ni correo
+ * customerData con el correo del usuario logueado — aquí no hay sesión ni correo
  * (el enlace no expone datos del acudiente). Sin customerData el Widget los pide.
+ * Misma regla que allá: llave y firma vienen SOLO del BFF.
  */
 export function abrirWidgetWompi(
     c: CheckoutCobroPublico,

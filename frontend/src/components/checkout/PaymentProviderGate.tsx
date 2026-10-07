@@ -24,6 +24,11 @@ interface CommonContext {
     teamName?: string;
     description?: string;
     authToken?: string;
+    /**
+     * Wompi: firma de integridad que devolvió el BFF junto con la referencia. Sin ella
+     * (y sin la publicKey de `initialProvider`/providers) el Widget no abre.
+     */
+    wompiSignature?: string | null;
 }
 
 export interface ProviderResult {
@@ -69,6 +74,7 @@ export function PaymentProviderGate(props: Props) {
         teamName,
         description,
         authToken,
+        wompiSignature,
         onSuccess,
         onError,
         onCancel,
@@ -180,14 +186,18 @@ export function PaymentProviderGate(props: Props) {
         );
     }
 
-    // Wompi — abrir Widget. La firma se pide internamente al Edge Function.
+    // Wompi — abrir Widget con llave y firma del BFF (sin fallback de build ni Edge Function).
     return (
         <button
             type="button"
             className="w-full rounded bg-primary px-4 py-3 text-white font-medium hover:bg-primary/90"
             onClick={async () => {
-                const result = await openWompiCheckout({
+                let result: WompiTransactionResult | null;
+                try {
+                    result = await openWompiCheckout({
                     reference,
+                    publicKey: chosen.publicKey,
+                    signature: wompiSignature,
                     amountInCents: Math.round(transactionAmount * 100),
                     customerEmail,
                     customerName,
@@ -197,7 +207,11 @@ export function PaymentProviderGate(props: Props) {
                     schoolName,
                     studentName,
                     teamName,
-                });
+                    });
+                } catch (err) {
+                    onError?.(err instanceof Error ? err : new Error(String(err)));
+                    return;
+                }
                 if (!result) {
                     onError?.(new Error('Wompi widget no inicio'));
                     return;
