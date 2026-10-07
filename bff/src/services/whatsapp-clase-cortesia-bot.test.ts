@@ -85,7 +85,7 @@ vi.mock('./whatsapp-coexistence.service', () => ({
 }));
 
 import { handleBotTurn } from '../routes/whatsapp';
-import { runBotTurn } from './whatsapp-bot.service';
+import { runBotTurn, _olvidarReservasDePaso, _limpiarCacheVocativos } from './whatsapp-bot.service';
 import { BOTON_CC } from './whatsapp-clase-cortesia.service';
 
 const INTEGRATION = { id: 'int-1', school_id: 'school-1' } as any;
@@ -245,5 +245,63 @@ describe('freno del saludo ask_email (responder_desconocidos=true)', () => {
         await runBotTurn(INTEGRATION, CONV, '573209998877', '¿tienen clase de prueba?', 'wamid.4');
         expect(borradores()).toHaveLength(1);
         expect(borradores()[0].row.tool_context).toMatchObject({ flujo: 'clase_cortesia' });
+    });
+});
+
+describe('auditoría Dynasty 2026-10-07: correo en la ráfaga y saludo con el nombre de quien atiende', () => {
+    const conRafaga = (filas: { id: string; texto: string }[]) => {
+        const previo = h.state.resolve;
+        const ahora = new Date().toISOString();
+        h.state.resolve = (table, ops) => {
+            if (table === 'whatsapp_messages'
+                && ops.some(([m, a]) => m === 'select' && String(a[0]).startsWith('wa_message_id, direction'))) {
+                return {
+                    data: filas.map((f) => ({ wa_message_id: f.id, direction: 'inbound', type: 'text', text_body: f.texto, created_at: ahora })),
+                    error: null,
+                };
+            }
+            return previo(table, ops);
+        };
+    };
+    const conEquipo = () => {
+        const previo = h.state.resolve;
+        h.state.resolve = (table, ops) => {
+            if (table === 'profiles') return { data: [{ full_name: 'Milena Pérez' }], error: null };
+            return previo(table, ops);
+        };
+    };
+
+    it('el correo de un mensaje ANTERIOR de la ráfaga arranca el OTP (…5281: correo → nombre → «Soy la mamá»)', async () => {
+        _olvidarReservasDePaso();
+        base({ pasos: ['ask_email'] });
+        conRafaga([
+            { id: 'wamid.r1', texto: 'mama.prueba@correo.com' },
+            { id: 'wamid.r2', texto: 'Ana Pérez' },
+            { id: 'wamid.r3', texto: 'Soy la mamá' },
+        ]);
+        await runBotTurn(INTEGRATION, 'conv-r', '573209998877', 'Soy la mamá', 'wamid.r3');
+        const otp = h.state.rpcCalls.find((c) => c.fn === 'wa_start_identification');
+        expect(otp?.args.p_email).toBe('mama.prueba@correo.com');
+        expect(borradores().map((b) => b.row.tool_context?.step)).toContain('otp_sent');
+    });
+
+    it('«hola mile», «Hola Mile...buenas tardes...como estas?» y «dale mile / quedo pendiente» no piden el correo', async () => {
+        _olvidarReservasDePaso();
+        _limpiarCacheVocativos();
+        base();
+        conEquipo();
+        for (const t of ['hola mile\ncomo estas??', 'Hola Mile...buenas tardes...como estas?', 'dale mile\nquedo pendiente\ngracias']) {
+            await runBotTurn(INTEGRATION, `conv-${t.length}`, '573209998877', t, `wamid.v-${t.length}`);
+        }
+        expect(borradores()).toHaveLength(0);
+    });
+
+    it('con contenido sí lo pide: «mile tenemos entreno?»', async () => {
+        _olvidarReservasDePaso();
+        _limpiarCacheVocativos();
+        base();
+        conEquipo();
+        await runBotTurn(INTEGRATION, 'conv-c', '573209998877', 'mile voy tenemos entreno?', 'wamid.c1');
+        expect(borradores().map((b) => b.row.tool_context?.step)).toEqual(['ask_email']);
     });
 });

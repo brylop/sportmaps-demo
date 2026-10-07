@@ -73,7 +73,7 @@ import {
 import {
     anunciaComprobante, nombreDelCobroAnunciado, yaPagoYReclama, textoYaPague, pideALaPersona,
     vocativosDelEquipo, esCierreSuelto, esAutoRespuesta, rutaSinModelo, humanoReciente,
-    preguntaAbierta, pasoEnVentana, normalizarFrase, ecoDeAudios, PASOS_SIN_CUENTA,
+    preguntaAbierta, pasoEnVentana, normalizarFrase, ecoDeAudios, PASOS_SIN_CUENTA, VOCATIVOS_GENERICOS,
     type FilaReciente, type ComprobanteAnunciado,
 } from './whatsapp-reglas-turno';
 import { atenderAusenciaEnBot } from './whatsapp-ausencias.service';
@@ -544,6 +544,23 @@ export async function vocativosDeEscuela(schoolId: string): Promise<Map<string, 
 
 /** Solo para pruebas: que una prueba no herede los nombres de otra. */
 export function _limpiarCacheVocativos(): void { cacheVocativos.clear(); }
+
+/** Palabras de saludo/cierre que `soloSaludoOCortesia` no trae y no deben abrir un pedido de correo. */
+const SALUDO_EXTRA = new Set(['quedo', 'pendiente', 'pendientes', 'atento', 'atenta', 'holaa', 'holaaa', 'buenass',
+    'querida', 'querido', 'linda', 'lindo', 'reina', 'amiga', 'amigo', 'mija', 'mijo', 'recuerdas']);
+
+/**
+ * ¿Es solo saludo/cortesía, contando el nombre de quien atiende («hola mile»,
+ * «Buenas tardes Milena, cómo estás?») y los vocativos genéricos («profe»)?
+ * Una pregunta con contenido («mile tenemos entreno?») no lo es.
+ */
+export function saludoSinContenido(texto: string | null | undefined, equipo: ReadonlyMap<string, string> = new Map()): boolean {
+    if (soloSaludoOCortesia(texto)) return true;
+    const palabras = normalizarFrase(texto).split(' ').filter(Boolean);
+    const resto = palabras.filter((w) => !equipo.has(w) && !VOCATIVOS_GENERICOS.includes(w) && !SALUDO_EXTRA.has(w));
+    if (resto.length === palabras.length) return false;
+    return soloSaludoOCortesia(resto.join(' '));
+}
 
 /**
  * P9 — Mensaje para una persona del equipo sin trámite que el bot pueda
@@ -1500,6 +1517,16 @@ async function identificarPorTelefono(
 const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
 const CODE_RE = /\b(\d{6})\b/;
 
+/** El código de 6 dígitos más reciente de la ráfaga (las líneas van en orden). */
+function ultimoCodigo(rafaga: string): RegExpMatchArray | null {
+    const lineas = rafaga.split('\n');
+    for (let i = lineas.length - 1; i >= 0; i--) {
+        const m = lineas[i].match(CODE_RE);
+        if (m) return m;
+    }
+    return null;
+}
+
 async function handleIdentification(
     integration: WhatsAppIntegration,
     conversationId: string,
@@ -1521,8 +1548,17 @@ async function handleIdentification(
         return 'resuelto';
     }
 
-    const emailMatch = text.match(EMAIL_RE);
-    const codeMatch = text.match(CODE_RE);
+    // El correo o el código pueden venir en un mensaje ANTERIOR de la ráfaga:
+    // el turno agrupado corre con el último mensaje y los previos van en
+    // `rafaga`. Dynasty 2026-10-07 (…5281): «correo@…» → «Nombre» → «Soy la
+    // mamá» en 11 s; el turno leyó solo «Soy la mamá», no arrancó el OTP y la
+    // mamá escribió 13 mensajes más sin respuesta.
+    const emailMatch = text.match(EMAIL_RE) ?? (rafaga ? rafaga.match(EMAIL_RE) : null);
+    // Un código de la ráfaga solo cuenta con un OTP vigente: seis dígitos en un
+    // mensaje anterior también son un monto («son 150000»).
+    const codigoDeRafaga = !text.match(CODE_RE) && rafaga ? ultimoCodigo(rafaga) : null;
+    const codeMatch = text.match(CODE_RE)
+        ?? (codigoDeRafaga && await hayOtpVigente(integration.id, contactWaId) ? codigoDeRafaga : null);
 
     // (a) Mandó un código de 6 dígitos → verificar.
     if (codeMatch) {
@@ -1573,8 +1609,12 @@ async function handleIdentification(
     // Saludo, «gracias», emoji o cierre suelto de un desconocido: no hay nada
     // que contestar y «escríbeme tu correo» a eso es ruido (2026-10-07: 9 en
     // 3 h a «gracias», «Buenas tardes», publicidad). Queda en el buzón.
+    // Con el nombre de quien atiende también («hola mile», «Hola Mile…buenas
+    // tardes…como estas?», «dale mile, quedo pendiente»): 2026-10-07 después
+    // del fix anterior, 3 «escríbeme tu correo» más a saludos con vocativo.
     const todo = [rafaga, text].filter(Boolean).join('\n');
-    if (!botonId && (soloSaludoOCortesia(todo) || todo.split('\n').every((l) => soloSaludoOCortesia(l) || esCierreSuelto(l)))) {
+    const equipo = botonId ? new Map<string, string>() : await vocativosDeEscuela(integration.school_id);
+    if (!botonId && todo.split('\n').every((l) => saludoSinContenido(l, equipo) || esCierreSuelto(l, equipo))) {
         return 'resuelto';
     }
 
@@ -2968,7 +3008,13 @@ async function handleIntent(
         const info = await infoDeEscuela(integration.school_id);
 
         messages.push({ role: 'assistant', content: MARCA_CONSULTA });
-        messages.push({ role: 'tool', toolName: 'get_school_info', content: JSON.stringify(info) });
+        // `hoy`: sin la fecha el modelo contestó «no sé qué día es hoy para mí» a
+        // «¿hoy hay entrenamiento normal?» (Dynasty 2026-10-07). Va en el
+        // resultado de la herramienta y no en el SYSTEM_PROMPT, que está en caché.
+        const hoy = new Intl.DateTimeFormat('es-CO', {
+            timeZone: 'America/Bogota', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+        }).format(new Date());
+        messages.push({ role: 'tool', toolName: 'get_school_info', content: JSON.stringify({ hoy, ...info }) });
         let final;
         try {
             // SIN herramientas: este turno solo REDACTA. Ofrecerle TOOLS lo invita
