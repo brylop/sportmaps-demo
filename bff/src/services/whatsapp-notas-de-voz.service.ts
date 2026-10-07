@@ -29,19 +29,22 @@ import {
 } from './whatsapp.service';
 import {
     deliver, mensajesRecientes, abrirEnBuzon, vocativosDeEscuela, nombreDeEscuela,
-    textoDeRafaga, SILENCIO_HUMANO_MIN,
+    textoDeRafaga, SILENCIO_HUMANO_MIN, transcribeSinConsentimiento, yaSePreguntoConsentimiento,
+    entrantesDeTexto, BOTONES_CONSENTIMIENTO,
 } from './whatsapp-bot.service';
 import {
     humanoReciente, pideALaPersona, pasoEnVentana, esRuidoDeTranscripcion, AUDIO_MAX_SEGUNDOS_BOT,
     type FilaReciente,
 } from './whatsapp-reglas-turno';
 import { transcribirAudio, type ResultadoTranscripcion } from './transcripcion.service';
-import type { TipoDeContacto } from './whatsapp-atencion.service';
+import { intencionDeProspecto, DIAS_MARCA_PROSPECTO, type TipoDeContacto } from './whatsapp-atencion.service';
 
 /** Tipos de contacto cuyas notas de voz se pueden transcribir (D6: nunca desconocidos). */
 const TIPOS_TRANSCRIBIBLES: ReadonlySet<TipoDeContacto> = new Set(['familia', 'familia_sin_cuenta', 'ambiguo']);
 
 const VENTANA_REPETICION_MS = 10 * 60_000;
+/** «No puedo escuchar» una vez por día y conversación (…7251 lo recibió 2 veces el 06-oct). */
+const VENTANA_NO_PUEDO_ESCUCHAR_MS = 24 * 3600_000;
 
 export const TEXTO_NO_PUEDO_ESCUCHAR =
     'No puedo escuchar notas de voz 🙊 Escríbeme el mensaje y te ayudo. Y si es un ' +
@@ -49,6 +52,18 @@ export const TEXTO_NO_PUEDO_ESCUCHAR =
 export const TEXTO_NO_PUDE_ESCUCHAR =
     'No logré escuchar tu nota de voz 🙊 ¿Me escribes el mensaje? Y si es un comprobante de ' +
     'pago, mándame la *foto* o el *PDF* que te da el banco.';
+/**
+ * P1-10 de la auditoría 2026-10-06: a 4 de 4 familias sin opt-in se les dijo
+ * «No puedo escuchar» ANTES de ofrecerles lo que lo habilita (…1621 lo rechazó
+ * dos minutos después). Ahora la negativa y la oferta van en el mismo mensaje,
+ * con los botones del consentimiento (step 'ask_consent': la respuesta la lee
+ * el turno normal).
+ */
+export const textoOfertaConsentimientoPorAudio = (escuela: string) =>
+    'Todavía no puedo escuchar tus notas de voz 🙊 Si aceptas recibir por aquí los recordatorios ' +
+    `de pago y los avisos de tu atleta de *${escuela}*, desde ese momento las paso a texto para ` +
+    'ayudarte.\n\n¿Aceptas? Mientras tanto, escríbeme el mensaje; y si es un comprobante, mándame ' +
+    'la *foto* o el *PDF* del banco.';
 export const TEXTO_AUDIO_NO_ENTENDIDO = 'No te entendí bien el audio 🙉 ¿Me lo escribes?';
 export const textoAudioLargo = (escuela: string) =>
     `Recibí tu audio 🎧 Como es largo, se lo paso a *${escuela}* para que te responda. ` +
@@ -64,6 +79,7 @@ export type ResultadoNotaDeVoz =
     | 'ruido_al_buzon'
     | 'fallo_al_buzon'
     | 'no_puedo_escuchar'       // comportamiento anterior (sin flag / sin consentimiento)
+    | 'ofrece_consentimiento'   // «no puedo escuchar» + la pregunta que lo habilita
     | 'silencio_humano'         // P4 sin transcribir
     | 'silencio_persona'        // P9: la ráfaga es para una persona del equipo
     | 'ya_avisado';             // ya se dijo «no puedo escuchar» hace < 10 min
@@ -177,20 +193,90 @@ export async function atenderNotaDeVoz(p: {
     const recientes = await mensajesRecientes(conversationId);
     const escuelaHablando = humanoReciente(recientes, SILENCIO_HUMANO_MIN);
 
-    const transcribible = TIPOS_TRANSCRIBIBLES.has(p.tipo)
-        && !!msg.mediaId
-        && await transcribirAudiosActivo(integration.id)
-        && await tieneConsentimiento(integration.id, contactWaId);
+    const esFamilia = TIPOS_TRANSCRIBIBLES.has(p.tipo) && !!msg.mediaId;
+    const flagAudios = esFamilia && await transcribirAudiosActivo(integration.id);
+    const conConsentimiento = flagAudios && await tieneConsentimiento(integration.id, contactWaId);
+    // Ajuste por escuela `wa_transcribir_sin_consentimiento`: familias sin
+    // opt-in también (nunca personales ni staff: no llegan a este tipo).
+    const transcribible = esFamilia
+        && (conConsentimiento || await transcribeSinConsentimiento(integration.school_id));
 
     // ─── Sin transcripción: comportamiento anterior, con P4 y P9 ─────────────
     if (!transcribible) {
         if (escuelaHablando) return 'silencio_humano';
         if (await esParaUnaPersona(integration.school_id, recientes, msg.waMessageId)) return 'silencio_persona';
-        if (pasoEnVentana(recientes, 'tipo_no_soportado_audio', VENTANA_REPETICION_MS)) return 'ya_avisado';
+        if (pasoEnVentana(recientes, 'tipo_no_soportado_audio', VENTANA_NO_PUEDO_ESCUCHAR_MS)
+            || pasoEnVentana(recientes, 'ask_consent', VENTANA_NO_PUEDO_ESCUCHAR_MS)) return 'ya_avisado';
+        if (flagAudios && await puedeOfrecerConsentimiento(integration.id, conversationId, contactWaId)) {
+            await deliver(integration, conversationId, contactWaId,
+                textoOfertaConsentimientoPorAudio(await nombreDeEscuela(integration.school_id)),
+                { step: 'ask_consent', por_audio: true },
+                { botones: BOTONES_CONSENTIMIENTO });
+            return 'ofrece_consentimiento';
+        }
         await deliver(integration, conversationId, contactWaId, TEXTO_NO_PUEDO_ESCUCHAR,
             { step: 'tipo_no_soportado_audio' });
         return 'no_puedo_escuchar';
     }
+
+    return transcribirYAtender(p, recientes, escuelaHablando);
+}
+
+/**
+ * ¿Se le puede ofrecer el consentimiento a esta familia? Solo con cuenta
+ * (el opt-in se registra contra el acudiente), sin baja y si nunca se le
+ * preguntó (borradores no enviados no cuentan). Nunca lanza.
+ */
+async function puedeOfrecerConsentimiento(integrationId: string, conversationId: string, contactWaId: string): Promise<boolean> {
+    try {
+        const { data: conv } = await supabase.from('whatsapp_conversations')
+            .select('parent_id').eq('id', conversationId).maybeSingle();
+        if (!(conv as any)?.parent_id) return false;
+        const { data: optin } = await supabase.from('whatsapp_optins')
+            .select('opted_in_at, opted_out_at')
+            .eq('integration_id', integrationId).eq('contact_wa_id', contactWaId).maybeSingle();
+        if ((optin as any)?.opted_out_at) return false;
+        return !(await yaSePreguntoConsentimiento(conversationId));
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Nota de voz de un DESCONOCIDO con el ajuste `wa_transcribir_sin_consentimiento`.
+ * Solo si la conversación ya es de prospecto (un texto suyo de los últimos días
+ * con intención clara de entrar a la escuela): un desconocido cualquiera puede
+ * ser un amigo de la dueña y su audio no se toca. Lo transcrito pasa por la
+ * misma puerta angosta del desconocido (`turno`, sin modelo). Si no aplica,
+ * silencio, como siempre.
+ */
+export async function atenderNotaDeVozDeProspecto(p: {
+    integration: WhatsAppIntegration;
+    conversationId: string;
+    msg: ParsedInboundMessage;
+    turno: (texto: string) => Promise<void>;
+}): Promise<ResultadoNotaDeVoz | 'no_aplica'> {
+    if (!p.msg.mediaId) return 'no_aplica';
+    if (!(await transcribeSinConsentimiento(p.integration.school_id))) return 'no_aplica';
+    const previos = await entrantesDeTexto(p.conversationId, DIAS_MARCA_PROSPECTO);
+    if (!previos.some((t) => intencionDeProspecto(t))) return 'no_aplica';
+    const recientes = await mensajesRecientes(p.conversationId);
+    const escuelaHablando = humanoReciente(recientes, SILENCIO_HUMANO_MIN);
+    return transcribirYAtender(p, recientes, escuelaHablando);
+}
+
+async function transcribirYAtender(
+    p: {
+        integration: WhatsAppIntegration;
+        conversationId: string;
+        msg: ParsedInboundMessage;
+        turno: (texto: string) => Promise<void>;
+    },
+    recientes: FilaReciente[],
+    escuelaHablando: boolean,
+): Promise<ResultadoNotaDeVoz> {
+    const { integration, conversationId, msg } = p;
+    const contactWaId = msg.contactWaId;
 
     // ─── Transcribir ────────────────────────────────────────────────────────
     const bajada = await downloadMedia(integration, msg.mediaId as string,

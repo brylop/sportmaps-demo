@@ -34,7 +34,13 @@ import crypto from 'crypto';
 import { AsyncLocalStorage } from 'async_hooks';
 import { supabase } from '../config/supabase';
 import { emailClient } from '../utils/emailClient';
-import { chatWithTools, type LlmTool, type LlmMessage } from './llm.service';
+import { chatWithTools, type LlmTool, type LlmMessage, type LlmFalla } from './llm.service';
+import { filtrarSalidaDelModelo } from './whatsapp-salida-segura';
+import {
+    clasificarUrgencia, incidenciaUrgente, avisarEscalacionAlEquipo, PLAZO_ESCALACION_MIN,
+    escalacionesSinRevisar, respondioUnaPersona, reservarRevision, plazoVencido, textoSinRespuesta,
+    type Urgencia, type CategoriaUrgente,
+} from './whatsapp-escalaciones.service';
 import {
     sendTextMessage, sendInteractiveButtons, sendCtaUrl, aFormatoWhatsApp, markAsRead,
     type WhatsAppIntegration, type BotonInteractivo,
@@ -60,7 +66,7 @@ import { conMarca, sufijoMarcaEscuela } from '../utils/tenantLink';
 import { atenderTurnoFactura, enlaceFormularioFactura } from './whatsapp-factura.service';
 import { celular10, type DuenoFactura } from './factura-pagador.service';
 import {
-    atenderTurnoCortesia, iniciarCortesia, pideClaseDeCortesia, franjasDeSupabase, filtrarVigentes,
+    atenderTurnoCortesia, iniciarCortesia, pideClaseDeCortesia, franjasDeSupabase, filtrarVigentes, quiereSalirDelFlujo,
     FLUJO_CORTESIA, type CtxCortesia,
 } from './whatsapp-clase-cortesia.service';
 import {
@@ -101,6 +107,12 @@ interface ContextoDeTurno {
     origen: OrigenDelTurno;
     eco: string | null;
     ecoUsado: boolean;
+    /**
+     * Proveedores del modelo que fallaron en este turno (P1-6, auditoría
+     * 2026-10-06). `deliver` los deja en `payload.llm_fallas` del saliente (o en
+     * `tool_context` del borrador): la causa de un respaldo queda en la base.
+     */
+    llmFallas?: LlmFalla[];
 }
 
 const turnoEnCurso = new AsyncLocalStorage<ContextoDeTurno>();
@@ -140,7 +152,7 @@ export async function runBotTurn(
     botonId: string | null = null,
     opciones: { origen?: OrigenDelTurno } = {},
 ): Promise<void> {
-    const ctx: ContextoDeTurno = { origen: opciones.origen ?? 'texto', eco: null, ecoUsado: false };
+    const ctx: ContextoDeTurno = { origen: opciones.origen ?? 'texto', eco: null, ecoUsado: false, llmFallas: [] };
     return turnoEnCurso.run(ctx, () => cuerpoDelTurno(
         integration, conversationId, contactWaId, inboundText, waMessageId, optedOut, botonId, ctx));
 }
@@ -300,6 +312,12 @@ async function cuerpoDelTurno(
     //       Con `wa_modo_cortesia='semana_app'` (ajuste por escuela) va el paso
     //       a paso del enlace de cortesía en vez de la clase suelta.
     const ajustesEscuela = await ajustesWhatsAppDeEscuela(integration.school_id);
+    // «Sobre la cortesía, quiero que me atienda alguien»: a una persona, no a
+    // la lista de franjas (2026-10-06, `cc877c2d`).
+    if (pideClaseDeCortesia(text) && quiereSalirDelFlujo(text)) {
+        await escalate(integration, conversationId, contactWaId, 'cortesia_pide_una_persona', { texto: text });
+        return;
+    }
     if (pideClaseDeCortesia(text) && (
         await cortesiaSemanaEnBot(integration, conversationId, contactWaId, ajustesEscuela)
         || await atenderCortesiaEnBot(integration, conversationId, contactWaId, text, botonId, conv.parent_id))) {
@@ -366,13 +384,25 @@ async function cuerpoDelTurno(
         return;
     }
 
+    // 2.68. Incidencia URGENTE (clase que no se da con la gente en la sede,
+    //       lesión, seguridad): a una persona de una, sin modelo y con aviso
+    //       urgente. 2026-10-06, `62db6756`: «Estamos varios en Colibrí y no han
+    //       llegado a dar la clase» recibió un saludo, una escalación genérica
+    //       16 s después y nadie le contestó en el día.
+    const urgenciaDelTurno = incidenciaUrgente(rafaga);
+    if (urgenciaDelTurno) {
+        await escalate(integration, conversationId, contactWaId, `incidencia_urgente:${urgenciaDelTurno}`,
+            { texto: rafaga, urgencia: 'urgente', categoria: urgenciaDelTurno });
+        return;
+    }
+
     // 2.7. P9 — Pide una persona, o le habla a una persona del equipo.
     //      «¿Milena estás por acá?» → el modelo PREGUNTABA si escalar; «Mile,
     //      puedes ir a…» → «Lo siento, solo puedo ayudar con…». Ahora ninguna
     //      de las dos pasa por el modelo.
     const pedido = pideALaPersona(rafaga, await vocativosDeEscuela(integration.school_id));
     if (pedido?.tipo === 'escalar') {
-        await escalate(integration, conversationId, contactWaId, 'pidio_una_persona');
+        await escalate(integration, conversationId, contactWaId, 'pidio_una_persona', { texto: rafaga });
         return;
     }
     if (pedido?.tipo === 'vocativo') {
@@ -597,6 +627,8 @@ async function responderYaPague(
             .select('status, result_type, created_at')
             .eq('integration_id', integration.id)
             .eq('wa_phone_number', contactWaId)
+            // Las filas del aviso de pago por link (15ed9235) no son comprobantes.
+            .or('message_type.is.null,message_type.neq.payment_link')
             .gte('created_at', desde)
             .limit(20)
             .then((r: any) => (Array.isArray(r?.data) ? r.data : []), () => []),
@@ -608,7 +640,8 @@ async function responderYaPague(
     }
     // Enlace «Pagar» en lo pendiente, solo en el texto: a quien dice que ya
     // pagó no se le pone un botón grande de pagar.
-    const pagosConEnlace = await conEnlacesDePago(pagos as any[], parentId, integration.school_id);
+    const pagosConEnlace = await conEnlacesDePago(pagos as any[], parentId, integration.school_id,
+        { integrationId: integration.id, waPhone: contactWaId });
     const { texto, hayAlgo } = textoYaPague(pagosConEnlace as any, cola as any);
     await deliver(integration, conversationId, contactWaId, texto,
         { step: 'estado_comprobantes', encontro_comprobante: hayAlgo, tool_result: pagosConEnlace });
@@ -657,7 +690,8 @@ async function responderSinModelo(
             p_parent_id: parentId, p_school_id: integration.school_id,
         });
         if (!error) {
-            const conEnlace = await conEnlacesDePago(payments as any[], parentId, integration.school_id);
+            const conEnlace = await conEnlacesDePago(payments as any[], parentId, integration.school_id,
+        { integrationId: integration.id, waPhone: contactWaId });
             await deliver(integration, conversationId, contactWaId,
                 fallbackPaymentText(conEnlace), { step: 'payment_fallback', via: 'llm_error', tool_result: conEnlace },
                 conBotonPagar(conEnlace));
@@ -799,7 +833,8 @@ async function ejecutarAccionDeBoton(
         await escalate(integration, conversationId, contactWaId, 'tool_error');
         return;
     }
-    const conEnlace = await conEnlacesDePago(payments as any[], parentId, integration.school_id);
+    const conEnlace = await conEnlacesDePago(payments as any[], parentId, integration.school_id,
+        { integrationId: integration.id, waPhone: contactWaId });
     await deliver(integration, conversationId, contactWaId,
         fallbackPaymentText(conEnlace), { step: 'get_payment_status', via: 'boton', tool_result: conEnlace },
         conBotonPagar(conEnlace));
@@ -1206,6 +1241,32 @@ async function pasoReciente(conversationId: string, step: string, horas: number)
     return (borradores ?? 0) > 0;
 }
 
+/**
+ * Tope 5 (2026-10-06): el saludo de identificación salió 10 veces en 3 min a un
+ * mismo contacto (…0690) y 161 borradores `ask_email` en un día. `pasoReciente`
+ * solo ve lo que YA quedó guardado: dos turnos que corren a la vez (ráfaga de
+ * mensajes antes del agrupamiento) lo ven vacío los dos y mandan los dos. Esta
+ * reserva en memoria cierra esa carrera dentro del proceso (los webhooks de Meta
+ * llegan a UN solo BFF), y la base sigue siendo el freno de 24 h.
+ *
+ * Devuelve true si este turno puede mandar el paso.
+ */
+const reservasDePaso = new Map<string, number>();
+export async function reservarPasoUnaVez(conversationId: string, step: string, horas: number): Promise<boolean> {
+    const clave = `${conversationId}|${step}`;
+    const ahora = Date.now();
+    const previa = reservasDePaso.get(clave);
+    if (previa && ahora - previa < horas * 3600_000) return false;
+    reservasDePaso.set(clave, ahora);
+    if (reservasDePaso.size > 5000) {
+        for (const [k, t] of reservasDePaso) if (ahora - t > 24 * 3600_000) reservasDePaso.delete(k);
+    }
+    if (await pasoReciente(conversationId, step, horas)) return false;
+    return true;
+}
+/** Solo para pruebas. */
+export function _olvidarReservasDePaso(): void { reservasDePaso.clear(); }
+
 async function identificarPorTelefono(
     integration: WhatsAppIntegration,
     conversationId: string,
@@ -1411,7 +1472,7 @@ async function handleIdentification(
     const comoDesconocido = await atenderDesconocido(integration, conversationId, contactWaId, text, botonId);
     if (comoDesconocido !== 'silencio') return 'resuelto';
 
-    if (await pasoReciente(conversationId, 'ask_email', 24)) return 'resuelto';
+    if (!(await reservarPasoUnaVez(conversationId, 'ask_email', 24))) return 'resuelto';
 
     const nombreEscuela = await nombreDeEscuela(integration.school_id);
     await deliver(integration, conversationId, contactWaId,
@@ -2195,7 +2256,7 @@ async function registrarOptIn(
     if (error) console.error('[whatsapp-bot] wa_register_optin error:', error);
 }
 
-async function yaSePreguntoConsentimiento(conversationId: string): Promise<boolean> {
+export async function yaSePreguntoConsentimiento(conversationId: string): Promise<boolean> {
     const { count: enviados } = await supabase
         .from('whatsapp_messages')
         .select('id', { count: 'exact', head: true })
@@ -2204,14 +2265,17 @@ async function yaSePreguntoConsentimiento(conversationId: string): Promise<boole
         .eq('payload->>step', 'ask_consent');
     if ((enviados ?? 0) > 0) return true;
 
-    // En modo asistido la pregunta queda como borrador hasta que un admin la
-    // aprueba. Cuenta igual como preguntada: si no, cada mensaje del padre
-    // generaría un borrador nuevo pidiendo lo mismo.
+    // Borradores: solo cuentan los que SALIERON (aprobados o enviados desde el
+    // buzón). Antes contaba cualquiera, y el modo asistido del 06-oct dejó 9
+    // familias marcadas como «ya preguntadas» por un borrador que nunca vieron
+    // (auditoría P1-8a). Un borrador `pending` igual no se repite: `deliver` no
+    // deja dos borradores idénticos pendientes en la misma conversación.
     const { count: borradores } = await supabase
         .from('whatsapp_message_drafts')
         .select('id', { count: 'exact', head: true })
         .eq('conversation_id', conversationId)
-        .eq('tool_context->>step', 'ask_consent');
+        .eq('tool_context->>step', 'ask_consent')
+        .in('status', ['approved', 'sent']);
     return (borradores ?? 0) > 0;
 }
 
@@ -2252,6 +2316,8 @@ Reglas estrictas:
   la URL completa y tal cual (sin acortarla ni ponerla entre corchetes). Ahi la
   familia ve la transferencia, el QR y el pago en linea. Nunca inventes un enlace
   para un pago que no lo trae.
+- Si el pago trae enlace_instrucciones (link con el monto exacto, que vence), repite
+  esa frase tal cual junto al enlace, sin agregar promesas que ella no haga.
 - «Cuanto cuesta la mensualidad?» de alguien YA inscrito es una pregunta sobre SU
   cobro, no sobre la lista de precios: usa get_payment_status y dile su monto. Es la
   pregunta mas comun de todas y contestarle «no tengo ese dato» teniendolo delante es
@@ -2380,6 +2446,82 @@ export const TOOLS: LlmTool[] = [
     },
 ];
 
+/** Nombres de las herramientas: lo que nunca puede leer una familia. */
+export const NOMBRES_DE_HERRAMIENTAS: readonly string[] = TOOLS.map((t) => t.name);
+
+/**
+ * Lo que el bot pone como turno del asistente antes del resultado de una
+ * consulta. Antes era «Llamando get_payment_status», y el 06-oct el modelo lo
+ * imitó en la redacción («Llamando escalate_to_human» les llegó a 2 familias).
+ * Sin nombres internos no hay qué imitar; el resultado igual va rotulado con
+ * el nombre de la consulta en el turno siguiente (llm.service).
+ */
+const MARCA_CONSULTA = '(Consulto los datos de la escuela.)';
+
+/** Las fallas que trae un error de `chatWithTools` (copia de `fallasDeError` de llm.service: las pruebas lo mockean entero). */
+function fallasDeError(err: unknown): LlmFalla[] {
+    const f = (err as any)?.fallas;
+    return Array.isArray(f) ? f : [];
+}
+
+function anotarFallasDelModelo(fallas: LlmFalla[] | undefined): void {
+    if (!fallas?.length) return;
+    const ctx = turnoEnCurso.getStore();
+    if (ctx) (ctx.llmFallas ??= []).push(...fallas);
+}
+
+/**
+ * El único camino por el que sale texto escrito por el MODELO (P1 de la
+ * auditoría de calidad 2026-10-06). Pasa por `filtrarSalidaDelModelo`:
+ *   - texto limpio → sale (con `salida_filtrada` en el payload si se tocó);
+ *   - no queda nada confiable → el `respaldo` determinista si hay, y si no la
+ *     respuesta segura: escalar a una persona;
+ *   - el modelo quiso escalar (nombró escalate_to_human sin poder llamarla)
+ *     → sale lo limpio y además se escala de verdad.
+ */
+async function entregarTextoDelModelo(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    texto: string,
+    context: Record<string, unknown>,
+    opciones: {
+        textoFamilia: string;
+        respaldo?: string;
+        botones?: (t: string) => ConBotones | undefined;
+        conBotones?: ConBotones;
+    },
+): Promise<'enviado' | 'respaldo' | 'escalado'> {
+    const f = filtrarSalidaDelModelo(texto, NOMBRES_DE_HERRAMIENTAS);
+    const ctx = f.alterado ? { ...context, salida_filtrada: f.motivos } : context;
+    if (f.alterado) {
+        console.warn('[whatsapp-bot] salida del modelo filtrada', { conversationId, motivos: f.motivos,
+            step: (context as any)?.step ?? null, bloqueada: !f.texto });
+    }
+    if (!f.texto) {
+        if (opciones.respaldo) {
+            await deliver(integration, conversationId, contactWaId, opciones.respaldo, ctx, opciones.conBotones);
+            if (f.quiereEscalar) {
+                await escalate(integration, conversationId, contactWaId, 'el_asistente_pidio_una_persona',
+                    { texto: opciones.textoFamilia });
+                return 'escalado';
+            }
+            return 'respaldo';
+        }
+        await escalate(integration, conversationId, contactWaId, 'salida_del_modelo_bloqueada',
+            { texto: opciones.textoFamilia });
+        return 'escalado';
+    }
+    await deliver(integration, conversationId, contactWaId, f.texto, ctx,
+        opciones.conBotones ?? opciones.botones?.(f.texto));
+    if (f.quiereEscalar) {
+        await escalate(integration, conversationId, contactWaId, 'el_asistente_pidio_una_persona',
+            { texto: opciones.textoFamilia });
+        return 'escalado';
+    }
+    return 'enviado';
+}
+
 async function handleIntent(
     integration: WhatsAppIntegration,
     conversationId: string,
@@ -2400,7 +2542,9 @@ async function handleIntent(
     let first;
     try {
         first = await chatWithTools({ system: SYSTEM_PROMPT, messages, tools: TOOLS });
+        anotarFallasDelModelo(first.fallas);
     } catch (err: any) {
+        anotarFallasDelModelo(fallasDeError(err));
         // `chatWithTools` ya recorrió la cadena de proveedores (Gemini → Groq).
         // Si llega acá fallaron los dos: respuesta determinista, NO escalación
         // (P10, análisis 2026-10-06: las 2 escalaciones del día fueron
@@ -2412,22 +2556,30 @@ async function handleIntent(
 
     // Sin tool → responder texto directo (saludos, agradecimientos).
     if (!first.toolCalls?.length) {
-        const respuesta = first.text || 'Puedo ayudarte con el estado de tus pagos. ¿Qué necesitas?';
-        await deliver(integration, conversationId, contactWaId,
-            respuesta,
+        // Sin respaldo: si el filtro bloquea, la respuesta segura es escalar.
+        await entregarTextoDelModelo(integration, conversationId, contactWaId,
+            first.text || 'Puedo ayudarte con el estado de tus pagos. ¿Qué necesitas?',
             { step: 'llm_text', provider: first.provider },
-            botonesSiNoLoTiene(respuesta));
+            { textoFamilia: text, botones: botonesSiNoLoTiene });
         return;
     }
 
     const call = first.toolCalls[0];
 
     if (call.name === 'escalate_to_human') {
-        await escalate(integration, conversationId, contactWaId, String((call.args as any)?.reason || 'user_request'));
+        await escalate(integration, conversationId, contactWaId, String((call.args as any)?.reason || 'user_request'),
+            { texto: text });
         return;
     }
 
     if (call.name === 'get_trial_class_info') {
+        // «Necesito hablar con un asesor» o «no sabemos en qué categoría»
+        // (Dynasty 2026-10-06, `cc877c2d`, `f310c110`) recibían «Toca la franja
+        // que prefieras». Quien pide salir del flujo va a una persona.
+        if (quiereSalirDelFlujo(text)) {
+            await escalate(integration, conversationId, contactWaId, 'cortesia_pide_una_persona', { texto: text });
+            return;
+        }
         // Sin segundo turno de redacción: el texto, las franjas y los botones
         // salen del flujo determinista. Un modelo redactando franjas es justo
         // donde se inventa un horario que la familia después reclama.
@@ -2452,14 +2604,16 @@ async function handleIntent(
     if (call.name === 'get_school_info') {
         const info = await infoDeEscuela(integration.school_id);
 
-        messages.push({ role: 'assistant', content: `Llamando get_school_info` });
+        messages.push({ role: 'assistant', content: MARCA_CONSULTA });
         messages.push({ role: 'tool', toolName: 'get_school_info', content: JSON.stringify(info) });
         let final;
         try {
             // SIN herramientas: este turno solo REDACTA. Ofrecerle TOOLS lo invita
             // a llamar otra, y cuando lo hace `text` vuelve vacio.
             final = await chatWithTools({ system: SYSTEM_PROMPT, messages, tools: [] });
-        } catch {
+            anotarFallasDelModelo(final.fallas);
+        } catch (err) {
+            anotarFallasDelModelo(fallasDeError(err));
             await deliver(integration, conversationId, contactWaId,
                 fallbackInfoEscuela(info), { step: 'info_escuela_fallback' });
             return;
@@ -2470,17 +2624,17 @@ async function handleIntent(
         }
         // «¿A qué hora entrena el sub 13?» con el horario sin cargar termina en
         // «eso no lo tengo a la mano»: ahí también van los botones.
-        await deliver(integration, conversationId, contactWaId,
+        await entregarTextoDelModelo(integration, conversationId, contactWaId,
             final.text || fallbackInfoEscuela(info),
             { step: 'get_school_info', provider: final.provider },
-            botonesSiNoLoTiene(final.text));
+            { textoFamilia: text, respaldo: fallbackInfoEscuela(info), botones: botonesSiNoLoTiene });
         return;
     }
 
     if (call.name === 'get_payment_methods') {
         const medios = await mediosDePago(integration.school_id);
 
-        messages.push({ role: 'assistant', content: `Llamando get_payment_methods` });
+        messages.push({ role: 'assistant', content: MARCA_CONSULTA });
         messages.push({ role: 'tool', toolName: 'get_payment_methods', content: JSON.stringify(medios) });
         let final;
         try {
@@ -2488,7 +2642,9 @@ async function handleIntent(
             // ya llegaron; ofrecerle TOOLS lo invita a llamar otra, y cuando lo
             // hace `text` vuelve vacio y caemos al texto plano.
             final = await chatWithTools({ system: SYSTEM_PROMPT, messages, tools: [] });
-        } catch {
+            anotarFallasDelModelo(final.fallas);
+        } catch (err) {
+            anotarFallasDelModelo(fallasDeError(err));
             await deliver(integration, conversationId, contactWaId,
                 fallbackMediosDePago(medios), { step: 'medios_fallback' });
             await ofrecerConsentimientoSiFalta(integration, conversationId, contactWaId, parentId);
@@ -2502,10 +2658,13 @@ async function handleIntent(
             console.warn('[whatsapp-bot] medios_de_pago: el modelo no devolvio texto',
                 { proveedor: final.provider, toolCalls: (final as any).toolCalls?.length ?? 0 });
         }
-        await deliver(integration, conversationId, contactWaId,
+        const medioEntregado = await entregarTextoDelModelo(integration, conversationId, contactWaId,
             final.text || fallbackMediosDePago(medios),
-            { step: 'get_payment_methods', provider: final.provider });
-        await ofrecerConsentimientoSiFalta(integration, conversationId, contactWaId, parentId);
+            { step: 'get_payment_methods', provider: final.provider },
+            { textoFamilia: text, respaldo: fallbackMediosDePago(medios) });
+        if (medioEntregado !== 'escalado') {
+            await ofrecerConsentimientoSiFalta(integration, conversationId, contactWaId, parentId);
+        }
         return;
     }
 
@@ -2524,10 +2683,11 @@ async function handleIntent(
 
         // Cada pendiente con su `enlace_pago` (/p/:token). El modelo lo recibe
         // en el JSON y el prompt le pide ponerlo como «Pagar: <enlace>».
-        const conEnlace = await conEnlacesDePago(payments as any[], parentId, integration.school_id);
+        const conEnlace = await conEnlacesDePago(payments as any[], parentId, integration.school_id,
+        { integrationId: integration.id, waPhone: contactWaId });
 
         // Redacción final con el resultado de la tool.
-        messages.push({ role: 'assistant', content: `Llamando get_payment_status` });
+        messages.push({ role: 'assistant', content: MARCA_CONSULTA });
         messages.push({ role: 'tool', toolName: 'get_payment_status', content: JSON.stringify(conEnlace) });
 
         let final;
@@ -2536,7 +2696,9 @@ async function handleIntent(
             // ya llegaron; ofrecerle TOOLS lo invita a llamar otra, y cuando lo
             // hace `text` vuelve vacio y caemos al texto plano.
             final = await chatWithTools({ system: SYSTEM_PROMPT, messages, tools: [] });
-        } catch {
+            anotarFallasDelModelo(final.fallas);
+        } catch (err) {
+            anotarFallasDelModelo(fallasDeError(err));
             // Si la 2a llamada falla, redactar un fallback determinista con los datos.
             await deliver(integration, conversationId, contactWaId,
                 fallbackPaymentText(conEnlace), { step: 'payment_fallback' }, conBotonPagar(conEnlace));
@@ -2552,11 +2714,13 @@ async function handleIntent(
             console.warn('[whatsapp-bot] estado_de_pagos: el modelo no devolvio texto',
                 { proveedor: final.provider, toolCalls: (final as any).toolCalls?.length ?? 0 });
         }
-        await deliver(integration, conversationId, contactWaId,
+        const estadoEntregado = await entregarTextoDelModelo(integration, conversationId, contactWaId,
             final.text || fallbackPaymentText(conEnlace),
             { step: 'get_payment_status', provider: final.provider, tool_result: conEnlace },
-            conBotonPagar(conEnlace));
-        await ofrecerConsentimientoSiFalta(integration, conversationId, contactWaId, parentId);
+            { textoFamilia: text, respaldo: fallbackPaymentText(conEnlace), conBotones: conBotonPagar(conEnlace) });
+        if (estadoEntregado !== 'escalado') {
+            await ofrecerConsentimientoSiFalta(integration, conversationId, contactWaId, parentId);
+        }
         return;
     }
 
@@ -2681,11 +2845,20 @@ export async function deliver(
     // Encabezado del mensaje: la presentación (primera respuesta automática de
     // la conversación) y el eco de la nota de voz (primera respuesta del turno).
     const ctxTurno = turnoEnCurso.getStore();
-    const presentacion = await presentacionPendiente(integration, conversationId, proposedText);
+    // Fallas del modelo en este turno (P1-6): quedan en el payload del saliente
+    // o en `tool_context` del borrador, consultables con SQL.
+    if (ctxTurno?.llmFallas?.length && !(context as any)?.llm_fallas) {
+        context = { ...context, llm_fallas: ctxTurno.llmFallas };
+    }
+    const { presentacion, primera } = await presentacionPendiente(integration, conversationId, proposedText);
     const eco = ctxTurno && !ctxTurno.ecoUsado ? ctxTurno.eco : null;
     if (ctxTurno && eco) ctxTurno.ecoUsado = true;
     const cuerpoPropuesto = presentacion ? sinSaludoInicial(proposedText) : proposedText;
-    const conEncabezado = [presentacion, eco, cuerpoPropuesto].filter(Boolean).join('\n\n');
+    // Con `wa_transcribir_sin_consentimiento` la primera respuesta dice, en una
+    // línea, que los audios se pasan a texto (la familia no aceptó nada).
+    const privacidad = primera && await transcribeSinConsentimiento(integration.school_id)
+        ? NOTA_PRIVACIDAD_AUDIOS : null;
+    const conEncabezado = [presentacion, eco, cuerpoPropuesto, privacidad].filter(Boolean).join('\n\n');
 
     // WhatsApp usa UN asterisco para negrita; el modelo escribe Markdown estandar.
     let texto = aFormatoWhatsApp(conEncabezado);
@@ -2816,13 +2989,53 @@ const yaPresentadas = new Set<string>();
 /** Solo para pruebas. */
 export function _olvidarPresentaciones(): void { yaPresentadas.clear(); }
 
+/** Línea de privacidad de la presentación cuando la escuela transcribe sin consentimiento. */
+export const NOTA_PRIVACIDAD_AUDIOS =
+    '🔒 Si me mandas notas de voz, las paso a texto para poder ayudarte; el audio no se guarda.';
+
+/**
+ * ¿La escuela prendió `wa_transcribir_sin_consentimiento`? (mecanismo de
+ * ajustes por escuela en `school_settings`, mig. 20261006232151). Sin la
+ * columna o ante cualquier error: false. Nunca lanza.
+ */
+export async function transcribeSinConsentimiento(schoolId: string | null | undefined): Promise<boolean> {
+    if (!schoolId) return false;
+    try {
+        const { data, error } = await supabase.from('school_settings')
+            .select('wa_transcribir_sin_consentimiento')
+            .eq('school_id', schoolId)
+            .maybeSingle();
+        if (error) return false;
+        return (data as any)?.wa_transcribir_sin_consentimiento === true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * `presentacion`: el encabezado a poner (o null). `primera`: ¿es la primera
+ * respuesta automática de la conversación? (aunque el texto ya se presente
+ * solo). Las dos se calculan una vez por conversación y proceso.
+ */
 async function presentacionPendiente(
     integration: WhatsAppIntegration,
     conversationId: string,
     texto: string,
-): Promise<string | null> {
+): Promise<{ presentacion: string | null; primera: boolean }> {
+    const r = await presentacionPendienteBase(integration, conversationId, texto);
+    return typeof r === 'object' && r !== null ? r : { presentacion: null, primera: false };
+}
+
+async function presentacionPendienteBase(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    texto: string,
+): Promise<{ presentacion: string | null; primera: boolean } | null> {
     if (yaPresentadas.has(conversationId)) return null;
-    if (normalizarFrase(texto).includes('asistente automatico')) {
+    const sePresentaSolo = normalizarFrase(texto).includes('asistente automatico');
+    // El texto ya se presenta: solo importa saber si es la primera respuesta
+    // cuando hay que agregar la nota de privacidad de los audios.
+    if (sePresentaSolo && !(await transcribeSinConsentimiento(integration.school_id))) {
         yaPresentadas.add(conversationId);
         return null;
     }
@@ -2844,7 +3057,8 @@ async function presentacionPendiente(
             || typeof enviados.count !== 'number' || typeof borradores.count !== 'number') return null;
         yaPresentadas.add(conversationId);
         if (enviados.count + borradores.count > 0) return null;
-        return presentacionDelAsistente(await nombreDeEscuela(integration.school_id));
+        if (sePresentaSolo) return { presentacion: null, primera: true };
+        return { presentacion: presentacionDelAsistente(await nombreDeEscuela(integration.school_id)), primera: true };
     } catch {
         return null;
     }
@@ -2947,6 +3161,7 @@ async function avisarQueEsperan(
     nombreContacto: string | null,
     aviso?: AvisoDeEspera,
     motivoCorreo?: string,
+    sinPush = false,
 ): Promise<void> {
     try {
         const esProspecto = aviso?.motivo === 'prospecto';
@@ -2970,6 +3185,10 @@ async function avisarQueEsperan(
                 }))
                 .catch(() => {});
         }
+
+        // La escalación urgente manda su propio push («URGENTE en WhatsApp…»,
+        // whatsapp-escalaciones): dos pushes por lo mismo serían ruido.
+        if (sinPush) return;
 
         const [{ data: escuela }, { data: miembros }] = await Promise.all([
             supabase.from('schools').select('name, owner_id').eq('id', integration.school_id).maybeSingle(),
@@ -3004,8 +3223,22 @@ async function escalate(
     conversationId: string,
     contactWaId: string,
     reason: string,
-    opciones: { antes?: string } = {},
+    opciones: {
+        antes?: string;
+        /** Lo que escribió la familia: de acá sale la urgencia. */
+        texto?: string;
+        urgencia?: Urgencia;
+        categoria?: CategoriaUrgente | null;
+    } = {},
 ): Promise<void> {
+    // Urgencia (2026-10-06, `62db6756`): incidencia en la sede o la clase,
+    // lesión o seguridad. Se clasifica sobre el texto de la familia Y el motivo
+    // (el modelo escribe «el profe no llegó» como reason).
+    const clasif = opciones.urgencia
+        ? { urgencia: opciones.urgencia, categoria: opciones.categoria ?? null }
+        : clasificarUrgencia(opciones.texto, reason);
+    const urgente = clasif.urgencia === 'urgente';
+
     // Solo se avisa en la TRANSICION a abierta. `escalate` puede correr varias
     // veces sobre la misma conversacion —el bot se atasca dos veces seguidas— y
     // sin esto la escuela recibiria un push por cada intento.
@@ -3018,7 +3251,20 @@ async function escalate(
 
     if ((previa as any)?.status !== 'open') {
         await avisarQueEsperan(integration, conversationId, contactWaId,
-            (previa as any)?.contact_name ?? null, undefined, reason);
+            (previa as any)?.contact_name ?? null, undefined, reason, urgente);
+    }
+
+    // In-app SIEMPRE (el push del buzón solo sale en la transición y no queda
+    // en la campana) y push inmediato si es urgente, aunque ya estuviera
+    // abierta. Ancla = ventana de 10 min: dos escalaciones seguidas de la misma
+    // conversación no duplican el aviso. No bloquea la respuesta a la familia.
+    if (!enSimulacion()) {
+        void avisarEscalacionAlEquipo({
+            schoolId: integration.school_id, conversationId, contactWaId,
+            contactName: (previa as any)?.contact_name ?? null,
+            urgencia: clasif.urgencia, categoria: clasif.categoria, etapa: 'inicial',
+            ancla: String(Math.floor(Date.now() / 600_000)), push: urgente,
+        }).catch(() => undefined);
     }
 
     // El bot responde 24/7 — eso no cambia. Lo que cambia fuera de horario es lo
@@ -3027,10 +3273,81 @@ async function escalate(
     // puede cumplir.
     const horario = await estadoDeHorario(integration.id);
     // `antes`: lo que se le dice primero (el reclamo de valor muestra los cobros).
-    const aviso = mensajeDeEscalamiento(horario);
+    const aviso = urgente ? mensajeDeEscalamientoUrgente(clasif.categoria) : mensajeDeEscalamiento(horario);
     await deliver(integration, conversationId, contactWaId,
         opciones.antes ? `${opciones.antes}\n\n${aviso}` : aviso,
-        { step: 'escalated', reason, fuera_de_horario: horario.fueraDeHorario });
+        {
+            step: 'escalated', reason, fuera_de_horario: horario.fueraDeHorario,
+            // El plazo lo vigila `revisarEscalacionesVencidas`.
+            urgencia: clasif.urgencia, categoria: clasif.categoria,
+            plazo_min: PLAZO_ESCALACION_MIN[clasif.urgencia],
+        });
+}
+
+/** Lo que se le dice a la familia al escalar algo urgente. */
+export function mensajeDeEscalamientoUrgente(categoria: CategoriaUrgente | null): string {
+    const base = 'Ya le avisé a la escuela como *urgente* 🚨 Una persona del equipo te responde por aquí lo antes posible.';
+    return categoria === 'lesion' || categoria === 'seguridad'
+        ? `${base}\n\nSi alguien está lastimado o en peligro, no esperes este chat: llama ya a la línea de emergencias *123*.`
+        : base;
+}
+
+// ─── Plazo de las escalaciones ──────────────────────────────────────────────
+//
+// Si en `plazo_min` (10 urgente / 30 normal) ninguna persona de la escuela
+// escribió en el chat, se re-avisa al equipo (in-app + push) y se le dice a la
+// familia, UNA vez, algo honesto. Lo dispara el webhook (routes/whatsapp.ts,
+// como mucho una vez por minuto): los webhooks de Meta llegan a un solo BFF,
+// y la reserva en la base (`reservarRevision`) lo hace idempotente igual.
+
+export type ResultadoRevision = { revisadas: number; reavisadas: number; atendidas: number };
+
+export async function revisarEscalacionesVencidas(ahora = Date.now()): Promise<ResultadoRevision> {
+    const r: ResultadoRevision = { revisadas: 0, reavisadas: 0, atendidas: 0 };
+    for (const e of await escalacionesSinRevisar(ahora)) {
+        try {
+            const plazo = Number(e.payload?.plazo_min) || PLAZO_ESCALACION_MIN.normal;
+            if (!plazoVencido(e.createdAt, plazo, ahora)) continue;
+            r.revisadas++;
+
+            const { data: conv } = await supabase.from('whatsapp_conversations')
+                .select('id, contact_wa_id, contact_name, status, tomada_por, tomada_hasta')
+                .eq('id', e.conversationId).maybeSingle();
+            const c = conv as any;
+            const tomada = !!c?.tomada_por && (!c?.tomada_hasta || new Date(c.tomada_hasta).getTime() > ahora);
+            const atendida = !c || c.status === 'closed' || tomada
+                || await respondioUnaPersona(e.conversationId, e.createdAt);
+
+            if (!(await reservarRevision(e, atendida ? 'atendida' : 'reavisada', ahora))) continue;
+            if (atendida) { r.atendidas++; continue; }
+
+            const { data: integ } = await supabase.from('school_whatsapp_integrations')
+                .select('*').eq('id', e.integrationId).maybeSingle();
+            if (!integ) continue;
+            const integration = integ as WhatsAppIntegration;
+            const urgencia: Urgencia = e.payload?.urgencia === 'urgente' ? 'urgente' : 'normal';
+            const categoria = (e.payload?.categoria ?? null) as CategoriaUrgente | null;
+
+            await avisarEscalacionAlEquipo({
+                schoolId: integration.school_id, conversationId: e.conversationId,
+                contactWaId: c.contact_wa_id, contactName: c.contact_name ?? null,
+                urgencia, categoria, etapa: 'reaviso', ancla: e.id, push: true,
+            });
+
+            // A la familia, salvo que la escuela esté escribiendo justo ahora.
+            if (!humanoReciente(await mensajesRecientes(e.conversationId), SILENCIO_HUMANO_MIN)) {
+                const horario = await estadoDeHorario(integration.id);
+                await deliver(integration, e.conversationId, c.contact_wa_id,
+                    textoSinRespuesta({ urgencia, categoria, fueraDeHorario: horario.fueraDeHorario,
+                        proximaAtencion: (horario as any).proximaAtencion ?? null }),
+                    { step: 'escalacion_sin_respuesta', escalacion_id: e.id, urgencia });
+            }
+            r.reavisadas++;
+        } catch (err: any) {
+            console.warn('[whatsapp-bot] no se pudo revisar una escalación', { id: e.id, err: err?.message });
+        }
+    }
+    return r;
 }
 
 // ─── P6. Acuse de adjuntos ───────────────────────────────────────────────────
