@@ -489,7 +489,7 @@ async function iniciar(ctx: CtxVenta, almacen: AlmacenVenta, texto: string): Pro
         const que = tipo ? NOMBRE_TIPO[tipo] : 'ese servicio';
         if (!ctx.parentId) return false;   // el desconocido sigue por el camino del prospecto
         await ctx.escalar('venta_sin_catalogo',
-            `Por ahora no tengo ${que} en el catálogo de la escuela. Le dejo tu pregunta a la escuela.`);
+            `Por ahora no tengo ${que} en el catálogo de la escuela. Dejo tu pregunta con la escuela.`);
         return true;
     }
 
@@ -538,7 +538,7 @@ async function mostrarFicha(ctx: CtxVenta, almacen: AlmacenVenta, s: ServicioEnV
             // Sin deportista activo en la escuela no hay a nombre de quién cobrar.
             await almacen.borrar(ctx.conversationId);
             await ctx.escalar('venta_sin_atleta_activo',
-                `${ficha}\n\nNo encuentro un deportista activo a tu nombre para agendarlo. Le paso tu pedido a la escuela.`);
+                `${ficha}\n\nNo encuentro un deportista activo a tu nombre para agendarlo. Paso tu pedido a la escuela.`);
             return true;
         }
     }
@@ -582,7 +582,7 @@ async function pedirConfirmacion(
 }
 
 async function falloDeEstado(ctx: CtxVenta): Promise<boolean> {
-    await ctx.escalar('venta_sin_estado', 'No pude dejar listo tu pedido en este momento. Le paso tu mensaje a la escuela.');
+    await ctx.escalar('venta_sin_estado', 'No pude dejar listo tu pedido en este momento. Paso tu mensaje a la escuela.');
     return true;
 }
 
@@ -708,7 +708,7 @@ async function confirmar(ctx: CtxVenta, almacen: AlmacenVenta, d: DatosVenta): P
             return true;
         }
         await ctx.escalar(`venta_cobro_fallo:${cobro.code}`,
-            `No pude generar el cobro de *${s.nombre}*. No se cobró nada; le paso tu pedido a la escuela.`);
+            `No pude generar el cobro de *${s.nombre}*. No se cobró nada; paso tu pedido a la escuela.`);
         return true;
     }
     const antes = previo ? `Ya tenías un cobro pendiente de *${s.nombre}*${d.atleta ? ` para ${d.atleta}` : ''}. ` : '';
@@ -782,7 +782,7 @@ async function continuarEsperandoPago(
         const estado = await puerto.estadoCobro(d.payment_id);
         if (estado === 'paid') {
             await ctx.escalar('venta_desiste_pagada',
-                `Tu pago de *${s.nombre}* ya está aprobado, así que no lo puedo anular por aquí. Le paso tu mensaje a la escuela.`);
+                `Tu pago de *${s.nombre}* ya está aprobado, así que no lo puedo anular por aquí. Paso tu mensaje a la escuela.`);
             return true;
         }
         if (estado && estado !== 'pending' && estado !== 'overdue') {

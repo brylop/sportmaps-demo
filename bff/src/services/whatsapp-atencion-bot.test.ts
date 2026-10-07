@@ -306,6 +306,8 @@ describe('desconocido: correo, código vigente o tema escolar', () => {
         qr?: any[];
         yaContestado?: 'enviado' | 'borrador';
         otp?: Record<string, any> | null;
+        /** ¿El correo existe en profiles? (wa_start_identification) */
+        correoExiste?: boolean;
     } = {}) {
         h.state.resolve = (table, ops) => {
             const pideElFreno = ops.some(([m, a]) => m === 'eq' && String(a[0]).endsWith('>>step')
@@ -327,7 +329,7 @@ describe('desconocido: correo, código vigente o tema escolar', () => {
             return { data: null, error: null };
         };
         h.state.rpc = (fn) => {
-            if (fn === 'wa_start_identification') return { data: { ok: true, email_matches_parent: false }, error: null };
+            if (fn === 'wa_start_identification') return { data: { ok: true, email_matches_parent: op.correoExiste ?? true }, error: null };
             if (fn === 'wa_verify_otp') return { data: { ok: false, reason: 'wrong_code', attempts_left: 4 }, error: null };
             return { data: null, error: null };
         };
@@ -421,6 +423,19 @@ describe('desconocido: correo, código vigente o tema escolar', () => {
         const dias = (Date.now() - new Date(desdes[0]).getTime()) / 86_400_000;
         expect(dias).toBeGreaterThan(29.9);
         expect(dias).toBeLessThan(30.1);
+    });
+
+    it('correo que NO existe → lo dice claro una vez y pasa a la escuela, nunca «te envié un código» (…5281)', async () => {
+        baseDeDesconocido({ correoExiste: false });
+        await handleBotTurn(req, INTEGRATION, CONV, mensaje({ textBody: 'mamá.prueba@example.com' }));
+
+        expect(h.state.rpcCalls).toContain('wa_start_identification');
+        expect(borradores()).toHaveLength(1);
+        const { proposed_text, tool_context } = borradores()[0].row;
+        expect(tool_context).toMatchObject({ step: 'correo_no_encontrado' });
+        expect(proposed_text).toContain('No encuentro el correo');
+        expect(proposed_text).toContain('a la escuela');
+        expect(proposed_text).not.toContain('Te envié un código');
     });
 
     it('correo de un desconocido → arranca el OTP (la familia que escribe desde otro número)', async () => {

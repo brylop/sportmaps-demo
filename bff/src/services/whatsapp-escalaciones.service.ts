@@ -27,6 +27,7 @@
 import { supabase } from '../config/supabase';
 import { sendToUser } from './push.service';
 import { uuidDeClave, etiquetaDeContacto } from './avisos-correo.service';
+import { esSoloAdjunto } from './whatsapp-reglas-turno';
 
 export type Urgencia = 'urgente' | 'normal';
 export type CategoriaUrgente = 'clase' | 'lesion' | 'seguridad' | 'urgente_declarado';
@@ -250,18 +251,23 @@ export async function escalacionesSinRevisar(ahora = Date.now()): Promise<Escala
     }
 }
 
-/** ¿Una PERSONA de la escuela escribió en el chat después de la escalación? */
+/**
+ * ¿Una PERSONA de la escuela escribió en el chat después de la escalación?
+ * Solo cuenta lo que trae TEXTO: una imagen, una ubicación o un sticker sueltos
+ * no contestan la pregunta (auditoría 2026-10-07, …1042 y …6297).
+ */
 export async function respondioUnaPersona(conversationId: string, desde: string): Promise<boolean> {
-    const { count, error } = await supabase.from('whatsapp_messages')
-        .select('id', { count: 'exact', head: true })
+    const { data, error } = await supabase.from('whatsapp_messages')
+        .select('type, text_body')
         .eq('conversation_id', conversationId)
         .eq('direction', 'outbound')
         .eq('ai_generated', false)
-        .gt('created_at', desde);
+        .gt('created_at', desde)
+        .limit(50);
     // Sin poder leer, se da por respondida: un re-aviso de más a la familia
     // («nadie te ha contestado») cuando sí le contestaron es peor que uno de menos.
-    if (error) return true;
-    return (count ?? 0) > 0;
+    if (error || !Array.isArray(data)) return true;
+    return (data as any[]).some((f) => !esSoloAdjunto(f));
 }
 
 /**
