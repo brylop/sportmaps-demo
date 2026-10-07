@@ -1,0 +1,18 @@
+{
+  "name": "pago_recibido_otro_concepto",
+  "language": "es_CO",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "✅ Pago recibido: {{1}} por {{2}} de {{3}} en {{4}}. ¡Gracias! Tu comprobante está disponible en el botón.",
+      "example": { "body_text": [["$80.000", "Uniforme de competencia", "Samuel", "Academia Tigres FC"]] }
+    },
+    {
+      "type": "BUTTONS",
+      "buttons": [
+        { "type": "URL", "text": "Ver comprobante", "url": "https://sportmaps.co/p/{{1}}", "example": ["https://sportmaps.co/p/gH9wN6qT"] }
+      ]
+    }
+  ]
+}

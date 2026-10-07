@@ -75,7 +75,9 @@ const TZ = 'America/Bogota';
 
 export type PasoCortesia =
     | 'perfil' | 'elegir_franja' | 'dejar_datos' | 'nombre' | 'edad' | 'acudiente'
-    | 'confirmar' | 'confirmar_cancelacion';
+    | 'confirmar' | 'confirmar_cancelacion'
+    /** Último saliente = recordatorio de la clase (recordatorio-cortesia.service): «CANCELAR» libera el cupo. */
+    | 'recordatorio';
 
 export interface FranjaCortesia {
     id: string;
@@ -226,7 +228,7 @@ const BOTONES_CANCELAR: BotonInteractivo[] = [
     { id: BOTON_CC.CANCELAR_SI, title: 'Sí, cancelar' },
     { id: BOTON_CC.CANCELAR_NO, title: 'No, la mantengo' },
 ];
-const BOTON_CANCELAR_MI_CLASE: BotonInteractivo[] = [
+export const BOTON_CANCELAR_MI_CLASE: BotonInteractivo[] = [
     { id: BOTON_CC.CANCELAR, title: 'Cancelar mi clase' },
 ];
 
@@ -279,13 +281,27 @@ export function quiereCancelarClase(texto: string | null | undefined): boolean {
 }
 
 /**
+ * Respuesta al RECORDATORIO de la clase («Si no puedes ir, responde CANCELAR»):
+ * «cancelar», «CANCELAR.», «cancelo», «no puedo ir», o lo que ya valía
+ * («cancelar mi clase»). Solo se lee contra el recordatorio: ahí la palabra
+ * sola es inequívoca, porque es lo que se le pidió escribir.
+ */
+export function cancelaTrasRecordatorio(texto: string | null | undefined): boolean {
+    const n = normalizar(texto);
+    if (!n) return false;
+    return /^(cancelar|cancela|cancelo|cancelamos|cancelen|cancelada|cancelado|anular|anulo)\b/.test(n)
+        || quiereCancelarClase(texto)
+        || /\bno (puedo|podemos|voy a poder|vamos a poder|podre|podremos) (ir|asistir)\b/.test(n);
+}
+
+/**
  * ¿Quiere salirse del agendamiento? Antes solo valía el mensaje EXACTO
  * («cancelar»); en la prueba en vivo del 2026-10-06 escribieron «Cancelar
  * prueba» y el bot respondió «Toca la franja que prefieras». Ahora basta con
  * que EMPIECE por una de estas frases.
  */
 function abandona(texto: string): boolean {
-    return /^(cancelar|cancela|cancelo|salir|ya no|no gracias|dejalo|olvidalo|no quiero|no me interesa|mejor no|despues|luego)/
+    return /^(cancelar|cancela|cancelo|salir|ya no|no gracias|dejalo|olvidalo|no quiero|no me interesa|mejor no|despues|luego)\b/
         .test(normalizar(texto));
 }
 
@@ -606,7 +622,7 @@ function tituloDia(fecha: string): string {
 }
 
 /** Sede con dirección si la conocemos: «Coliseo Dynasty DC (Cl. 12 Bis #71g-09)». */
-function sedeConDireccion(f: FranjaCortesia): string | null {
+export function sedeConDireccion(f: FranjaCortesia): string | null {
     if (!f.sede) return null;
     return f.direccion && !normalizar(f.sede).includes(normalizar(f.direccion))
         ? `${f.sede} (${f.direccion})` : f.sede;
@@ -619,7 +635,7 @@ function sedeConDireccion(f: FranjaCortesia): string | null {
  */
 export const QUE_LLEVAR = 'ropa deportiva cómoda, tenis, una botella de agua y una toalla pequeña';
 
-function bloqueFranja(f: FranjaCortesia): string {
+export function bloqueFranja(f: FranjaCortesia): string {
     const fin = f.horaFin ? ` a ${horaLegible(f.horaFin)}` : '';
     const sede = sedeConDireccion(f);
     return `📅 ${fechaLegible(f.fecha)}\n🕔 ${horaLegible(f.horaInicio)}${fin}` +
@@ -1009,6 +1025,14 @@ async function continuar(
     ctx: CtxCortesia, d: Deps, estado: EstadoCortesia, texto: string, botonId: string | null,
 ): Promise<boolean> {
     const datos = estado.datos ?? {};
+
+    // Respuesta al recordatorio: «CANCELAR» libera el cupo ya (el recordatorio
+    // pidió esa palabra: es la confirmación). Cualquier otra cosa —«gracias»,
+    // «allá estaremos», una pregunta— la atiende el bot general.
+    if (estado.paso === 'recordatorio') {
+        if (!botonId && cancelaTrasRecordatorio(texto)) return cancelarReserva(ctx, d, datos);
+        return false;
+    }
 
     if (!botonId && abandona(texto) && estado.paso !== 'confirmar_cancelacion') {
         await ctx.enviar('Listo, lo dejamos así. Si quieres agendar después, escríbeme *clase de cortesía*. 🙌',

@@ -111,3 +111,24 @@ Las nuevas se escriben como **estado de cuenta de un cobro concreto**: periodo
 (`{{2}}` = escuela, `{{4}}` = periodo), así que el que las envíe debe mapearlas
 de nuevo. Las `_v2`/`_v3` quedan en la WABA de prueba como MARKETING, sin uso, y
 se apelaron; no borrarlas (ver arriba: el nombre queda bloqueado un mes).
+
+## Avisos de evento y cortesía (2026-10-07)
+
+| Archivo | Cuándo sale | Botón |
+|---|---|---|
+| `pago_recibido_otro_concepto.json` | pago aprobado de algo que NO es mensualidad (uniforme, torneo…), ventana cerrada | Ver comprobante |
+| `comprobante_en_revision.json` | comprobante recibido y en revisión de la escuela, ventana cerrada (recuperación / cola atrasada) | — |
+| `recordatorio_clase_cortesia.json` | víspera de la clase de cortesía, 18:00 COT (job `recordatorio-cortesia`) | — (se responde «CANCELAR») |
+
+Mientras no estén APPROVED en la WABA de la escuela, el código se comporta como
+antes (no manda nada por WhatsApp en ese caso).
+
+**Registrarlas:** desde la app, *WhatsApp → pestaña Plantillas → «Plantillas de
+SportMaps que faltan en tu cuenta» → Enviar a Meta* (manda el JSON tal cual, con
+ejemplos y botón). O por consola, desde `bff/`:
+
+```bash
+npx tsx scripts/wa-registrar-plantilla.ts pago_recibido_otro_concepto <school_id>
+npx tsx scripts/wa-registrar-plantilla.ts comprobante_en_revision <school_id>
+npx tsx scripts/wa-registrar-plantilla.ts recordatorio_clase_cortesia <school_id>
+```

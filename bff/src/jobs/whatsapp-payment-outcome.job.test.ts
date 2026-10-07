@@ -21,7 +21,7 @@ vi.mock('../config/supabase', () => ({
 vi.mock('../services/cobro-enlace-publico.service', () => ({ emitirTokenCobro: () => Promise.resolve(null) }));
 
 import {
-    separarAviso, conAviso, siguienteTrasFallo, plantillaDelDesenlace, nombreCorto,
+    separarAviso, conAviso, siguienteTrasFallo, plantillaDelDesenlace, nombreCorto, textoDelConcepto,
     registrarAvisoDePagoPorLink, idDeFilaLink, MAX_INTENTOS, FILTRO_FILAS_CON_DESENLACE,
 } from './whatsapp-payment-outcome.job';
 import { ventanaAbierta, esErrorDeVentana } from '../services/whatsapp-plantillas.service';
@@ -84,8 +84,14 @@ describe('plantilla del desenlace', () => {
         expect(plantillaDelDesenlace('paid', 'Mensualidad 10/2026 - X')).toEqual({ concepto: 'pago_confirmado' });
         expect(plantillaDelDesenlace('paid', 'Plan PLAN PRO - 08/2026')).toEqual({ concepto: 'pago_confirmado' });
     });
-    it('pagado de un uniforme: la plantilla dice «mensualidad», no se usa', () => {
-        expect(plantillaDelDesenlace('paid', 'Uniforme talla M')).toHaveProperty('motivo');
+    it('pagado de un uniforme: no pago_confirmado (dice «mensualidad») sino pago_recibido_otro_concepto', () => {
+        expect(plantillaDelDesenlace('paid', 'Uniforme talla M')).toEqual({ concepto: 'pago_recibido_otro_concepto' });
+        expect(plantillaDelDesenlace('paid', 'Inscripción Torneo Copa Bogotá')).toEqual({ concepto: 'pago_recibido_otro_concepto' });
+    });
+    it('textoDelConcepto: lo que escribió la escuela, recortado', () => {
+        expect(textoDelConcepto('  Uniforme   talla M ')).toBe('Uniforme talla M');
+        expect(textoDelConcepto('x'.repeat(80))?.length).toBe(60);
+        expect(textoDelConcepto(null)).toBeNull();
     });
     it('rechazado → comprobante_rechazado; glosa → sin plantilla', () => {
         expect(plantillaDelDesenlace('rejected', 'Mensualidad')).toEqual({ concepto: 'comprobante_rechazado' });

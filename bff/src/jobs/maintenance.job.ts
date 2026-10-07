@@ -31,6 +31,7 @@ import { runWhatsAppResumenDiario } from './whatsapp-resumen-diario.job';
 import { runBotResumenSemanal } from './bot-resumen-semanal.job';
 import { runFranjasCortesia } from '../services/franjas-cortesia.service';
 import { anularCobrosSueltosVencidos } from '../services/ventas-servicios.service';
+import { runRecordatorioCortesia } from '../services/recordatorio-cortesia.service';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -810,4 +811,43 @@ export function initMaintenanceJobs() {
     });
 
     console.log('[CRON] Anulación de cobros sueltos vencidos (ventas WhatsApp) registrada (cada 5 min).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Recordatorio de la clase de cortesía por WhatsApp (recordatorio-cortesia.service).
+    //  · Víspera, 18:00 COT: plantilla UTILITY `recordatorio_clase_cortesia`
+    //    (texto si la ventana de 24 h sigue abierta).
+    //  · Mismo día, cada 15 min de 7:00 a 19:45 COT: texto ~3 h antes, SOLO
+    //    con la ventana abierta; cerrada, nada.
+    // «CANCELAR» en la respuesta libera el cupo (wa_cancelar_clase_de_prueba).
+    // Corre en los 3 BFF: idempotente por school_trial_reminders (UNIQUE lead,
+    // cupo, tipo; migración 20261007095845). Sin esa tabla no manda nada.
+    // Kill-switch: DISABLE_RECORDATORIO_CORTESIA=true.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('0 18 * * *', async () => {
+        if (process.env.DISABLE_RECORDATORIO_CORTESIA === 'true') return;
+        try {
+            const r = await runRecordatorioCortesia('vispera', { log: console });
+            if (r.candidatas > 0 || r.sinTabla) {
+                console.log(`[CRON] Recordatorio de cortesía (víspera): ${r.candidatas} reserva(s), ${r.enviados} enviado(s), ${r.noEnviados} sin enviar, ${r.omitidos} omitida(s)${r.sinTabla ? ' — FALTA la tabla school_trial_reminders' : ''}.`);
+            }
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en el recordatorio de cortesía (víspera):', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    cron.schedule('*/15 7-19 * * *', async () => {
+        if (process.env.DISABLE_RECORDATORIO_CORTESIA === 'true') return;
+        try {
+            const r = await runRecordatorioCortesia('mismo_dia', { log: console });
+            if (r.enviados > 0 || r.noEnviados > 0) {
+                console.log(`[CRON] Recordatorio de cortesía (mismo día): ${r.enviados} enviado(s), ${r.noEnviados} sin enviar.`);
+            }
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en el recordatorio de cortesía (mismo día):', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Recordatorio de cortesía registrado (víspera 18:00 COT; mismo día cada 15 min 7:00-19:45 COT).');
 }

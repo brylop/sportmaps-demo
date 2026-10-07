@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 701,
+  "count": 702,
   "head": "20261007095911",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
@@ -689,21 +689,22 @@
     {"v":"20261006084303","file":"20261006084303_franjas_cortesia_desde_entrenamientos.sql","sha256":"976d346b3cde1dd08979d192adc6ed4531c0fe7a41a70089b68443982198fb8d","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261006090725","file":"20261006090725_whatsapp_bot_turno_y_vencimiento_cola.sql","sha256":"aad2ade689c95f7e0a6e719e6618b1d0d8087855240846491339b1fb1d094c75","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261006092320","file":"20261006092320_whatsapp_transcribir_audios.sql","sha256":"4bad520e4660497a9ee0411476f7a47e47fc89e3eb1d8ee6994af47ab39f55f2","added":"2026-10-06","by":"Brayan Steven Lopez"},
-    {"v":"20261006101521","file":"20261006101521_whatsapp_tomar_conversacion.sql","sha256":"a54c4c36b514d84b1ca4964370bb54fd74a035f1f900b4f0a1ad3571ff2989c7","added":"2026-10-06","by":"Brayan Steven Lopez"},
-    {"v":"20261006101628","file":"20261006101628_aviso_ausencia_familia.sql","sha256":"9912641bec088d88b4ca3b152b63433e12d1a01eb364e52dd7a868a8c373d282","added":"2026-10-06","by":"Brayan Steven Lopez"},
-    {"v":"20261006101656","file":"20261006101656_recordatorios_cobro_whatsapp.sql","sha256":"2e522bfd1ea5621ff8fce27fc4b437c9f6a4f5ea817175ee01b78d1a597b1cb1","added":"2026-10-06","by":"Brayan Steven Lopez"},
-    {"v":"20261006104251","file":"20261006104251_factura_electronica_pagador_v2.sql","sha256":"19d137568e1e20288b03a1f37d8b443ca279c3a096cea81e78f03d4c4d5222a1","added":"2026-10-06","by":"Brayan Steven Lopez"},
-    {"v":"20261006104254","file":"20261006104254_aviso_ausencia_familia_v2.sql","sha256":"8c06f4165d0debdc3b9aa87a2621101cb800d62c2c60d3896200bd250629cbed","added":"2026-10-06","by":"Brayan Steven Lopez"},
-    {"v":"20261006110920","file":"20261006110920_whatsapp_responder_prospectos.sql","sha256":"e798e095cf0ddb586ac6130d7a4d30b051e7f9e5cd9d0b594e45e807621037e0","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261006094145","file":"20261006094145_profesionales_f0_seguridad_agenda.sql","sha256":"c61f85874fe4995080e34f4d5cc993ea653e0218ada4b7704c55ea28ccb9533c","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261006094147","file":"20261006094147_profesionales_f1_f2_pacientes_historia_clinica.sql","sha256":"04b8e5d216eb8a4228d641cc353c63da8063a7ebaf97e07a3532015267a28df5","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261006094149","file":"20261006094149_profesionales_f3_lesiones_ejercicios.sql","sha256":"5d3a295f46cc4ec0c8d2f369dd297348f96560fd860bb976cef72d5153a8b764","added":"2026-10-06","by":"Brayan Steven Lopez"},
+    {"v":"20261006101521","file":"20261006101521_whatsapp_tomar_conversacion.sql","sha256":"a54c4c36b514d84b1ca4964370bb54fd74a035f1f900b4f0a1ad3571ff2989c7","added":"2026-10-06","by":"Brayan Steven Lopez"},
+    {"v":"20261006101628","file":"20261006101628_aviso_ausencia_familia.sql","sha256":"9912641bec088d88b4ca3b152b63433e12d1a01eb364e52dd7a868a8c373d282","added":"2026-10-06","by":"Brayan Steven Lopez"},
+    {"v":"20261006101656","file":"20261006101656_recordatorios_cobro_whatsapp.sql","sha256":"2e522bfd1ea5621ff8fce27fc4b437c9f6a4f5ea817175ee01b78d1a597b1cb1","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261006101735","file":"20261006101735_desactivar_atleta_cancela_invitacion.sql","sha256":"a473ef9f83bc0b4968a434616a869a7d9b235a2dbadc7454c043787d14195ef8","added":"2026-10-06","by":"Brayan Steven Lopez"},
+    {"v":"20261006104251","file":"20261006104251_factura_electronica_pagador_v2.sql","sha256":"19d137568e1e20288b03a1f37d8b443ca279c3a096cea81e78f03d4c4d5222a1","added":"2026-10-06","by":"Brayan Steven Lopez"},
+    {"v":"20261006104254","file":"20261006104254_aviso_ausencia_familia_v2.sql","sha256":"8c06f4165d0debdc3b9aa87a2621101cb800d62c2c60d3896200bd250629cbed","added":"2026-10-06","by":"Brayan Steven Lopez"},
+    {"v":"20261006110920","file":"20261006110920_whatsapp_responder_prospectos.sql","sha256":"e798e095cf0ddb586ac6130d7a4d30b051e7f9e5cd9d0b594e45e807621037e0","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261006111003","file":"20261006111003_profesionales_gates_i7.sql","sha256":"4a569620255440843d2e5652d4227b626a912940e2a41f33917db77bd8178083","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261006120601","file":"20261006120601_whatsapp_ajustes_por_escuela.sql","sha256":"f4dafa710356f3bf0aaa9dd01d3bec8100f393ff30c953fd253b18aa8b4ad2b6","added":"2026-10-06","by":"Brayan Steven Lopez"},
     {"v":"20261006224322","file":"20261006224322_whatsapp_responder_precios.sql","sha256":"e68c74c652df2ef36a115862bd9e40639d7213d996fc2fad8471cb649c037a46","added":"2026-10-07","by":"Brayan Steven Lopez"},
     {"v":"20261006232151","file":"20261006232151_whatsapp_transcribir_sin_consentimiento.sql","sha256":"ddba4d70cbd059ed45d4bd73e47d806c18f8569b070497b7e7113e09a4adae5a","added":"2026-10-07","by":"Brayan Steven Lopez"},
     {"v":"20261006233034","file":"20261006233034_wa_queue_result_payment_link.sql","sha256":"4e78cffbddf22cbb1aff1a5fb119070f26492c5c41598e444c5ff7a416c032eb","added":"2026-10-07","by":"Brayan Steven Lopez"},
+    {"v":"20261007095845","file":"20261007095845_recordatorio_clase_cortesia.sql","sha256":"fd13fdff713904aa1c6b7be65f965fdf0e4639d39d0e2cdc90b8421abb996710","added":"2026-10-07","by":"Brayan Steven Lopez"},
     {"v":"20261007095911","file":"20261007095911_ventas_wa_f0_carril_b.sql","sha256":"dbed0fc45103cf03304c71f99aaabdefdbcae960814eb91858118fe6cf0c4a33","added":"2026-10-07","by":"Brayan Steven Lopez"}
   ]
 }
