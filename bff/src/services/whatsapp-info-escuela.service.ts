@@ -56,6 +56,7 @@
  */
 
 import { supabase } from '../config/supabase';
+import { atencionPresencialDeEscuela } from './whatsapp-ajustes-escuela.service';
 
 export interface InfoDeEscuela {
     nombre: string;
@@ -89,6 +90,13 @@ export interface InfoDeEscuela {
     categorias: { nombre: string; rama: string | null }[];
     /** Horario de ATENCIÓN (no de entrenamiento), si está configurado. */
     horario_atencion: string | null;
+    /**
+     * Dónde y cuándo atiende la escuela EN PERSONA (pagos, trámites), tal como
+     * lo escribió la escuela (school_settings.wa_atencion_presencial). Es lo que
+     * se contesta a «dónde pago / hasta qué hora atienden / atención
+     * presencial». null = no configurado: no se inventa.
+     */
+    atencion_presencial: string | null;
     /**
      * Qué NO se puede responder con estos datos. El prompt lo usa para que el
      * modelo lo diga en vez de deducirlo.
@@ -328,7 +336,7 @@ export async function infoDeEscuela(schoolId: string): Promise<InfoDeEscuela> {
     const hoy = hoyEnBogota();
     const desde = new Date(diaUTC(hoy) - (INFERENCIA.semanas * 7 - 1) * 86_400_000).toISOString().slice(0, 10);
 
-    const [escuela, sedes, equipos, categorias, ajustes, sesiones] = await Promise.all([
+    const [escuela, sedes, equipos, categorias, ajustes, sesiones, presencial] = await Promise.all([
         supabase.from('schools').select('name, city, address').eq('id', schoolId).maybeSingle(),
         supabase.from('school_branches').select('name').eq('school_id', schoolId).limit(50),
         supabase.from('teams')
@@ -357,6 +365,7 @@ export async function infoDeEscuela(schoolId: string): Promise<InfoDeEscuela> {
             .gte('session_date', desde)
             .lte('session_date', hoy)
             .limit(5000),
+        atencionPresencialDeEscuela(schoolId),
     ]);
 
     const e = (escuela.data ?? {}) as any;
@@ -403,6 +412,7 @@ export async function infoDeEscuela(schoolId: string): Promise<InfoDeEscuela> {
             .map((c) => ({ nombre: String(c.name ?? '').trim(), rama: vacio(c.rama) ? null : String(c.rama).trim() }))
             .filter((c) => c.nombre),
         horario_atencion: describirAtencion((ajustes.data as any)?.business_hours),
+        atencion_presencial: presencial ?? null,
         no_disponible: [],
     };
 
@@ -424,7 +434,7 @@ export async function infoDeEscuela(schoolId: string): Promise<InfoDeEscuela> {
     info.no_disponible.push('edades exactas de cada categoría');
     info.no_disponible.push('precios de mensualidad, inscripción y uniforme');
     if (!info.sedes.length && !info.direccion) info.no_disponible.push('dirección y sedes');
-    if (!info.horario_atencion) info.no_disponible.push('horario de atención de la escuela');
+    if (!info.horario_atencion && !info.atencion_presencial) info.no_disponible.push('horario de atención de la escuela');
 
     return info;
 }
@@ -440,7 +450,8 @@ export function fallbackInfoEscuela(i: InfoDeEscuela): string {
 
     if (i.ciudad || i.direccion) l.push(`📍 ${[i.direccion, i.ciudad].filter(Boolean).join(', ')}`);
     if (i.sedes.length > 1) l.push(`*Sedes:* ${i.sedes.join(' · ')}`);
-    if (i.horario_atencion) l.push(`*Atención:* ${i.horario_atencion}`);
+    if (i.atencion_presencial) l.push(`*Atención presencial (pagos y trámites):* ${i.atencion_presencial}`);
+    else if (i.horario_atencion) l.push(`*Atención:* ${i.horario_atencion}`);
 
     if (i.grupos.length) {
         l.push('', '*Grupos:*');

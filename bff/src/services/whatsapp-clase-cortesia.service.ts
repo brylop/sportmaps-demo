@@ -58,6 +58,7 @@ import {
     rangosDeEscuela, elegirGrupo, textoGrupoParaEdad, textoDesdeQueEdad, preguntaGrupoPorEdad,
     type RangoGrupo, type FuenteEdad, type Genero,
 } from './grupos-por-edad.service';
+import { indicacionesCortesiaDeEscuela } from './whatsapp-ajustes-escuela.service';
 
 export const FLUJO_CORTESIA = 'clase_cortesia';
 /** Misma ventana de atención de Meta: pasada, el papá ya no recuerda la pregunta. */
@@ -221,6 +222,8 @@ export interface CtxCortesia {
     listadoReciente?: () => Promise<boolean>;
     /** Rangos de edad de los grupos (por defecto, grupos-por-edad.service). */
     rangos?: (schoolId: string) => Promise<RangoGrupo[]>;
+    /** Qué llevar / a quién buscar, de la escuela (por defecto, school_settings). */
+    indicaciones?: (schoolId: string) => Promise<string | null>;
 }
 
 // ─── Botones (ids = contrato con el webhook; títulos ≤ 20) ─────────────────
@@ -699,6 +702,20 @@ export function sedeConDireccion(f: FranjaCortesia): string | null {
  */
 export const QUE_LLEVAR = 'ropa deportiva cómoda, tenis, una botella de agua y una toalla pequeña';
 
+/**
+ * Las líneas de «qué llevar / al llegar» de la confirmación y del recordatorio.
+ * Si la escuela escribió sus indicaciones (school_settings.wa_cortesia_indicaciones,
+ * mig. 20261007183601) van tal cual en lugar del texto genérico. Dynasty
+ * 2026-10-07: «Ropa de entrenamiento. Al llegar, la administración está en el
+ * ingreso por la parte derecha del coliseo, segundo piso.» Pura.
+ */
+export function lineasQueLlevar(indicaciones: string | null | undefined): string {
+    const propias = String(indicaciones ?? '').trim();
+    if (propias) return `🎒 ${propias}\n⏰ Llega 10 minutos antes. La clase es *gratis*.\n\n`;
+    return `🎒 Qué llevar: ${QUE_LLEVAR}.\n` +
+        '⏰ Llega 10 minutos antes y dile al entrenador que vienes a la clase de cortesía. Es *gratis*.\n\n';
+}
+
 export function bloqueFranja(f: FranjaCortesia): string {
     const fin = f.horaFin ? ` a ${horaLegible(f.horaFin)}` : '';
     const sede = sedeConDireccion(f);
@@ -801,6 +818,7 @@ function deps(ctx: CtxCortesia) {
         reservar: ctx.reservar ?? reservarEnSupabase,
         cancelar: ctx.cancelar ?? cancelarEnSupabase,
         avisar: ctx.avisarEscuela ?? avisarEscuelaCortesia,
+        indicaciones: ctx.indicaciones ?? indicacionesCortesiaDeEscuela,
         ahora: (ctx.ahora ?? (() => new Date()))(),
     };
 }
@@ -1567,10 +1585,10 @@ async function reservar(ctx: CtxCortesia, d: Deps, datos: DatosCortesia): Promis
         return true;
     }
 
+    const indicaciones = await d.indicaciones(ctx.schoolId).catch(() => null);
     await ctx.enviar(
         `✅ ¡Listo! Quedó reservada la clase de cortesía de *${datos.nombre}*:\n\n${bloqueFranja(franja)}\n\n` +
-        `🎒 Qué llevar: ${QUE_LLEVAR}.\n` +
-        '⏰ Llega 10 minutos antes y dile al entrenador que vienes a la clase de cortesía. Es *gratis*.\n\n' +
+        lineasQueLlevar(indicaciones) +
         'Si no puedes ir, escríbeme *cancelar mi clase* para liberar el cupo.',
         'cortesia_reservada', null);
     void d.avisar({ ...base, leadId: r.leadId, tipo: 'reservada' }).catch(() => {});

@@ -116,7 +116,9 @@ export function accountDisplayLabel(account: PaymentAccount): string {
     const label = account.label?.trim();
     if (!label) return accountTypeLabel(account.type);
     // Evita "Nequi · Nequi" cuando la etiqueta ya es el nombre del canal.
-    if (label.toLowerCase() === accountTypeLabel(account.type).toLowerCase()) return label;
+    // Ni "Bre-B Bancolombia · Bre-B" cuando la etiqueta ya nombra el canal.
+    const plano = (t: string) => t.normalize('NFD').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (plano(label).includes(plano(accountTypeLabel(account.type)))) return label;
     return `${label} · ${accountTypeLabel(account.type)}`;
 }
 

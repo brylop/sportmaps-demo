@@ -31,6 +31,23 @@ const TIPO_LEGIBLE: Record<string, string> = {
     transfer_key: 'Llave de transferencia',
 };
 
+const sinTildes = (t: string) => t.normalize('NFD').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/**
+ * Cómo se nombra la llave al acudiente: el tipo («Bre-B») más lo que la escuela
+ * escribió en la etiqueta si dice algo más. Dynasty 2026-10-07: sus tres Bre-B
+ * son de Bancolombia → etiqueta «Bre-B Bancolombia» → «Bre-B Bancolombia»;
+ * etiqueta «Bancolombia» → «Bre-B Bancolombia»; etiqueta vacía o «Bre-B» →
+ * «Bre-B». Antes la etiqueta se ignoraba en las llaves con tipo conocido. Pura.
+ */
+export function nombreDeCuenta(tipo: string, etiqueta: string | null | undefined): string {
+    const base = TIPO_LEGIBLE[tipo];
+    const label = String(etiqueta ?? '').replace(/\s+/g, ' ').trim();
+    if (!base) return label || 'Cuenta';
+    if (!label || sinTildes(label) === sinTildes(base)) return base;
+    return sinTildes(label).includes(sinTildes(base)) ? label : `${base} ${label}`;
+}
+
 export interface MediosDePago {
     cuentas: { tipo: string; titular: string | null; numero: string }[];
     /** El link de pago de la escuela si tiene uno; si no, la sección de pagos de la app. */
@@ -112,7 +129,7 @@ export async function mediosDePago(
             // La clave del valor es `value` (mig 20260809095613). Antes se leía
             // `number`/`numero`, que no existen: ninguna llave de la lista llegaba
             // al bot y solo salían las columnas sueltas.
-            agregar(TIPO_LEGIBLE[a.type] ?? (a.label || 'Cuenta'), a.value);
+            agregar(nombreDeCuenta(a.type, a.label), a.value);
         }
         agregar('Nequi', c.nequi_number);
         agregar(c.bank_name ? String(c.bank_name) : 'Cuenta bancaria', c.bank_account_number);

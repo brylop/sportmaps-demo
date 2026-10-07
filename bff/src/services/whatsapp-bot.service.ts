@@ -80,7 +80,7 @@ import {
     type FilaReciente, type ComprobanteAnunciado,
 } from './whatsapp-reglas-turno';
 import { atenderAusenciaEnBot } from './whatsapp-ausencias.service';
-import { ajustesWhatsAppDeEscuela, type AjustesWhatsAppEscuela } from './whatsapp-ajustes-escuela.service';
+import { ajustesWhatsAppDeEscuela, atencionPresencialDeEscuela, type AjustesWhatsAppEscuela } from './whatsapp-ajustes-escuela.service';
 import { mensajeSemanaDeCortesia } from './whatsapp-cortesia-semana.service';
 import { atenderTurnoVenta } from './whatsapp-venta-servicios.service';
 import { textoDePreciosDeEscuela } from './whatsapp-precios.service';
@@ -1853,15 +1853,18 @@ export const PASO_MEDIOS_DE_PAGO_PUBLICOS = 'medios_de_pago_publicos';
 const FRENO_MEDIOS_PUBLICOS_H = 6;
 
 /**
- * school_settings.business_hours (horario de atención presencial), o null. Nunca lanza.
+ * Atención presencial de la escuela, o null. Nunca lanza.
  *
- * TODO(atencion-presencial): cuando llegue a develop el ajuste por escuela
- * `atencionPresencialDeEscuela(schoolId)` (whatsapp-ajustes-escuela.service,
- * columna `wa_atencion_presencial`; Dynasty: «Club de voleibol Coliseo Dynasty,
- * Cl. 12 Bis #71g-09, Bogotá, de 4 p. m. a 9 p. m.»), usarlo PRIMERO y caer a
- * business_hours solo si viene null.
+ * Primero el texto que escribió la escuela (`atencionPresencialDeEscuela`:
+ * school_settings.wa_atencion_presencial, mig. 20261007183601; mientras no esté
+ * aplicada, schools.payment_settings.wa_atencion_presencial). Dynasty
+ * 2026-10-07: «Club de voleibol Coliseo Dynasty, Cl. 12 Bis #71g-09, Bogotá.
+ * Desde las 4 p. m. hasta las 9 p. m.» Si no hay, school_settings.business_hours.
+ * Sin punto final: `textoComoPagar` le agrega el suyo.
  */
 async function horarioPresencialDeEscuela(schoolId: string): Promise<string | null> {
+    const propia = await atencionPresencialDeEscuela(schoolId).catch(() => null);
+    if (propia) return propia.replace(/[.\s]+$/, '');
     try {
         const { data, error } = await supabase.from('school_settings')
             .select('business_hours').eq('school_id', schoolId).maybeSingle();
@@ -3005,7 +3008,7 @@ export const TOOLS: LlmTool[] = [
     },
     {
         name: 'get_school_info',
-        description: 'Datos publicos de la escuela: donde queda, sus sedes, que deportes y que grupos o categorias tiene (con el horario de entrenamiento de cada grupo cuando esta cargado), y el horario de atencion. Usala cuando pregunten por la ubicacion, las sedes, los deportes, las categorias, los grupos o a que hora entrena un grupo. Devuelve tambien `no_disponible`: lo que la escuela NO tiene cargado, y eso se responde diciendo que no se tiene.',
+        description: 'Datos publicos de la escuela: donde queda, sus sedes, que deportes y que grupos o categorias tiene (con el horario de entrenamiento de cada grupo cuando esta cargado), el horario de atencion y la atencion presencial (`atencion_presencial`: donde y hasta que hora atienden en persona para pagos y tramites; se dice tal cual). Usala cuando pregunten por la ubicacion, las sedes, los deportes, las categorias, los grupos, a que hora entrena un grupo o donde / hasta que hora atienden en persona. Devuelve tambien `no_disponible`: lo que la escuela NO tiene cargado, y eso se responde diciendo que no se tiene.',
         parameters: { type: 'object', properties: {}, required: [] },
     },
     {
