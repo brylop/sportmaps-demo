@@ -37,6 +37,12 @@ interface RegisterCashPaymentModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
+  /**
+   * Deportista con el que abre el modal (id de la vista school_athletes). Lo
+   * usa «Estado de cuenta» en el listado de deportistas: la escuela ya eligió
+   * a quién, no tiene que buscarlo otra vez.
+   */
+  initialAthleteId?: string;
 }
 
 /**
@@ -65,7 +71,7 @@ type PayerDianState =
 /** El código DANE del municipio: 4 o 5 dígitos. Texto libre no sirve para facturar. */
 const DANE_CODE = /^\d{4,5}$/;
 
-export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: RegisterCashPaymentModalProps) {
+export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initialAthleteId }: RegisterCashPaymentModalProps) {
   const { user } = useAuth();
   const { schoolId, schoolName } = useSchoolContext();
   const { toast } = useToast();
@@ -203,6 +209,11 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
 
       if (error) throw error;
       setAthletes(data || []);
+      // Se fija en el mismo render que la lista: fetchPendingPayments busca al
+      // deportista en `athletes`, y si llegara antes no lo encontraría.
+      if (initialAthleteId && (data || []).some((a: any) => a.id === initialAthleteId)) {
+        setSelectedAthleteId(initialAthleteId);
+      }
     } catch (err: any) {
       console.error(err);
       toast({ title: 'Error al cargar deportistas', description: err.message, variant: 'destructive' });
@@ -240,6 +251,16 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
       const { data, error } = await q;
       if (error) throw error;
       setPendingPayments(data || []);
+      // Abierto desde «Editar estado de cuenta»: la escuela viene a poner al día
+      // a ESE deportista, así que se elige el cobro más atrasado (orden por
+      // due_date). Con «Nuevo cobro» por defecto era fácil crear un pago suelto
+      // y dejar el vencido abierto.
+      const oldest = (data || [])[0];
+      if (oldest && athleteId === initialAthleteId) {
+        setSelectedPaymentId(oldest.id);
+        setConcept(oldest.concept);
+        setAmount(Number(oldest.amount) || 0);
+      }
     } catch (err: any) {
       console.error(err);
       setPendingPayments([]);
