@@ -104,9 +104,19 @@ export function DebitoAutomaticoCard({ data, reload, activarSchoolId, onActivarS
     requestAnimationFrame(() => document.getElementById('debito')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   }, [visible]);
 
+  // El grupo se congela al abrir el alta: al terminar, reload() deja a esos
+  // deportistas con débito y `grupos` ya no los trae. Si se derivara en cada
+  // render, el diálogo se desmontaba antes de mostrar «Débito automático activo»
+  // (lo encontró el recorrido en la app real contra el gemelo).
+  const [grupoCongelado, setGrupoCongelado] = useState<(typeof grupos)[number] | null>(null);
+  useEffect(() => {
+    if (!activarSchoolId) { setGrupoCongelado(null); return; }
+    setGrupoCongelado((prev) => (prev?.schoolId === activarSchoolId ? prev : grupos.find((g) => g.schoolId === activarSchoolId) ?? null));
+  }, [activarSchoolId, grupos]);
+  const grupoActivo = grupoCongelado;
+
   if (!data || !visible) return null;
 
-  const grupoActivo = grupos.find((g) => g.schoolId === activarSchoolId) ?? null;
 
   const confirmarCancelar = async (fila: Fila) => {
     setBusy(true);
