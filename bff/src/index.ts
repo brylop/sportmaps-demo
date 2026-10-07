@@ -52,6 +52,7 @@ import { requireCsrfHeader } from './middlewares/csrfHeader';
 import { requireOperationalSchool } from './middlewares/requireOperationalSchool';
 import systemRouter from './routes/system';
 import whatsappWebhookRouter from './routes/whatsapp';
+import resendInboundRouter from './routes/resend-inbound.routes';
 import whatsappAdminRouter from './routes/whatsapp-admin.routes';
 import whatsappMetricasRouter from './routes/whatsapp-metricas.routes';
 import whatsappImportarChatRouter from './routes/whatsapp-importar-chat.routes';
@@ -306,6 +307,9 @@ app.use('/api/v1/webhooks/wompi', wompiRouter);
 // Webhook único multi-tenant de WhatsApp Cloud API (Bloque 6). Sin generalLimiter:
 // Meta puede ráfagar; el control real es la firma HMAC + idempotencia por wa_message_id.
 app.use('/api/v1/webhooks/whatsapp', whatsappWebhookRouter);
+// Avisos del banco reenviados por la escuela (Resend Inbound). Sin limiter: el
+// control es la firma Svix + DKIM + idempotencia (docs/specs/conciliacion-correo-banco-dkim.md).
+app.use('/api/v1/webhooks/resend-inbound', resendInboundRouter);
 
 // Panel de la escuela sobre su canal de WhatsApp: ajustes, horario, consumo del
 // mes, bandeja de comprobantes sin resolver y avisos de Meta. Lleva requireAuth
