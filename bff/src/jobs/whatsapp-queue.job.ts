@@ -32,6 +32,7 @@ import { buildVerdictContext } from '../services/receipt-context.service';
 import { normalizeDestination, normalizeReference, evaluateVerdict, destinationMatchesRegistered } from '../services/receipt-verdict';
 import { evaluatePaymentReceipt, redRejectionMessage } from '../services/receipt-approval.service';
 import { frenarSiExcedeLimite } from '../services/wa-limite-comprobantes.service';
+import { revinculacionPendiente } from '../services/wa-revinculacion.service';
 import { debeAtender, type TipoDeContacto } from '../services/whatsapp-atencion.service';
 import { anunciaComprobante, normalizarFrase, PASOS_SIN_CUENTA, type ComprobanteAnunciado } from '../services/whatsapp-reglas-turno';
 import {
@@ -1562,7 +1563,8 @@ async function procesarFilaInterna(
         ((identificacion as any)?.estado === 'identificado' && (identificacion as any)?.parent_id)
             ? (identificacion as any).parent_id as string
             : null;
-    if (!parentId && conv?.identified && conv.parent_id) parentId = conv.parent_id as string;
+    // `conv` se leyó antes de la RPC: con una revinculación pendiente (número que ahora es de OTRO acudiente) el vínculo viejo no vale.
+    if (!parentId && !revinculacionPendiente(identificacion) && conv?.identified && conv.parent_id) parentId = conv.parent_id as string;
     parentIdConocido = parentId;
 
     if (!parentId) {

@@ -543,4 +543,14 @@ describe('runWhatsAppQueue — límite de comprobantes y revinculación', () => 
         expect(extractReceiptMock).toHaveBeenCalled();
         expect(pagosPendientesDeMock).toHaveBeenCalledWith('parent-9', 'school-1');
     });
+
+    it('revinculación pendiente: NO usa el vínculo viejo de la conversación (no aplica a cobros de otra familia)', async () => {
+        state.conv = { data: { id: 'conv-1', parent_id: 'parent-viejo', identified: true } };
+        state.rpcIdentifyByPhone = { data: { estado: 'revinculacion_pendiente' } };
+
+        await runWhatsAppQueue();
+
+        expect(pagosPendientesDeMock).not.toHaveBeenCalled();
+        expect(ultimoCierre()).toMatchObject({ status: 'ignored', result_type: 'escalated' });
+    });
 });
