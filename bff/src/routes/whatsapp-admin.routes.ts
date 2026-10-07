@@ -24,6 +24,9 @@
 import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import * as fs from 'fs';
+import * as path from 'path';
+import { CONCEPTOS } from '../services/whatsapp-plantillas.service';
 import { supabase } from '../config/supabase';
 import { requireAuth, type AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { decryptToken, sendTextMessage, aFormatoWhatsApp,
@@ -705,6 +708,93 @@ router.post('/:schoolId/plantillas', requireAuth, async (req: AuthenticatedReque
 
     req.log?.info({ schoolId, plantilla: p.name, id: j?.id, estado: j?.status }, '[wa-admin] plantilla registrada');
     return res.status(201).json({ id: j?.id, status: j?.status, category: j?.category, name: p.name });
+});
+
+// ── Catalogo de plantillas de SportMaps ────────────────────────────────────
+// Las plantillas que USA el codigo (CONCEPTOS de whatsapp-plantillas.service)
+// estan definidas en bff/whatsapp-templates/<nombre>.json, con sus ejemplos y su
+// boton URL. Una escuela que conecta su propia WABA tiene que registrarlas alla;
+// antes eso era un script (scripts/wa-registrar-plantilla.ts) que solo podia
+// correr alguien con la base a mano, y el formulario de «Nueva plantilla» no
+// sabe de botones. Esto deja registrarlas desde la pestania «Plantillas» tal
+// cual estan en el repo: mismo texto, mismos ejemplos, mismo boton.
+
+/** Carpeta de los JSON: igual desde src/ (dev) que desde dist/ (Render). */
+function carpetaCatalogo(): string | null {
+    for (const dir of [path.resolve(__dirname, '../../whatsapp-templates'), path.resolve(process.cwd(), 'whatsapp-templates')]) {
+        if (fs.existsSync(dir)) return dir;
+    }
+    return null;
+}
+
+/** Nombres del catalogo: uno por concepto que el codigo sabe mandar, sin repetir. */
+export function nombresDelCatalogo(): string[] {
+    return [...new Set(Object.values(CONCEPTOS).map((c) => c.plantilla))].sort();
+}
+
+function leerDelCatalogo(nombre: string): any | null {
+    if (!nombresDelCatalogo().includes(nombre)) return null;
+    const dir = carpetaCatalogo();
+    if (!dir) return null;
+    try {
+        return JSON.parse(fs.readFileSync(path.join(dir, `${nombre}.json`), 'utf8'));
+    } catch {
+        return null;
+    }
+}
+
+router.get('/:schoolId/plantillas/catalogo', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId } = req.params as { schoolId: string };
+    if (!(await administraEstaEscuela(req.user.id, schoolId))) {
+        return res.status(403).json({ error: 'forbidden' });
+    }
+    const catalogo = nombresDelCatalogo().flatMap((nombre) => {
+        const t = leerDelCatalogo(nombre);
+        if (!t) return [];
+        const comps: any[] = t.components ?? [];
+        const body = comps.find((c) => String(c?.type).toUpperCase() === 'BODY');
+        const botones = comps.find((c) => String(c?.type).toUpperCase() === 'BUTTONS')?.buttons ?? [];
+        return [{
+            name: t.name, language: t.language, category: t.category,
+            texto: body?.text ?? '', ejemplos: body?.example?.body_text?.[0] ?? [],
+            boton: botones[0]?.text ?? null,
+        }];
+    });
+    return res.json({ catalogo });
+});
+
+router.post('/:schoolId/plantillas/catalogo/:nombre', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId, nombre } = req.params as { schoolId: string; nombre: string };
+    if (!(await administraEstaEscuela(req.user.id, schoolId))) {
+        return res.status(403).json({ error: 'forbidden' });
+    }
+    const plantilla = leerDelCatalogo(nombre);
+    if (!plantilla) return res.status(404).json({ error: 'no_esta_en_el_catalogo' });
+
+    const { data: integracion } = await supabase
+        .from('school_whatsapp_integrations')
+        .select('waba_id, access_token_encrypted')
+        .eq('school_id', schoolId)
+        .maybeSingle();
+    if (!integracion?.waba_id) return res.status(404).json({ error: 'sin_integracion' });
+    const token = tokenDe(integracion as any);
+    if (!token) return res.status(409).json({ error: 'sin_token' });
+
+    const r = await fetch(`${GRAPH}/${integracion.waba_id}/message_templates`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify(plantilla),
+        signal: AbortSignal.timeout(30_000),
+    });
+    const j: any = await r.json().catch(() => ({}));
+    if (!r.ok) {
+        return res.status(400).json({
+            error: 'meta_rechazo',
+            detalle: j?.error?.error_user_msg ?? j?.error?.message ?? 'Meta rechazo la plantilla.',
+        });
+    }
+    req.log?.info({ schoolId, plantilla: nombre, id: j?.id, estado: j?.status }, '[wa-admin] plantilla del catalogo registrada');
+    return res.status(201).json({ id: j?.id, status: j?.status, category: j?.category, name: nombre });
 });
 
 // ─── Buzon de conversaciones (F3) ────────────────────────────────────────────

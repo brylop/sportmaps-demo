@@ -119,6 +119,13 @@ vi.mock('../utils/emailClient', () => ({ emailClient: { send: (...a: any[]) => c
 const extraer = vi.fn();
 vi.mock('./ocr.service', () => ({ extractReceipt: (...a: any[]) => extraer(...a) }));
 
+// Plantilla `comprobante_en_revision` fuera de la ventana: por defecto, no
+// aprobada (comportamiento de antes); un test la aprueba.
+const plantillaRevision = vi.fn((..._a: any[]) => Promise.resolve({ enviado: false, motivo: 'plantilla_no_aprobada' } as any));
+vi.mock('./whatsapp-aviso-revision.service', () => ({
+    avisarRevisionPorPlantilla: (...a: any[]) => plantillaRevision(...a),
+}));
+
 import {
     decidirRecuperacion, pagosQueYaCubren, fechaDeReferencia, cierreDeFila, recuperarFilaDeCola,
     decidirPorMonto, desempatarCobro, mesesMencionados, esRecuperable, filtroDeFamilia,
@@ -302,6 +309,17 @@ describe('recuperarFilaDeCola', () => {
         expect(cierre).toMatchObject({ status: 'done', result_type: 'payment_receipt', result_ref_id: 'p-oct' });
         // El desenlace (aprobado/rechazado) sí se le avisa: lo manda el job de desenlace.
         expect(cierre.outcome_notified_at).toBeNull();
+    });
+
+    it('APLICAR fuera de la ventana con comprobante_en_revision aprobada: sale la plantilla, no el texto', async () => {
+        plantillaRevision.mockResolvedValueOnce({ enviado: true, waMessageId: 'wamid.T', plantilla: 'comprobante_en_revision' });
+        const r = await recuperarFilaDeCola({ ...FILA }, WA, { aplicar: true, ocrFn });
+        expect(r.decision).toBe('en_revision');
+        expect(r.aviso).toBe('avisado_por_plantilla');
+        expect(enviar).not.toHaveBeenCalled();
+        expect(plantillaRevision.mock.calls.at(-1)?.[0]).toMatchObject({ paymentId: 'p-oct', monto: 180000, paso: 'recuperado_en_revision' });
+        // El desenlace se sigue avisando cuando la escuela decida.
+        expect(updatesDe('whatsapp_inbound_queue').at(-1)!.values.outcome_notified_at).toBeNull();
     });
 
     it('APLICAR dentro de la ventana: le avisa a la familia UNA vez que quedó en revisión', async () => {

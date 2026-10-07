@@ -115,16 +115,30 @@ export function siguienteTrasFallo(intentos: number, motivo: string, ahora: numb
 /**
  * La plantilla que cuenta este desenlace, o por qué no hay. Pura.
  * `pago_confirmado` dice «por la mensualidad de {{2}}»: no se usa para un
- * uniforme o un torneo, sería mentirle a la familia.
+ * uniforme o un torneo, sería mentirle a la familia. Para esos va
+ * `pago_recibido_otro_concepto` (2026-10-07), que nombra lo pagado; mientras
+ * no esté APPROVED en la WABA de la escuela el envío devuelve
+ * `plantilla_no_aprobada` y el aviso queda «no entregado», como antes.
  */
 export function plantillaDelDesenlace(estado: string, concept: string | null): { concepto: ConceptoCobro } | { motivo: string } {
     if (estado === 'paid') {
         return conceptoDelCobro(concept) === null
             ? { concepto: 'pago_confirmado' }
-            : { motivo: 'sin plantilla para un pago que no es mensualidad' };
+            : { concepto: 'pago_recibido_otro_concepto' };
     }
     if (estado === 'rejected') return { concepto: 'comprobante_rechazado' };
     return { motivo: `sin plantilla para el estado ${estado}` };
+}
+
+/**
+ * Lo pagado, como lo escribió la escuela en el cobro («Uniforme talla M»), para
+ * {{2}} de `pago_recibido_otro_concepto`. Sin texto, null (dato_faltante: no sale).
+ * Pura.
+ */
+export function textoDelConcepto(concept: string | null | undefined): string | null {
+    const t = String(concept ?? '').replace(/\s+/g, ' ').trim();
+    if (!t) return null;
+    return t.length > 60 ? `${t.slice(0, 59).trimEnd()}…` : t;
 }
 
 /** «ISABELLA RODRIGUEZ HERNANDEZ» → «Isabella Rodriguez». */
@@ -236,6 +250,7 @@ async function avisarPorPlantilla(pago: PagoDesenlace, telefono: string): Promis
             nombreEscuela: (escuela as any)?.data?.name ?? '',
             monto: cop(Number(pago.amount)),
             motivo: pago.rejection_reason || 'la escuela no lo pudo validar',
+            conceptoPago: textoDelConcepto(pago.concept),
         },
     });
     if (r.enviado) return { tipo: 'por_plantilla', plantilla: r.plantilla };

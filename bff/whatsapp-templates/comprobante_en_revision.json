@@ -1,0 +1,12 @@
+{
+  "name": "comprobante_en_revision",
+  "language": "es_CO",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Hola {{1}}, recibimos tu comprobante por {{2}} de {{3}}. {{4}} lo está revisando y te avisamos por este medio cuando lo confirme.",
+      "example": { "body_text": [["Carolina", "$150.000", "Samuel", "Academia Tigres FC"]] }
+    }
+  ]
+}

@@ -71,6 +71,10 @@ interface Huerfanos { conversaciones: number; borradores: number }
 interface Plantilla {
     name: string; status: string; category: string; language: string;
 }
+/** Plantilla del catálogo de SportMaps (bff/whatsapp-templates), lista para registrar en Meta. */
+interface PlantillaCatalogo {
+    name: string; language: string; category: string; texto: string; ejemplos: string[]; boton: string | null;
+}
 interface FilaBandeja {
     id: string; status: string; wa_phone_number: string; message_type: string;
     error_message: string | null; created_at: string;
@@ -550,6 +554,35 @@ function PanelPlantillas({ schoolId, plantillas, cargando, onCreada }: {
     );
     const listaEjemplos = ejemplos.split('|').map((s) => s.trim()).filter(Boolean);
 
+    // Catálogo de SportMaps: las plantillas que el sistema sabe mandar
+    // (bff/whatsapp-templates). Las que todavía no están en la cuenta de Meta de
+    // la escuela se registran desde aquí tal cual (texto, ejemplos y botón).
+    const [catalogo, setCatalogo] = useState<PlantillaCatalogo[]>([]);
+    const [registrando, setRegistrando] = useState<string | null>(null);
+    useEffect(() => {
+        let vivo = true;
+        bffClient.get<{ catalogo: PlantillaCatalogo[] }>(`/api/v1/whatsapp/${schoolId}/plantillas/catalogo`)
+            .then((r) => { if (vivo) setCatalogo(r.catalogo ?? []); })
+            .catch(() => { /* BFF anterior: sin catálogo, la pestaña sigue igual */ });
+        return () => { vivo = false; };
+    }, [schoolId]);
+    const enMeta = new Set(plantillas.map((p) => p.name));
+    const faltantes = cargando ? [] : catalogo.filter((c) => !enMeta.has(c.name));
+
+    const registrarDelCatalogo = async (nombrePlantilla: string) => {
+        setRegistrando(nombrePlantilla);
+        try {
+            const r = await bffClient.post<{ name: string; status: string; category: string }>(
+                `/api/v1/whatsapp/${schoolId}/plantillas/catalogo/${nombrePlantilla}`, {});
+            toast({ title: 'Plantilla enviada a Meta', description: `${r.name} — ${r.status} · ${r.category}` });
+            onCreada();
+        } catch (err: any) {
+            toast({ title: 'Meta no la aceptó', description: err?.message ?? 'Error', variant: 'destructive' });
+        } finally {
+            setRegistrando(null);
+        }
+    };
+
     const crear = async () => {
         setEnviando(true);
         try {
@@ -619,6 +652,32 @@ function PanelPlantillas({ schoolId, plantillas, cargando, onCreada }: {
                             {enviando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                             Enviar a Meta para aprobación
                         </Button>
+                    </div>
+                )}
+
+                {faltantes.length > 0 && (
+                    <div className="border rounded-lg p-4 space-y-3 border-amber-200 bg-amber-50/50">
+                        <div>
+                            <p className="text-sm font-medium">Plantillas de SportMaps que faltan en tu cuenta</p>
+                            <p className="text-xs text-muted-foreground">
+                                El sistema las usa para avisos fuera de la ventana de 24 horas. Meta tarda de minutos a
+                                un par de días en aprobarlas; mientras tanto esos avisos no salen por WhatsApp.
+                            </p>
+                        </div>
+                        {faltantes.map((c) => (
+                            <div key={c.name} className="flex items-start justify-between gap-3 border-t pt-3 first:border-t-0 first:pt-0">
+                                <div className="min-w-0">
+                                    <p className="font-mono text-sm">{c.name}</p>
+                                    <p className="text-xs text-muted-foreground whitespace-pre-wrap break-words">{c.texto}</p>
+                                    {c.boton && <p className="text-xs text-muted-foreground">Botón: {c.boton}</p>}
+                                </div>
+                                <Button size="sm" variant="outline" disabled={registrando !== null}
+                                    onClick={() => void registrarDelCatalogo(c.name)}>
+                                    {registrando === c.name && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                                    Enviar a Meta
+                                </Button>
+                            </div>
+                        ))}
                     </div>
                 )}
 

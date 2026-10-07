@@ -23,7 +23,8 @@
  *     (2026-10-07; antes no se le decía nada a nadie y la familia seguía
  *     creyendo que su pago se había perdido). Dentro de la ventana de 24 h, un
  *     texto: «quedó en revisión de la escuela» (`avisarRecuperacion`). Fuera,
- *     nada en el momento —no hay plantilla de «recibido»—, pero la fila queda
+ *     la plantilla `comprobante_en_revision` si está APPROVED y hay opt-in
+ *     (2026-10-07); si no, nada en el momento. En los dos casos la fila queda
  *     SIN `outcome_notified_at`: cuando la escuela apruebe o rechace, el job de
  *     desenlace (whatsapp-payment-outcome.job) avisa, por plantilla si la
  *     ventana está cerrada. Lo demás (buzón, ya registrado, no es comprobante)
@@ -1007,6 +1008,7 @@ export async function recuperarFilaDeCola(
 
 export type AvisoRecuperacion =
     | 'avisado'
+    | 'avisado_por_plantilla' // ventana cerrada: salió `comprobante_en_revision`
     | 'fuera_de_ventana'      // nada ahora; el desenlace sale por plantilla cuando la escuela decida
     | 'bot_apagado'
     | 'conversacion_tomada'
@@ -1049,9 +1051,23 @@ export async function avisarRecuperacion(
         .maybeSingle();
     const convId = (conv as any)?.id as string | undefined;
     if (!convId) return 'sin_conversacion';
-    if (!ventanaAbierta((conv as any)?.last_inbound_at ?? null)) return 'fuera_de_ventana';
+    const abierta = ventanaAbierta((conv as any)?.last_inbound_at ?? null);
     if (!(await botEncendido(fila.integration_id))) return 'bot_apagado';
     if (await conversacionTomada(convId)) return 'conversacion_tomada';
+    if (!abierta) {
+        // Fuera de la ventana el texto no llega (131047). La plantilla, si la
+        // WABA la tiene aprobada y hay opt-in; si no, como antes: nada ahora.
+        const { avisarRevisionPorPlantilla } = await import('./whatsapp-aviso-revision.service');
+        const env = await avisarRevisionPorPlantilla({
+            schoolId: fila.school_id, telefono: fila.wa_phone_number,
+            paymentId: (r.pago as PagoPendiente).id, parentId: r.parentId ?? null,
+            monto: r.ocr?.amount ?? null, atleta: r.pago?.atleta ?? null,
+            paso: `recuperado_${r.decision}`,
+        });
+        if (env.enviado) return 'avisado_por_plantilla';
+        log?.info?.({ queueId: fila.id, motivo: env.motivo, detalle: env.detalle }, '[wa-recuperar] fuera de ventana, sin plantilla');
+        return 'fuera_de_ventana';
+    }
 
     const dadoDeBaja = await estaDadoDeBaja(fila.integration_id, fila.wa_phone_number);
     const final = aFormatoWhatsApp(dadoDeBaja ? texto + AVISO_DADO_DE_BAJA : texto);

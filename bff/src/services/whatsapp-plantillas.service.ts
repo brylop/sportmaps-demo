@@ -50,7 +50,10 @@ export type ConceptoCobro =
     | 'aviso_final'           // día +12
     | 'pago_confirmado'       // evento
     | 'abono_recibido'        // evento
-    | 'comprobante_rechazado'; // evento: la escuela no validó el comprobante
+    | 'comprobante_rechazado' // evento: la escuela no validó el comprobante
+    | 'pago_recibido_otro_concepto' // evento: pagado un cobro que NO es mensualidad (uniforme, torneo…)
+    | 'comprobante_en_revision'     // evento: el comprobante quedó en un cobro, en revisión de la escuela
+    | 'recordatorio_clase_cortesia'; // víspera de la clase de cortesía (no es cobro)
 
 /** Datos del cobro ya formateados para mostrar (COP, fechas en español). */
 export interface DatosCobro {
@@ -65,6 +68,12 @@ export interface DatosCobro {
     saldoPendiente?: string | null;
     /** Por qué no se validó un comprobante (comprobante_rechazado). */
     motivo?: string | null;
+    /** Qué se pagó, como lo nombró la escuela («Uniforme de competencia»). pago_recibido_otro_concepto. */
+    conceptoPago?: string | null;
+    /** Clase de cortesía: «sábado 11 de octubre», «9:00 a. m.», «Coliseo (Cra 68 #63-45)». */
+    dia?: string | null;
+    hora?: string | null;
+    sede?: string | null;
 }
 
 interface DefConcepto {
@@ -125,6 +134,23 @@ export const CONCEPTOS: Record<ConceptoCobro, DefConcepto> = {
     comprobante_rechazado: {
         plantilla: 'comprobante_rechazado', idioma: 'es_CO', esCobro: false,
         variables: (d) => [d.nombreContacto, d.monto, d.nombreAtleta, d.motivo],
+    },
+    // "✅ Pago recibido: {{1}} por {{2}} de {{3}} en {{4}}. ¡Gracias! Tu comprobante está disponible en el botón."
+    // `pago_confirmado` dice «la mensualidad»: para un uniforme o un torneo sería mentirle a la familia.
+    pago_recibido_otro_concepto: {
+        plantilla: 'pago_recibido_otro_concepto', idioma: 'es_CO', esCobro: false,
+        variables: (d) => [d.monto, d.conceptoPago, d.nombreAtleta, d.nombreEscuela],
+    },
+    // "Hola {{1}}, recibimos tu comprobante por {{2}} de {{3}}. {{4}} lo está revisando y te avisamos…"
+    comprobante_en_revision: {
+        plantilla: 'comprobante_en_revision', idioma: 'es_CO', esCobro: false,
+        variables: (d) => [d.nombreContacto, d.monto, d.nombreAtleta, d.nombreEscuela],
+    },
+    // "Hola {{1}}, te recordamos la clase de cortesía que reservaste en {{2}}: {{3}} a las {{4}}, en {{5}}.
+    //  Si no puedes asistir, responde CANCELAR y liberamos el cupo."
+    recordatorio_clase_cortesia: {
+        plantilla: 'recordatorio_clase_cortesia', idioma: 'es_CO', esCobro: false,
+        variables: (d) => [d.nombreContacto, d.nombreEscuela, d.dia, d.hora, d.sede],
     },
 };
 
@@ -531,6 +557,12 @@ export interface EnvioCobro {
     paymentId?: string;
     parentId?: string | null;
     ahora?: Date;
+    /**
+     * Se mezcla en el payload del saliente que queda en el buzón. Lo usa el
+     * recordatorio de cortesía para dejar el estado del flujo (`flujo`,
+     * `paso_cortesia`), así la respuesta «CANCELAR» se lee contra él.
+     */
+    payloadExtra?: Record<string, unknown>;
 }
 
 /**
@@ -620,6 +652,7 @@ export async function enviarCobroPorPlantilla(p: EnvioCobro): Promise<ResultadoE
         payload: {
             step: `cobro_${p.concepto}`, plantilla: vigente.nombre,
             payment_id: p.paymentId ?? null, parent_id: p.parentId ?? null, variables,
+            ...(p.payloadExtra ?? {}),
         },
     }).catch(() => undefined);
 

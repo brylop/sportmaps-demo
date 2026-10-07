@@ -1,0 +1,12 @@
+{
+  "name": "recordatorio_clase_cortesia",
+  "language": "es_CO",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Hola {{1}}, te recordamos la clase de cortesía que reservaste en {{2}}: {{3}} a las {{4}}, en {{5}}. Si no puedes asistir, responde CANCELAR y liberamos el cupo.",
+      "example": { "body_text": [["Carolina", "Academia Tigres FC", "sábado 11 de octubre", "9:00 a. m.", "Coliseo El Salitre (Cra 68 #63-45)"]] }
+    }
+  ]
+}
