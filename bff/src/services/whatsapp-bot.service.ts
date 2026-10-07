@@ -76,6 +76,7 @@ import {
     anunciaComprobante, nombreDelCobroAnunciado, yaPagoYReclama, textoYaPague, pideALaPersona,
     vocativosDelEquipo, esCierreSuelto, esAutoRespuesta, rutaSinModelo, humanoReciente,
     preguntaAbierta, pasoEnVentana, normalizarFrase, ecoDeAudios, PASOS_SIN_CUENTA, VOCATIVOS_GENERICOS,
+    decidirRetoma, RETOMA_VENTANA_HORAS, PASO_RETOMA_SIN_RESPUESTA, recortarEmojis,
     type FilaReciente, type ComprobanteAnunciado,
 } from './whatsapp-reglas-turno';
 import { atenderAusenciaEnBot } from './whatsapp-ausencias.service';
@@ -83,6 +84,7 @@ import { ajustesWhatsAppDeEscuela, type AjustesWhatsAppEscuela } from './whatsap
 import { mensajeSemanaDeCortesia } from './whatsapp-cortesia-semana.service';
 import { atenderTurnoVenta } from './whatsapp-venta-servicios.service';
 import { textoDePreciosDeEscuela } from './whatsapp-precios.service';
+import { preguntaComoPagar, textoComoPagar, textoHorarioPresencial } from './whatsapp-pago-publico';
 import { pideAyudaDeApp, textoAyudaApp } from './whatsapp-ayuda-app.service';
 import {
     reclamaValor, cobrosAbiertos, textoReclamoDeValor, motivoReclamoDeValor,
@@ -590,8 +592,9 @@ async function dejarMensajeALaPersona(
         nombre = nombre.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase());
     }
     if (!(await pasoReciente(conversationId, 'mensaje_para_persona', 24))) {
+        const saludoPersona = await saludoDePresentacion(conversationId, await nombreDeEscuela(integration.school_id));
         await deliver(integration, conversationId, contactWaId,
-            `Hola 👋 Soy el *asistente automático* de la escuela 🤖. Le dejo tu mensaje a ${nombre} 🙌\n\n` +
+            (saludoPersona ? `${saludoPersona}\n\n` : '') + `Dejo tu mensaje para ${nombre} 🙌\n\n` +
             'Si es algo de pagos o comprobantes, cuéntame y te ayudo de una vez.',
             { step: 'mensaje_para_persona', para: nombre });
     }
@@ -1451,6 +1454,11 @@ async function identificarPorTelefono(
             return true;
         }
 
+        // «¿Cómo pago?» / «¿hay atención presencial?»: público, sin cuenta.
+        if (!botonId && await responderComoPagarPublico(integration, conversationId, contactWaId, text)) {
+            return true;
+        }
+
         // UNA VEZ POR DIA, no en cada mensaje.
         //
         // Esto corre mientras la conversacion siga sin identificar, que para
@@ -1652,8 +1660,9 @@ async function handleIdentification(
     if (!(await reservarPasoUnaVez(conversationId, 'ask_email', 24))) return 'resuelto';
 
     const nombreEscuela = await nombreDeEscuela(integration.school_id);
+    const saludoAsk = await saludoDePresentacion(conversationId, nombreEscuela);
     await deliver(integration, conversationId, contactWaId,
-        `Hola 👋 Soy el *asistente automático* de *${nombreEscuela}*. 🤖` + '\n\n' +
+        (saludoAsk ? `${saludoAsk}\n\n` : '') +
         'Si eres familia de un atleta y quieres consultar pagos o inscripciones, ' +
         'escríbeme el *correo electrónico* con el que estás registrado y te ayudo enseguida.' + '\n\n' +
         'Si buscas otra cosa, cuéntame y alguien de la escuela te responde.',
@@ -1755,6 +1764,14 @@ async function arrancarOtp(
         p_expires_at: expiresAt,
     });
 
+    // El correo no está en el sistema (…5281, 07-oct): decirlo claro y pasar el
+    // caso a la escuela. Antes salía «Te envié un código» a un correo que
+    // nunca iba a recibir nada, y la familia se quedaba esperando.
+    if ((res as any)?.email_matches_parent === false) {
+        await correoNoEncontrado(integration, conversationId, contactWaId, email);
+        return;
+    }
+
     if ((res as any)?.email_matches_parent) {
         await emailClient.send({
             to: email,
@@ -1793,6 +1810,116 @@ async function arrancarOtp(
 // vida privada de quien dirige la escuela: lo que se le diga tiene que salir de
 // una plantilla que alguien leyó, no de una redacción del momento.
 
+/** step de «no encuentro ese correo». */
+export const PASO_CORREO_NO_ENCONTRADO = 'correo_no_encontrado';
+
+/**
+ * El correo que mandó un desconocido no está en el sistema: se le dice claro
+ * (completo una vez cada 24 h; después, una línea) y la conversación pasa a la
+ * escuela —buzón + aviso in-app—. Nunca silencio.
+ */
+async function correoNoEncontrado(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    email: string,
+): Promise<void> {
+    const repetido = await pasoReciente(conversationId, PASO_CORREO_NO_ENCONTRADO, 24);
+    await deliver(integration, conversationId, contactWaId,
+        repetido
+            ? `Tampoco encuentro *${maskEmail(email)}*. La escuela ya tiene tu mensaje y te ayuda por aquí. 🙏`
+            : `No encuentro el correo *${maskEmail(email)}* entre las familias de la escuela. ` +
+              'Ya pasé tu mensaje a la escuela para que te ubique o te ayude a registrarte. 🙏',
+        { step: PASO_CORREO_NO_ENCONTRADO });
+    if (repetido) return;
+    await abrirEnBuzon(integration, conversationId, contactWaId);
+    if (!enSimulacion()) {
+        const { data: conv } = await supabase.from('whatsapp_conversations')
+            .select('contact_name').eq('id', conversationId).maybeSingle();
+        void avisarEscalacionAlEquipo({
+            schoolId: integration.school_id, conversationId, contactWaId,
+            contactName: (conv as any)?.contact_name ?? null,
+            urgencia: 'normal', categoria: null, etapa: 'inicial',
+            ancla: `correo:${Math.floor(Date.now() / 600_000)}`, push: false,
+        }).catch(() => undefined);
+    }
+}
+
+// ─── Cómo pagar, sin identificación (…5281, 2026-10-07) ─────────────────────
+
+/** step de la respuesta pública de «cómo / dónde / cuándo pagar». */
+export const PASO_MEDIOS_DE_PAGO_PUBLICOS = 'medios_de_pago_publicos';
+/** Freno de esa respuesta: el mismo contacto la recibe una vez cada estas horas. */
+const FRENO_MEDIOS_PUBLICOS_H = 6;
+
+/**
+ * school_settings.business_hours (horario de atención presencial), o null. Nunca lanza.
+ *
+ * TODO(atencion-presencial): cuando llegue a develop el ajuste por escuela
+ * `atencionPresencialDeEscuela(schoolId)` (whatsapp-ajustes-escuela.service,
+ * columna `wa_atencion_presencial`; Dynasty: «Club de voleibol Coliseo Dynasty,
+ * Cl. 12 Bis #71g-09, Bogotá, de 4 p. m. a 9 p. m.»), usarlo PRIMERO y caer a
+ * business_hours solo si viene null.
+ */
+async function horarioPresencialDeEscuela(schoolId: string): Promise<string | null> {
+    try {
+        const { data, error } = await supabase.from('school_settings')
+            .select('business_hours').eq('school_id', schoolId).maybeSingle();
+        if (error) return null;
+        return textoHorarioPresencial((data as any)?.business_hours);
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * «¿Cómo / dónde / cuándo pago?», «¿hay atención presencial mañana?» — para
+ * cualquiera, sin pedir el correo: son datos públicos de la escuela (las
+ * cuentas, el link de pago, el horario de atención si lo configuró). Si
+ * pregunta por la atención presencial y la escuela no la configuró, NO se
+ * inventa: se escala una vez (prioridad normal). Lo de SU cuenta («cuánto
+ * debo») no pasa por acá (`preguntaComoPagar` lo deja afuera).
+ *
+ * Devuelve el resultado si contestó (o si ya había contestado hace poco), null
+ * si el mensaje no es de esto o la escuela está escribiendo.
+ */
+export async function responderComoPagarPublico(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    texto: string,
+    rafaga: string | null = null,
+): Promise<'medios_de_pago' | 'medios_de_pago_escalado' | 'frenado' | null> {
+    // La ráfaga (lo que escribió desde la última respuesta) ayuda a leer
+    // «en qué horario…» + «…se puede ir a cancelar» partido en dos.
+    const pregunta = preguntaComoPagar([rafaga, texto].filter(Boolean).join('\n'));
+    if (!(pregunta.pagar || pregunta.presencial)) return null;
+    if (humanoReciente(await mensajesRecientes(conversationId), SILENCIO_HUMANO_MIN)) return null;
+    if (await pasoReciente(conversationId, PASO_MEDIOS_DE_PAGO_PUBLICOS, FRENO_MEDIOS_PUBLICOS_H)) return 'frenado';
+
+    const [medios, horario] = await Promise.all([
+        mediosDePago(integration.school_id).catch(() => null),
+        horarioPresencialDeEscuela(integration.school_id),
+    ]);
+    const escalar = pregunta.presencial && !horario && !(await pasoReciente(conversationId, 'escalated', 24));
+    const cuerpo = textoComoPagar({
+        pregunta,
+        datos: { cuentas: medios?.cuentas ?? [], linkDePago: medios?.link_de_pago ?? null },
+        horario,
+        escalando: escalar,
+    });
+    await deliver(integration, conversationId, contactWaId, cuerpo,
+        { step: PASO_MEDIOS_DE_PAGO_PUBLICOS, pagar: pregunta.pagar, presencial: pregunta.presencial,
+          con_horario: Boolean(horario) });
+    if (escalar) {
+        // Sin horario configurado: lo confirma una persona (plazo vigilado).
+        await escalate(integration, conversationId, contactWaId, 'atencion_presencial',
+            { urgencia: 'normal', categoria: null });
+        return 'medios_de_pago_escalado';
+    }
+    return 'medios_de_pago';
+}
+
 /** step del saliente que cuenta para el freno de 30 días. */
 export const PASO_DESCONOCIDO_ESCOLAR = 'desconocido_tema_escolar';
 const FRENO_DESCONOCIDO_DIAS = 30;
@@ -1803,7 +1930,7 @@ export type ResultadoDesconocido =
     | 'clase_cortesia' | 'clase_cortesia_en_curso' | 'cortesia_semana' | 'ayuda_app' | 'precios'
     | 'prospecto_seguimiento' | 'escuela_atendiendo'
     | 'prospecto_horarios' | 'prospecto_precios' | 'prospecto_info' | 'prospecto_persona'
-    | 'venta_consulta'
+    | 'venta_consulta' | 'medios_de_pago' | 'medios_de_pago_escalado'
     | 'frenado' | 'silencio';
 
 export async function atenderDesconocido(
@@ -1843,11 +1970,18 @@ export async function atenderDesconocido(
 
     // 1b. Un correo arranca el OTP. Es el camino que la familia que escribe
     //     desde otro celular ya conocía, y el que le pide el mensaje de pagos.
-    const emailMatch = text.match(EMAIL_RE);
+    // El correo puede venir en un mensaje anterior de la ráfaga (…5281).
+    const emailMatch = text.match(EMAIL_RE) ?? (rafaga ? rafaga.match(EMAIL_RE) : null);
     if (emailMatch) {
         await arrancarOtp(integration, conversationId, contactWaId, emailMatch[0]);
         return 'otp_correo';
     }
+
+    // 1b'. «¿En qué horario se puede ir a cancelar la mensualidad?» (…5281,
+    //      07-oct): cómo / dónde / cuándo pagar y la atención presencial son
+    //      información PÚBLICA de la escuela. Se contesta sin pedir el correo.
+    const comoPagar = await responderComoPagarPublico(integration, conversationId, contactWaId, text, rafaga);
+    if (comoPagar) return comoPagar;
 
     // 1c. Ajustes por escuela (docs/specs/whatsapp-ajustes-por-escuela.md),
     //     apagados por defecto. «No puedo entrar a la app» no es tema escolar
@@ -1868,9 +2002,9 @@ export async function atenderDesconocido(
         const precios = await textoDePreciosDeEscuela(integration.school_id);
         if (precios) {
             const semana = await mensajeSemanaDeCortesia(integration.school_id, ajustesEscuela);
+            const saludoPrecios = await saludoDePresentacion(conversationId, await nombreDeEscuela(integration.school_id));
             await deliver(integration, conversationId, contactWaId,
-                `Hola 👋 Soy el *asistente automático* de *${await nombreDeEscuela(integration.school_id)}*. 🤖` +
-                `\n\n${precios}` +
+                (saludoPrecios ? `${saludoPrecios}\n\n` : '') + precios +
                 (semana
                     ? `\n\nY antes de decidir:\n\n${semana}`
                     : '\n\nSi quieres inscribirte o tienes dudas, escríbelas por aquí y la escuela te responde.') +
@@ -1949,7 +2083,7 @@ export async function atenderDesconocido(
             }
             if (await pasoReciente(conversationId, PASO_PROSPECTO_SEGUIMIENTO, 24)) return 'frenado';
             await deliver(integration, conversationId, contactWaId,
-                '¡Gracias! 🙌 Ya le pasé tu mensaje a la escuela y alguien te responde por aquí.',
+                '¡Gracias! 🙌 Ya pasé tu mensaje a la escuela y alguien te responde por aquí.',
                 { step: PASO_PROSPECTO_SEGUIMIENTO });
             return 'prospecto_seguimiento';
         }
@@ -1957,7 +2091,9 @@ export async function atenderDesconocido(
     }
 
     const escuela = await nombreDeEscuela(integration.school_id);
-    const saludo = `Hola 👋 Soy el *asistente automático* de *${escuela}*. 🤖`;
+    // Una presentación cada 24 h por conversación (`saludoDePresentacion`).
+    const saludo = await saludoDePresentacion(conversationId, escuela);
+    const S = saludo ? `${saludo}\n\n` : '';
 
     // Pagos Y precio: «¿qué precio tiene la mensualidad?». Puede ser una
     // familia desde otro celular o un prospecto, y no hay forma de saberlo sin
@@ -1972,7 +2108,7 @@ export async function atenderDesconocido(
             'registrado y te envío un código para verificarte; así te digo el valor de tu mensualidad.';
         if (enlaceCombinado) {
             await deliver(integration, conversationId, contactWaId,
-                saludo + '\n\n' + paraFamilias + '\n\n' +
+                S + paraFamilias + '\n\n' +
                 'Si todavía no estás inscrito, en este enlace ves los grupos y los valores, y puedes ' +
                 `hacer la inscripción: ${enlaceCombinado}`,
                 { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'pagos_y_precio', con_enlace: true });
@@ -1980,7 +2116,7 @@ export async function atenderDesconocido(
         }
         // Sin enlace: mismo criterio que el prospecto de abajo, al buzón y push.
         await deliver(integration, conversationId, contactWaId,
-            saludo + '\n\n' + paraFamilias + '\n\n' +
+            S + paraFamilias + '\n\n' +
             'Si todavía no estás inscrito, ya le avisé a la escuela y alguien te responde por aquí ' +
             'con la información de inscripción y valores.',
             { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'pagos_y_precio', con_enlace: false });
@@ -1993,12 +2129,16 @@ export async function atenderDesconocido(
         // al papá que escribe desde el celular del trabajo: «no te reconozco»
         // suena a que algo está mal, y no lo está.
         await deliver(integration, conversationId, contactWaId,
-            saludo + '\n\n' +
+            S +
             'No reconozco este número entre las familias de la escuela. Si nos escribes desde un ' +
             'celular distinto al que registraste, es normal. 🙌' + '\n\n' +
-            'Escríbeme el *correo electrónico* con el que estás registrado y te envío un código ' +
-            'para verificarte. Después te ayudo con tus pagos y comprobantes.',
+            // Una línea de POR QUÉ (…5281: «Yo así no pago sin informar nada»).
+            'Tus cobros son datos privados de tu familia, por eso primero te verifico: escríbeme el ' +
+            '*correo electrónico* con el que estás registrado y te envío un código.' + '\n\n' +
+            'Si no lo recuerdas, escríbeme el nombre del deportista y la escuela te ubica.',
             { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'pagos' });
+        // «La escuela te ubica»: que lo vea en el buzón.
+        await abrirEnBuzon(integration, conversationId, contactWaId);
         return 'pagos';
     }
 
@@ -2026,7 +2166,7 @@ export async function atenderDesconocido(
     // de siempre (el texto habla de «tu hijo/a»). Sin QR válido → null → igual.
     const semana = esAdulto ? null : await mensajeSemanaDeCortesia(integration.school_id, ajustesEscuela);
     if (semana) {
-        await deliver(integration, conversationId, contactWaId, saludo + '\n\n' + semana,
+        await deliver(integration, conversationId, contactWaId, S + semana,
             { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'cortesia_semana', con_enlace: true });
         return contestar('cortesia_semana');
     }
@@ -2062,7 +2202,7 @@ export async function atenderDesconocido(
                     : 'Y si quieres conocer la escuela antes, puedes venir a una *clase de cortesía* gratis. ' +
                       'Estas son las próximas franjas:';
         await iniciarCortesia(ctxCortesia(integration, conversationId, contactWaId, null), {
-            encabezado: saludo + lineaEnlace,
+            encabezado: (saludo + lineaEnlace).trim(),
             step: PASO_DESCONOCIDO_ESCOLAR,
             intro,
             texto: prospecto ? todoElTexto : text,
@@ -2075,7 +2215,7 @@ export async function atenderDesconocido(
 
     if (enlace) {
         await deliver(integration, conversationId, contactWaId,
-            saludo + '\n\n' +
+            S +
             '¡Gracias por tu interés! 🙌 En este enlace ves los grupos y los valores, y puedes ' +
             `hacer la inscripción: ${enlace}` + '\n\n' +
             'Si te queda alguna duda, escríbela por acá y la escuela te responde.',
@@ -2088,7 +2228,7 @@ export async function atenderDesconocido(
     // va a otra escuela. Va al buzón y suena el celular: es el único caso de un
     // desconocido que avisa por push, porque es plata que se está yendo.
     await deliver(integration, conversationId, contactWaId,
-        saludo + '\n\n' +
+        S +
         '¡Gracias por tu interés! 🙌 Ya le avisé a la escuela y alguien te responde por aquí ' +
         'con la información de inscripción.',
         { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'inscripcion', con_enlace: false });
@@ -2723,7 +2863,15 @@ export async function nombreDeEscuela(schoolId: string): Promise<string> {
 
 export const SYSTEM_PROMPT = `Eres el asistente de una escuela deportiva en WhatsApp, hablando con el padre/acudiente (ya verificado).
 Reglas estrictas:
-- Responde SIEMPRE en español, cordial y breve (es WhatsApp).
+- Responde SIEMPRE en español, cordial y breve (es WhatsApp): como mucho 600
+  caracteres y 3 emojis por mensaje. Si es una lista larga, da lo principal y
+  ofrece el resto.
+- Trata SIEMPRE de TU al acudiente («te cuento», «tu hijo», «te doy el horario»).
+  NUNCA de usted («le doy», «le envío», «su hijo», «usted») ni voseo («vos», «tenés»).
+  Para la escuela sí va «le»: «ya le avisé a la escuela».
+- En Colombia «cancelar la mensualidad / el mes / la cuota» significa PAGARLA, no
+  darse de baja. «¿Dónde/cuándo puedo cancelar la mensualidad?» es «cómo pago»:
+  usa get_payment_methods.
 - NUNCA inventes datos. Si necesitas información de pagos, USA la herramienta get_payment_status.
 - Si no puedes ayudar o piden algo fuera de tu alcance, usa escalate_to_human.
 - No pidas datos personales ni el email otra vez (ya está identificado).
@@ -3305,7 +3453,9 @@ export async function deliver(
     const conEncabezado = [presentacion, eco, cuerpoPropuesto, privacidad].filter(Boolean).join('\n\n');
 
     // WhatsApp usa UN asterisco para negrita; el modelo escribe Markdown estandar.
-    let texto = aFormatoWhatsApp(conEncabezado);
+    // Máximo 3 emojis por mensaje (auditoría 2026-10-07: un saludo salió con 12).
+    // El listado de respaldo de los botones (`enTexto`) no cuenta: no es el cuerpo.
+    let texto = recortarEmojis(aFormatoWhatsApp(conEncabezado));
     if (!PASOS_DE_CONSENTIMIENTO.includes(String((context as any)?.step ?? ''))
         && await estaDadoDeBaja(integration.id, contactWaId)) {
         texto += AVISO_DADO_DE_BAJA;
@@ -3436,6 +3586,43 @@ async function descartarBorradoresViejos(conversationId: string): Promise<void> 
 
 export const presentacionDelAsistente = (escuela: string) =>
     `Hola 👋 soy el asistente automático de ${escuela}.`;
+
+/** La presentación de las plantillas del desconocido / prospecto. */
+export const presentacionLarga = (escuela: string) =>
+    `Hola 👋 Soy el *asistente automático* de *${escuela}*. 🤖`;
+
+/** Horas entre dos presentaciones del asistente a la misma conversación. */
+export const VENTANA_PRESENTACION_H = 24;
+
+/**
+ * Auditoría 2026-10-07 (…4445, …5281): dos saludos de presentación al mismo
+ * contacto en minutos —el «ask_email» y la plantilla del prospecto o del
+ * desconocido no compartían freno—. La presentación es UNA, venga de la
+ * plantilla que venga: una vez cada 24 h por conversación. Devuelve el saludo a
+ * poner delante, o '' si ya se presentó. Cuenta lo enviado y lo que quedó en
+ * borrador (los turnos de una ráfaga ya van agrupados). Nunca lanza: ante un
+ * error de lectura se presenta (callarlo sería peor que repetirlo).
+ */
+export async function saludoDePresentacion(conversationId: string, escuela: string, ahora = Date.now()): Promise<string> {
+    try {
+        const desde = new Date(ahora - VENTANA_PRESENTACION_H * 3600_000).toISOString();
+        const [enviados, borradores] = await Promise.all([
+            supabase.from('whatsapp_messages')
+                .select('id', { count: 'exact', head: true })
+                .eq('conversation_id', conversationId)
+                .eq('direction', 'outbound')
+                .ilike('text_body', '%asistente automático%')
+                .gte('created_at', desde),
+            supabase.from('whatsapp_message_drafts')
+                .select('id', { count: 'exact', head: true })
+                .eq('conversation_id', conversationId)
+                .ilike('proposed_text', '%asistente automático%')
+                .gte('created_at', desde),
+        ]);
+        if (((enviados as any)?.count ?? 0) + ((borradores as any)?.count ?? 0) > 0) return '';
+    } catch { /* se presenta */ }
+    return presentacionLarga(escuela);
+}
 
 /** Conversaciones que ya se presentaron (evita la consulta en cada mensaje). */
 const yaPresentadas = new Set<string>();
@@ -3824,6 +4011,202 @@ export async function revisarEscalacionesVencidas(ahora = Date.now()): Promise<R
             r.reavisadas++;
         } catch (err: any) {
             console.warn('[whatsapp-bot] no se pudo revisar una escalación', { id: e.id, err: err?.message });
+        }
+    }
+    return r;
+}
+
+// ─── Retoma: la escuela cedió y nadie contestó (auditoría 2026-10-07) ───────
+//
+// La regla es `decidirRetoma` (whatsapp-reglas-turno, pura). Acá: buscar las
+// conversaciones con entrantes sin respuesta, contestar lo que el bot SÍ sabe
+// (precio con `wa_responder_precios`, dirección, horarios, grupo por edad, cómo
+// pagar) y, para lo demás, decir algo honesto UNA vez cada 24 h; y re-avisar a
+// la escuela. Lo dispara el webhook cada RETOMA_CADA_MS (routes/whatsapp.ts).
+// Idempotente entre los tres BFF: la respuesta se reserva con un UPDATE
+// condicional sobre el último entrante (`payload.retoma_at`), y los avisos al
+// equipo llevan id determinístico (`avisarEscalacionAlEquipo`).
+
+export type ResultadoRetomas = { revisadas: number; respondidas: number; reavisadas: number };
+
+/** step de lo que el bot contesta al retomar. */
+export const PASO_RETOMA_RESPUESTA = 'retoma_respuesta';
+
+/** Conversaciones con algún entrante de texto de las últimas horas. Nunca lanza. */
+async function conversacionesConEntrantesRecientes(ahora: number): Promise<{ conversationId: string; integrationId: string }[]> {
+    try {
+        const { data, error } = await supabase.from('whatsapp_messages')
+            .select('conversation_id, integration_id')
+            .eq('direction', 'inbound')
+            .gte('created_at', new Date(ahora - RETOMA_VENTANA_HORAS * 3600_000).toISOString())
+            .lte('created_at', new Date(ahora - 60_000).toISOString())
+            .order('created_at', { ascending: false })
+            .limit(500);
+        if (error || !Array.isArray(data)) return [];
+        const vistas = new Map<string, string>();
+        for (const f of data as any[]) if (f.conversation_id && !vistas.has(f.conversation_id)) vistas.set(f.conversation_id, f.integration_id);
+        return [...vistas].map(([conversationId, integrationId]) => ({ conversationId, integrationId }));
+    } catch {
+        return [];
+    }
+}
+
+/** Reserva la retoma de ESTE último entrante (solo un BFF la logra). */
+async function reservarRetoma(conversationId: string, fila: FilaReciente, ahora: number): Promise<boolean> {
+    if (!fila.wa_message_id) return false;
+    const { data, error } = await supabase.from('whatsapp_messages')
+        .update({ payload: { ...(fila.payload ?? {}), retoma_at: new Date(ahora).toISOString() } })
+        .eq('conversation_id', conversationId)
+        .eq('wa_message_id', fila.wa_message_id)
+        .is('payload->>retoma_at', null)
+        .select('id');
+    return !error && Array.isArray(data) && data.length > 0;
+}
+
+/**
+ * Contesta, de lo pendiente, lo que el bot sabe. Devuelve si contestó algo y si
+ * quedó alguna pregunta sin respuesta (para decir que la escuela la confirma).
+ */
+async function responderLoQueSeSabe(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    textos: string[],
+    esFamilia: boolean,
+): Promise<{ respondio: boolean; sinRespuesta: boolean }> {
+    const ajustes = await ajustesWhatsAppDeEscuela(integration.school_id);
+    const partes: string[] = [];
+    let respondio = false;
+    let sinRespuesta = false;
+    let horariosDados = false;
+    let precioDado = false;
+    let sedeDada = false;
+    let pagoDado = false;
+    for (const t of textos) {
+        if (soloSaludoOCortesia(t) || esCierreSuelto(t)) continue;
+        const n = normalizarCortesia(t);
+        const intereses = interesesDeProspecto(t);
+        const pago = preguntaComoPagar(t);
+        // Cada cosa que pregunta: si el bot la sabe, la contesta; si no, queda
+        // para la escuela. «Cuánto es la mensualidad y qué dirección es» son DOS.
+        let pregunto = false;
+        const queda = () => { sinRespuesta = true; };
+
+        if (preguntaGrupoPorEdad(t)) {
+            pregunto = true;
+            if (await grupoPorEdadEnBot(integration, conversationId, contactWaId, null, t, PASO_RETOMA_RESPUESTA)) respondio = true;
+            else queda();
+        } else if (intereses.includes('horarios') || leerPerfil(t) !== null) {
+            pregunto = true;
+            if (!horariosDados) {
+                horariosDados = await ofrecerHorariosDeCortesia(ctxCortesia(integration, conversationId, contactWaId, null), {
+                    texto: t, textoDelDia: t, step: PASO_RETOMA_RESPUESTA,
+                    intro: 'Estos son los próximos entrenamientos; en cualquiera puedes tomar una *clase de cortesía* gratis:',
+                }).catch(() => false);
+                if (horariosDados) respondio = true;
+            }
+            if (!horariosDados) queda();
+        }
+        if (intereses.includes('precio') || preguntaPrecioComoProspecto(t)) {
+            pregunto = true;
+            // A una familia «cuánto es la mensualidad» es SU cobro: lo ve la escuela.
+            if (!esFamilia && ajustes.responderPrecios && !precioDado) {
+                const precios = await textoDePreciosDeEscuela(integration.school_id).catch(() => null);
+                if (precios) { partes.push(precios); precioDado = true; }
+            }
+            if (!precioDado) queda();
+        }
+        if (PREGUNTA_SEDE.test(n)) {
+            pregunto = true;
+            if (!sedeDada) {
+                const dir = await direccionDeEscuela(integration.school_id).catch(() => null);
+                if (dir) { partes.push(`📍 Estamos en *${dir}*.`); sedeDada = true; }
+            }
+            if (!sedeDada) queda();
+        }
+        if (pago.pagar || pago.presencial) {
+            pregunto = true;
+            if (!pagoDado) {
+                const medios = await mediosDePago(integration.school_id).catch(() => null);
+                const horario = await horarioPresencialDeEscuela(integration.school_id);
+                partes.push(textoComoPagar({
+                    pregunta: pago, datos: { cuentas: medios?.cuentas ?? [], linkDePago: medios?.link_de_pago ?? null },
+                    horario, escalando: true,
+                }));
+                pagoDado = true;
+                if (pago.presencial && !horario) queda();
+            }
+        }
+        if (!pregunto) queda();
+    }
+    if (partes.length) {
+        const cola = sinRespuesta ? '\n\nLo demás te lo confirma la escuela por aquí; ya les volví a avisar.' : '';
+        await deliver(integration, conversationId, contactWaId, partes.join('\n\n') + cola,
+            { step: PASO_RETOMA_RESPUESTA, sin_respuesta: sinRespuesta });
+        respondio = true;
+    }
+    return { respondio, sinRespuesta };
+}
+
+export async function revisarRetomas(ahora = Date.now()): Promise<ResultadoRetomas> {
+    const r: ResultadoRetomas = { revisadas: 0, respondidas: 0, reavisadas: 0 };
+    for (const cand of await conversacionesConEntrantesRecientes(ahora)) {
+        try {
+            const filas = await mensajesRecientes(cand.conversationId);
+            const d = decidirRetoma(filas, ahora);
+            if (!d.responder && !d.reavisar) continue;
+            // «Gracias», «ok», «👍» sueltos no esperan respuesta.
+            if (d.pendientes.every((f) => esCierreSuelto(f.text_body))) continue;
+            r.revisadas++;
+
+            const { data: conv } = await supabase.from('whatsapp_conversations')
+                .select('id, contact_wa_id, contact_name').eq('id', cand.conversationId).maybeSingle();
+            const c = conv as any;
+            if (!c?.contact_wa_id) continue;
+            const { data: integ } = await supabase.from('school_whatsapp_integrations')
+                .select('*').eq('id', cand.integrationId).maybeSingle();
+            if (!integ) continue;
+            const integration = integ as WhatsAppIntegration;
+            const atencion = await debeAtender(integration, cand.conversationId, c.contact_wa_id);
+            // Tomada, bot apagado, staff o contacto personal: nada.
+            if (atencion.tomada || !atencion.botEncendido
+                || !(atencion.atender || atencion.tipo === 'desconocido')) continue;
+
+            const reavisar = async (ancla: string) => {
+                const nuevas = await avisarEscalacionAlEquipo({
+                    schoolId: integration.school_id, conversationId: cand.conversationId,
+                    contactWaId: c.contact_wa_id, contactName: c.contact_name ?? null,
+                    urgencia: 'normal', categoria: null, etapa: 'reaviso', ancla, push: true,
+                });
+                if (nuevas > 0) r.reavisadas++;
+            };
+
+            if (d.reavisar && d.pase) {
+                // Una vez por hora y por «ya pasé tu mensaje» (id determinístico).
+                await reavisar(`retoma:${d.pase.wa_message_id ?? d.pase.created_at}:${Math.floor(ahora / 3600_000)}`);
+            }
+            if (!d.responder) continue;
+            const ultimo = d.pendientes[d.pendientes.length - 1];
+            if (!(await reservarRetoma(cand.conversationId, ultimo, ahora))) continue;
+
+            const { respondio, sinRespuesta } = await responderLoQueSeSabe(integration, cand.conversationId,
+                c.contact_wa_id, d.pendientes.map((f) => (f.text_body || '').trim()), atencion.tipo === 'familia');
+            if (respondio) {
+                r.respondidas++;
+                if (sinRespuesta) await reavisar(`retoma:${ultimo.wa_message_id}`);
+                continue;
+            }
+            // Nada que el bot sepa: algo honesto, UNA vez cada 24 h.
+            if (await pasoReciente(cand.conversationId, PASO_RETOMA_SIN_RESPUESTA, 24)) continue;
+            await reavisar(`retoma:${ultimo.wa_message_id}`);
+            const horario = await estadoDeHorario(integration.id);
+            await deliver(integration, cand.conversationId, c.contact_wa_id,
+                textoSinRespuesta({ urgencia: 'normal', categoria: null, fueraDeHorario: horario.fueraDeHorario,
+                    proximaAtencion: (horario as any).proximaAtencion ?? null }),
+                { step: PASO_RETOMA_SIN_RESPUESTA });
+            r.respondidas++;
+        } catch (err: any) {
+            console.warn('[whatsapp-bot] no se pudo revisar una retoma', { id: cand.conversationId, err: err?.message });
         }
     }
     return r;

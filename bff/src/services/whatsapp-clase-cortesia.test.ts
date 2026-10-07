@@ -138,7 +138,7 @@ describe('sin franjas cargadas', () => {
         expect(t.reservar).toHaveBeenCalledWith(expect.objectContaining({
             franjaId: null, nombre: 'Juan Pérez', edad: 10, acudiente: 'Ana Gómez', contactWaId: '573001112233',
         }));
-        expect(t.ultimo().texto).toContain('Le pasé los datos de *Juan Pérez*');
+        expect(t.ultimo().texto).toContain('Pasé los datos de *Juan Pérez*');
         expect(t.estado()).toBeNull();
         expect(t.avisarEscuela).toHaveBeenCalledWith(expect.objectContaining({ tipo: 'datos' }));
     });
@@ -268,7 +268,12 @@ describe('reserva', () => {
         expect(o.botones?.map((b) => b.id)).toEqual(['a', 'b', 'c', 'd'].map((x) => `${BOTON_CC.FRANJA}${x}`));
         expect(o.botones?.map((b) => b.seccion)).toEqual(['Miércoles 7 oct', 'Jueves 8 oct', 'Viernes 9 oct', 'Sábado 10 oct']);
         for (const b of o.botones ?? []) expect(Array.from(b.title).length).toBeLessThanOrEqual(24);
-        expect(o.texto).toContain('*Sábado 10 de octubre*\n4. 5:00 p. m. a 6:30 p. m. — *Sub-15*');
+        // Auditoría 2026-10-07: el cuerpo no repite las franjas (van en la lista) y
+        // queda corto; el listado numerado va en el respaldo de texto.
+        expect(o.texto).not.toContain('— *Sub-15*');
+        expect(o.texto).toContain('Tengo 4 horarios entre el miércoles 7 de octubre y el sábado 10 de octubre.');
+        expect(o.texto.length).toBeLessThanOrEqual(600);
+        expect(o.enTexto).toContain('*Sábado 10 de octubre*\n4. 5:00 p. m. a 6:30 p. m. — *Sub-15*');
         expect(o.enTexto).toContain('Responde con el número (1, 2, 3, 4)');
     });
 
@@ -527,7 +532,8 @@ describe('Dynasty: perfil → lista por día → reserva', () => {
         await t.turno('Ver más horarios', BOTON_CC.VER_MAS);
         o = t.ultimo();
         expect(ids(o.botones)).toEqual(['s10', 's11', 's12']);
-        expect(o.texto).toContain('10. 5:00 p. m.');
+        expect(o.enTexto).toContain('10. 5:00 p. m.');
+        expect(o.texto.length).toBeLessThanOrEqual(600);
         await t.turno('la 11');
         expect(t.estado()?.datos.franja?.id).toBe('s11');
     });

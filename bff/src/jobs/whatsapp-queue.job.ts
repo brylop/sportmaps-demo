@@ -706,6 +706,12 @@ async function continuarComoComprobante(
     ocr: Awaited<ReturnType<typeof extractReceipt>>,
     log?: Logger,
 ): Promise<void> {
+    // ¿La MISMA imagen ya se recibió de esta familia? (…0340, 07-oct: la foto
+    // enviada dos veces recibió «lo apliqué…» y 40 s después «no tienes cobros
+    // pendientes».) Va antes que todo: la respuesta nunca contradice a la primera.
+    const shaArchivo = crypto.createHash('sha256').update(Buffer.from(base64, 'base64')).digest('hex');
+    if (await atenderComprobanteRepetido(fila, parentId, shaArchivo, responder, log)) return;
+
     if (ocr.isTransactionList === true) {
         await responder(M.esListado, 'es_listado');
         await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'listado de movimientos' });
@@ -834,6 +840,80 @@ async function continuarComoComprobante(
         alFallar: (motivo) => reintentar(fila, motivo, log),
         log,
     }, pago, pendientes.filter((x) => x.id !== pago.id));
+}
+
+// ─── La misma foto otra vez (auditoría 2026-10-07, …0340) ────────────────────
+
+/** Días en los que la misma imagen (sha256) de la familia cuenta como repetida. */
+export const DIAS_COMPROBANTE_REPETIDO = 7;
+/** Si ya se dijo «ya lo había recibido» hace menos de esto, se calla. */
+export const VENTANA_SILENCIO_REPETIDO_MS = 10 * 60_000;
+/** error_message de la fila cerrada por repetida: marca el aviso para el freno. */
+export const MOTIVO_COMPROBANTE_REPETIDO = 'comprobante ya recibido (misma imagen)';
+export const TEXTO_COMPROBANTE_REPETIDO = 'Este comprobante ya lo había recibido 👍';
+
+/** El cobro de la familia que ya tiene esta imagen (≤ 7 días), o null. Nunca lanza. */
+export async function cobroConLaMismaImagen(
+    schoolId: string, parentId: string, sha: string, ahora = Date.now(),
+): Promise<{ id: string; concept: string | null; status: string } | null> {
+    try {
+        const { data, error } = await supabase.from('payments')
+            .select('id, concept, status')
+            .eq('school_id', schoolId)
+            .eq('parent_id', parentId)
+            .eq('receipt_image_sha256', sha)
+            .gte('receipt_verdict_at', new Date(ahora - DIAS_COMPROBANTE_REPETIDO * 24 * 3600_000).toISOString())
+            .limit(1);
+        if (error || !Array.isArray(data) || !data.length) return null;
+        const p = data[0] as any;
+        return { id: p.id, concept: p.concept ?? null, status: p.status };
+    } catch {
+        return null;
+    }
+}
+
+/** ¿Este contacto ya recibió «ya lo había recibido» hace < 10 min? Nunca lanza. */
+async function repetidoAvisadoHacePoco(fila: FilaCola, ahora = Date.now()): Promise<boolean> {
+    try {
+        const { data } = await supabase.from('whatsapp_inbound_queue')
+            .select('id')
+            .eq('integration_id', fila.integration_id)
+            .eq('wa_phone_number', fila.wa_phone_number)
+            .eq('error_message', MOTIVO_COMPROBANTE_REPETIDO)
+            .neq('id', fila.id)
+            .gte('processed_at', new Date(ahora - VENTANA_SILENCIO_REPETIDO_MS).toISOString())
+            .limit(1);
+        return Array.isArray(data) && data.length > 0;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Si la imagen (sha256) ya está en un cobro de esta familia de los últimos 7
+ * días: «Este comprobante ya lo había recibido 👍» una vez —o nada si ya se
+ * dijo hace < 10 min— y la fila se cierra apuntando a ese cobro. Nunca
+ * contradice la primera respuesta. Devuelve true si la atendió.
+ */
+async function atenderComprobanteRepetido(
+    fila: FilaCola,
+    parentId: string,
+    sha: string,
+    responder: (texto: string, paso: string) => Promise<unknown>,
+    log?: Logger,
+): Promise<boolean> {
+    const previo = await cobroConLaMismaImagen(fila.school_id, parentId, sha);
+    if (!previo) return false;
+    const callar = await repetidoAvisadoHacePoco(fila);
+    if (!callar) await responder(TEXTO_COMPROBANTE_REPETIDO, 'comprobante_repetido');
+    await cerrar(fila.id, 'ignored', {
+        result_type: 'none',
+        result_ref_id: previo.id,
+        matched_parent_id: parentId,
+        error_message: MOTIVO_COMPROBANTE_REPETIDO,
+    });
+    log?.info?.({ queueId: fila.id, paymentId: previo.id, callar }, '[wa-queue] misma imagen ya recibida');
+    return true;
 }
 
 /**

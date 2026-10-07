@@ -33,7 +33,7 @@ import {
 } from '../services/whatsapp.service';
 import {
     runBotTurn, deliver, atenderDesconocido, mensajesRecientes, SILENCIO_HUMANO_MIN,
-    TEXTO_MIME_RECHAZADO, vocativosDeEscuela, revisarEscalacionesVencidas,
+    TEXTO_MIME_RECHAZADO, vocativosDeEscuela, revisarEscalacionesVencidas, revisarRetomas,
 } from '../services/whatsapp-bot.service';
 import { debeAtender } from '../services/whatsapp-atencion.service';
 import { encolarAdjunto } from '../services/whatsapp-queue.service';
@@ -77,7 +77,17 @@ function revisarPlazosDeEscalacion(log: Request['log']): void {
     void revisarEscalacionesVencidas(ahora)
         .then((r) => { if (r.reavisadas > 0) log?.warn?.(r, 'WhatsApp: escalaciones sin respuesta re-avisadas'); })
         .catch((err: any) => log?.error?.({ err: err?.message || err }, 'WhatsApp: revisión de plazos falló'));
+    // Retoma (auditoría 2026-10-07): la escuela cedió y nadie contestó. Cada
+    // 5 min: mira las conversaciones con entrantes de las últimas 6 h.
+    if (ahora - ultimaRevisionDeRetomas >= CADA_RETOMA_MS) {
+        ultimaRevisionDeRetomas = ahora;
+        void revisarRetomas(ahora)
+            .then((r) => { if (r.respondidas + r.reavisadas > 0) log?.warn?.(r, 'WhatsApp: retomas tras ceder a la escuela'); })
+            .catch((err: any) => log?.error?.({ err: err?.message || err }, 'WhatsApp: revisión de retomas falló'));
+    }
 }
+const CADA_RETOMA_MS = 5 * 60_000;
+let ultimaRevisionDeRetomas = 0;
 
 const router = Router();
 
