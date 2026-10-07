@@ -16,20 +16,22 @@ export default function PaymentResultPage() {
     const { user } = useAuth();
     const pdfBranding = usePdfBranding();
     const transactionId = searchParams.get('id');
+    // Wompi agrega `env=test|prod` al redirect: dice a qué API preguntar.
+    const wompiEnv = searchParams.get('env');
 
     const [transaction, setTransaction] = useState<WompiTransactionResult | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         if (transactionId) {
-            checkTransactionStatus(transactionId).then((result) => {
+            checkTransactionStatus(transactionId, wompiEnv).then((result) => {
                 setTransaction(result);
                 setLoading(false);
             });
         } else {
             setLoading(false);
         }
-    }, [transactionId]);
+    }, [transactionId, wompiEnv]);
 
     const formatPrice = (cents: number) =>
         new Intl.NumberFormat('es-CO', {

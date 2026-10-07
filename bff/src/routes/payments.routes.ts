@@ -25,6 +25,7 @@ import { resolveProvider, type PaymentProvider } from '../services/payment-provi
 import { extractReceipt } from '../services/ocr.service';
 import { evaluateVerdict, normalizeReference } from '../services/receipt-verdict';
 import { buildVerdictContext } from '../services/receipt-context.service';
+import { validarLlaveCheckoutEscuela, MENSAJE_CHECKOUT_NO_DISPONIBLE } from '../services/wompi-llave-checkout.guard';
 
 const router = Router();
 
@@ -37,8 +38,9 @@ const CreateSessionSchema = z.object({
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /create-session — Crea referencia Wompi para un pago de escuela
 // ─────────────────────────────────────────────────────────────────────────────
-// El frontend recibe { reference, amountInCents } y abre el Widget Wompi.
-// La firma de integridad la pide el frontend a la Edge Function `wompi-sign`.
+// El frontend recibe { reference, amountInCents, publicKey, signature } y abre el
+// Widget Wompi. Llave pública y firma salen SIEMPRE de aquí (mismo par de
+// credenciales); el frontend ya no usa VITE_WOMPI_PUBLIC_KEY ni la Edge Function.
 // Validamos: pago existe, pertenece a la escuela, esta en estado pagable,
 // la escuela tiene Wompi habilitado, y no existe link activo previo.
 router.post(
@@ -171,6 +173,25 @@ router.post(
 
             const provider: PaymentProvider = resolved.provider;
 
+            // 3.b Wompi: llave pública y firma de integridad salen del MISMO par de
+            //     credenciales que resolvió el BFF, o no hay checkout (fail-closed).
+            //     Dynasty 2026-10-05: el BFF de dev devolvió su pub_test_ (sandbox
+            //     11981889) y la Edge Function firmó con el secret de producción →
+            //     "La firma es inválida". Ver services/wompi-llave-checkout.guard.ts.
+            const wompiCreds = provider === 'wompi' ? wompiCredsFrom(resolved) : null;
+            if (provider === 'wompi') {
+                const llave = validarLlaveCheckoutEscuela(resolved);
+                const code = !llave.ok ? llave.code
+                    : !wompiCreds?.integritySecret ? 'wompi_sin_integrity_secret' : null;
+                if (code) {
+                    req.log?.error(
+                        { schoolId, paymentId, source: resolved.source, code, motivo: !llave.ok ? llave.motivo : undefined },
+                        'create-session: checkout Wompi bloqueado (llave/firma no confiables, fail-closed)',
+                    );
+                    return res.status(503).json({ error: MENSAJE_CHECKOUT_NO_DISPONIBLE, code });
+                }
+            }
+
             const feePct = Number(settings?.online_fee_pct ?? 3);
 
             // 4. Reutilizar link activo (idempotencia — evita doble cobro accidental).
@@ -188,35 +209,15 @@ router.post(
                 .maybeSingle();
 
             // Firma de integridad del Widget, calculada en el BFF con el integrity secret
-            // de ESTA escuela. Antes la pedía el frontend a la Edge Function `wompi-sign`,
-            // que tiene un único secret global y por tanto no puede firmar por escuela
-            // (los secretos por escuela están cifrados y solo el BFF los descifra).
-            // Devolver null es tolerado: el frontend cae a la Edge Function (camino legacy).
+            // del MISMO comercio cuya llave pública se devuelve: cuenta propia ('direct',
+            // payment_provider_secrets) o llaves de ENV ('aggregator', WOMPI_PUBLIC_KEY +
+            // WOMPI_INTEGRITY_SECRET del mismo Render). Antes, en 'aggregator', firmaba la
+            // Edge Function con su propio secret: llave de un lado y firma de otro, que es
+            // justo lo que se cruzó cuando la llave venía de otro ambiente.
+            // wompiCreds.integritySecret ya se verificó en 3.b, así que no lanza.
             const signFor = (reference: string, amountInCents: number): string | null => {
-                if (provider !== 'wompi') return null;
-
-                // SOLO para escuelas con cuenta propia. Para el camino legacy ('env', la
-                // escuela en 'aggregator') se devuelve null a propósito y el frontend sigue
-                // pidiendo la firma a la Edge Function, exactamente como hasta hoy.
-                //
-                // Motivo: el integrity secret vive en DOS lugares independientes — ENV de
-                // Render (BFF) y secrets de Supabase (Edge Function). Si se hubieran
-                // desincronizado, firmar en el BFF rompería el checkout de una escuela que
-                // hoy cobra de verdad. En 'direct' el problema no existe: el secreto sale
-                // de payment_provider_secrets y la Edge Function queda fuera del camino.
-                if (resolved.source !== 'school_direct') return null;
-
-                const creds = wompiCredsFrom(resolved);
-                if (!creds) return null;
-                try {
-                    return signIntegrity({ reference, amountInCents }, creds);
-                } catch (e: any) {
-                    req.log?.warn(
-                        { err: e?.message, schoolId },
-                        'create-session: no se pudo firmar en el BFF (falta integrity secret)',
-                    );
-                    return null;
-                }
+                if (provider !== 'wompi' || !wompiCreds) return null;
+                return signIntegrity({ reference, amountInCents }, wompiCreds);
             };
 
             const reuseResponse = (link: any) => res.status(200).json({
