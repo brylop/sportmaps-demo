@@ -32,7 +32,7 @@ import {
     type ParsedInboundMessage,
 } from '../services/whatsapp.service';
 import {
-    runBotTurn, deliver, atenderDesconocido, acusarAdjunto, mensajesRecientes, SILENCIO_HUMANO_MIN,
+    runBotTurn, deliver, atenderDesconocido, mensajesRecientes, SILENCIO_HUMANO_MIN,
     TEXTO_MIME_RECHAZADO, vocativosDeEscuela, revisarEscalacionesVencidas,
 } from '../services/whatsapp-bot.service';
 import { debeAtender } from '../services/whatsapp-atencion.service';
@@ -41,12 +41,6 @@ import { correrTurnoAgrupado, ESPERA_RAFAGA_MS } from '../services/whatsapp-turn
 import { humanoReciente, esCierreSuelto } from '../services/whatsapp-reglas-turno';
 import { cerrarSiEsCierre } from '../services/whatsapp-ponerse-al-dia.service';
 import { atenderNotaDeVoz, atenderNotaDeVozDeProspecto } from '../services/whatsapp-notas-de-voz.service';
-
-/**
- * Lo que tarda en salir el acuse de un adjunto: lo justo para que una ráfaga
- * de fotos («4 imágenes en 2 s») produzca UN acuse, el de la última.
- */
-const ESPERA_ACUSE_MS = process.env.VITEST ? 0 : 3_000;
 
 /**
  * Corre en segundo plano lo que espera (la ráfaga, el acuse): el webhook
@@ -440,18 +434,13 @@ async function handleBotTurn(
         });
         req.log?.info({ conversationId, resultado }, 'WhatsApp: adjunto entrante');
 
-        // P6 (análisis 2026-10-06): el acuse sale DESPUÉS de `debeAtender` y
-        // por `deliver` (queda registrado, respeta el modo, el bot apagado y la
-        // baja), uno por ráfaga y con texto veraz. Antes salía desde la cola,
-        // pelado y antes de todo filtro (ver `acusarAdjunto`).
-        if (resultado === 'encolado') {
-            await enSegundoPlano(ESPERA_ACUSE_MS, async () => {
-                if (ESPERA_ACUSE_MS > 0) await new Promise((r) => setTimeout(r, ESPERA_ACUSE_MS));
-                const acuse = await acusarAdjunto(integration, conversationId, msg.contactWaId,
-                    msg.waMessageId, msg.mediaCaption ?? msg.textBody ?? null);
-                req.log?.info({ conversationId, acuse }, 'WhatsApp: acuse de adjunto');
-            }, req.log, 'el acuse del adjunto');
-        } else if (resultado === 'mime_rechazado') {
+        // El webhook NO acusa el adjunto (2026-10-07). Antes salía «Recibí tu
+        // comprobante 📄 Lo reviso…» a los 3 s y el resultado de la cola ~50 s
+        // después: dos o más mensajes por comprobante (Dynasty, 6-7 oct). Ahora
+        // la cola responde UNA vez con el resultado, y el acuse solo sale si el
+        // resultado no llegó en ~90 s (`acusarAdjunto`, diferido, desde el
+        // worker que tiene la fila: idempotente entre los 3 BFF por el lease).
+        if (resultado === 'mime_rechazado') {
             const d = await debeAtender(integration, conversationId, msg.contactWaId).catch(() => null);
             if (d?.atender) {
                 await deliver(integration, conversationId, msg.contactWaId, TEXTO_MIME_RECHAZADO,

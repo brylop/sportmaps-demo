@@ -433,8 +433,19 @@ export function preguntaAbierta(filas: FilaReciente[], paso: string): boolean {
         .filter((f) => f.direction === 'outbound' && f.ai_generated !== false && !esAutomaticoDeApp(f) && pasoDe(f))
         .sort((a, b) => momento(b) - momento(a));
     const ultimo = salientesBot[0];
-    return !!ultimo && pasoDe(ultimo) === paso;
+    // `payload.pregunta`: la pregunta viaja DENTRO de otra respuesta (el
+    // consentimiento al pie del estado de pagos o del resultado de un
+    // comprobante, 2026-10-07) y el paso del mensaje es el de la respuesta.
+    return !!ultimo && (pasoDe(ultimo) === paso || ultimo.payload?.pregunta === paso);
 }
+
+/**
+ * Pasos que ya le dijeron a la familia «todavía no tienes tu cuenta»: el aviso
+ * del bot (`debe_registrarse`) y la respuesta de la cola a un comprobante
+ * (`familia_sin_cuenta`). Uno solo cada 24 h por conversación, venga de donde
+ * venga (…8804c0, 07-oct: los dos en 17 s).
+ */
+export const PASOS_SIN_CUENTA = ['debe_registrarse', 'familia_sin_cuenta'];
 
 /** ¿Salió (o quedó registrado) este paso en los últimos `ms`? */
 export function pasoEnVentana(filas: FilaReciente[], paso: string, ms: number, ahora = Date.now()): FilaReciente | null {

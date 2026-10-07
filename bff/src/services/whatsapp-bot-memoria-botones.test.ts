@@ -370,22 +370,25 @@ describe('botones: consentimiento', () => {
         expect(borradores()[0].row.tool_context).toMatchObject({ step: 'consent_rechazado' });
     });
 
-    // P2 (análisis 2026-10-06): la pregunta sale DESPUÉS de un turno resuelto,
-    // nunca como primera respuesta.
-    it('la pregunta de consentimiento sale con botones en modo auto, DESPUÉS del estado de pagos', async () => {
+    // P2 (análisis 2026-10-06): la pregunta va con un turno resuelto, nunca
+    // como primera respuesta. P2 bis (2026-10-07): AL PIE del estado de pagos,
+    // en el mismo mensaje — no como un segundo mensaje 2 s después (…2d2e84).
+    it('la pregunta de consentimiento va al pie del estado de pagos, con botones, en UN mensaje', async () => {
         baseDeFamilia({ consentimiento: 'nunca', settings: AUTO });
         await runBotTurn(INTEGRATION, CONV, TEL, 'Ver mis pagos', 'wamid.1', false, BOTON.VER_PAGOS);
-        expect(h.sendTextMessage).toHaveBeenCalledTimes(1);
-        expect(h.sendTextMessage.mock.calls[0][2]).toContain('Mensualidad Octubre');
+        expect(h.sendTextMessage).not.toHaveBeenCalled();
         expect(h.sendInteractiveButtons).toHaveBeenCalledTimes(1);
         const [, to, body, botones] = h.sendInteractiveButtons.mock.calls[0];
         expect(to).toBe(TEL);
+        expect(body).toContain('Mensualidad Octubre');
         expect(body).toContain('Responde *SÍ*');
+        expect(body.indexOf('Mensualidad Octubre')).toBeLessThan(body.indexOf('Responde *SÍ*'));
         expect(body).not.toContain('STOP');
         expect(botones).toEqual(BOTONES_CONSENTIMIENTO);
-        const pasos = rpcs('wa_record_outbound_message').map((c) => c.args.p_payload.step);
-        expect(pasos).toEqual(['get_payment_status', 'ask_consent']);
-        expect(rpcs('wa_record_outbound_message')[1].args).toMatchObject({ p_type: 'interactive', p_wa_message_id: 'wamid.btn' });
+        const salientes = rpcs('wa_record_outbound_message');
+        expect(salientes).toHaveLength(1);
+        expect(salientes[0].args).toMatchObject({ p_type: 'interactive', p_wa_message_id: 'wamid.btn' });
+        expect(salientes[0].args.p_payload).toMatchObject({ step: 'get_payment_status', pregunta: 'ask_consent' });
     });
 
     it('un saludo NO recibe la pregunta de consentimiento como respuesta', async () => {
@@ -398,9 +401,11 @@ describe('botones: consentimiento', () => {
         baseDeFamilia({ consentimiento: 'nunca' });
         await runBotTurn(INTEGRATION, CONV, TEL, 'Ver mis pagos', 'wamid.1', false, BOTON.VER_PAGOS);
         expect(h.sendInteractiveButtons).not.toHaveBeenCalled();
-        expect(borradores()).toHaveLength(2);
-        expect(borradores()[1].row.proposed_text).toContain('Responde *SÍ*');
-        expect(borradores()[1].row.tool_context).toMatchObject({ step: 'ask_consent', botones: BOTONES_CONSENTIMIENTO });
+        expect(borradores()).toHaveLength(1);
+        expect(borradores()[0].row.proposed_text).toContain('Mensualidad Octubre');
+        expect(borradores()[0].row.proposed_text).toContain('Responde *SÍ*');
+        expect(borradores()[0].row.tool_context).toMatchObject({
+            step: 'get_payment_status', pregunta: 'ask_consent', botones: BOTONES_CONSENTIMIENTO });
     });
 
     it('ya preguntado (una vez máximo): no se vuelve a preguntar', async () => {

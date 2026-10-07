@@ -72,7 +72,7 @@ import {
 import {
     anunciaComprobante, nombreDelCobroAnunciado, yaPagoYReclama, textoYaPague, pideALaPersona,
     vocativosDelEquipo, esCierreSuelto, esAutoRespuesta, rutaSinModelo, humanoReciente,
-    preguntaAbierta, pasoEnVentana, normalizarFrase, ecoDeAudios,
+    preguntaAbierta, pasoEnVentana, normalizarFrase, ecoDeAudios, PASOS_SIN_CUENTA,
     type FilaReciente, type ComprobanteAnunciado,
 } from './whatsapp-reglas-turno';
 import { atenderAusenciaEnBot } from './whatsapp-ausencias.service';
@@ -590,12 +590,12 @@ async function responderAnuncioDeComprobante(
     const archivoReciente = recientes.some((f) => f.direction === 'inbound'
         && (f.type === 'image' || f.type === 'document') && t(f) >= Date.now() - 2 * 60_000);
     if (archivoReciente) {
-        // La foto llegó primero (pasa la mitad de las veces). Si ya hubo acuse,
-        // no hace falta decir nada más; si no, se acusa acá.
-        if (pasoEnVentana(recientes, 'acuse_adjunto', 2 * 60_000)) return;
-        await deliver(integration, conversationId, contactWaId,
-            `¡Gracias! Ya recibí el archivo${cobro ? ` de *${cobro}*` : ''} 📄 Lo reviso y te cuento por aquí.`,
-            { ...contexto, step: 'acuse_adjunto', via: 'anuncio' });
+        // La foto llegó primero (pasa la mitad de las veces). La responde la
+        // cola con el RESULTADO en ~60 s, y si tarda, el acuse diferido
+        // (`acusarAdjunto`, desde el worker). Antes acá salía un segundo acuse
+        // «¡Gracias! Ya recibí el archivo…» en el MISMO segundo que el del
+        // webhook (…9ed973, 06-oct 20:46:28: dos mensajes iguales, uno con la
+        // presentación y otro sin ella).
         return;
     }
 
@@ -615,6 +615,16 @@ async function responderAnuncioDeComprobante(
  * ve, y eso lo tiene que mirar una persona. Nunca «voy a revisar el
  * comprobante»: el bot no revisa, describe estados que existen.
  */
+/** ¿Hay un comprobante de este contacto en proceso en la cola (llegado hace < 3 min)? */
+export function comprobanteEnCurso(
+    cola: { status?: string | null; created_at?: string | null }[],
+    ahora = Date.now(),
+): boolean {
+    return (Array.isArray(cola) ? cola : []).some((f) =>
+        (f?.status === 'pending' || f?.status === 'processing')
+        && Date.parse(String(f?.created_at ?? '')) >= ahora - 3 * 60_000);
+}
+
 async function responderYaPague(
     integration: WhatsAppIntegration,
     conversationId: string,
@@ -634,6 +644,11 @@ async function responderYaPague(
             .limit(20)
             .then((r: any) => (Array.isArray(r?.data) ? r.data : []), () => []),
     ]);
+    // Un comprobante de este contacto está EN la cola ahora mismo (llegó hace
+    // menos de 3 min): la respuesta es su resultado, que sale en segundos. Antes
+    // salía «Tengo el comprobante… pendiente de revisión» y 50 s después
+    // «Recibí tu comprobante y lo apliqué…» (…b62e3f, 06-oct 21:08).
+    if (comprobanteEnCurso(cola as any[])) return;
     if (error) {
         console.error('[whatsapp-bot] wa_get_payment_status error (ya pagué):', error);
         await escalate(integration, conversationId, contactWaId, 'tool_error');
@@ -817,9 +832,10 @@ async function ejecutarAccionDeBoton(
 
     if (accion === 'get_payment_methods') {
         const medios = await mediosDePago(integration.school_id);
-        await deliver(integration, conversationId, contactWaId,
-            fallbackMediosDePago(medios), { step: 'get_payment_methods', via: 'boton' });
-        await ofrecerConsentimientoSiFalta(integration, conversationId, contactWaId, parentId);
+        const anexo = await anexoDeConsentimiento(integration, conversationId, contactWaId, parentId);
+        const m = conAnexoDeConsentimiento(fallbackMediosDePago(medios),
+            { step: 'get_payment_methods', via: 'boton' }, undefined, anexo);
+        await deliver(integration, conversationId, contactWaId, m.texto, m.context, m.conBotones);
         return;
     }
 
@@ -836,10 +852,10 @@ async function ejecutarAccionDeBoton(
     }
     const conEnlace = await conEnlacesDePago(payments as any[], parentId, integration.school_id,
         { integrationId: integration.id, waPhone: contactWaId });
-    await deliver(integration, conversationId, contactWaId,
-        fallbackPaymentText(conEnlace), { step: 'get_payment_status', via: 'boton', tool_result: conEnlace },
-        conBotonPagar(conEnlace));
-    await ofrecerConsentimientoSiFalta(integration, conversationId, contactWaId, parentId);
+    const anexo = await anexoDeConsentimiento(integration, conversationId, contactWaId, parentId);
+    const m = conAnexoDeConsentimiento(fallbackPaymentText(conEnlace),
+        { step: 'get_payment_status', via: 'boton', tool_result: conEnlace }, conBotonPagar(conEnlace), anexo);
+    await deliver(integration, conversationId, contactWaId, m.texto, m.context, m.conBotones);
 }
 
 /**
@@ -1326,13 +1342,18 @@ async function identificarPorTelefono(
         // lo que penaliza — ya lo vimos el 2026-09-11 con 7 respuestas iguales.
         //
         // Se devuelve true igual cuando se calla: el turno SI esta resuelto.
+        //
+        // Cuenta también 'familia_sin_cuenta' (la respuesta de la cola a un
+        // comprobante, que ya dijo «todavía no tienes tu cuenta»): …8804c0,
+        // 07-oct, recibió el párrafo de la cuenta dos veces en 17 s, una del
+        // bot y otra de la cola.
         const desde = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
         const { count: yaAvisado } = await supabase
             .from('whatsapp_messages')
             .select('id', { count: 'exact', head: true })
             .eq('conversation_id', conversationId)
             .eq('direction', 'outbound')
-            .eq('payload->>step', 'debe_registrarse')
+            .in('payload->>step', PASOS_SIN_CUENTA)
             .gte('created_at', desde);
         if ((yaAvisado ?? 0) > 0) return true;
 
@@ -2362,14 +2383,87 @@ async function leerRespuestaDeConsentimiento(
     return false;
 }
 
+/** El texto de la pregunta del consentimiento (igual al pie o como mensaje). */
+export const textoPreguntaConsentimiento = (escuela: string) =>
+    `Una cosa más 🙂 ¿Quieres que *${escuela}* te envíe por aquí los recordatorios de pago ` +
+    'y los avisos de tu atleta?\n\nResponde *SÍ* para activarlos. Puedes darte de baja cuando quieras.';
+
+/** Una vez por conversación, solo a familias con cuenta, nunca a quien ya aceptó o se dio de baja. */
+async function faltaPreguntarConsentimiento(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    parentId: string | null,
+): Promise<boolean> {
+    if (!parentId) return false;
+    const { data: optin } = await supabase
+        .from('whatsapp_optins')
+        .select('opted_in_at, opted_out_at')
+        .eq('integration_id', integration.id)
+        .eq('contact_wa_id', contactWaId)
+        .maybeSingle();
+    if ((optin as any)?.opted_in_at || (optin as any)?.opted_out_at) return false;
+    return !(await yaSePreguntoConsentimiento(conversationId));
+}
+
+/** La pregunta que va AL PIE del mensaje principal (ver `conAnexoDeConsentimiento`). */
+export interface AnexoConsentimiento { texto: string }
+
 /**
- * P2 — La PREGUNTA del consentimiento. Se llama al final de un turno ya
- * resuelto: estado de pagos, medios de pago, resultado de un comprobante
- * (worker). Una sola vez por conversación (cuenta salientes y borradores), solo
- * a familias con cuenta, y nunca a quien ya aceptó o se dio de baja.
+ * P2 bis (2026-10-07) — La pregunta del consentimiento va DENTRO de la
+ * respuesta principal, no como un mensaje aparte pegado a ella. Medido en
+ * Dynasty: «get_payment_methods» y 3 s después «ask_consent» (…2d2e84);
+ * resultado del comprobante y 2 s después la pregunta (…b62e3f). Dos mensajes
+ * seguidos del bot, y el segundo tapa el primero en la notificación.
  *
- * Exportada para el worker de comprobantes. Nunca lanza: un consentimiento que
- * no se pudo preguntar no puede tumbar la respuesta que ya salió.
+ * Devuelve la pregunta si toca hacerla, o null. Nunca lanza.
+ */
+export async function anexoDeConsentimiento(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    parentId: string | null,
+): Promise<AnexoConsentimiento | null> {
+    try {
+        if (!(await faltaPreguntarConsentimiento(integration, conversationId, contactWaId, parentId))) return null;
+        return { texto: textoPreguntaConsentimiento(await nombreDeEscuela(integration.school_id)) };
+    } catch (e: any) {
+        console.warn('[whatsapp-bot] no se pudo decidir el consentimiento', { conversationId, err: e?.message });
+        return null;
+    }
+}
+
+/**
+ * Pega la pregunta al pie del mensaje. Si el mensaje no trae botones propios,
+ * los del consentimiento («Sí, acepto» / «No, gracias») van en él; si ya trae
+ * (o el botón «Pagar»), la pregunta va solo en el texto y la familia responde
+ * «sí» escrito. El paso del mensaje sigue siendo el de la respuesta; la
+ * pregunta queda en `payload.pregunta`, que es lo que miran `preguntaAbierta`
+ * y `yaSePreguntoConsentimiento`.
+ */
+export function conAnexoDeConsentimiento(
+    texto: string,
+    context: Record<string, unknown>,
+    conBotones: ConBotones | undefined,
+    anexo: AnexoConsentimiento | null,
+): { texto: string; context: Record<string, unknown>; conBotones: ConBotones | undefined } {
+    if (!anexo) return { texto, context, conBotones };
+    const propios = !!(conBotones?.botones?.length || conBotones?.cta);
+    return {
+        texto: `${texto}\n\n${anexo.texto}`,
+        context: { ...context, pregunta: 'ask_consent' },
+        conBotones: propios ? conBotones : { botones: BOTONES_CONSENTIMIENTO },
+    };
+}
+
+/**
+ * P2 — La PREGUNTA del consentimiento como mensaje propio. Ya casi no se usa:
+ * la pregunta viaja al pie de la respuesta (`anexoDeConsentimiento`). Si se
+ * llama, NO sale pegada a otra respuesta del bot: con un saliente automático
+ * en el último minuto se calla (queda para un turno posterior).
+ *
+ * Nunca lanza: un consentimiento que no se pudo preguntar no puede tumbar la
+ * respuesta que ya salió.
  */
 export async function ofrecerConsentimientoSiFalta(
     integration: WhatsAppIntegration,
@@ -2378,20 +2472,10 @@ export async function ofrecerConsentimientoSiFalta(
     parentId: string | null,
 ): Promise<boolean> {
     try {
-        if (!parentId) return false;
-        const { data: optin } = await supabase
-            .from('whatsapp_optins')
-            .select('opted_in_at, opted_out_at')
-            .eq('integration_id', integration.id)
-            .eq('contact_wa_id', contactWaId)
-            .maybeSingle();
-        if ((optin as any)?.opted_in_at || (optin as any)?.opted_out_at) return false;
-        if (await yaSePreguntoConsentimiento(conversationId)) return false;
-
-        const escuela = await nombreDeEscuela(integration.school_id);
+        if (!(await faltaPreguntarConsentimiento(integration, conversationId, contactWaId, parentId))) return false;
+        if (botHabloHacePoco(await mensajesRecientes(conversationId), 60_000)) return false;
         await deliver(integration, conversationId, contactWaId,
-            `Una cosa más 🙂 ¿Quieres que *${escuela}* te envíe por aquí los recordatorios de pago ` +
-            'y los avisos de tu atleta?\n\nResponde *SÍ* para activarlos. Puedes darte de baja cuando quieras.',
+            textoPreguntaConsentimiento(await nombreDeEscuela(integration.school_id)),
             { step: 'ask_consent' },
             { botones: BOTONES_CONSENTIMIENTO });
         return true;
@@ -2399,6 +2483,12 @@ export async function ofrecerConsentimientoSiFalta(
         console.warn('[whatsapp-bot] no se pudo ofrecer el consentimiento', { conversationId, err: e?.message });
         return false;
     }
+}
+
+/** ¿Salió un mensaje automático del bot en los últimos `ms`? */
+export function botHabloHacePoco(recientes: FilaReciente[], ms: number, ahora = Date.now()): boolean {
+    return recientes.some((f) => f.direction === 'outbound' && f.ai_generated !== false
+        && new Date(f.created_at || f.wa_timestamp || 0).getTime() >= ahora - ms);
 }
 
 async function registrarOptIn(
@@ -2429,6 +2519,14 @@ export async function yaSePreguntoConsentimiento(conversationId: string): Promis
         .eq('direction', 'outbound')
         .eq('payload->>step', 'ask_consent');
     if ((enviados ?? 0) > 0) return true;
+    // La pregunta al pie de otra respuesta (`conAnexoDeConsentimiento`).
+    const { count: alPie } = await supabase
+        .from('whatsapp_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', conversationId)
+        .eq('direction', 'outbound')
+        .eq('payload->>pregunta', 'ask_consent');
+    if ((alPie ?? 0) > 0) return true;
 
     // Borradores: solo cuentan los que SALIERON (aprobados o enviados desde el
     // buzón). Antes contaba cualquiera, y el modo asistido del 06-oct dejó 9
@@ -2441,7 +2539,14 @@ export async function yaSePreguntoConsentimiento(conversationId: string): Promis
         .eq('conversation_id', conversationId)
         .eq('tool_context->>step', 'ask_consent')
         .in('status', ['approved', 'sent']);
-    return (borradores ?? 0) > 0;
+    if ((borradores ?? 0) > 0) return true;
+    const { count: borradoresAlPie } = await supabase
+        .from('whatsapp_message_drafts')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', conversationId)
+        .eq('tool_context->>pregunta', 'ask_consent')
+        .in('status', ['approved', 'sent']);
+    return (borradoresAlPie ?? 0) > 0;
 }
 
 export async function nombreDeEscuela(schoolId: string): Promise<string> {
@@ -2655,6 +2760,8 @@ async function entregarTextoDelModelo(
         respaldo?: string;
         botones?: (t: string) => ConBotones | undefined;
         conBotones?: ConBotones;
+        /** La pregunta del consentimiento al pie (no va si el modelo pide una persona). */
+        anexo?: AnexoConsentimiento | null;
     },
 ): Promise<'enviado' | 'respaldo' | 'escalado'> {
     const f = filtrarSalidaDelModelo(texto, NOMBRES_DE_HERRAMIENTAS);
@@ -2665,7 +2772,9 @@ async function entregarTextoDelModelo(
     }
     if (!f.texto) {
         if (opciones.respaldo) {
-            await deliver(integration, conversationId, contactWaId, opciones.respaldo, ctx, opciones.conBotones);
+            const m = conAnexoDeConsentimiento(opciones.respaldo, ctx, opciones.conBotones,
+                f.quiereEscalar ? null : opciones.anexo ?? null);
+            await deliver(integration, conversationId, contactWaId, m.texto, m.context, m.conBotones);
             if (f.quiereEscalar) {
                 await escalate(integration, conversationId, contactWaId, 'el_asistente_pidio_una_persona',
                     { texto: opciones.textoFamilia });
@@ -2677,8 +2786,9 @@ async function entregarTextoDelModelo(
             { texto: opciones.textoFamilia });
         return 'escalado';
     }
-    await deliver(integration, conversationId, contactWaId, f.texto, ctx,
-        opciones.conBotones ?? opciones.botones?.(f.texto));
+    const m = conAnexoDeConsentimiento(f.texto, ctx, opciones.conBotones ?? opciones.botones?.(f.texto),
+        f.quiereEscalar ? null : opciones.anexo ?? null);
+    await deliver(integration, conversationId, contactWaId, m.texto, m.context, m.conBotones);
     if (f.quiereEscalar) {
         await escalate(integration, conversationId, contactWaId, 'el_asistente_pidio_una_persona',
             { texto: opciones.textoFamilia });
@@ -2810,9 +2920,9 @@ async function handleIntent(
             anotarFallasDelModelo(final.fallas);
         } catch (err) {
             anotarFallasDelModelo(fallasDeError(err));
-            await deliver(integration, conversationId, contactWaId,
-                fallbackMediosDePago(medios), { step: 'medios_fallback' });
-            await ofrecerConsentimientoSiFalta(integration, conversationId, contactWaId, parentId);
+            const anexo = await anexoDeConsentimiento(integration, conversationId, contactWaId, parentId);
+            const m = conAnexoDeConsentimiento(fallbackMediosDePago(medios), { step: 'medios_fallback' }, undefined, anexo);
+            await deliver(integration, conversationId, contactWaId, m.texto, m.context, m.conBotones);
             return;
         }
         // Un degradado al texto plano NO puede ser silencioso. El 2026-09-14
@@ -2823,13 +2933,11 @@ async function handleIntent(
             console.warn('[whatsapp-bot] medios_de_pago: el modelo no devolvio texto',
                 { proveedor: final.provider, toolCalls: (final as any).toolCalls?.length ?? 0 });
         }
-        const medioEntregado = await entregarTextoDelModelo(integration, conversationId, contactWaId,
+        await entregarTextoDelModelo(integration, conversationId, contactWaId,
             final.text || fallbackMediosDePago(medios),
             { step: 'get_payment_methods', provider: final.provider },
-            { textoFamilia: text, respaldo: fallbackMediosDePago(medios) });
-        if (medioEntregado !== 'escalado') {
-            await ofrecerConsentimientoSiFalta(integration, conversationId, contactWaId, parentId);
-        }
+            { textoFamilia: text, respaldo: fallbackMediosDePago(medios),
+                anexo: await anexoDeConsentimiento(integration, conversationId, contactWaId, parentId) });
         return;
     }
 
@@ -2865,9 +2973,10 @@ async function handleIntent(
         } catch (err) {
             anotarFallasDelModelo(fallasDeError(err));
             // Si la 2a llamada falla, redactar un fallback determinista con los datos.
-            await deliver(integration, conversationId, contactWaId,
-                fallbackPaymentText(conEnlace), { step: 'payment_fallback' }, conBotonPagar(conEnlace));
-            await ofrecerConsentimientoSiFalta(integration, conversationId, contactWaId, parentId);
+            const anexo = await anexoDeConsentimiento(integration, conversationId, contactWaId, parentId);
+            const m = conAnexoDeConsentimiento(fallbackPaymentText(conEnlace), { step: 'payment_fallback' },
+                conBotonPagar(conEnlace), anexo);
+            await deliver(integration, conversationId, contactWaId, m.texto, m.context, m.conBotones);
             return;
         }
 
@@ -2879,13 +2988,11 @@ async function handleIntent(
             console.warn('[whatsapp-bot] estado_de_pagos: el modelo no devolvio texto',
                 { proveedor: final.provider, toolCalls: (final as any).toolCalls?.length ?? 0 });
         }
-        const estadoEntregado = await entregarTextoDelModelo(integration, conversationId, contactWaId,
+        await entregarTextoDelModelo(integration, conversationId, contactWaId,
             final.text || fallbackPaymentText(conEnlace),
             { step: 'get_payment_status', provider: final.provider, tool_result: conEnlace },
-            { textoFamilia: text, respaldo: fallbackPaymentText(conEnlace), conBotones: conBotonPagar(conEnlace) });
-        if (estadoEntregado !== 'escalado') {
-            await ofrecerConsentimientoSiFalta(integration, conversationId, contactWaId, parentId);
-        }
+            { textoFamilia: text, respaldo: fallbackPaymentText(conEnlace), conBotones: conBotonPagar(conEnlace),
+                anexo: await anexoDeConsentimiento(integration, conversationId, contactWaId, parentId) });
         return;
     }
 
@@ -3229,6 +3336,25 @@ async function presentacionPendienteBase(
     }
 }
 
+/**
+ * El texto con la presentación delante si es la primera respuesta automática
+ * de la conversación, EN EL MISMO MENSAJE. Para el worker de comprobantes, que
+ * envía sin `deliver`: desde que el acuse es diferido (2026-10-07), el
+ * resultado del comprobante suele ser lo primero que dice el bot. Nunca lanza.
+ */
+export async function conPresentacionSiEsPrimera(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    texto: string,
+): Promise<string> {
+    try {
+        const { presentacion } = await presentacionPendiente(integration, conversationId, texto);
+        return presentacion ? `${presentacion}\n\n${sinSaludoInicial(texto)}` : texto;
+    } catch {
+        return texto;
+    }
+}
+
 /** «¡Hola! Estás al día» → «Estás al día»: la presentación ya saludó. */
 function sinSaludoInicial(texto: string): string {
     const m = texto.match(/^\s*¡?hola\s*(?:!|\.|👋)\s*(?:👋\s*)?/i);
@@ -3528,7 +3654,7 @@ export async function revisarEscalacionesVencidas(ahora = Date.now()): Promise<R
 export const VENTANA_ACUSE_MS = 2 * 60_000;
 const PISTA_DE_PAGO = /\b(pagos?|comprobantes?|soportes?|transferencias?|consignacion|mensualidad|recibo|abono|cuota|nequi|daviplata)\b/;
 
-export type ResultadoAcuse = 'acusado' | 'no_atendido' | 'humano' | 'rafaga' | 'ya_acusado';
+export type ResultadoAcuse = 'acusado' | 'no_atendido' | 'humano' | 'rafaga' | 'ya_acusado' | 'ya_respondido';
 
 /**
  * Acusa recibo de un adjunto ya encolado. UNO por ráfaga: si llegan 4 fotos
@@ -3556,6 +3682,13 @@ export async function acusarAdjunto(
             && (f.type === 'image' || f.type === 'document')
             && f.wa_message_id !== waMessageId && t(f) > t(mio));
         if (masNuevo) return 'rafaga';
+        // El acuse es DIFERIDO (lo manda el worker si a los ~90 s no hay
+        // resultado): si el bot ya le dijo algo después del archivo —el
+        // resultado de otra foto de la ráfaga, una respuesta a su texto—, el
+        // acuse sobra.
+        const yaRespondio = recientes.some((f) => f.direction === 'outbound'
+            && f.ai_generated !== false && t(f) >= t(mio));
+        if (yaRespondio) return 'ya_respondido';
     }
     if (pasoEnVentana(recientes, 'acuse_adjunto', VENTANA_ACUSE_MS)
         || await pasoReciente(conversationId, 'acuse_adjunto', VENTANA_ACUSE_MS / 3600_000)) {
