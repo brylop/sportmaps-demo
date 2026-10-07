@@ -220,9 +220,17 @@ describe('desconocido (prospecto) pregunta por la clase de cortesía', () => {
 describe('freno del saludo ask_email (responder_desconocidos=true)', () => {
     it('la primera vez saluda', async () => {
         base();
-        await runBotTurn(INTEGRATION, CONV, '573209998877', 'hola', 'wamid.1');
+        await runBotTurn(INTEGRATION, CONV, '573209998877', 'Profe no tienen respuesta aún si se arranca este fin de semana', 'wamid.1');
         expect(borradores()).toHaveLength(1);
         expect(borradores()[0].row.tool_context).toMatchObject({ step: 'ask_email' });
+    });
+
+    it('a un saludo, «gracias» o emoji suelto no le pide el correo (2026-10-07)', async () => {
+        base();
+        for (const t of ['hola', 'Buenas tardes', 'gracias', '👍', 'Hola buen día, espero se encuentre bien']) {
+            await runBotTurn(INTEGRATION, CONV, '573209998877', t, `wamid.s-${t}`);
+        }
+        expect(borradores()).toHaveLength(0);
     });
 
     it('si ya saludó en las últimas 24 h, se calla (medido 2026-10-06: varias veces seguidas al mismo contacto)', async () => {
