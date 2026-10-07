@@ -339,3 +339,18 @@ describe('camino feliz: un comprobante real sigue auto-aprobándose', () => {
             .toContain('hora_futura');
     });
 });
+
+describe('[CERRADO 2026-10-07] monto elegido por el navegador (amount_source=cliente)', () => {
+    it('un comprobante perfecto contra un cobro cuyo monto puso el acudiente NO se auto-aprueba ni se re-lee', async () => {
+        const campos = { amount: 1, date: HOY, time: '10:00', bank: 'Nequi', reference: 'M12345678', destination: CUENTA_ESCUELA };
+        h.state.imagen = Buffer.from('Nequi\nEnvío realizado\nCAMPOS_VISIBLES ' + JSON.stringify(campos), 'utf8');
+        h.state.contexto = { ...contextoEscuela(), expectedAmount: 1 };
+        h.state.pago = { ...h.state.pago, amount: 1, amount_source: 'cliente' };
+
+        const res = await evaluatePaymentReceipt('pay-1');
+
+        expect(h.state.llamadasOcr).toEqual([]);
+        expect(h.state.rpcCalls.map((c) => c.fn)).not.toContain('auto_approve_payment');
+        expect(res.action).not.toBe('approved');
+    });
+});
