@@ -112,5 +112,5 @@ describe('ningún archivo del frontend lee VITE_WOMPI_PUBLIC_KEY ni llama a womp
     it.each(['env.VITE_WOMPI_PUBLIC_KEY', 'functions/v1/wompi-sign'])('%s no aparece en el código', (patron) => {
         const con = archivos.filter((f) => readFileSync(f, 'utf8').includes(patron));
         expect(con).toEqual([]);
-    });
+    }, 30_000); // lee ~todo src/: con la suite completa en paralelo pasa de 5 s
 });
