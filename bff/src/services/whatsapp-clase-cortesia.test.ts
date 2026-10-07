@@ -16,7 +16,8 @@ vi.mock('./avisos-correo.service', () => ({ destinatariosDeEscuela: vi.fn(), env
 
 import {
     atenderTurnoCortesia, pideClaseDeCortesia, quiereCancelarClase, leerEdad, filtrarVigentes,
-    tituloBoton, BOTON_CC, type CtxCortesia, type EstadoCortesia, type FranjaCortesia,
+    tituloBoton, BOTON_CC, quiereSalirDelFlujo, leerPerfil, leerNumeroOpcion, leerDia, filtrarPorPerfil,
+    direccionDeSede, QUE_LLEVAR, type CtxCortesia, type EstadoCortesia, type FranjaCortesia,
     type ResultadoReserva, type ResultadoCancelacion, type ReservaVigente,
 } from './whatsapp-clase-cortesia.service';
 
@@ -257,16 +258,18 @@ describe('reserva', () => {
         expect(t.avisarEscuela).toHaveBeenCalledWith(expect.objectContaining({ tipo: 'no_reservada' }));
     });
 
-    it('más de 3 franjas: 2 con botón + «Ver más»', async () => {
+    it('más de 3 franjas: TODAS en una lista (secciones por día), sin «Ver más»', async () => {
         const t = armar({ franjas: [
             F('a', '2026-10-07', '17:00'), F('b', '2026-10-08', '17:00'),
             F('c', '2026-10-09', '17:00'), F('d', '2026-10-10', '17:00'),
         ] });
         await t.turno('clase de prueba');
-        expect(t.ultimo().botones?.map((b) => b.id)).toEqual([`${BOTON_CC.FRANJA}a`, `${BOTON_CC.FRANJA}b`, BOTON_CC.VER_MAS]);
-        await t.turno('Ver más horarios', BOTON_CC.VER_MAS);
-        expect(t.ultimo().botones?.map((b) => b.id)).toEqual([`${BOTON_CC.FRANJA}c`, `${BOTON_CC.FRANJA}d`, BOTON_CC.VER_MAS]);
-        expect(t.ultimo().texto).toContain('3. *Sub-15*');
+        const o = t.ultimo();
+        expect(o.botones?.map((b) => b.id)).toEqual(['a', 'b', 'c', 'd'].map((x) => `${BOTON_CC.FRANJA}${x}`));
+        expect(o.botones?.map((b) => b.seccion)).toEqual(['Miércoles 7 oct', 'Jueves 8 oct', 'Viernes 9 oct', 'Sábado 10 oct']);
+        for (const b of o.botones ?? []) expect(Array.from(b.title).length).toBeLessThanOrEqual(24);
+        expect(o.texto).toContain('*Sábado 10 de octubre*\n4. 5:00 p. m. a 6:30 p. m. — *Sub-15*');
+        expect(o.enTexto).toContain('Responde con el número (1, 2, 3, 4)');
     });
 
     it('ya tiene una clase reservada: se le recuerda, no se le reserva otra', async () => {
@@ -333,5 +336,199 @@ describe('cancelar mi clase', () => {
         const t = armar({ reserva: null });
         expect(await t.turno('cancelar la clase de hoy')).toBe(false);
         expect(t.enviados).toHaveLength(0);
+    });
+});
+
+// ─── Auditoría Dynasty 2026-10-06: 16 prospectos, 0 reservas ────────────────
+// Grupos reales de Dynasty (nombres de `teams`, sin age_min/age_max cargados).
+// AHORA = martes 6 de octubre, 8:00 a. m. en Bogotá.
+
+const D = (id: string, grupo: string, fecha: string, hora: string, fin: string, sede = 'Coliseo Dynasty DC'): FranjaCortesia => ({
+    id, grupo, fecha, horaInicio: hora, horaFin: fin, sede, cupos: 999, direccion: sede === 'Coliseo Dynasty DC' ? 'Cl. 12 Bis #71g-09' : null,
+});
+const DYNASTY: FranjaCortesia[] = [
+    D('hoy-930', 'MENORES FEMENINO · White', '2026-10-06', '09:30', '11:30'),     // en 1 h 30 → NO
+    D('hoy-1000', 'MINIVOLLEY BENJAMINES', '2026-10-06', '10:00', '12:00'),         // justo 2 h → sí
+    D('im-mar', 'INFANTIL MASCULINO', '2026-10-06', '18:30', '20:30'),
+    D('if-mie', 'INFANTIL FEMENINO', '2026-10-07', '18:30', '20:30'),
+    D('sen-jue', 'SENIORS', '2026-10-08', '20:00', '22:00'),
+    D('ne-vie', 'NUEVA ERA', '2026-10-09', '16:00', '18:00'),
+    D('io-vie', 'INTERMEDIO · Origen', '2026-10-09', '16:00', '18:00'),
+    D('mf-sab', 'MENORES FEMENINO · White', '2026-10-10', '09:30', '11:30', 'Cancha externa Asoalsacia'),
+    D('mm-sab', 'MENORES MASCULINO', '2026-10-10', '09:30', '11:30'),
+    D('if-sab', 'INFANTIL FEMENINO', '2026-10-10', '11:00', '13:00'),
+    D('if-dom', 'INFANTIL FEMENINO', '2026-10-11', '11:00', '13:00'),
+    D('sen-lun', 'SENIORS', '2026-10-12', '20:00', '22:00'),
+    D('jm-mar', 'JUVENIL MAYORES MASCULINO', '2026-10-13', '20:00', '22:00'),
+];
+const ids = (bs?: any[]) => (bs ?? []).filter((b) => b.id.startsWith(BOTON_CC.FRANJA)).map((b) => b.id.slice(BOTON_CC.FRANJA.length));
+
+describe('reglas nuevas (puras)', () => {
+    it('quiereSalirDelFlujo: asesor, persona, Milena, hablar con alguien', () => {
+        for (const t of ['Necesito hablar con un asesor', 'quiero hablar con una persona', 'Milena?',
+            'me pueden llamar', 'hablar con alguien', 'pásame con un humano', 'con la encargada por favor']) {
+            expect(quiereSalirDelFlujo(t), t).toBe(true);
+        }
+        for (const t of ['la 2', 'el sábado', 'Sofía Ruiz', 'para mi hija de 8 años', 'soy adulto', '2', 'Confirmar']) {
+            expect(quiereSalirDelFlujo(t), t).toBe(false);
+        }
+    });
+
+    it('leerPerfil: solo lo que dijo', () => {
+        expect(leerPerfil('para mi hija de 8 años')).toEqual({ edad: 8, genero: 'f', menor: true });
+        expect(leerPerfil('soy adulto')).toEqual({ adulto: true });
+        expect(leerPerfil('mi hijo tiene 12')).toEqual({ edad: 12, genero: 'm', menor: true });
+        expect(leerPerfil('es para mí, tengo 35 años')).toEqual({ edad: 35, adulto: true });
+        expect(leerPerfil('8', { soloNumero: true })).toEqual({ edad: 8, menor: true });
+        expect(leerPerfil('8')).toBeNull();
+        expect(leerPerfil('ver todos')).toEqual({ todos: true });
+        expect(leerPerfil('el sábado')).toBeNull();
+        expect(leerPerfil('la 2')).toBeNull();
+    });
+
+    it('leerNumeroOpcion y leerDia', () => {
+        expect(leerNumeroOpcion('la 2')).toBe(2);
+        expect(leerNumeroOpcion('2')).toBe(2);
+        expect(leerNumeroOpcion('#3')).toBe(3);
+        expect(leerNumeroOpcion('opción 4')).toBe(4);
+        expect(leerNumeroOpcion('la segunda')).toBe(2);
+        expect(leerNumeroOpcion('el sábado')).toBeNull();
+        expect(leerNumeroOpcion('tiene 8 años')).toBeNull();
+        expect(leerDia('el sábado')).toBe(6);
+        expect(leerDia('mejor los martes')).toBe(2);
+        expect(leerDia('la 2')).toBeNull();
+    });
+
+    it('nunca ofrece franjas que empiezan en menos de 2 h (ni las que ya empezaron)', () => {
+        const v = filtrarVigentes(DYNASTY, AHORA).map((f) => f.id);
+        expect(v).not.toContain('hoy-930');
+        expect(v).toContain('hoy-1000');
+        // 11:10 p. m.: la de las 12:30 a. m. del día siguiente está a 1 h 20 → no.
+        const noche = new Date('2026-10-07T04:10:00Z');
+        expect(filtrarVigentes([D('madrugada', 'SENIORS', '2026-10-07', '00:30', '02:00'),
+            D('temprano', 'SENIORS', '2026-10-07', '06:00', '08:00')], noche).map((f) => f.id)).toEqual(['temprano']);
+    });
+
+    it('filtrarPorPerfil: género por el NOMBRE del grupo, adultos = SENIORS; sin edades cargadas lo dice', () => {
+        const hija = filtrarPorPerfil(DYNASTY, { edad: 8, genero: 'f', menor: true });
+        expect(hija.franjas.some((f) => /MASCULINO|SENIORS/.test(f.grupo))).toBe(false);
+        expect(hija.franjas.some((f) => f.grupo === 'NUEVA ERA')).toBe(true); // mixto: se queda
+        expect(hija.nota).toContain('no tienen edades cargadas');
+        expect(filtrarPorPerfil(DYNASTY, { adulto: true }).franjas.map((f) => f.grupo)).toEqual(['SENIORS', 'SENIORS']);
+        // Con rango cargado sí filtra por edad.
+        const conRango = [{ ...DYNASTY[2], edadMin: 7, edadMax: 10 }, { ...DYNASTY[3], edadMin: 11, edadMax: 14 }];
+        expect(filtrarPorPerfil(conRango, { edad: 12 }).franjas.map((f) => f.id)).toEqual(['if-mie']);
+        // Escuela sin grupo de adultos: muestra lo que hay y lo dice.
+        const sinAdultos = filtrarPorPerfil([F('x', '2026-10-08', '17:00')], { adulto: true });
+        expect(sinAdultos.franjas).toHaveLength(1);
+        expect(sinAdultos.nota).toContain('no tiene marcado un grupo de adultos');
+    });
+
+    it('direccionDeSede: por nombre de la sede registrada; si no coincide, null', () => {
+        const sedes = [{ name: 'Coliseo Dynasty', address: 'Cl. 12 Bis #71g-09' }];
+        expect(direccionDeSede('Coliseo Dynasty DC', sedes)).toBe('Cl. 12 Bis #71g-09');
+        expect(direccionDeSede('Cancha externa Asoalsacia', sedes)).toBeNull();
+    });
+});
+
+describe('Dynasty: perfil → lista por día → reserva', () => {
+    it('«Clase de cortesía tienen» sin decir para quién: pregunta corta, no tira 13 horarios', async () => {
+        const t = armar({ franjas: DYNASTY });
+        await t.turno('Clase de cortesía tienen');
+        expect(t.estado()?.paso).toBe('perfil');
+        expect(t.ultimo().texto).toContain('¿para quién es la clase y qué edad tiene?');
+    });
+
+    it('«para mi hija de 8 años» → «el sábado» → «la 2» → nombre (sin re-preguntar edad) → acudiente → reservada', async () => {
+        const t = armar({ franjas: DYNASTY });
+        await t.turno('Clase de cortesía tienen');
+        await t.turno('para mi hija de 8 años');
+        let o = t.ultimo();
+        expect(t.estado()?.paso).toBe('elegir_franja');
+        const ofrecidas = ids(o.botones);
+        expect(ofrecidas.length).toBeGreaterThan(3);
+        expect(ofrecidas.length).toBeLessThanOrEqual(10);
+        expect(ofrecidas).not.toContain('hoy-930');                               // < 2 h
+        expect(ofrecidas.some((id) => /^(im|mm|sen|jm)-/.test(id))).toBe(false);   // masculinos y adultos fuera
+        expect(o.botones?.every((b) => !!b.seccion)).toBe(true);                   // lista con secciones por día
+        expect(o.texto).toContain('para 8 años (femenino o mixto)');
+        expect(o.texto).toContain('no tienen edades cargadas');
+
+        await t.turno('el sábado');
+        o = t.ultimo();
+        expect(ids(o.botones)).toEqual(['mf-sab', 'if-sab']);
+        expect(o.texto).toContain('del *sábado*');
+
+        await t.turno('la 2');
+        expect(t.estado()?.datos.franja?.id).toBe('if-sab');
+        expect(t.estado()?.paso).toBe('nombre');
+
+        await t.turno('Valentina Ríos');
+        expect(t.estado()?.paso).toBe('acudiente');                               // la edad ya la dijo
+        await t.turno('Paula Ríos');
+        expect(t.ultimo().texto).toContain('• Sede: Coliseo Dynasty DC (Cl. 12 Bis #71g-09)');
+        await t.turno('Confirmar', BOTON_CC.CONFIRMAR);
+        expect(t.reservar).toHaveBeenCalledWith(expect.objectContaining({
+            franjaId: 'if-sab', nombre: 'Valentina Ríos', edad: 8, acudiente: 'Paula Ríos',
+        }));
+        const fin = t.ultimo().texto;
+        expect(fin).toContain('📅 sábado 10 de octubre');
+        expect(fin).toContain('🕔 11:00 a. m. a 1:00 p. m.');
+        expect(fin).toContain('📍 Coliseo Dynasty DC (Cl. 12 Bis #71g-09)');
+        expect(fin).toContain(`Qué llevar: ${QUE_LLEVAR}`);
+        expect(t.estado()).toBeNull();
+    });
+
+    it('«soy adulto» → solo SENIORS', async () => {
+        const t = armar({ franjas: DYNASTY });
+        await t.turno('Clase de cortesía tienen');
+        await t.turno('soy adulto');
+        expect(ids(t.ultimo().botones)).toEqual(['sen-jue', 'sen-lun']);
+        expect(t.ultimo().texto).toContain('para adultos');
+    });
+
+    it('lo dice de una vez («clase de prueba para mi hijo de 10 años»): no pregunta', async () => {
+        const t = armar({ franjas: DYNASTY });
+        await t.turno('clase de prueba para mi hijo de 10 años');
+        expect(t.estado()?.paso).toBe('elegir_franja');
+        expect(ids(t.ultimo().botones).some((id) => /^(if|mf|sen)-/.test(id))).toBe(false);
+    });
+
+    it('«Necesito hablar con un asesor» suelta el flujo en cualquier paso (lo atiende el bot general)', async () => {
+        const enPerfil = armar({ franjas: DYNASTY });
+        await enPerfil.turno('Clase de cortesía tienen');
+        expect(await enPerfil.turno('Necesito hablar con un asesor')).toBe(false);
+
+        const eligiendo = armar({ franjas: DYNASTY });
+        await eligiendo.turno('Clase de cortesía tienen');
+        await eligiendo.turno('soy adulto');
+        const antes = eligiendo.enviados.length;
+        expect(await eligiendo.turno('Necesito hablar con un asesor')).toBe(false);
+        expect(eligiendo.enviados).toHaveLength(antes);                            // NO «Toca la franja…»
+        expect(await eligiendo.turno('Milena?')).toBe(false);
+        expect(await eligiendo.turno('cuanto vale la mensualidad')).toBe(false);
+
+        const enNombre = armar({ franjas: DYNASTY });
+        await enNombre.turno('Clase de cortesía tienen');
+        await enNombre.turno('soy adulto');
+        await enNombre.turno('1');
+        expect(enNombre.estado()?.paso).toBe('nombre');
+        expect(await enNombre.turno('quiero hablar con alguien')).toBe(false);
+    });
+
+    it('más de 10 horarios: 9 + «Ver más horarios», y la numeración sigue en la página 2', async () => {
+        const muchas = Array.from({ length: 12 }, (_, i) =>
+            F(`s${i + 1}`, `2026-10-${String(7 + i).padStart(2, '0')}`, '17:00'));
+        const t = armar({ franjas: muchas });
+        await t.turno('clase de prueba');                    // Sub-15: nada con qué filtrar → no pregunta
+        let o = t.ultimo();
+        expect(o.botones).toHaveLength(10);
+        expect(o.botones?.[9].id).toBe(BOTON_CC.VER_MAS);
+        await t.turno('Ver más horarios', BOTON_CC.VER_MAS);
+        o = t.ultimo();
+        expect(ids(o.botones)).toEqual(['s10', 's11', 's12']);
+        expect(o.texto).toContain('10. 5:00 p. m.');
+        await t.turno('la 11');
+        expect(t.estado()?.datos.franja?.id).toBe('s11');
     });
 });

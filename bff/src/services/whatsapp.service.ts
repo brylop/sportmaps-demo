@@ -242,6 +242,13 @@ async function postearMensaje(
 export interface BotonInteractivo {
     id: string;
     title: string;
+    /**
+     * Solo listas (`interactive.type='list'`): línea gris debajo del título
+     * (≤ 72) y la sección donde va la fila (≤ 24, p. ej. el día). Un mensaje
+     * con más de 3 opciones, o con alguna que traiga `seccion`, sale como lista.
+     */
+    descripcion?: string;
+    seccion?: string;
 }
 
 /** Límites de Meta para `interactive.type='button'`. Pasarlos es un 400. */
@@ -293,9 +300,13 @@ export function payloadDeBotones(
 /**
  * Envía un mensaje con hasta 3 botones de respuesta rápida.
  *
+ * Con MÁS de 3 opciones (o alguna con `seccion`) sale como LISTA interactiva
+ * (hasta 10 filas): así quien llama no cambia y el embudo `deliver` del bot
+ * no necesita otro camino. Antes lo que pasaba de 3 se recortaba en silencio.
+ *
  * Igual que el texto libre, solo vale dentro de la ventana de 24 h. No lanza:
- * si el mensaje no cabe como botones devuelve `{ ok: false }` y el que llama
- * manda el texto plano.
+ * si el mensaje no cabe devuelve `{ ok: false }` y el que llama manda el texto
+ * plano (que debe traer las opciones numeradas).
  */
 export async function sendInteractiveButtons(
     integration: WhatsAppIntegration,
@@ -303,8 +314,82 @@ export async function sendInteractiveButtons(
     body: string,
     botones: BotonInteractivo[],
 ): Promise<SendTextResult> {
+    if (debeIrComoLista(botones)) return sendList(integration, toWaId, body, botones);
     const payload = payloadDeBotones(toWaId, body, botones);
     if (!payload) return { ok: false, error: 'no_cabe_como_botones' };
+    return postearMensaje(integration, payload);
+}
+
+// ─── Lista interactiva (interactive / list) ─────────────────────────────────
+
+/** Límites de Meta para `interactive.type='list'`. Pasarlos es un 400. */
+export const MAX_FILAS_LISTA = 10;
+export const MAX_SECCIONES_LISTA = 10;
+export const MAX_TITULO_FILA = 24;
+export const MAX_DESCRIPCION_FILA = 72;
+export const MAX_TITULO_SECCION = 24;
+export const MAX_ID_FILA = 200;
+export const MAX_CUERPO_LISTA = 4096;
+export const TEXTO_BOTON_LISTA = 'Ver opciones';
+
+/** ¿Estas opciones van como lista y no como botones? */
+export function debeIrComoLista(opciones: BotonInteractivo[]): boolean {
+    const validas = (opciones ?? []).filter((b) => b && b.id && b.title);
+    return validas.length > MAX_BOTONES || validas.some((b) => !!b.seccion);
+}
+
+const recortar = (t: string, max: number) => Array.from(String(t ?? '').trim()).slice(0, max).join('');
+
+/**
+ * Payload de Graph para una lista (`interactive.type='list'`). Pura. Agrupa
+ * las filas por `seccion` en el orden en que aparecen (sin sección → una sola
+ * sección «Opciones»). Recorta a los límites de Meta en vez de fallar. null si
+ * no hay filas o el cuerpo no cabe: quien llama manda el texto plano.
+ * El webhook devuelve `interactive.list_reply.id` = el `id` de la fila.
+ */
+export function payloadDeLista(
+    toWaId: string,
+    body: string,
+    filas: BotonInteractivo[],
+    textoBoton: string = TEXTO_BOTON_LISTA,
+): Record<string, unknown> | null {
+    const validas = (filas ?? []).filter((b) => b && b.id && b.title).slice(0, MAX_FILAS_LISTA);
+    if (!validas.length || !body || body.length > MAX_CUERPO_LISTA) return null;
+    const secciones: { title: string; rows: any[] }[] = [];
+    for (const f of validas) {
+        const titulo = recortar(f.seccion || 'Opciones', MAX_TITULO_SECCION);
+        let sec = secciones.find((s) => s.title === titulo);
+        if (!sec) {
+            if (secciones.length >= MAX_SECCIONES_LISTA) sec = secciones[secciones.length - 1];
+            else { sec = { title: titulo, rows: [] }; secciones.push(sec); }
+        }
+        const fila: Record<string, string> = { id: f.id.slice(0, MAX_ID_FILA), title: recortar(f.title, MAX_TITULO_FILA) };
+        if (f.descripcion) fila.description = recortar(f.descripcion, MAX_DESCRIPCION_FILA);
+        sec.rows.push(fila);
+    }
+    return {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: toWaId,
+        type: 'interactive',
+        interactive: {
+            type: 'list',
+            body: { text: body },
+            action: { button: recortar(textoBoton || TEXTO_BOTON_LISTA, MAX_TITULO_BOTON), sections: secciones },
+        },
+    };
+}
+
+/** Envía una lista interactiva (≤ 10 filas). Solo dentro de la ventana de 24 h. No lanza. */
+export async function sendList(
+    integration: WhatsAppIntegration,
+    toWaId: string,
+    body: string,
+    filas: BotonInteractivo[],
+    textoBoton: string = TEXTO_BOTON_LISTA,
+): Promise<SendTextResult> {
+    const payload = payloadDeLista(toWaId, body, filas, textoBoton);
+    if (!payload) return { ok: false, error: 'no_cabe_como_lista' };
     return postearMensaje(integration, payload);
 }
 

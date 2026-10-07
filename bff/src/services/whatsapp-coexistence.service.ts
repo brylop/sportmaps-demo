@@ -33,18 +33,55 @@ function textoDe(m: any): string | null {
     return null;
 }
 
-/** La conversación de ese contacto, creándola si no existía. */
-async function conversacionDe(
+// ─── Privacidad: contactos marcados 'personal' ───────────────────────────────
+//
+// Auditoría 2026-10-06 (P0-3): el bot ya no les habla, pero el texto completo
+// de las conversaciones personales de la dueña (entrantes y ecos, con
+// adjuntos) quedaba guardado en whatsapp_messages. De un contacto 'personal'
+// ahora se guardan SOLO metadatos: dirección, tipo y hora. `text_body` va null
+// y el payload pierde texto, caption y media. Lo ya guardado NO se borra acá
+// (lo decide el usuario: docs/migraciones-para-aplicar-2026-10-07/).
+
+/**
+ * El payload de Meta sin contenido: id, tipo, hora y los números (que ya están
+ * en la conversación). Pura.
+ */
+export function payloadSinContenido(m: any): Record<string, unknown> {
+    const out: Record<string, unknown> = { privacidad: 'personal_sin_contenido' };
+    for (const k of ['id', 'type', 'timestamp', 'from', 'to']) {
+        if (m?.[k] !== undefined && m?.[k] !== null) out[k] = m[k];
+    }
+    return out;
+}
+
+/** ¿La conversación de este contacto está marcada 'personal'? Ante un error, no. Nunca lanza. */
+export async function esContactoPersonal(integrationId: string, contactWaId: string): Promise<boolean> {
+    try {
+        const { data, error } = await supabase
+            .from('whatsapp_conversations')
+            .select('contact_kind')
+            .eq('integration_id', integrationId)
+            .eq('contact_wa_id', contactWaId)
+            .maybeSingle();
+        if (error) return false;
+        return (data as any)?.contact_kind === 'personal';
+    } catch {
+        return false;
+    }
+}
+
+/** La conversación de ese contacto (creándola si no existía) y si está marcada 'personal'. */
+async function conversacionConTipo(
     integration: WhatsAppIntegration,
     contactWaId: string,
-): Promise<string | null> {
+): Promise<{ id: string; personal: boolean } | null> {
     const { data: existente } = await supabase
         .from('whatsapp_conversations')
-        .select('id')
+        .select('id, contact_kind')
         .eq('integration_id', integration.id)
         .eq('contact_wa_id', contactWaId)
         .maybeSingle();
-    if (existente) return (existente as any).id;
+    if (existente) return { id: (existente as any).id, personal: (existente as any).contact_kind === 'personal' };
 
     // `uq_wa_conversation` cubre (integration_id, contact_wa_id): si dos trozos
     // del historial llegan a la vez, el segundo choca en vez de duplicar.
@@ -66,7 +103,9 @@ async function conversacionDe(
         .select('id')
         .maybeSingle();
     if (error) console.warn('[wa-coexistence] no se pudo crear la conversación', { err: error.message });
-    return (creada as any)?.id ?? null;
+    const id = (creada as any)?.id ?? null;
+    // Recién creada: nadie la marcó todavía como personal.
+    return id ? { id, personal: false } : null;
 }
 
 /**
@@ -240,17 +279,22 @@ export async function procesarEchos(body: any, log?: Logger): Promise<void> {
                 const contacto = String(e?.to ?? '');
                 if (!contacto || !e?.id) continue;
 
-                const convId = await conversacionDe(integration, contacto);
-                if (!convId) continue;
+                const conv = await conversacionConTipo(integration, contacto);
+                if (!conv) continue;
+                const convId = conv.id;
 
-                const texto = textoDe(e);
+                // Contacto personal: solo metadatos (ver arriba). Sin texto no
+                // hay saludo automático que detectar.
+                const texto = conv.personal ? null : textoDe(e);
                 const waTimestamp = tsDe(e?.timestamp);
                 // Saludo / ausencia de la app del negocio: se guarda igual (es
                 // parte del hilo) pero marcado, y NO cierra la conversación.
-                const { automatico, previosSinMarca } = await esEchoAutomatico({
-                    integrationId: integration.id, conversationId: convId,
-                    waMessageId: String(e.id), texto, waTimestamp,
-                }, log);
+                const { automatico, previosSinMarca } = conv.personal
+                    ? { automatico: false, previosSinMarca: [] as EchoGuardado[] }
+                    : await esEchoAutomatico({
+                        integrationId: integration.id, conversationId: convId,
+                        waMessageId: String(e.id), texto, waTimestamp,
+                    }, log);
 
                 await guardarMensaje({
                     conversationId: convId,
@@ -259,7 +303,8 @@ export async function procesarEchos(body: any, log?: Logger): Promise<void> {
                     direction: 'outbound',
                     type: String(e?.type ?? 'text'),
                     textBody: texto,
-                    payload: automatico ? { ...e, automatico: true } : e,
+                    // `to` se conserva: es lo que distingue un eco de un saliente del bot.
+                    payload: conv.personal ? payloadSinContenido(e) : (automatico ? { ...e, automatico: true } : e),
                     waTimestamp,
                     status: 'sent',
                 });
@@ -329,8 +374,9 @@ export async function procesarHistorial(body: any, log?: Logger): Promise<void> 
                 for (const hilo of bloque?.threads ?? []) {
                     const contacto = String(hilo?.id ?? '');
                     if (!contacto) continue;
-                    const convId = await conversacionDe(integration, contacto);
-                    if (!convId) continue;
+                    const conv = await conversacionConTipo(integration, contacto);
+                    if (!conv) continue;
+                    const convId = conv.id;
 
                     for (const m of hilo?.messages ?? []) {
                         if (!m?.id) continue;
@@ -345,8 +391,8 @@ export async function procesarHistorial(body: any, log?: Logger): Promise<void> 
                             waMessageId: String(m.id),
                             direction: saliente ? 'outbound' : 'inbound',
                             type: String(m?.type ?? 'text'),
-                            textBody: textoDe(m),
-                            payload: m,
+                            textBody: conv.personal ? null : textoDe(m),
+                            payload: conv.personal ? payloadSinContenido(m) : m,
                             waTimestamp: tsDe(m?.timestamp),
                             status: m?.history_context?.status ?? null,
                         });

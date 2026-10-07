@@ -39,6 +39,9 @@ import {
 // El mismo Logger que usa receipt-approval.service, para poder pasárselo tal cual
 // a evaluatePaymentReceipt sin castear.
 import type { Logger } from 'pino';
+import {
+    detectarOtroConcepto, decidirOtroConcepto, mensajeOtroConcepto, motivoOtroConcepto, textosAlrededor,
+} from '../services/whatsapp-otro-concepto.service';
 
 const BUCKET = 'payment-receipts';
 const LOTE = 10;
@@ -634,6 +637,42 @@ async function continuarComoComprobante(
 
     // ¿A qué pago va?
     const pendientes = await pagosPendientesDe(parentId, fila.school_id);
+
+    // ¿Dice que es OTRA cosa? (P0, 2026-10-07: «Clase perfeccionamiento» y «lo
+    // de los uniformes» se aplicaron a la mensualidad y la escuela los rechazó
+    // tres veces.) Si hay un cobro pendiente de ese concepto por ese monto, va
+    // a ese; si no, NO se aplica a la mensualidad: lo registra la escuela.
+    const otro = decidirOtroConcepto(
+        detectarOtroConcepto({
+            pie: fila.media_caption,
+            descripcion: ocr.description,
+            chat: await textosAlrededor(fila),
+        }),
+        pendientes,
+        ocr.amount ?? null,
+    );
+    if (otro.tipo === 'aplicar') {
+        log?.info?.({ queueId: fila.id, paymentId: otro.pago.id, concepto: otro.senal.concepto }, '[wa-queue] cobro del concepto que nombra la familia');
+        await aplicarComprobante({
+            queueId: fila.id, schoolId: fila.school_id, parentId, storagePath,
+            sha: crypto.createHash('sha256').update(Buffer.from(base64, 'base64')).digest('hex'),
+            ocr, responder,
+            alFallar: (motivo) => reintentar(fila, motivo, log),
+            log,
+        }, otro.pago, pendientes.filter((x) => x.id !== otro.pago.id));
+        return;
+    }
+    if (otro.tipo === 'a_la_escuela') {
+        await responder(mensajeOtroConcepto(otro.senal), 'otro_concepto');
+        await cerrar(fila.id, 'ignored', {
+            result_type: 'escalated',
+            matched_parent_id: parentId,
+            error_message: motivoOtroConcepto(otro.senal),
+        });
+        log?.info?.({ queueId: fila.id, concepto: otro.senal.concepto, fuente: otro.senal.fuente }, '[wa-queue] otro concepto: a la escuela');
+        return;
+    }
+
     let match = resolverPago(pendientes, ocr.amount ?? null);
 
     // El monto no desempata: ¿la familia dijo a cuál iba? (P3)
@@ -1160,9 +1199,101 @@ async function procesarFila(fila: FilaCola, log?: Logger): Promise<void> {
     }
 }
 
+// ─── Preguntas que nadie va a contestar ──────────────────────────────────────
+//
+// Una fila `waiting_user` espera que la familia diga a qué cobro va. Si la
+// pregunta nunca le llegó —quedó en un BORRADOR del modo asistido que nadie
+// aprobó, o la conversación estaba tomada y el worker no le escribió—, o si la
+// familia no contestó, la fila esperaba para siempre con el comprobante sin
+// aplicar. Caso real: …9366, 06-oct 09:31, 13 h y contando; la familia SÍ
+// contestó («De sep y oct») pero la repregunta quedó en borrador.
+//
+// A las HORAS_VIDA_PREGUNTA horas pasa al buzón de la escuela (ignored +
+// escalated, que es lo que lista «Comprobantes sin resolver») con el motivo.
+// No se le escribe a la familia: la ventana de 24 h ya cerró.
+
+export const HORAS_VIDA_PREGUNTA = 24;
+
+export type PorQueVencio = 'pregunta_en_borrador' | 'pregunta_no_enviada' | 'sin_respuesta';
+
+/** Pura: el motivo que ve la escuela. */
+export function motivoPreguntaVencida(e: { enviada: boolean; enBorrador: boolean }): { codigo: PorQueVencio; texto: string } {
+    if (e.enBorrador) {
+        return { codigo: 'pregunta_en_borrador', texto: `pregunta_vencida: la pregunta de a qué cobro va quedó en un borrador sin enviar (${HORAS_VIDA_PREGUNTA} h); aplicarlo a mano` };
+    }
+    if (!e.enviada) {
+        return { codigo: 'pregunta_no_enviada', texto: `pregunta_vencida: la pregunta de a qué cobro va nunca salió (conversación tomada); aplicarlo a mano` };
+    }
+    return { codigo: 'sin_respuesta', texto: `pregunta_vencida: la familia no dijo a qué cobro va en ${HORAS_VIDA_PREGUNTA} h; aplicarlo a mano` };
+}
+
+/** Vence las preguntas viejas. Idempotente y seguro con los 3 BFF: el UPDATE exige `waiting_user`. */
+export async function vencerPreguntasSinRespuesta(log?: Logger, ahora = Date.now()): Promise<number> {
+    const corte = new Date(ahora - HORAS_VIDA_PREGUNTA * 3600_000).toISOString();
+    const { data: filas, error } = await supabase.from('whatsapp_inbound_queue')
+        .select('id, integration_id, wa_phone_number, pregunta_at, updated_at')
+        .eq('status', 'waiting_user')
+        .lt('updated_at', corte)
+        .limit(50);
+    if (error || !filas?.length) return 0;
+
+    let vencidas = 0;
+    for (const f of filas as any[]) {
+        const desde = (f.pregunta_at ?? f.updated_at) as string;
+        if (new Date(desde).getTime() > ahora - HORAS_VIDA_PREGUNTA * 3600_000) continue;
+
+        let enviada = false;
+        let enBorrador = false;
+        try {
+            const { data: conv } = await supabase.from('whatsapp_conversations')
+                .select('id').eq('integration_id', f.integration_id).eq('contact_wa_id', f.wa_phone_number)
+                .maybeSingle();
+            const convId = (conv as any)?.id;
+            if (convId) {
+                const [{ data: salientes }, { data: borradores }] = await Promise.all([
+                    supabase.from('whatsapp_messages').select('id')
+                        .eq('conversation_id', convId).eq('direction', 'outbound')
+                        .eq('payload->>queue_id', f.id).limit(1),
+                    supabase.from('whatsapp_message_drafts').select('id, tool_context')
+                        .eq('conversation_id', convId)
+                        .in('status', ['pending', 'expired'])
+                        .gte('created_at', desde)
+                        .limit(20),
+                ]);
+                enviada = (salientes?.length ?? 0) > 0;
+                enBorrador = ((borradores ?? []) as any[])
+                    .some((b) => String(b?.tool_context?.step ?? '').startsWith('ask_cual_pago')
+                        || String(b?.tool_context?.step ?? '').startsWith('confirmar_combinacion'));
+            }
+        } catch { /* sin detalle: vence igual con el motivo genérico */ }
+
+        const motivo = motivoPreguntaVencida({ enviada, enBorrador });
+        const { data: cerradas } = await supabase.from('whatsapp_inbound_queue')
+            .update({
+                status: 'ignored',
+                result_type: 'escalated',
+                error_message: motivo.texto,
+                processed_at: new Date(ahora).toISOString(),
+                locked_until: null,
+            })
+            .eq('id', f.id)
+            .eq('status', 'waiting_user')
+            .select('id');
+        if (cerradas?.length) {
+            vencidas++;
+            log?.info?.({ queueId: f.id, motivo: motivo.codigo }, '[wa-queue] pregunta vencida: al buzón de la escuela');
+        }
+    }
+    return vencidas;
+}
+
 // ─── Entrada del job ─────────────────────────────────────────────────────────
 
 export async function runWhatsAppQueue(log?: Logger): Promise<{ tomadas: number; errores: number }> {
+    // Antes del claim y sin poder tumbarlo: una pregunta vieja no frena la cola.
+    await vencerPreguntasSinRespuesta(log).catch((err) =>
+        log?.warn?.({ err: err?.message ?? err }, '[wa-queue] no se pudieron vencer las preguntas'));
+
     const { data: filas, error } = await supabase.rpc('wa_queue_claim', {
         p_limit: LOTE, p_lease_minutes: LEASE_MIN, p_max_retries: MAX_REINTENTOS,
     });

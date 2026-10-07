@@ -380,6 +380,48 @@ async function handleSchoolPayment({
 
         const today = todayInZone();
 
+        // 3.b Doble pago. Desde 2026-10-06 el link con monto (wompi-link-con-monto)
+        //     sale por WhatsApp: una familia puede pagar con él DESPUÉS de haber
+        //     transferido (y la escuela aprobado el comprobante) o con un link
+        //     viejo de otra referencia del mismo cobro. Antes este UPDATE pisaba
+        //     el pago ya registrado (fecha, canal, tx) y el primer pago quedaba
+        //     sin rastro. Ahora: el dinero entró, así que se deja el link 'paid'
+        //     y el split (registro de la plata), NO se toca el cobro y se marca
+        //     para revisión con el motivo — la escuela decide si devuelve.
+        const { data: actual } = await supabase
+            .from('payments')
+            .select('status, wompi_transaction_id')
+            .eq('id', link.payment_id)
+            .maybeSingle();
+        if ((actual as any)?.status === 'paid' && (actual as any)?.wompi_transaction_id !== txId) {
+            await supabase
+                .from('payment_links')
+                .update({ status: 'paid', paid_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+                .eq('id', link.id);
+            await supabase.from('payment_splits').insert({
+                payment_id: link.payment_id,
+                payment_link_id: link.id,
+                wompi_reference: txReference,
+                wompi_transaction_id: txId,
+                gross_amount: txAmountCop,
+                school_receives: txAmountCop,
+                sportmaps_receives: 0,
+                wompi_fee: 0,
+                transfer_status: 'pending',
+                webhook_signature_valid: true,
+            });
+            const { error: flagErr } = await supabase.rpc('flag_payment_for_review', {
+                p_kind: 'payment',
+                p_id: link.payment_id,
+                p_reason: buildFailureReason('wompi', 'doble_pago', paymentMethodType, null, txId),
+            });
+            if (flagErr) {
+                req.log?.error({ err: flagErr, paymentId: link.payment_id }, 'No se pudo marcar el doble pago para revisión');
+            }
+            req.log?.warn({ paymentId: link.payment_id, txReference, txId }, 'School payment: el cobro ya estaba pagado — doble pago a revisión');
+            return { status: 200, body: { status: 'ok', kind: 'school_payment', duplicate_payment: true } };
+        }
+
         // 4. Marcar payment como pagado.
         //    payment_method DEBE ser un valor de payments_payment_method_check
         //    (pse|card|transfer|cash|other); 'wompi' lo violaba y el UPDATE

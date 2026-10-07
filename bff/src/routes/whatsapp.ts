@@ -33,14 +33,14 @@ import {
 } from '../services/whatsapp.service';
 import {
     runBotTurn, deliver, atenderDesconocido, acusarAdjunto, mensajesRecientes, SILENCIO_HUMANO_MIN,
-    TEXTO_MIME_RECHAZADO, vocativosDeEscuela,
+    TEXTO_MIME_RECHAZADO, vocativosDeEscuela, revisarEscalacionesVencidas,
 } from '../services/whatsapp-bot.service';
 import { debeAtender } from '../services/whatsapp-atencion.service';
 import { encolarAdjunto } from '../services/whatsapp-queue.service';
 import { correrTurnoAgrupado, ESPERA_RAFAGA_MS } from '../services/whatsapp-turno-agrupado.service';
 import { humanoReciente, esCierreSuelto } from '../services/whatsapp-reglas-turno';
 import { cerrarSiEsCierre } from '../services/whatsapp-ponerse-al-dia.service';
-import { atenderNotaDeVoz } from '../services/whatsapp-notas-de-voz.service';
+import { atenderNotaDeVoz, atenderNotaDeVozDeProspecto } from '../services/whatsapp-notas-de-voz.service';
 
 /**
  * Lo que tarda en salir el acuse de un adjunto: lo justo para que una ráfaga
@@ -61,8 +61,29 @@ function enSegundoPlano(espera: number, tarea: () => Promise<unknown>, log: Requ
     });
     return espera > 0 ? Promise.resolve() : p;
 }
-import { procesarEchos, procesarHistorial, registrarAppState }
+import { procesarEchos, procesarHistorial, registrarAppState, esContactoPersonal, payloadSinContenido }
     from '../services/whatsapp-coexistence.service';
+
+/**
+ * Plazo de las escalaciones (re-aviso a los 10/30 min sin respuesta humana,
+ * whatsapp-bot.service `revisarEscalacionesVencidas`). Lo dispara el webhook,
+ * como mucho una vez por minuto por proceso: los webhooks de Meta llegan solo
+ * al BFF de producción, así que dev y stg no le escriben a familias reales por
+ * acá. Con Dynasty en vivo entran estados de entrega cada pocos segundos; si
+ * no entra nada, tampoco hay a quién re-avisar con prisa. La reserva en la
+ * base lo hace idempotente igual.
+ */
+const CADA_REVISION_MS = 60_000;
+let ultimaRevisionDePlazos = 0;
+function revisarPlazosDeEscalacion(log: Request['log']): void {
+    if (process.env.VITEST || process.env.DISABLE_WHATSAPP_PLAZO_ESCALACION === 'true') return;
+    const ahora = Date.now();
+    if (ahora - ultimaRevisionDePlazos < CADA_REVISION_MS) return;
+    ultimaRevisionDePlazos = ahora;
+    void revisarEscalacionesVencidas(ahora)
+        .then((r) => { if (r.reavisadas > 0) log?.warn?.(r, 'WhatsApp: escalaciones sin respuesta re-avisadas'); })
+        .catch((err: any) => log?.error?.({ err: err?.message || err }, 'WhatsApp: revisión de plazos falló'));
+}
 
 const router = Router();
 
@@ -142,6 +163,8 @@ router.post('/', async (req: Request, res: Response) => {
         });
 
         registrarAppState(body, req.log);
+
+        revisarPlazosDeEscalacion(req.log);
     } catch (err: any) {
         req.log?.error({ err: err?.message || err }, 'WhatsApp webhook processing error');
     }
@@ -317,6 +340,12 @@ async function processInboundMessage(req: Request, msg: ParsedInboundMessage): P
     }
 
     // 3. Ingesta idempotente (upsert conversación + insert mensaje).
+    //
+    // Contacto marcado 'personal' (P0-3, auditoría 2026-10-06): solo
+    // metadatos. Ni texto ni payload con contenido o media; y más abajo no se
+    // encola el adjunto ni se procesa el audio. La conversación nueva nunca es
+    // personal (la marca es manual), así que el primer mensaje se guarda normal.
+    const personal = await esContactoPersonal(integration.id, msg.contactWaId);
     const { data: ingest, error: ingestErr } = await supabase.rpc('wa_ingest_inbound_message', {
         p_integration_id: integration.id,
         p_school_id: integration.school_id,
@@ -324,8 +353,8 @@ async function processInboundMessage(req: Request, msg: ParsedInboundMessage): P
         p_contact_name: msg.contactName,
         p_wa_message_id: msg.waMessageId,
         p_type: msg.type,
-        p_text_body: msg.textBody,
-        p_payload: msg.raw,
+        p_text_body: personal ? null : msg.textBody,
+        p_payload: personal ? payloadSinContenido(msg.raw) : msg.raw,
         p_wa_timestamp: msg.waTimestamp,
     });
 
@@ -341,6 +370,13 @@ async function processInboundMessage(req: Request, msg: ParsedInboundMessage): P
     }
 
     const conversationId = (ingest as any)?.conversation_id as string;
+
+    // Personal: el asistente nunca le habla (`debeAtender`), y su contenido no
+    // se procesa — ni la cola de adjuntos ni la transcripción.
+    if (personal) {
+        req.log?.info({ conversationId }, 'WhatsApp: contacto personal; solo metadatos');
+        return;
+    }
 
     // La ingesta detecta las palabras de baja (STOP, baja, no molestar…) y ya
     // registró el opt-out. El bot tiene que confirmarlo y NO seguir su flujo
@@ -484,6 +520,23 @@ async function handleBotTurn(
             && decision.tipo === 'desconocido'
             && !optedOut
             && msg.type !== 'audio' && msg.type !== 'video';
+        // Nota de voz de un PROSPECTO (ya escribió con intención clara) con el
+        // ajuste `wa_transcribir_sin_consentimiento`: se transcribe y pasa por
+        // la misma puerta. Cualquier otro desconocido: su audio no se toca.
+        if (decision?.botEncendido === true && decision.tomada !== true && decision.tipo === 'desconocido'
+            && !optedOut && msg.type === 'audio') {
+            const resultado = await atenderNotaDeVozDeProspecto({
+                integration, conversationId, msg,
+                turno: async (texto) => {
+                    await atenderDesconocido(integration, conversationId, msg.contactWaId, texto, null);
+                },
+            }).catch((err) => {
+                req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: audio de prospecto falló');
+                return 'error' as const;
+            });
+            req.log?.info({ conversationId, resultado }, 'WhatsApp: audio de desconocido');
+            return;
+        }
         if (puertaDelDesconocido) {
             // `botonId`: los botones de la clase de cortesía (sm_cc_*) se deciden por id.
             const resultado = await atenderDesconocido(integration, conversationId, msg.contactWaId, msg.textBody,

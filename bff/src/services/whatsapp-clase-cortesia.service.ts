@@ -33,8 +33,14 @@
  * cosa, el último saliente ya no es del flujo y el flujo queda cerrado solo —
  * nunca se lee un «12» como edad cuando la última pregunta fue otra.
  *
- * Flujo:
- *   oferta (≤3 franjas con botones; «Ver más» si hay más)
+ * Flujo (rehecho tras la auditoría Dynasty 2026-10-06: 16 prospectos, 0 reservas):
+ *   [perfil] «¿Para quién es la clase y qué edad tiene?» — SOLO si no se sabe y
+ *     los grupos traen con qué filtrar (rango de edad cargado, o el nombre dice
+ *     FEMENINO/MASCULINO o SENIORS/ADULTOS). Nunca se deduce la edad del nombre.
+ *   oferta: ≤3 franjas → botones; más → LISTA interactiva de hasta 10 filas
+ *     agrupadas por día (9 + «Ver más» si hay más). Nunca franjas que ya
+ *     empezaron ni que empiezan en menos de 2 h. «el sábado» filtra el día;
+ *     «la 2» elige.
  *     → nombre del deportista → edad o fecha de nacimiento
  *     → nombre del acudiente (solo si es menor y no lo conocemos)
  *     → resumen «Confirmar / Cambiar» → submit_school_lead → resumen + aviso a la escuela
@@ -53,12 +59,22 @@ export const FLUJO_CORTESIA = 'clase_cortesia';
 /** Misma ventana de atención de Meta: pasada, el papá ya no recuerda la pregunta. */
 export const VIGENCIA_FLUJO_CORTESIA_MS = 24 * 60 * 60 * 1000;
 const MAX_INTENTOS = 3;
-/** Franjas con botón por mensaje. Meta permite 3 botones; con «Ver más» van 2. */
+/** Hasta 3 franjas van como botones; más, como lista. */
 const MAX_BOTONES = 3;
+/** Filas de una lista de WhatsApp (límite de Meta). Con «Ver más» van 9 franjas. */
+const MAX_FILAS = 10;
+/** Cuántas franjas se consideran en total (paginando de a 9). */
+const MAX_FRANJAS_OFRECIDAS = 45;
+/**
+ * Anticipación mínima: no se ofrece una franja que empieza en menos de 2 h.
+ * Nadie llega a tiempo a una clase que empieza en 40 minutos, y la escuela no
+ * alcanza a enterarse de que va alguien nuevo.
+ */
+export const ANTICIPACION_MINIMA_MIN = 120;
 const TZ = 'America/Bogota';
 
 export type PasoCortesia =
-    | 'elegir_franja' | 'dejar_datos' | 'nombre' | 'edad' | 'acudiente'
+    | 'perfil' | 'elegir_franja' | 'dejar_datos' | 'nombre' | 'edad' | 'acudiente'
     | 'confirmar' | 'confirmar_cancelacion';
 
 export interface FranjaCortesia {
@@ -70,6 +86,24 @@ export interface FranjaCortesia {
     horaFin: string | null;
     sede: string | null;
     cupos: number;
+    /** Dirección de la sede, si coincide con una sede (school_branches) que la tenga. */
+    direccion?: string | null;
+    teamId?: string | null;
+    /** Rango de edad del equipo (teams.age_min/age_max). null = no cargado. */
+    edadMin?: number | null;
+    edadMax?: number | null;
+}
+
+/** Para quién es la clase, según lo que escribió la familia. Nada se adivina. */
+export interface PerfilAtleta {
+    edad?: number | null;
+    genero?: 'f' | 'm' | null;
+    /** Es para un adulto («soy adulto», «para mí», edad ≥ 18). */
+    adulto?: boolean;
+    /** Es para un menor («mi hija», «mi hijo») aunque no dijo la edad. */
+    menor?: boolean;
+    /** Pidió ver todos los grupos sin filtro. */
+    todos?: boolean;
 }
 
 export interface DatosCortesia {
@@ -85,6 +119,10 @@ export interface DatosCortesia {
     fechaNacimiento?: string | null;
     acudiente?: string | null;
     intentos?: number;
+    /** Filtro de grupos (edad/género/adulto). */
+    perfil?: PerfilAtleta | null;
+    /** Día de la semana pedido («el sábado»): 0 = domingo … 6 = sábado. */
+    dia?: number | null;
 }
 
 export interface EstadoCortesia {
@@ -249,6 +287,177 @@ function pareceOtraConversacion(texto: string): boolean {
     return t.includes('?') || t.split(/\s+/).filter(Boolean).length > 7;
 }
 
+/**
+ * ¿Quiere hablar con una persona, o salirse del agendamiento hacia otra cosa?
+ * Vale en CUALQUIER paso. Caso real (Dynasty, 2026-10-06): a «Necesito hablar
+ * con un asesor» el flujo respondió «Toca la franja que prefieras». Quien
+ * llama devuelve false y el turno lo atiende el bot general (que escala).
+ * «Milena» es quien atiende el WhatsApp de Dynasty: la gente la nombra.
+ */
+const SALIR_DEL_FLUJO: RegExp[] = [
+    /\b(asesor|asesora|asesores|asesoria|agente|operador|operadora|humano|humana)\b/,
+    /\bhablar con\b/,
+    /\b(comunicarme|contactarme|atiende|atienda|atiendan)\b/,
+    /\b(una persona|alguien|persona real)\b/,
+    /\b(llamen|llamenme|me llaman|me pueden llamar|me puede llamar|llamada|llamar)\b/,
+    /\bmilena\b/,
+    /\b(administrador|administradora|coordinador|coordinadora|encargado|encargada|la duena|el dueno)\b/,
+];
+export function quiereSalirDelFlujo(texto: string | null | undefined): boolean {
+    const n = normalizar(texto);
+    return !!n && SALIR_DEL_FLUJO.some((re) => re.test(n));
+}
+
+/**
+ * Pregunta de otro tema escrita sin «?» («cuanto vale la mensualidad»,
+ * «donde queda»): no es elegir franja. Solo se usa en `elegir_franja`.
+ */
+function esPreguntaDeOtroTema(texto: string): boolean {
+    return /^(cuanto|cuanta|cuantos|donde|como|quien|cuando|por que|porque|precio|valor|mensualidad|tienen|hay|me pueden|me puede|necesito|quiero saber|informacion|info)\b/
+        .test(normalizar(texto));
+}
+
+const DIAS_SEMANA: Record<string, number> = {
+    domingo: 0, domingos: 0, lunes: 1, martes: 2, miercoles: 3, jueves: 4, viernes: 5,
+    sabado: 6, sabados: 6,
+};
+
+/** «el sábado», «los martes», «mejor el miércoles» → día (0–6). null si no nombra uno. */
+export function leerDia(texto: string | null | undefined): number | null {
+    const m = normalizar(texto).match(/\b(domingos?|lunes|martes|miercoles|jueves|viernes|sabados?)\b/);
+    return m ? DIAS_SEMANA[m[1]] : null;
+}
+
+const ORDINALES: Record<string, number> = {
+    primera: 1, primero: 1, segunda: 2, segundo: 2, tercera: 3, tercero: 3, cuarta: 4, cuarto: 4,
+    quinta: 5, quinto: 5, sexta: 6, sexto: 6, septima: 7, septimo: 7, octava: 8, octavo: 8,
+    novena: 9, noveno: 9, decima: 10, decimo: 10,
+};
+
+/** «2», «la 2», «opción 2», «#2», «2.», «la segunda» → 2. null si no es eso. */
+export function leerNumeroOpcion(texto: string | null | undefined): number | null {
+    const n = normalizar(String(texto ?? '').trim().replace(/^#/, '').replace(/\.$/, ''));
+    const m = n.match(/^(?:(?:la|el) )?(?:(?:opcion|numero|franja) )?(\d{1,2})$/);
+    if (m) return Number(m[1]);
+    const o = n.match(/^(?:(?:la|el) )?(?:opcion )?([a-z]+)(?: opcion)?$/);
+    return o && ORDINALES[o[1]] ? ORDINALES[o[1]] : null;
+}
+
+const GENERO_F = /\b(hija|hijas|nina|nena|hijita|chica|muchacha|sobrina|nieta|mujer|femenino|femenina|senora)\b/;
+const GENERO_M = /\b(hijo|nino|nene|hijito|chico|muchacho|sobrino|nieto|hombre|masculino|varon|senor)\b/;
+const ES_MENOR = /\b(hija|hijas|hijo|hijos|nina|nino|nena|nene|ninos|ninas|hijita|hijito|sobrina|sobrino|nieta|nieto|menor|menores|chiquito|chiquita|pequeno|pequena)\b/;
+const ES_ADULTO = /\b(adulto|adulta|adultos|adultas|mayor de edad|yo mismo|yo misma|soy yo)\b|\bpara mi( mismo| misma)?$|\bsoy (mujer|hombre|senora|senor)\b/;
+
+/**
+ * Para quién es la clase: «para mi hija de 8 años», «soy adulto», «mi hijo
+ * tiene 12». Solo lo que la persona DIJO; null si no dijo nada de eso.
+ * `soloNumero`: en la pregunta de perfil, un «8» suelto es la edad.
+ */
+export function leerPerfil(texto: string | null | undefined, opciones: { soloNumero?: boolean } = {}): PerfilAtleta | null {
+    const n = normalizar(texto);
+    if (!n) return null;
+    if (/^(todos|todas|ver todos|ver todas|cualquiera|cualquier grupo|no se|da igual|todos los grupos|ver todos los grupos)$/.test(n)) {
+        return { todos: true };
+    }
+    const p: PerfilAtleta = {};
+    const edadM = n.match(/\b(\d{1,2}) ?(anos|ano|anitos|anito)\b/)
+        ?? n.match(/\b(?:tiene|tengo|edad) (\d{1,2})\b/)
+        ?? (opciones.soloNumero ? n.match(/^(\d{1,2})$/) : null);
+    if (edadM) {
+        const e = Number(edadM[1]);
+        if (e >= 3 && e <= 90) p.edad = e;
+    }
+    if (GENERO_F.test(n)) p.genero = 'f';
+    else if (GENERO_M.test(n)) p.genero = 'm';
+    if (ES_ADULTO.test(n) || (typeof p.edad === 'number' && p.edad >= 18)) p.adulto = true;
+    else if (ES_MENOR.test(n) || (typeof p.edad === 'number' && p.edad < 18)) p.menor = true;
+    return (p.edad != null || p.genero || p.adulto || p.menor) ? p : null;
+}
+
+const baseGrupo = (g: string) => g.split('·')[0].trim();
+
+/** Género que el NOMBRE del grupo declara («MENORES FEMENINO»). null = mixto o no lo dice. */
+export function generoDeGrupo(grupo: string): 'f' | 'm' | null {
+    const n = normalizar(baseGrupo(grupo));
+    if (/\b(femenino|femenina|femeninas|damas|mujeres)\b/.test(n)) return 'f';
+    if (/\b(masculino|masculina|masculinos|varones|hombres|caballeros)\b/.test(n)) return 'm';
+    return null;
+}
+
+/** ¿El nombre del grupo dice que es de adultos? («SENIORS», «Adultos», «Máster»). */
+export function esGrupoDeAdultos(grupo: string): boolean {
+    return /\b(senior|seniors|adulto|adultos|adultas|master|masters|veteranos|veteranas)\b/
+        .test(normalizar(baseGrupo(grupo)));
+}
+
+const tieneRango = (f: FranjaCortesia) => f.edadMin != null || f.edadMax != null;
+
+/** ¿Hay con qué filtrar? (rango de edad cargado, o género/adultos en el nombre) */
+export function gruposFiltrables(franjas: FranjaCortesia[]): boolean {
+    return franjas.some((f) => tieneRango(f) || generoDeGrupo(f.grupo) !== null || esGrupoDeAdultos(f.grupo));
+}
+
+export interface FiltroPerfil {
+    franjas: FranjaCortesia[];
+    /** Frase para el papá: qué NO se pudo filtrar. Vacía si nada que decir. */
+    nota: string;
+}
+
+/**
+ * Filtra las franjas por lo que se sabe del deportista, SIN inventar:
+ *   · edad + rango cargado en el equipo → dentro del rango;
+ *   · género → fuera los grupos cuyo NOMBRE dice el otro género;
+ *   · menor → fuera los grupos de adultos; adulto → solo los de adultos (o los
+ *     de rango que lo incluyan), si existen;
+ *   · sin rangos cargados → se dice que la escuela confirma el grupo por edad.
+ * Si el filtro deja todo vacío, se muestran todas y se dice.
+ * Medido 2026-10-06: ningún equipo de Dynasty tiene age_min/age_max; el nombre
+ * sí dice FEMENINO/MASCULINO y hay un grupo SENIORS.
+ */
+export function filtrarPorPerfil(franjas: FranjaCortesia[], perfil: PerfilAtleta | null | undefined): FiltroPerfil {
+    if (!perfil || perfil.todos || !franjas.length) return { franjas, nota: '' };
+    const edad = typeof perfil.edad === 'number' ? perfil.edad : null;
+    const adulto = !!perfil.adulto || (edad != null && edad >= 18);
+    const menor = !adulto && (!!perfil.menor || (edad != null && edad < 18));
+    const enRango = (f: FranjaCortesia) => edad != null && tieneRango(f)
+        && (f.edadMin == null || edad >= f.edadMin) && (f.edadMax == null || edad <= f.edadMax);
+
+    let r = franjas;
+    if (perfil.genero) r = r.filter((f) => { const g = generoDeGrupo(f.grupo); return !g || g === perfil.genero; });
+    if (edad != null) r = r.filter((f) => !tieneRango(f) || enRango(f));
+    if (menor) r = r.filter((f) => !esGrupoDeAdultos(f.grupo));
+    let sinGrupoAdultos = false;
+    if (adulto) {
+        const deAdultos = r.filter((f) => esGrupoDeAdultos(f.grupo) || enRango(f));
+        if (deAdultos.length) r = deAdultos;
+        else sinGrupoAdultos = true;
+    }
+    if (!r.length) {
+        return { franjas, nota: 'No encontré un grupo que coincida con lo que me contaste, así que te muestro *todos*; la escuela te confirma cuál le corresponde.' };
+    }
+    let nota = '';
+    if (sinGrupoAdultos) {
+        nota = 'La escuela no tiene marcado un grupo de adultos, así que te muestro los grupos con horario y ella te confirma cuál te sirve.';
+    } else if (edad != null && !adulto && !r.some(tieneRango)) {
+        nota = `Los grupos no tienen edades cargadas: la escuela te confirma en la clase cuál le corresponde a ${edad} años.`;
+    } else if (!adulto && edad == null && menor) {
+        nota = 'Si me dices la edad, la escuela te confirma el grupo exacto.';
+    }
+    return { franjas: r, nota };
+}
+
+/** Criterio que se le muestra al papá: «para 8 años (femenino o mixto)». */
+function describirPerfil(p: PerfilAtleta | null | undefined): string {
+    if (!p || p.todos) return '';
+    const partes: string[] = [];
+    if (p.adulto) partes.push('para adultos');
+    else if (typeof p.edad === 'number') partes.push(`para ${p.edad} años`);
+    else if (p.menor) partes.push('para menores');
+    if (p.genero === 'f') partes.push('(femenino o mixto)');
+    if (p.genero === 'm') partes.push('(masculino o mixto)');
+    return partes.join(' ');
+}
+
 const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 const DIAS_CORTOS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
@@ -368,17 +577,47 @@ function lineaFranja(f: FranjaCortesia, n: number): string {
         `${dur ? ` (${dur})` : ''}${sede} · ${cupos}`;
 }
 
+/** Línea de una franja dentro de su día (lista agrupada): sin repetir la fecha. */
+function lineaFranjaEnDia(f: FranjaCortesia, n: number): string {
+    const fin = f.horaFin ? ` a ${horaLegible(f.horaFin)}` : '';
+    const sede = f.sede ? ` · 📍 ${f.sede}` : '';
+    const cupos = esSinLimite(f.cupos) ? '' : ` · ${textoCupos(f.cupos)}`;
+    return `${n}. ${horaLegible(f.horaInicio)}${fin} — *${f.grupo}*${sede}${cupos}`;
+}
+
+/** «Sáb 10 oct»: título de sección de la lista (≤ 24). */
+function tituloDia(fecha: string): string {
+    const { m, d, dow } = partesFecha(fecha);
+    return `${DIAS[dow][0].toUpperCase()}${DIAS[dow].slice(1)} ${d} ${MESES[m - 1].slice(0, 3)}`;
+}
+
+/** Sede con dirección si la conocemos: «Coliseo Dynasty DC (Cl. 12 Bis #71g-09)». */
+function sedeConDireccion(f: FranjaCortesia): string | null {
+    if (!f.sede) return null;
+    return f.direccion && !normalizar(f.sede).includes(normalizar(f.direccion))
+        ? `${f.sede} (${f.direccion})` : f.sede;
+}
+
+/**
+ * Qué llevar. No hay un campo por escuela para esto (medido 2026-10-06: ni en
+ * school_settings ni en las franjas): va lo que sirve para cualquier
+ * entrenamiento, sin prometer implementos de la escuela.
+ */
+export const QUE_LLEVAR = 'ropa deportiva cómoda, tenis, una botella de agua y una toalla pequeña';
+
 function bloqueFranja(f: FranjaCortesia): string {
     const fin = f.horaFin ? ` a ${horaLegible(f.horaFin)}` : '';
+    const sede = sedeConDireccion(f);
     return `📅 ${fechaLegible(f.fecha)}\n🕔 ${horaLegible(f.horaInicio)}${fin}` +
-        (f.sede ? `\n📍 ${f.sede}` : '') + `\n👥 Grupo: ${f.grupo}`;
+        (sede ? `\n📍 ${sede}` : '') + `\n👥 Grupo: ${f.grupo}`;
 }
 
 function textoResumen(d: DatosCortesia): string {
     const lineas = ['Revisa que esté todo bien:', ''];
     if (d.franja) {
         lineas.push(`• Clase: *${d.franja.grupo}* — ${fechaLegible(d.franja.fecha)}, ${horaLegible(d.franja.horaInicio)}`);
-        if (d.franja.sede) lineas.push(`• Sede: ${d.franja.sede}`);
+        const sede = sedeConDireccion(d.franja);
+        if (sede) lineas.push(`• Sede: ${sede}`);
     } else {
         lineas.push('• Clase de cortesía: *la escuela te contacta para agendarla*');
     }
@@ -466,13 +705,32 @@ function deps(ctx: CtxCortesia) {
     };
 }
 
-/** Franjas futuras (Bogotá) con cupo, sin las de hoy que ya empezaron. */
+/** Minutos absolutos (día × 1440 + hora) de una fecha/hora de Bogotá. */
+function minutosAbsolutos(fecha: string, hora: string): number {
+    const { y, m, d } = partesFecha(fecha);
+    return Math.round(Date.UTC(y, m - 1, d) / 60_000) + minutos(hora);
+}
+
+/**
+ * Franjas con cupo que empiezan dentro de 2 h o más (Bogotá), ordenadas.
+ * Antes solo se sacaban las de hoy que YA habían empezado: a las 3:50 p. m.
+ * se ofrecía la de las 4:00 p. m. (auditoría Dynasty 2026-10-06).
+ */
 export function filtrarVigentes(franjas: FranjaCortesia[], ahora: Date): FranjaCortesia[] {
     const hoy = hoyBogota(ahora);
+    const limite = minutosAbsolutos(hoy.iso, '00:00') + hoy.minutos + ANTICIPACION_MINIMA_MIN;
     return franjas
         .filter((f) => f.cupos > 0)
-        .filter((f) => f.fecha > hoy.iso || (f.fecha === hoy.iso && minutos(f.horaInicio) > hoy.minutos))
+        .filter((f) => minutosAbsolutos(f.fecha, f.horaInicio) >= limite)
         .sort((a, b) => (a.fecha + a.horaInicio).localeCompare(b.fecha + b.horaInicio));
+}
+
+/** Franjas que se ofrecen según el perfil y el día pedidos (ya vigentes). */
+function candidatas(franjas: FranjaCortesia[], datos: DatosCortesia): { franjas: FranjaCortesia[]; nota: string } {
+    const porPerfil = filtrarPorPerfil(franjas, datos.perfil);
+    if (datos.dia == null) return porPerfil;
+    const delDia = porPerfil.franjas.filter((f) => partesFecha(f.fecha).dow === datos.dia);
+    return delDia.length ? { franjas: delDia, nota: porPerfil.nota } : porPerfil;
 }
 
 /**
@@ -516,6 +774,9 @@ export async function atenderTurnoCortesia(
         // Con flujo abierto, un botón de OTRA cosa («Ver mis pagos») es una
         // elección explícita: el flujo se suelta y lo atiende quien sabe.
         if (botonId && !esBotonCortesia(botonId)) return false;
+        // «Necesito hablar con un asesor», «¿Milena?»: en cualquier paso se
+        // suelta el flujo y lo atiende el bot general (escalación).
+        if (!botonId && quiereSalirDelFlujo(texto)) return false;
         return continuar(ctx, d, estado, texto, botonId);
     }
 
@@ -565,49 +826,139 @@ export async function iniciarCortesia(
         return;
     }
 
-    // Ser claro sobre QUÉ horarios se muestran: los de su grupo si lo nombró,
-    // o los de todos los grupos si no (y cómo pedir los de uno).
+    // ¿Para quién es? Lo que ya dijo («para mi hija de 8 años») filtra. Solo se
+    // PREGUNTA si no dijo nada, no nombró un grupo y los grupos traen con qué
+    // filtrar: una pregunta de más también pierde prospectos.
     const grupo = grupoMencionado(opciones.texto, franjas);
-    const delGrupo = grupo ? franjas.filter((f) => f.grupo.split('·')[0].trim() === grupo) : [];
+    const perfil = leerPerfil(opciones.texto);
+    const dia = leerDia(opciones.texto);
     const base = '¡Claro! 🙌 La *clase de cortesía* es *gratis* y sirve para conocer la escuela.';
-    const intro = opciones.intro ?? (grupo
-        ? `${base} Estos son los horarios de *${grupo.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())}*:`
-        : `${base} Estos son los próximos horarios de *todos los grupos*. ` +
-          'Si me dices la categoría (por ejemplo *Menores Masculino*), te muestro solo los de ese grupo:');
-    await ofrecerFranjas(ctx, grupo && delGrupo.length ? delGrupo : franjas, 0, {},
-        cabeza + intro, opciones.step ?? 'cortesia_ofrecer');
+    if (!grupo && !perfil && gruposFiltrables(franjas)) {
+        // El intro de quien llama dice «estos son los horarios:»; aquí todavía no
+        // se muestran, así que va el texto base.
+        await ctx.enviar(
+            cabeza + `${base}\n\nPara mostrarte los horarios del grupo indicado: *¿para quién es la clase y qué edad tiene?* ` +
+            '(por ejemplo: «para mi hija de 8 años» o «soy adulto»)',
+            opciones.step ?? 'cortesia_perfil',
+            { paso: 'perfil', datos: { dia, intentos: 0 } });
+        return;
+    }
+    if (grupo) {
+        const delGrupo = franjas.filter((f) => baseGrupo(f.grupo) === grupo);
+        const intro = opciones.intro
+            ?? `${base} Estos son los horarios de *${grupo.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())}*:`;
+        await ofrecerFranjas(ctx, delGrupo.length ? delGrupo : franjas, 0, { dia }, cabeza + intro,
+            opciones.step ?? 'cortesia_ofrecer', { yaFiltradas: true });
+        return;
+    }
+    await ofrecerFranjas(ctx, franjas, 0, { perfil, dia },
+        cabeza + (opciones.intro ?? `${base} Estos son los próximos horarios:`),
+        opciones.step ?? 'cortesia_ofrecer');
 }
 
+/**
+ * Ofrece las franjas. ≤ 3 → botones; más → lista de WhatsApp (≤ 10 filas,
+ * secciones por día; 9 + «Ver más» si hay más). El texto lleva las mismas
+ * opciones numeradas y agrupadas por día: es lo que sale si la lista no sale
+ * (modo asistido, o Meta la rechaza) y lo que permite responder «la 2».
+ *
+ * `datosPrevios.perfil`/`dia` filtran, y quedan en el estado para «ver más».
+ */
 async function ofrecerFranjas(
     ctx: CtxCortesia,
-    franjas: FranjaCortesia[],
+    vigentes: FranjaCortesia[],
     desde: number,
     datosPrevios: DatosCortesia,
     intro: string,
     step: string,
+    op: { yaFiltradas?: boolean } = {},
 ): Promise<void> {
-    // Hasta 20 (lo que trae la RPC), intercaladas por grupo: así «Ver más
-    // horarios» recorre todos los grupos y no solo los de los próximos dos días.
-    const lista = intercalarPorGrupo(franjas).slice(0, 20);
+    const { franjas, nota } = op.yaFiltradas ? { franjas: vigentes, nota: '' } : candidatas(vigentes, datosPrevios);
+    const lista = paginar(intercalarPorGrupo(franjas).slice(0, MAX_FRANJAS_OFRECIDAS));
+    const porPagina = lista.length > MAX_FILAS ? MAX_FILAS - 1 : MAX_FILAS;
     const inicio = desde >= lista.length ? 0 : desde;
-    const hayMas = lista.length > MAX_BOTONES;
-    const porPagina = hayMas ? MAX_BOTONES - 1 : MAX_BOTONES;
     const visibles = lista.slice(inicio, inicio + porPagina);
+    const hayMas = lista.length > porPagina;
+    const comoBotones = lista.length <= MAX_BOTONES;
 
-    const lineas = visibles.map((f, i) => lineaFranja(f, inicio + i + 1));
-    const botones: BotonInteractivo[] = visibles.map((f, i) => ({
-        id: `${BOTON_CC.FRANJA}${f.id}`, title: tituloBoton(f, inicio + i + 1),
-    }));
-    if (hayMas) botones.push({ id: BOTON_CC.VER_MAS, title: 'Ver más horarios' });
+    const criterio = describirPerfil(datosPrevios.perfil);
+    const soloDelDia = datosPrevios.dia != null && visibles.every((f) => partesFecha(f.fecha).dow === datosPrevios.dia);
+    const delDia = soloDelDia ? ` del *${DIAS[datosPrevios.dia!]}*` : '';
+    const encabezado = [
+        intro,
+        criterio || delDia ? `Te muestro los horarios${criterio ? ` ${criterio}` : ''}${delDia}.` : '',
+        datosPrevios.dia != null && !soloDelDia ? `No tengo horarios el *${DIAS[datosPrevios.dia]}*; estos son los que hay.` : '',
+        nota,
+    ].filter(Boolean).join(' ');
+
+    let cuerpo: string;
+    let opcionesUI: BotonInteractivo[];
+    if (comoBotones) {
+        cuerpo = visibles.map((f, i) => lineaFranja(f, inicio + i + 1)).join('\n');
+        opcionesUI = visibles.map((f, i) => ({ id: `${BOTON_CC.FRANJA}${f.id}`, title: tituloBoton(f, inicio + i + 1) }));
+    } else {
+        const lineas: string[] = [];
+        let diaActual = '';
+        visibles.forEach((f, i) => {
+            if (f.fecha !== diaActual) {
+                diaActual = f.fecha;
+                const fl = fechaLegible(f.fecha);
+                if (lineas.length) lineas.push('');
+                lineas.push(`*${fl[0].toUpperCase()}${fl.slice(1)}*`);
+            }
+            lineas.push(lineaFranjaEnDia(f, inicio + i + 1));
+        });
+        cuerpo = lineas.join('\n');
+        opcionesUI = visibles.map((f, i) => filaDeLista(f, inicio + i + 1));
+        if (hayMas) {
+            const quedan = inicio + porPagina < lista.length;
+            opcionesUI.push({ id: BOTON_CC.VER_MAS, title: quedan ? 'Ver más horarios' : 'Volver al inicio',
+                descripcion: quedan ? 'Otros días y grupos' : 'Los primeros horarios otra vez', seccion: 'Más' });
+        }
+    }
 
     await ctx.enviar(
-        `${intro}\n\n${lineas.join('\n')}\n\n¿Cuál te reservo?`,
+        `${encabezado}\n\n${cuerpo}\n\n¿Cuál te reservo?` +
+            (comoBotones ? '' : ' Toca *Ver opciones* o escríbeme el número.'),
         step,
         { paso: 'elegir_franja', datos: { ...datosPrevios, franja: null, sinFranja: false,
             lista: lista.map((f) => f.id), desde: inicio, intentos: 0 } },
-        botones,
-        `Responde con el número de la franja (${visibles.map((_, i) => inicio + i + 1).join(', ')})` +
-            (hayMas ? ' o *ver más*.' : '.'));
+        opcionesUI,
+        `Responde con el número (${visibles.map((_, i) => inicio + i + 1).join(', ')})` +
+            (hayMas ? ', *ver más*' : '') + ', un día (*el sábado*) o *asesor* para hablar con una persona.');
+}
+
+/**
+ * Orden de la lista: páginas de 9 (o 10 si caben todas) tomadas de la lista
+ * intercalada por grupo, y DENTRO de cada página en orden cronológico — así
+ * cada mensaje se lee agrupado por día y la numeración es estable entre
+ * páginas («la 12» es la 12 de la lista guardada en el estado).
+ */
+function paginar(franjas: FranjaCortesia[]): FranjaCortesia[] {
+    const porPagina = franjas.length > MAX_FILAS ? MAX_FILAS - 1 : MAX_FILAS;
+    const salida: FranjaCortesia[] = [];
+    for (let i = 0; i < franjas.length; i += porPagina) {
+        salida.push(...franjas.slice(i, i + porPagina)
+            .sort((a, b) => (a.fecha + a.horaInicio).localeCompare(b.fecha + b.horaInicio)));
+    }
+    return salida;
+}
+
+/**
+ * Fila de la lista: título = n + grupo (≤ 24: «7. MINIVOLLEY BENJAMINES» cabe
+ * justo), descripción = hora · subgrupo · sede (≤ 72), sección = día.
+ */
+export function filaDeLista(f: FranjaCortesia, n: number): BotonInteractivo {
+    const titulo = Array.from(`${n}. ${baseGrupo(f.grupo)}`).slice(0, 24).join('');
+    const sub = f.grupo.includes('·') ? f.grupo.split('·').slice(1).join('·').trim() : '';
+    const hora = horaLegible(f.horaInicio) + (f.horaFin ? ` a ${horaLegible(f.horaFin)}` : '');
+    const desc = [hora, sub, f.sede ?? ''].filter(Boolean).join(' · ');
+    return {
+        id: `${BOTON_CC.FRANJA}${f.id}`,
+        title: titulo,
+        descripcion: Array.from(desc).slice(0, 72).join('') || undefined,
+        seccion: tituloDia(f.fecha),
+    };
 }
 
 type Deps = ReturnType<typeof deps>;
@@ -624,6 +975,7 @@ async function continuar(
     }
 
     switch (estado.paso) {
+        case 'perfil': return responderPerfil(ctx, d, estado, texto, botonId);
         case 'elegir_franja': return elegirFranja(ctx, d, datos, texto, botonId);
         case 'dejar_datos': {
             const r = siNo(texto, botonId, BOTON_CC.DATOS_SI, BOTON_CC.DATOS_NO);
@@ -644,6 +996,8 @@ async function continuar(
                 return reintentar(ctx, estado,
                     'Escríbeme el *nombre completo* de quien va a tomar la clase (solo el nombre, sin números).');
             }
+            // La edad ya la dijo al principio («para mi hija de 8 años»): no se repite.
+            if (typeof datos.edad === 'number') return trasEdad(ctx, { ...datos, nombre, intentos: 0 });
             await ctx.enviar(
                 `Gracias. ¿Qué *edad* tiene ${nombre.split(' ')[0]}? También me sirve la *fecha de nacimiento* (por ejemplo 15/03/2014).`,
                 'cortesia_edad', { paso: 'edad', datos: { ...datos, nombre, intentos: 0 } });
@@ -656,15 +1010,7 @@ async function continuar(
                 return reintentar(ctx, estado,
                     'No te entendí la edad. Escríbeme solo el número de años (por ejemplo *12*) o la fecha de nacimiento (*15/03/2014*).');
             }
-            const nuevos: DatosCortesia = { ...datos, edad: e.edad, fechaNacimiento: e.fechaNacimiento, intentos: 0 };
-            if (e.edad < 18) {
-                const conocido = ctx.nombreAcudiente ? await ctx.nombreAcudiente().catch(() => null) : null;
-                if (conocido) return confirmar(ctx, { ...nuevos, acudiente: conocido });
-                await ctx.enviar('Como es menor de edad, ¿cuál es el *nombre completo del acudiente*?',
-                    'cortesia_acudiente', { paso: 'acudiente', datos: nuevos });
-                return true;
-            }
-            return confirmar(ctx, { ...nuevos, acudiente: null });
+            return trasEdad(ctx, { ...datos, edad: e.edad, fechaNacimiento: e.fechaNacimiento, intentos: 0 });
         }
         case 'acudiente': {
             const acudiente = nombreValido(texto);
@@ -687,7 +1033,8 @@ async function continuar(
                         'cortesia_sin_franjas', { paso: 'dejar_datos', datos: { sinFranja: true } }, BOTONES_DATOS);
                     return true;
                 }
-                await ofrecerFranjas(ctx, franjas, 0, {}, 'Listo, empecemos de nuevo. Elige la franja:', 'cortesia_ofrecer');
+                await ofrecerFranjas(ctx, franjas, 0, { perfil: datos.perfil ?? null },
+                    'Listo, empecemos de nuevo. Elige la franja:', 'cortesia_ofrecer');
                 return true;
             }
             if (pareceOtraConversacion(texto)) return false;
@@ -706,6 +1053,53 @@ async function continuar(
         }
     }
     return false;
+}
+
+/** Con la edad conocida: acudiente si es menor (y no lo conocemos), o resumen. */
+async function trasEdad(ctx: CtxCortesia, nuevos: DatosCortesia): Promise<boolean> {
+    if ((nuevos.edad ?? 0) < 18) {
+        if (nuevos.acudiente) return confirmar(ctx, nuevos);
+        const conocido = ctx.nombreAcudiente ? await ctx.nombreAcudiente().catch(() => null) : null;
+        if (conocido) return confirmar(ctx, { ...nuevos, acudiente: conocido });
+        await ctx.enviar('Como es menor de edad, ¿cuál es el *nombre completo del acudiente*?',
+            'cortesia_acudiente', { paso: 'acudiente', datos: nuevos });
+        return true;
+    }
+    return confirmar(ctx, { ...nuevos, acudiente: null });
+}
+
+/** Respuesta a «¿para quién es la clase y qué edad tiene?». */
+async function responderPerfil(
+    ctx: CtxCortesia, d: Deps, estado: EstadoCortesia, texto: string, botonId: string | null,
+): Promise<boolean> {
+    const datos = estado.datos ?? {};
+    const franjas = filtrarVigentes(await d.franjas(ctx.schoolId), d.ahora);
+    if (!franjas.length) return sinFranjasDisponibles(ctx);
+    const dia = leerDia(texto) ?? datos.dia ?? null;
+
+    const grupo = grupoMencionado(texto, franjas);
+    if (grupo) {
+        const delGrupo = franjas.filter((f) => baseGrupo(f.grupo) === grupo);
+        await ofrecerFranjas(ctx, delGrupo, 0, { dia }, `Listo. Horarios de *${grupo}*:`, 'cortesia_ofrecer',
+            { yaFiltradas: true });
+        return true;
+    }
+    const perfil = botonId === BOTON_CC.VER_MAS ? { todos: true } : leerPerfil(texto, { soloNumero: true });
+    if (perfil) {
+        await ofrecerFranjas(ctx, franjas, 0, { perfil, dia, ...edadDelPerfil(perfil) },
+            perfil.todos ? 'Listo, estos son los horarios de *todos los grupos*:' : 'Perfecto. 👍',
+            'cortesia_ofrecer');
+        return true;
+    }
+    if (pareceOtraConversacion(texto) || esPreguntaDeOtroTema(texto)) return false;
+    return reintentar(ctx, estado,
+        'Cuéntame *para quién es* y *qué edad tiene* (por ejemplo «mi hijo de 10 años» o «soy adulta»), ' +
+        'o escríbeme *todos* para ver todos los horarios.');
+}
+
+/** La edad que dijo en el perfil se guarda para no volver a preguntarla. */
+function edadDelPerfil(p: PerfilAtleta | null | undefined): Pick<DatosCortesia, 'edad'> {
+    return typeof p?.edad === 'number' ? { edad: p.edad } : {};
 }
 
 async function reintentar(
@@ -739,34 +1133,64 @@ function datosCompletos(d: DatosCortesia): boolean {
     return !!d.nombre && typeof d.edad === 'number' && (d.edad >= 18 || !!d.acudiente);
 }
 
+const PIDE_VER_MAS = new Set(['ver mas', 'mas', 'ver mas horarios', 'ver otros horarios', 'otros horarios',
+    'otro horario', 'mas horarios', 'siguiente', 'otras', 'otros', 'volver al inicio']);
+
 async function elegirFranja(
     ctx: CtxCortesia, d: Deps, datos: DatosCortesia, texto: string, botonId: string | null,
 ): Promise<boolean> {
     const franjas = filtrarVigentes(await d.franjas(ctx.schoolId), d.ahora);
     const n = normalizar(texto);
 
-    if (botonId === BOTON_CC.VER_MAS || n === 'ver mas' || n === 'mas' || n === 'ver mas horarios'
-        || n === 'ver otros horarios' || n === 'otros horarios' || n === 'otro horario') {
+    if (botonId === BOTON_CC.VER_MAS || (!botonId && PIDE_VER_MAS.has(n))) {
         if (!franjas.length) return sinFranjasDisponibles(ctx);
-        await ofrecerFranjas(ctx, franjas, (datos.desde ?? 0) + MAX_BOTONES - 1, datos,
+        const total = datos.lista?.length ?? 0;
+        const porPagina = total > MAX_FILAS ? MAX_FILAS - 1 : MAX_FILAS;
+        await ofrecerFranjas(ctx, franjas, (datos.desde ?? 0) + porPagina, datos,
             'Estas son otras franjas:', 'cortesia_ofrecer');
         return true;
     }
 
     let elegidaId: string | null = null;
     if (botonId?.startsWith(BOTON_CC.FRANJA)) elegidaId = botonId.slice(BOTON_CC.FRANJA.length);
-    else if (/^\d{1,2}$/.test(n)) elegidaId = datos.lista?.[Number(n) - 1] ?? null;
+    else if (!botonId) {
+        const num = leerNumeroOpcion(texto);
+        if (num != null) elegidaId = datos.lista?.[num - 1] ?? null;
+    }
+
+    if (!elegidaId && !botonId) {
+        if (!franjas.length) return sinFranjasDisponibles(ctx);
+        // «ver todos»: sin filtro de perfil ni de día.
+        const perfil = leerPerfil(texto);
+        if (perfil?.todos) {
+            await ofrecerFranjas(ctx, franjas, 0, { ...datos, perfil, dia: null },
+                'Listo, estos son los horarios de *todos los grupos*:', 'cortesia_ofrecer');
+            return true;
+        }
+        // «el sábado», «mejor los martes»: filtra por día (con el perfil que ya había).
+        const dia = leerDia(texto);
+        // «para mi hija de 8 años» dicho a mitad de la elección: se re-filtra.
+        if (perfil || dia != null) {
+            const nuevoPerfil = perfil ? { ...(datos.perfil ?? {}), ...perfil, todos: false } : datos.perfil ?? null;
+            await ofrecerFranjas(ctx, franjas, 0,
+                { ...datos, perfil: nuevoPerfil, dia: dia ?? datos.dia ?? null,
+                    ...(datos.edad == null ? edadDelPerfil(nuevoPerfil) : {}) },
+                'Listo. 👍', 'cortesia_ofrecer');
+            return true;
+        }
+    }
 
     if (!elegidaId) {
-        if (pareceOtraConversacion(texto) || !datos.lista?.length) return false;
+        if (pareceOtraConversacion(texto) || esPreguntaDeOtroTema(texto) || !datos.lista?.length) return false;
         return reintentar(ctx, { paso: 'elegir_franja', datos },
-            'Toca la franja que prefieras o escríbeme su número (por ejemplo *1*).');
+            'Elige un horario de la lista o escríbeme su número (por ejemplo *2*). También puedes escribirme un día ' +
+            '(*el sábado*) o *asesor* si prefieres hablar con una persona.');
     }
 
     const franja = franjas.find((f) => f.id === elegidaId);
     if (!franja) {
-        // Se llenó o la cerraron entre la oferta y el toque: se dice y se
-        // vuelve a ofrecer lo que haya de verdad AHORA.
+        // Se llenó, la cerraron o ya empieza en menos de 2 h entre la oferta y
+        // el toque: se dice y se vuelve a ofrecer lo que haya de verdad AHORA.
         if (!franjas.length) return sinFranjasDisponibles(ctx);
         await ofrecerFranjas(ctx, franjas, 0, datos,
             'Uy, esa franja ya no está disponible. 😕 Estas siguen abiertas:', 'cortesia_ofrecer');
@@ -852,7 +1276,8 @@ async function reservar(ctx: CtxCortesia, d: Deps, datos: DatosCortesia): Promis
 
     await ctx.enviar(
         `✅ ¡Listo! Quedó reservada la clase de cortesía de *${datos.nombre}*:\n\n${bloqueFranja(franja)}\n\n` +
-        'Es *gratis*. Llega unos minutos antes; si tienes dudas de qué llevar, escríbenos por aquí y la escuela te confirma.\n\n' +
+        `🎒 Qué llevar: ${QUE_LLEVAR}.\n` +
+        '⏰ Llega 10 minutos antes y dile al entrenador que vienes a la clase de cortesía. Es *gratis*.\n\n' +
         'Si no puedes ir, escríbeme *cancelar mi clase* para liberar el cupo.',
         'cortesia_reservada', null);
     void d.avisar({ ...base, leadId: r.leadId, tipo: 'reservada' }).catch(() => {});
@@ -943,8 +1368,64 @@ function aFranja(r: any): FranjaCortesia {
     };
 }
 
-/** Las mismas franjas que ve el formulario /inscripcion/<slug>. */
+/**
+ * Dirección de la sede: la de la sede registrada (school_branches) cuyo nombre
+ * coincide con el lugar de la franja («Coliseo Dynasty» ↔ «Coliseo Dynasty DC»).
+ * Sin coincidencia → null: no se inventa una dirección.
+ */
+export function direccionDeSede(sede: string | null, sedes: { name: string | null; address: string | null }[]): string | null {
+    const s = normalizar(sede);
+    if (!s) return null;
+    for (const b of sedes) {
+        const n = normalizar(b.name);
+        const dir = String(b.address ?? '').trim();
+        if (n.length >= 4 && dir && (s.includes(n) || n.includes(s))) return dir;
+    }
+    return null;
+}
+
+/**
+ * Las mismas franjas que ve el formulario /inscripcion/<slug> (mismos filtros
+ * que `list_open_trial_slots_public`: abiertas, desde hoy, con cupo), pero
+ * SIN su tope de 20: con franjas generadas de los entrenamientos (~40 por
+ * semana en Dynasty) las 20 más cercanas son 2–3 días, y al filtrar por grupo
+ * quedaban 1 o 2 opciones. Suma el rango de edad del equipo y la dirección de
+ * la sede. Si la lectura directa falla, cae a la RPC pública de siempre.
+ */
 export async function franjasDeSupabase(schoolId: string): Promise<FranjaCortesia[]> {
+    try {
+        const { data, error } = await supabase.from('school_trial_slots')
+            .select('id, label, slot_date, start_time, end_time, location, max_capacity, reserved_count, team_id')
+            .eq('school_id', schoolId)
+            .eq('is_open', true)
+            .gte('slot_date', hoyBogota(new Date()).iso)
+            .order('slot_date', { ascending: true })
+            .order('start_time', { ascending: true })
+            .limit(300);
+        if (!error && Array.isArray(data) && data.length) {
+            const filas = (data as any[]).filter((r) => Number(r.reserved_count ?? 0) < Number(r.max_capacity ?? 0));
+            const teamIds = [...new Set(filas.map((r) => r.team_id).filter(Boolean))];
+            const [equipos, sedes] = await Promise.all([
+                teamIds.length
+                    ? supabase.from('teams').select('id, age_min, age_max').in('id', teamIds)
+                    : Promise.resolve({ data: [] as any[] }),
+                supabase.from('school_branches').select('name, address').eq('school_id', schoolId).limit(50),
+            ]);
+            const edades = new Map<string, any>(((equipos as any)?.data ?? []).map((t: any) => [t.id, t]));
+            const listaSedes = (((sedes as any)?.data ?? []) as any[]);
+            return filas.map((r) => {
+                const t = r.team_id ? edades.get(r.team_id) : null;
+                const f = aFranja({ ...r, spots_left: Number(r.max_capacity) - Number(r.reserved_count ?? 0) });
+                return {
+                    ...f,
+                    teamId: r.team_id ?? null,
+                    edadMin: t?.age_min ?? null,
+                    edadMax: t?.age_max ?? null,
+                    direccion: direccionDeSede(f.sede, listaSedes),
+                };
+            });
+        }
+    } catch { /* cae a la RPC */ }
     try {
         const slug = await slugDeEscuela(schoolId);
         if (!slug) return [];

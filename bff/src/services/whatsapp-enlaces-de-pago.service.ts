@@ -22,6 +22,7 @@
 
 import { supabase } from '../config/supabase';
 import { emitirTokenCobro } from './cobro-enlace-publico.service';
+import { crearLinkWompiConMonto } from './wompi-link-con-monto.service';
 import { appPublica, enlaceDeCobro } from '../utils/url-publica-familias';
 
 /** Máximo de enlaces por mensaje: más que eso es un muro de URLs. */
@@ -37,6 +38,16 @@ export interface PagoConEnlace {
     status?: string | null;
     debe_pagarse?: boolean | null;
     enlace_pago?: string | null;
+    /**
+     * Minutos que dura `enlace_pago` cuando es el link de Wompi con el monto
+     * exacto (crearLinkWompiConMonto). Ausente = página del cobro (/p/:token),
+     * que no vence.
+     */
+    enlace_vence_min?: number | null;
+    /** Lo que el modelo debe repetir junto al enlace con monto (vigencia y qué pasa al pagar). */
+    enlace_instrucciones?: string | null;
+    /** El aviso por WhatsApp al aprobarse quedó registrado (se puede prometer). */
+    enlace_avisa?: boolean | null;
     [k: string]: unknown;
 }
 
@@ -85,6 +96,12 @@ export async function conEnlacesDePago<T extends PagoConEnlace>(
     pagos: T[] | null | undefined,
     parentId: string | null | undefined,
     schoolId: string,
+    /**
+     * El chat al que va el enlace. Con esto, cuando sale el link de Wompi con
+     * monto se registra el aviso de desenlace (`registrarAvisoDePagoPorLink`,
+     * 15ed9235) y la familia recibe por WhatsApp «se aprobó tu pago».
+     */
+    aviso?: { integrationId: string; waPhone: string },
 ): Promise<T[]> {
     const lista = Array.isArray(pagos) ? pagos : [];
     if (!parentId || !lista.some((p) => p?.debe_pagarse === true)) return lista;
@@ -102,13 +119,28 @@ export async function conEnlacesDePago<T extends PagoConEnlace>(
 
         const ids = emparejarIds(lista, data as FilaCobro[]);
         if (!ids.size) return lista;
-        const tokens = new Map<number, string | null>();
+        // Primero el link de Wompi con el monto exacto (eb1e833d): la familia no
+        // escribe el valor y, al aprobarse, el pago queda aplicado solo. Si la
+        // escuela no tiene pago en línea (Dynasty hoy: 'sin_pago_en_linea') o
+        // algo falla, la página del cobro /p/:token como siempre.
+        const enlaces = new Map<number, { url: string; minutos: number | null; avisa?: boolean }>();
         await Promise.all([...ids].map(async ([i, id]) => {
-            tokens.set(i, await emitirTokenCobro(id));
+            const wompi = await crearLinkWompiConMonto(id).catch(() => null);
+            if (wompi?.ok && wompi.url) {
+                const avisa = aviso ? await registrarAviso(aviso, schoolId, id) : false;
+                enlaces.set(i, { url: wompi.url, minutos: wompi.minutos, avisa });
+                return;
+            }
+            const token = await emitirTokenCobro(id);
+            if (token) enlaces.set(i, { url: enlaceDeCobro(base, token), minutos: null });
         }));
         return lista.map((p, i) => {
-            const token = tokens.get(i);
-            return token ? { ...p, enlace_pago: enlaceDeCobro(base, token) } : p;
+            const e = enlaces.get(i);
+            if (!e) return p;
+            return e.minutos
+                ? { ...p, enlace_pago: e.url, enlace_vence_min: e.minutos, enlace_avisa: e.avisa === true,
+                    enlace_instrucciones: instruccionesDelLinkConMonto(e.minutos, e.avisa === true) }
+                : { ...p, enlace_pago: e.url };
         });
     } catch (e: any) {
         console.warn('[whatsapp-enlaces-de-pago] sin enlaces', { error: e?.message });
@@ -116,9 +148,43 @@ export async function conEnlacesDePago<T extends PagoConEnlace>(
     }
 }
 
+/** «tienes 1 hora para pagar» / «tienes 30 minutos para pagar». Pura. */
+export function plazoParaPagar(minutos: number): string {
+    if (minutos % 60 === 0) {
+        const h = minutos / 60;
+        return h === 1 ? '1 hora' : `${h} horas`;
+    }
+    return `${minutos} minutos`;
+}
+
+/**
+ * Lo que acompaña al link con monto. «Te aviso por aquí» SOLO si el aviso de
+ * desenlace quedó registrado (`avisa`); si no, no se promete.
+ */
+export function instruccionesDelLinkConMonto(minutos: number, avisa = false): string {
+    return `Tienes ${plazoParaPagar(minutos)} para pagar con ese link; al aprobarse, el pago queda aplicado solo` +
+        (avisa ? ' y te aviso por aquí.' : '.');
+}
+
+/** Registra el aviso de desenlace del pago por link. Import diferido: el job importa servicios del bot. Nunca lanza. */
+async function registrarAviso(aviso: { integrationId: string; waPhone: string }, schoolId: string, paymentId: string): Promise<boolean> {
+    try {
+        const { registrarAvisoDePagoPorLink } = await import('../jobs/whatsapp-payment-outcome.job');
+        const r = await registrarAvisoDePagoPorLink({
+            integrationId: aviso.integrationId, schoolId, waPhone: aviso.waPhone, paymentId,
+        });
+        return r.ok;
+    } catch {
+        return false;
+    }
+}
+
 /** «Pagar: <url>» para el texto del mensaje, o null. */
 export function lineaPagar(p: PagoConEnlace | null | undefined): string | null {
-    return p?.enlace_pago ? `   Pagar: ${p.enlace_pago}` : null;
+    if (!p?.enlace_pago) return null;
+    return p.enlace_vence_min
+        ? `   Pagar: ${p.enlace_pago}\n   (${instruccionesDelLinkConMonto(p.enlace_vence_min, p.enlace_avisa === true)})`
+        : `   Pagar: ${p.enlace_pago}`;
 }
 
 /**
