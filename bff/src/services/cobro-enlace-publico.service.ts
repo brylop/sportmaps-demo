@@ -49,6 +49,7 @@
 import crypto from 'crypto';
 import { supabase } from '../config/supabase';
 import { resolveProvider } from './payment-provider.resolver';
+import { validarLlaveCheckoutEscuela } from './wompi-llave-checkout.guard';
 import {
     assertUserNotBlocked, UserPaymentBlockedError, copToCents, generateReference,
     signIntegrity, wompiCredsFrom, buildWebCheckoutUrl, signIntegrityWithExpiration,
@@ -278,6 +279,9 @@ async function pasarelaParaCobro(p: any) {
 
     const resolved = await resolveProvider({ schoolId: p.school_id, preferredProvider: 'wompi' });
     if (!resolved || resolved.provider !== 'wompi') return null;
+    // Llave de prueba en un cobro real (ENV/aggregator) o en el BFF de producción:
+    // nunca se abre el checkout (wompi-llave-checkout.guard.ts, Dynasty 2026-10-05).
+    if (!validarLlaveCheckoutEscuela(resolved).ok) return null;
     if (resolved.sandbox && !permiteSandbox()) return null;
     // Llaves de ENV (escuela en 'aggregator', hoy Dynasty): el checkout vivo NO
     // firma con ellas en el BFF — pide la firma a la Edge Function, cuyo secreto
