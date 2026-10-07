@@ -57,6 +57,7 @@ import { resolverRespuestaDeCobro } from './whatsapp-respuesta-de-cobro.service'
 import {
     botEncendido, debeAtender, temaEscolar, preguntaPrecioComoProspecto,
     ajustesDeAtencion, puertaDeProspecto, interesesDeProspecto, buscaParaAdulto, DIAS_MARCA_PROSPECTO,
+    soloSaludoOCortesia,
     type PuertaDeProspecto,
 } from './whatsapp-atencion.service';
 import { registrarLeadDeProspecto } from './whatsapp-prospecto-lead.service';
@@ -1568,6 +1569,14 @@ async function handleIdentification(
     // que con el ajuste apagado (`atenderDesconocido`).
     const comoDesconocido = await atenderDesconocido(integration, conversationId, contactWaId, text, botonId, rafaga);
     if (comoDesconocido !== 'silencio') return 'resuelto';
+
+    // Saludo, «gracias», emoji o cierre suelto de un desconocido: no hay nada
+    // que contestar y «escríbeme tu correo» a eso es ruido (2026-10-07: 9 en
+    // 3 h a «gracias», «Buenas tardes», publicidad). Queda en el buzón.
+    const todo = [rafaga, text].filter(Boolean).join('\n');
+    if (!botonId && (soloSaludoOCortesia(todo) || todo.split('\n').every((l) => soloSaludoOCortesia(l) || esCierreSuelto(l)))) {
+        return 'resuelto';
+    }
 
     if (!(await reservarPasoUnaVez(conversationId, 'ask_email', 24))) return 'resuelto';
 
