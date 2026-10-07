@@ -28,7 +28,10 @@ export function ProtectedRoute({ children, allowedRoles, skipOnboardingCheck = f
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />;
+    // Volver a donde iba después del login (p. ej. una invitación /salud/invitacion/:token).
+    const destino = location.pathname + location.search;
+    const to = destino && destino !== '/' ? `/login?redirectTo=${encodeURIComponent(destino)}` : '/login';
+    return <Navigate to={to} replace />;
   }
 
   // Selección de rol diferida: usuarios que entraron por OAuth (Google) sin

@@ -147,18 +147,6 @@ export async function getAthleteStats(userId: string, limit = 30) {
   return data;
 }
 
-// ─── Wellness Evaluations (Read-only for athlete) ────────────
-export async function getWellnessEvaluations(userId: string) {
-  const { data, error } = await supabase
-    .from('wellness_evaluations')
-    .select('*')
-    .eq('athlete_id', userId)
-    .order('evaluated_at', { ascending: false });
-
-  if (error) throw error;
-  return data;
-}
-
 // ─── Payments ────────────────────────────────────────────────
 export async function getAthletePayments(params: {
   status?: string | null;

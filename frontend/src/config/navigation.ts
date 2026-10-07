@@ -36,7 +36,8 @@ import {
   MonitorSpeaker,
   History,
   TrendingUp,
-  ShieldAlert
+  ShieldAlert,
+  Clock
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
 import { SHOW_EXPLORE } from '@/lib/feature-flags';
@@ -169,6 +170,9 @@ const GESTION_DEPORTIVA_ESCUELA: NavItem[] = [
   { title: 'Resultados', href: '/results-overview', icon: Trophy },
   { title: 'Mis Torneos', href: '/school/tournaments', icon: Trophy, addon: 'tournaments' },
   { title: 'Dotación', href: '/school/equipment', icon: Dumbbell },
+  // Solo disponibilidad (disponible / restringido / no disponible) que el
+  // profesional de salud y la familia autorizaron compartir; nunca diagnóstico.
+  { title: 'Disponibilidad médica', href: '/disponibilidad-medica', icon: Heart },
 ];
 
 /**
@@ -259,8 +263,9 @@ export function getNavigationByRole(
       {
         title: 'Bienestar',
         items: [
-          { title: 'Explorar Bienestar', href: '/wellness', icon: Heart },
+          { title: 'Mi Salud', href: '/salud', icon: Heart },
           { title: 'Mis Citas', href: '/wellness/appointments', icon: Calendar },
+          { title: 'Explorar Bienestar', href: '/wellness', icon: Activity },
         ]
       },
       {
@@ -317,7 +322,8 @@ export function getNavigationByRole(
           { title: 'Mensajes', href: '/messages', icon: MessageSquare },
           { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },
           { title: 'Mis Eventos', href: '/my-event-registrations', icon: Calendar },
-          { title: 'Mis Citas', href: '/wellness/appointments', icon: Heart },
+          { title: 'Salud de mis hijos', href: '/salud', icon: Heart },
+          { title: 'Mis Citas', href: '/wellness/appointments', icon: Calendar },
           { title: 'Carnets de mis hijos', href: '/my-cards', icon: IdCard },
           { title: 'Mis Constancias', href: '/my-certificates', icon: FileCheck2 },
           // Sin 'Facturación': /mi-plan es el plan SaaS de la escuela, no del padre.
@@ -343,6 +349,7 @@ export function getNavigationByRole(
           { title: 'Mis Planes', href: '/coach-plans', icon: FileText, moduleKey: 'gestion_deportiva_disponibilidad_coach' },
           { title: 'Mi Dotación', href: '/coach/dotacion', icon: Dumbbell },
           { title: 'Mis Deportistas', href: '/students', icon: Users },
+          { title: 'Disponibilidad médica', href: '/disponibilidad-medica', icon: Heart },
           { title: 'Calendario', href: '/calendar', icon: Calendar }
         ]
       },
@@ -495,31 +502,23 @@ export function getNavigationByRole(
       {
         title: 'Principal',
         items: [
-          { title: 'Dashboard Vendedor', href: '/vendor/dashboard', icon: Home },
-          { title: 'Mis Atletas', href: '/athletes', icon: Users },
-          { title: 'Agenda', href: '/schedule', icon: Calendar }
+          { title: 'Inicio', href: '/vendor/dashboard', icon: Home },
+          { title: 'Agenda', href: '/schedule', icon: Calendar },
+          { title: 'Pacientes', href: '/pacientes', icon: Users },
+          { title: 'Seguimientos', href: '/historias', icon: Target },
+        ]
+      },
+      {
+        title: 'Consulta',
+        items: [
+          { title: 'Disponibilidad', href: '/disponibilidad', icon: Clock },
+          { title: 'Reportes', href: '/wellness-reports', icon: FileText },
         ]
       },
       {
         title: 'Marketplace',
         items: [
           { title: 'Mis Servicios', href: '/vendor/services', icon: Activity },
-          { title: 'Citas Reservadas', href: '/vendor/appointments', icon: Calendar },
-        ]
-      },
-      {
-        title: 'Evaluaciones',
-        items: [
-          { title: 'Nueva Evaluación', href: '/evaluations/new', icon: Activity },
-          { title: 'Historial Médico', href: '/medical-history', icon: Heart },
-          { title: 'Seguimientos', href: '/follow-ups', icon: Target }
-        ]
-      },
-      {
-        title: 'Recursos',
-        items: [
-          { title: 'Planes Nutricionales', href: '/nutrition', icon: BookOpen },
-          { title: 'Reportes', href: '/wellness-reports', icon: FileText },
         ]
       },
       {

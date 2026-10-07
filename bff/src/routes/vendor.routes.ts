@@ -42,13 +42,27 @@ router.post('/profile', async (req: Request, res: Response) => {
             return res.status(400).json({ ok: false, error: 'display_name es requerido.' });
         }
 
+        // El upsert corre con service role y se salta fn_guard_vendor_profiles:
+        // si el body manda vendor_type sobre un perfil existente, el vendor
+        // cambiaba su propio tipo. El tipo solo se fija al crear, y nunca
+        // 'school' (ese perfil lo crea la escuela por su propio camino).
+        const TIPOS_AUTOSERVICIO = ['store', 'wellness', 'personal_trainer', 'coach'];
+        if (vendor_type && !TIPOS_AUTOSERVICIO.includes(vendor_type)) {
+            return res.status(400).json({ ok: false, error: 'vendor_type no permitido.' });
+        }
+        const { data: existente } = await supabase
+            .from('vendor_profiles')
+            .select('id')
+            .eq('user_id', req.user.id)
+            .maybeSingle();
+
         const { data, error } = await supabase
             .from('vendor_profiles')
             .upsert({
                 user_id: req.user.id,
                 display_name,
                 description: description || null,
-                vendor_type: vendor_type || 'store',
+                ...(existente ? {} : { vendor_type: vendor_type || 'store' }),
                 city: city || null,
                 address: address || null,
                 phone: phone || null,
@@ -163,13 +177,15 @@ router.put('/profile/verification', async (req: Request, res: Response) => {
 
         // Notificar a todos los admins/owners para que revisen el doc.
         try {
+            // SEG-26: el staff de plataforma vive en platform_admins, no en
+            // profiles.role (autoasignable: el aviso le llegaba a cualquiera).
             const { data: admins } = await supabase
-                .from('profiles')
-                .select('id')
-                .in('role', ['admin', 'owner', 'super_admin']);
+                .from('platform_admins')
+                .select('profile_id')
+                .eq('is_active', true);
 
             const notificationRows = (admins || []).map(a => ({
-                user_id: a.id,
+                user_id: a.profile_id,
                 title: 'Nuevo vendor para verificar',
                 message: `"${data.display_name || 'Vendor'}" subió su documento de verificación.`,
                 type: 'vendor_verification_pending',
