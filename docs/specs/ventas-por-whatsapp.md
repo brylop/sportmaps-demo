@@ -477,7 +477,7 @@ Tamaños: **S** ≤ 3 días · **M** 1–2 semanas. Una rama por fase, revisión
 
 **Decisión técnica D-V9 (resuelta en F0):** la clave anti-duplicados **no** va en `payments` sino en una **tabla puente** `wa_cobros_sueltos`. Motivos: (1) un acudiente puede insertar filas propias en `payments` (policy + `fn_guard_payments_client`), así que una columna `payments.idempotency_key` se podría falsificar desde el navegador y el job de anulación terminaría tocando cobros que no creó el bot; la tabla puente es solo de service role; (2) el conteo de cupos necesita saber **de qué ítem** es cada cobro, y `payments` no tiene dónde guardarlo sin otra columna; (3) no se agrega nada a la tabla más caliente del sistema.
 
-Una sola migración: **`20261007095911_ventas_wa_f0_carril_b.sql`** (copia en `docs/migraciones-para-aplicar-2026-10-07/6_ventas_wa_f0_carril_b.sql`). Todo en una transacción. **No está aplicada.**
+Una sola migración: **`20261007095911_ventas_wa_f0_carril_b.sql`** (copia en `docs/migraciones-para-aplicar-2026-10-07/7_ventas_wa_f0_carril_b.sql`). Todo en una transacción. **No está aplicada.**
 
 ### 16.1 Qué cambia
 
@@ -508,7 +508,7 @@ Las tres RPC: `SET search_path = pg_catalog, public, pg_temp`; `REVOKE ALL … F
 9. Inserta **una** fila en `payments`: `status 'pending'`, `amount = price` del catálogo, `payment_category` = `kind`, `payment_type 'one_time'`, `due_date` = hoy en Bogotá, `period_uniqueness_exempt = true` (si no, chocaría con el índice único de la mensualidad del mes), `parent_id`, `child_id`, `school_id` y concepto determinista: `<nombre del ítem>[ · dd/mm][ · <nombre del atleta>]`.
 10. Inserta la fila puente con `vence_at = now() + vigencia`. Todo en la misma transacción.
 
-Devuelve `jsonb`: `{ok:true, payment_id, idempotente, monto, concepto, categoria, vence_at, cupos_restantes}` o `{ok:false, codigo, payment_id?}`. Los errores de negocio **no** lanzan: devuelven `codigo` y la transacción no escribe nada.
+Devuelve `jsonb`: `{ok:true, payment_id, idempotente, monto, concepto, categoria, estado, vence_at, cupos_restantes}` o `{ok:false, codigo, payment_id?}`. Los errores de negocio **no** lanzan: devuelven `codigo` y la transacción no escribe nada.
 
 ### 16.3 `wa_anular_cobros_sueltos_vencidos`
 
@@ -605,6 +605,11 @@ export interface CobroSueltoCreado {
     monto: number;
     concepto: string;
     categoria: CategoriaServicio;
+    /**
+     * payments.status actual del cobro (agregado el 2026-10-07, aditivo). Nuevo: 'pending'.
+     * Idempotente: puede ser 'paid' o 'cancelled' (ya venció → generar clave nueva para «retomar»).
+     */
+    estado: string;
     /** ISO UTC: desde cuándo (más el margen) lo anula el job si no se paga. */
     venceEn: string;
     cuposRestantes: number | null;
@@ -635,3 +640,5 @@ export function anularCobrosSueltosVencidos(
 ```
 
 **Cómo lo usa F2 (orden):** `catalogoServicios` → resumen con `precio` → «¿La agendo?» → `crearCobroSuelto` con la clave del flujo → `crearLinkWompiConMonto(paymentId, { minutos: 60 })` → el bot dice el `total` **del link**, no el `precio`. Con `ya_inscrito`, se llama `crearLinkWompiConMonto(paymentId)` sobre el cobro existente. El `payment_id` se guarda en `whatsapp_conversation_flows.data.payment_id` para que la cola aplique el comprobante a ese cobro.
+
+**Verificado el 2026-10-07** en el gemelo Docker (`sportmaps-qa-twin`), dentro de una transacción con `ROLLBACK`: la migración compila y el smoke pasa completo (permisos 0–0c, defaults y CHECK, interruptor, catálogo y búsqueda, validaciones, cobro + idempotencia + `ya_inscrito` + `clave_reutilizada`, cupos, anulación, cupo liberado y `open_month`). Falta: aplicarla en la base viva y la prueba de concurrencia con dos sesiones (F2).

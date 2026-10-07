@@ -30,6 +30,7 @@ import { runWhatsAppPlantillasSync } from './whatsapp-plantillas-sync.job';
 import { runWhatsAppResumenDiario } from './whatsapp-resumen-diario.job';
 import { runBotResumenSemanal } from './bot-resumen-semanal.job';
 import { runFranjasCortesia } from '../services/franjas-cortesia.service';
+import { anularCobrosSueltosVencidos } from '../services/ventas-servicios.service';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -774,4 +775,39 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Franjas de cortesía registradas para las 05:30 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Ventas por WhatsApp, carril B — cada 5 min.
+    //
+    // Un cobro suelto (clase extra, vacacional, torneo, viaje) que la familia
+    // pidió por el chat y no pagó en la hora (+15 min de margen) pasa a
+    // 'cancelled' con motivo venta_whatsapp_vencida y libera su cupo. Si no, la
+    // cobranza lo perseguiría como deuda que la familia nunca contrajo. Solo
+    // toca lo que creó wa_crear_cobro_suelto (tabla wa_cobros_sueltos), nunca
+    // un cobro con comprobante en revisión. Idempotente y con SKIP LOCKED:
+    // seguro en los 3 BFF. Spec docs/specs/ventas-por-whatsapp.md §16.3.
+    // Kill-switch: DISABLE_VENTAS_ANULAR_VENCIDOS=true.
+    // ────────────────────────────────────────────────────────────────────────
+    let ventasMigracionAvisada = false;
+    cron.schedule('*/5 * * * *', async () => {
+        if (process.env.DISABLE_VENTAS_ANULAR_VENCIDOS === 'true') return;
+        try {
+            const r = await anularCobrosSueltosVencidos();
+            if (r.migracionPendiente) {
+                if (!ventasMigracionAvisada) {
+                    ventasMigracionAvisada = true;
+                    console.log('[CRON] Ventas WhatsApp: la migración 20261007095911 no está aplicada; el job no hace nada.');
+                }
+                return;
+            }
+            if (r.anulados > 0) {
+                console.log(`[CRON] Ventas WhatsApp: ${r.anulados} cobro(s) suelto(s) vencido(s) anulado(s).`);
+            }
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error anulando cobros sueltos vencidos:', err?.message || err);
+        }
+    });
+
+    console.log('[CRON] Anulación de cobros sueltos vencidos (ventas WhatsApp) registrada (cada 5 min).');
 }
