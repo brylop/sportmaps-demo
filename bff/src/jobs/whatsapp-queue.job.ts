@@ -46,6 +46,7 @@ import type { Logger } from 'pino';
 import {
     detectarOtroConcepto, decidirOtroConcepto, mensajeOtroConcepto, motivoOtroConcepto, textosAlrededor,
 } from '../services/whatsapp-otro-concepto.service';
+import { ventaAbiertaDeContacto, decidirComprobanteDeVenta } from '../services/whatsapp-venta-servicios.service';
 
 const BUCKET = 'payment-receipts';
 const LOTE = 10;
@@ -728,6 +729,31 @@ async function continuarComoComprobante(
 
     // ¿A qué pago va?
     const pendientes = await pagosPendientesDe(parentId, fila.school_id);
+
+    // ¿Hay una venta por WhatsApp esperando el pago (servicio, carril B)? La
+    // foto es de ESE cobro suelto, nunca de la mensualidad
+    // (docs/specs/ventas-por-whatsapp.md §5.3). Va antes que todo lo demás:
+    // el cobro de la venta es la mejor pista que existe.
+    const venta = decidirComprobanteDeVenta(
+        await ventaAbiertaDeContacto(fila.integration_id, fila.wa_phone_number), pendientes);
+    if (venta.tipo === 'aplicar') {
+        log?.info?.({ queueId: fila.id, paymentId: venta.pago.id }, '[wa-queue] comprobante de la venta abierta');
+        await aplicarComprobante({
+            queueId: fila.id, schoolId: fila.school_id, parentId, storagePath,
+            sha: crypto.createHash('sha256').update(Buffer.from(base64, 'base64')).digest('hex'),
+            ocr, responder,
+            alFallar: (motivo) => reintentar(fila, motivo, log),
+            log,
+        }, venta.pago, pendientes.filter((x) => x.id !== venta.pago.id));
+        return;
+    }
+    if (venta.tipo === 'a_la_escuela') {
+        await responder(venta.mensaje, 'otro_concepto');
+        await cerrar(fila.id, 'ignored', {
+            result_type: 'escalated', matched_parent_id: parentId, error_message: venta.motivo,
+        });
+        return;
+    }
 
     // ¿Dice que es OTRA cosa? (P0, 2026-10-07: «Clase perfeccionamiento» y «lo
     // de los uniformes» se aplicaron a la mensualidad y la escuela los rechazó

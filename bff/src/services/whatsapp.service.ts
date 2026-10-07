@@ -271,6 +271,7 @@ export function payloadDeBotones(
     toWaId: string,
     body: string,
     botones: BotonInteractivo[],
+    opts: { imagenUrl?: string | null } = {},
 ): Record<string, unknown> | null {
     const validos = botones
         .filter((b) => b && b.id && b.title)
@@ -291,10 +292,18 @@ export function payloadDeBotones(
         type: 'interactive',
         interactive: {
             type: 'button',
+            // Encabezado con foto (ficha de un servicio en venta): la foto, el
+            // texto y los botones salen en UN mensaje. Solo URLs https.
+            ...(esUrlDeImagen(opts.imagenUrl) ? { header: { type: 'image', image: { link: opts.imagenUrl } } } : {}),
             body: { text: body },
             action: { buttons: validos },
         },
     };
+}
+
+/** ¿Sirve como `link` de una imagen para Meta? Solo https. */
+function esUrlDeImagen(url: string | null | undefined): url is string {
+    return typeof url === 'string' && /^https:\/\/\S+$/i.test(url.trim());
 }
 
 /**
@@ -313,9 +322,11 @@ export async function sendInteractiveButtons(
     toWaId: string,
     body: string,
     botones: BotonInteractivo[],
+    opts: { imagenUrl?: string | null } = {},
 ): Promise<SendTextResult> {
+    // La lista no admite foto en el encabezado: sale sin ella.
     if (debeIrComoLista(botones)) return sendList(integration, toWaId, body, botones);
-    const payload = payloadDeBotones(toWaId, body, botones);
+    const payload = payloadDeBotones(toWaId, body, botones, opts);
     if (!payload) return { ok: false, error: 'no_cabe_como_botones' };
     return postearMensaje(integration, payload);
 }
@@ -431,6 +442,51 @@ export async function sendCtaUrl(
 ): Promise<SendTextResult> {
     const payload = payloadDeCtaUrl(toWaId, body, textoBoton, url);
     if (!payload) return { ok: false, error: 'no_cabe_como_cta_url' };
+    return postearMensaje(integration, payload);
+}
+
+// ─── Imagen (type: image) ────────────────────────────────────────────────────
+
+/** Límite de Meta para el pie de una imagen. */
+export const MAX_PIE_IMAGEN = 1024;
+
+/**
+ * Payload de Graph para una imagen por URL con pie (`type: 'image'`). Pura.
+ * null si no cabe (URL que no es https o pie de más de 1024 caracteres): quien
+ * llama manda el texto plano, que siempre sale. Se usa para la ficha de un
+ * servicio en venta (docs/specs/ventas-por-whatsapp.md §4.2): la foto con el
+ * texto de la ficha como pie, en UN mensaje.
+ */
+export function payloadDeImagen(
+    toWaId: string,
+    url: string,
+    caption?: string | null,
+): Record<string, unknown> | null {
+    if (!esUrlDeImagen(url)) return null;
+    const pie = (caption ?? '').trim();
+    if (pie.length > MAX_PIE_IMAGEN) return null;
+    return {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: toWaId,
+        type: 'image',
+        image: pie ? { link: url.trim(), caption: pie } : { link: url.trim() },
+    };
+}
+
+/**
+ * Envía una imagen (por URL pública) con su pie. Solo dentro de la ventana de
+ * 24 h. No lanza: si no cabe o Meta la rechaza devuelve `{ ok: false }` y
+ * quien llama manda el pie como texto plano.
+ */
+export async function sendImage(
+    integration: WhatsAppIntegration,
+    toWaId: string,
+    url: string,
+    caption?: string | null,
+): Promise<SendTextResult> {
+    const payload = payloadDeImagen(toWaId, url, caption);
+    if (!payload) return { ok: false, error: 'no_cabe_como_imagen' };
     return postearMensaje(integration, payload);
 }
 
