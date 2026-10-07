@@ -29,6 +29,7 @@
  * responde neutro y escala; jamás inventa datos de menores.
  */
 
+import { APP_PUBLICA_PROD } from '../utils/url-publica-familias';
 import crypto from 'crypto';
 import { AsyncLocalStorage } from 'async_hooks';
 import { supabase } from '../config/supabase';
@@ -69,6 +70,13 @@ import {
     type FilaReciente, type ComprobanteAnunciado,
 } from './whatsapp-reglas-turno';
 import { atenderAusenciaEnBot } from './whatsapp-ausencias.service';
+import { ajustesWhatsAppDeEscuela, type AjustesWhatsAppEscuela } from './whatsapp-ajustes-escuela.service';
+import { mensajeSemanaDeCortesia } from './whatsapp-cortesia-semana.service';
+import { textoDePreciosDeEscuela } from './whatsapp-precios.service';
+import { pideAyudaDeApp, textoAyudaApp } from './whatsapp-ayuda-app.service';
+import {
+    reclamaValor, cobrosAbiertos, textoReclamoDeValor, motivoReclamoDeValor,
+} from './whatsapp-reclamo-valor.service';
 
 const OTP_TTL_MIN = 10;
 
@@ -289,8 +297,12 @@ async function cuerpoDelTurno(
     //       contestó a una familia de Dynasty «no tengo esa información». La
     //       regla solo mira el texto (gratis); si no dispara, el modelo aún
     //       puede llegar por la tool `get_trial_class_info`.
-    if (pideClaseDeCortesia(text) && await atenderCortesiaEnBot(
-        integration, conversationId, contactWaId, text, botonId, conv.parent_id)) {
+    //       Con `wa_modo_cortesia='semana_app'` (ajuste por escuela) va el paso
+    //       a paso del enlace de cortesía en vez de la clase suelta.
+    const ajustesEscuela = await ajustesWhatsAppDeEscuela(integration.school_id);
+    if (pideClaseDeCortesia(text) && (
+        await cortesiaSemanaEnBot(integration, conversationId, contactWaId, ajustesEscuela)
+        || await atenderCortesiaEnBot(integration, conversationId, contactWaId, text, botonId, conv.parent_id))) {
         return;
     }
 
@@ -375,10 +387,23 @@ async function cuerpoDelTurno(
         return;
     }
 
+    // 2.85. «El valor no coincide» (ajuste `wa_reclamos_de_valor`): lo resuelve
+    //       una persona. Va antes de «ya pagué»: «pagué 340 y me sale 380» es
+    //       un reclamo del valor, no un comprobante perdido.
+    if (await responderReclamoDeValor(integration, conversationId, contactWaId, conv.parent_id, rafaga, ajustesEscuela)) {
+        return;
+    }
+
     // 2.9. P7 — «Ya pagué / no aparece mi pago»: primero qué comprobante
     //      tenemos y en qué estado está; después, si queda, lo pendiente.
     if (yaPagoYReclama(rafaga)) {
         await responderYaPague(integration, conversationId, contactWaId, conv.parent_id);
+        return;
+    }
+
+    // 2.95. «No puedo entrar», «olvidé la clave», «cómo pago en la app»
+    //       (ajuste `wa_ayuda_app`): paso a paso con los botones reales, sin modelo.
+    if (await responderAyudaDeApp(integration, conversationId, contactWaId, rafaga, ajustesEscuela, true)) {
         return;
     }
 
@@ -942,7 +967,10 @@ async function historialDeConversacion(
 
 // ─── 1. Identificación (OTP por email) ────────────────────────────────────────
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://app.sportmaps.co';
+// Los enlaces salen a familias reales por el número de la escuela: siempre la
+// app de producción. Con FRONTEND_URL, el BFF de dev mandaba dev.sportmaps.co
+// (la base es una sola y dev también procesa la cola; 2026-10-06).
+const FRONTEND_URL = APP_PUBLICA_PROD;
 
 /**
  * Identificacion por el NUMERO desde el que escribe. Va antes que el correo.
@@ -1092,6 +1120,66 @@ async function atenderCortesiaEnBot(
         console.warn('[whatsapp-bot] flujo de clase de cortesía falló', { conversationId, err: e?.message });
         return false;
     }
+}
+
+// ─── Ajustes por escuela (docs/specs/whatsapp-ajustes-por-escuela.md) ────────
+// Los tres devuelven false con el ajuste apagado (el default): el turno sigue
+// exactamente como antes.
+
+/** `wa_modo_cortesia='semana_app'`: el paso a paso del enlace de cortesía. */
+async function cortesiaSemanaEnBot(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    ajustes: AjustesWhatsAppEscuela,
+): Promise<boolean> {
+    const texto = await mensajeSemanaDeCortesia(integration.school_id, ajustes);
+    if (!texto) return false;
+    await deliver(integration, conversationId, contactWaId, texto, { step: PASO_CORTESIA_SEMANA });
+    return true;
+}
+
+export const PASO_CORTESIA_SEMANA = 'cortesia_semana';
+export const PASO_AYUDA_APP = 'ayuda_app';
+
+/**
+ * `wa_ayuda_app`: ingreso, contraseña, pagar en la app, instalar. El mismo tema
+ * no se repite en 10 min (la ráfaga lo vuelve a leer): la segunda vez sigue el
+ * camino normal.
+ */
+async function responderAyudaDeApp(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    texto: string,
+    ajustes: AjustesWhatsAppEscuela,
+    identificado: boolean,
+): Promise<boolean> {
+    if (!ajustes.ayudaApp) return false;
+    const tema = pideAyudaDeApp(texto);
+    if (!tema) return false;
+    const step = `${PASO_AYUDA_APP}_${tema}`;
+    if (await pasoReciente(conversationId, step, 10 / 60)) return false;
+    const marca = await sufijoMarcaEscuela(integration.school_id);
+    const urlLogin = conMarca(`${FRONTEND_URL.replace(/\/$/, '')}/login`, marca);
+    await deliver(integration, conversationId, contactWaId, textoAyudaApp(tema, { urlLogin, identificado }), { step });
+    return true;
+}
+
+/** `wa_reclamos_de_valor`: muestra los cobros abiertos y lo pasa a una persona. */
+async function responderReclamoDeValor(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    parentId: string | null,
+    texto: string,
+    ajustes: AjustesWhatsAppEscuela,
+): Promise<boolean> {
+    if (!ajustes.reclamosDeValor || !reclamaValor(texto)) return false;
+    const cobros = await cobrosAbiertos(parentId, integration.school_id);
+    await escalate(integration, conversationId, contactWaId, motivoReclamoDeValor(texto, cobros),
+        { antes: textoReclamoDeValor(cobros) });
+    return true;
 }
 
 /**
@@ -1474,7 +1562,7 @@ const FRENO_DESCONOCIDO_DIAS = 30;
 export type ResultadoDesconocido =
     | 'otp_codigo' | 'otp_correo' | 'inscripcion' | 'inscripcion_sin_enlace' | 'pagos'
     | 'pagos_y_precio' | 'pagos_y_precio_sin_enlace'
-    | 'clase_cortesia' | 'clase_cortesia_en_curso'
+    | 'clase_cortesia' | 'clase_cortesia_en_curso' | 'cortesia_semana' | 'ayuda_app' | 'precios'
     | 'prospecto_seguimiento' | 'escuela_atendiendo'
     | 'frenado' | 'silencio';
 
@@ -1518,6 +1606,37 @@ export async function atenderDesconocido(
     if (emailMatch) {
         await arrancarOtp(integration, conversationId, contactWaId, emailMatch[0]);
         return 'otp_correo';
+    }
+
+    // 1c. Ajustes por escuela (docs/specs/whatsapp-ajustes-por-escuela.md),
+    //     apagados por defecto. «No puedo entrar a la app» no es tema escolar
+    //     para el filtro de abajo y quedaría en silencio.
+    const ajustesEscuela = await ajustesWhatsAppDeEscuela(integration.school_id);
+    if (await responderAyudaDeApp(integration, conversationId, contactWaId, text, ajustesEscuela, false)) {
+        return 'ayuda_app';
+    }
+
+    // 1d. «¿Cuánto cuesta?» con `wa_responder_precios`: los valores de los
+    //     planes, SIN enlace de pago, y la semana de cortesía si la escuela la
+    //     tiene. Sin el ajuste no cambia nada: «cuánto cuesta» suelto no es tema
+    //     escolar (silencio) y «cuánto vale la mensualidad» recibe el enlace.
+    //     Mismo step y mismo freno de 30 días que el resto de respuestas al desconocido.
+    if (ajustesEscuela.responderPrecios && preguntaPrecioComoProspecto(text)
+        && !(await yaSeLeContestoEscolar(conversationId))
+        && !humanoReciente(await mensajesRecientes(conversationId), SILENCIO_HUMANO_MIN)) {
+        const precios = await textoDePreciosDeEscuela(integration.school_id);
+        if (precios) {
+            const semana = await mensajeSemanaDeCortesia(integration.school_id, ajustesEscuela);
+            await deliver(integration, conversationId, contactWaId,
+                `Hola 👋 Soy el *asistente automático* de *${await nombreDeEscuela(integration.school_id)}*. 🤖` +
+                `\n\n${precios}` +
+                (semana
+                    ? `\n\nY antes de decidir:\n\n${semana}`
+                    : '\n\nSi quieres inscribirte o tienes dudas, escríbelas por aquí y la escuela te responde.') +
+                '\n\nSi ya eres familia de la escuela y quieres saber *tu* saldo, escríbeme el correo con el que estás registrado.',
+                { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'precios', con_enlace: Boolean(semana) });
+            return 'precios';
+        }
     }
 
     // 2. ¿Es de la escuela? Si no, silencio.
@@ -1632,6 +1751,17 @@ export async function atenderDesconocido(
     const intereses = prospecto ? interesesDeProspecto(todoElTexto) : [];
     const quiereVisitar = intereses.includes('visita');
     const esAdulto = prospecto ? buscaParaAdulto(todoElTexto) : false;
+
+    // Cortesía «semana por la app» (ajuste por escuela): el paso a paso del
+    // enlace de cortesía reemplaza la clase suelta y el enlace genérico. Mismo
+    // step, así que cuenta para el freno de 30 días. El adulto sigue el camino
+    // de siempre (el texto habla de «tu hijo/a»). Sin QR válido → null → igual.
+    const semana = esAdulto ? null : await mensajeSemanaDeCortesia(integration.school_id, ajustesEscuela);
+    if (semana) {
+        await deliver(integration, conversationId, contactWaId, saludo + '\n\n' + semana,
+            { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'cortesia_semana', con_enlace: true });
+        return contestar('cortesia_semana');
+    }
 
     // Clase de cortesía: si la escuela tiene franjas con cupo se OFRECEN
     // (además del enlace), y si preguntó por ella sin franjas cargadas se le
@@ -2301,6 +2431,10 @@ async function handleIntent(
         // Sin segundo turno de redacción: el texto, las franjas y los botones
         // salen del flujo determinista. Un modelo redactando franjas es justo
         // donde se inventa un horario que la familia después reclama.
+        if (await cortesiaSemanaEnBot(integration, conversationId, contactWaId,
+            await ajustesWhatsAppDeEscuela(integration.school_id))) {
+            return;
+        }
         const ctx = ctxCortesia(integration, conversationId, contactWaId, parentId);
         try {
             // «Cancelar mi clase» llega acá cuando la regla no lo atrapó: el
@@ -2870,6 +3004,7 @@ async function escalate(
     conversationId: string,
     contactWaId: string,
     reason: string,
+    opciones: { antes?: string } = {},
 ): Promise<void> {
     // Solo se avisa en la TRANSICION a abierta. `escalate` puede correr varias
     // veces sobre la misma conversacion —el bot se atasca dos veces seguidas— y
@@ -2891,8 +3026,10 @@ async function escalate(
     // la escuela no hay nadie hasta el otro dia, es prometer algo que no se
     // puede cumplir.
     const horario = await estadoDeHorario(integration.id);
+    // `antes`: lo que se le dice primero (el reclamo de valor muestra los cobros).
+    const aviso = mensajeDeEscalamiento(horario);
     await deliver(integration, conversationId, contactWaId,
-        mensajeDeEscalamiento(horario),
+        opciones.antes ? `${opciones.antes}\n\n${aviso}` : aviso,
         { step: 'escalated', reason, fuera_de_horario: horario.fueraDeHorario });
 }
 

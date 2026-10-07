@@ -1319,7 +1319,7 @@ export function PaymentCheckoutModal({
                     <AlertTitle className="text-primary font-bold text-sm">Información de Transferencia</AlertTitle>
                     <AlertDescription className="space-y-2 mt-2">
                       <p className="text-sm">
-                        {payableAccounts.length > 1
+                        {payableAccounts.length + (bankDetails?.bank_account_number ? 1 : 0) > 1
                           ? 'Realiza tu transferencia a cualquiera de estas cuentas:'
                           : 'Realiza tu transferencia a la siguiente cuenta:'}
                       </p>
