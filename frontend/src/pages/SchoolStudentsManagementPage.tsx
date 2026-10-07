@@ -43,6 +43,7 @@ import { EpsCombobox } from '@/components/common/EpsCombobox';
 import { TSHIRT_SIZES, BLOOD_TYPES } from '@/lib/athlete-options';
 import { CreateChildModal } from '@/components/students/CreateChildModal';
 import { CreateAdultAthleteModal } from '@/components/students/CreateAdultAthleteModal';
+import { RegisterCashPaymentModal } from '@/components/payment/RegisterCashPaymentModal';
 import {
   useSchoolContext,
   createStudentWithPendingPayment,
@@ -252,6 +253,13 @@ export default function SchoolStudentsManagementPage() {
 
   // Besser: el coach no ve mensualidad ni estado de pago en ninguna pantalla.
   const hideFinancials = profile?.role === 'coach' && coachHideFinancialInfo;
+
+  // «Estado de cuenta»: registrar desde el listado un pago que la familia hizo
+  // por fuera de la app (efectivo o transferencia directa). Es el mismo modal de
+  // Gestión de Pagos → Registrar pago, abierto con el deportista ya elegido.
+  // Solo administración: el coach no registra dinero.
+  const canRegisterPayments = canManageStudents && !hideFinancials;
+  const [accountStudentId, setAccountStudentId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   // Atleta que ya existe en la escuela y coincide con el que se está creando.
   // Mientras esté acá, el alta NO se hizo.
@@ -1239,6 +1247,27 @@ export default function SchoolStudentsManagementPage() {
     return age >= 18;
   };
 
+  // Botón de editar: con permiso de registrar pagos se abre en dos opciones
+  // (deportista / estado de cuenta); si no, edita directo como antes.
+  const EditStudentButton = ({ student, trigger }: { student: any; trigger: React.ReactElement }) => {
+    if (!canRegisterPayments || student.status === 'inactive') {
+      return <span onClick={() => handleEditStudent(student)}>{trigger}</span>;
+    }
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => handleEditStudent(student)}>
+            <User className="h-4 w-4 mr-2" /> Editar deportista
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setAccountStudentId(student.id)}>
+            <FileText className="h-4 w-4 mr-2" /> Editar estado de cuenta
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  };
+
   // ── PATCH: label del item "Invitar" cambia según tipo de atleta ───────────
   const StudentActions = ({ student }: { student: any }) => (
     <DropdownMenu>
@@ -1255,7 +1284,10 @@ export default function SchoolStudentsManagementPage() {
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={() => setViewingStudent(student)}>Ver Perfil</DropdownMenuItem>
         {canCreateOrEditStudents && (
-          <DropdownMenuItem onClick={() => handleEditStudent(student)}>Editar</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleEditStudent(student)}>Editar deportista</DropdownMenuItem>
+        )}
+        {canRegisterPayments && student.status !== 'inactive' && (
+          <DropdownMenuItem onClick={() => setAccountStudentId(student.id)}>Registrar pago</DropdownMenuItem>
         )}
         {/* Inactivar cancela el plan y anula la cartera pendiente: es acción de
             owner/admin (el RPC exige is_school_admin), no del coach. */}
@@ -1537,14 +1569,15 @@ export default function SchoolStudentsManagementPage() {
                     </div>
                     <div className="flex flex-col items-end gap-1 shrink-0">
                       {canCreateOrEditStudents && (
-                        <Button
-                          variant="outline" size="sm"
-                          className="h-8 px-2 text-xs gap-1"
-                          onClick={() => handleEditStudent(student)}
-                          aria-label={`Editar a ${student.full_name}`}
-                        >
-                          <Edit className="h-3.5 w-3.5" /> Editar
-                        </Button>
+                        <EditStudentButton student={student} trigger={
+                          <Button
+                            variant="outline" size="sm"
+                            className="h-8 px-2 text-xs gap-1"
+                            aria-label={`Editar a ${student.full_name}`}
+                          >
+                            <Edit className="h-3.5 w-3.5" /> Editar
+                          </Button>
+                        } />
                       )}
                       <StudentActions student={student} />
                     </div>
@@ -1634,7 +1667,9 @@ export default function SchoolStudentsManagementPage() {
                           <div className="flex gap-1">
                             <Button variant="ghost" size="sm" onClick={() => setViewingStudent(student)}>Ver</Button>
                             {canCreateOrEditStudents && (
-                              <Button variant="ghost" size="sm" onClick={() => handleEditStudent(student)}><Edit className="h-4 w-4 text-primary" /></Button>
+                              <EditStudentButton student={student} trigger={
+                                <Button variant="ghost" size="sm" aria-label={`Editar a ${student.full_name}`}><Edit className="h-4 w-4 text-primary" /></Button>
+                              } />
                             )}
                             {canManageStudents && (
                               <Button
@@ -2548,6 +2583,17 @@ export default function SchoolStudentsManagementPage() {
         />
       )}
       <StudentTypeSelector open={showTypeSelector} onClose={() => setShowTypeSelector(false)} onSelectChild={() => setShowCreateChildModal(true)} onSelectAdult={() => setShowCreateAdultModal(true)} />
+      {canRegisterPayments && (
+        <RegisterCashPaymentModal
+          open={!!accountStudentId}
+          onOpenChange={(o) => { if (!o) setAccountStudentId(null); }}
+          initialAthleteId={accountStudentId ?? undefined}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ['school-students'] });
+            queryClient.invalidateQueries({ queryKey: ['school-payments'] });
+          }}
+        />
+      )}
       <CreateChildModal open={showCreateChildModal} onClose={() => setShowCreateChildModal(false)} onSuccess={() => { queryClient.invalidateQueries({ queryKey: ['school-students'] }); setShowCreateChildModal(false); }} schoolId={schoolId || ''} />
       <CreateAdultAthleteModal open={showCreateAdultModal} onClose={() => setShowCreateAdultModal(false)} onSuccess={() => { queryClient.invalidateQueries({ queryKey: ['school-students'] }); setShowCreateAdultModal(false); }} schoolId={schoolId || ''} />
     </div>
