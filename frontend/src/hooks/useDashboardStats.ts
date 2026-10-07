@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { UserRole } from '@/types/dashboard';
+import { todayColombia } from '@/lib/dateUtils';
 
 export interface DashboardStats {
   children: number;
@@ -24,6 +25,11 @@ export interface DashboardStats {
   completedActivities: number;
   attendanceRate: number;
   activeTeams: number;
+  /** Solo wellness_professional (módulo clínico). */
+  activePatients?: number;
+  appointmentsToday?: number;
+  pendingRequests?: number;
+  openEpisodes?: number;
 }
 
 export function useDashboardStats(role?: UserRole) {
@@ -135,17 +141,27 @@ export function useDashboardStats(role?: UserRole) {
       }
 
       if (effectiveRole === 'wellness_professional') {
-        const { count: apptCount } = await supabase
-          .from('wellness_appointments')
-          .select('id', { count: 'exact' })
-          .eq('professional_id', user.id);
-        stats.appointments = apptCount || 0;
-
-        const { count: evalCount } = await supabase
-          .from('wellness_evaluations')
-          .select('id', { count: 'exact' })
-          .eq('professional_id', user.id);
-        stats.evaluations = evalCount || 0;
+        // Tablas clínicas aún sin tipos generados: cliente sin tipar.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const db = supabase as any;
+        const today = todayColombia();
+        const [patients, todayApts, pending, episodes, week] = await Promise.all([
+          db.from('clinical_patients').select('id', { count: 'exact', head: true })
+            .eq('professional_id', user.id).eq('status', 'activo'),
+          db.from('wellness_appointments').select('id', { count: 'exact', head: true })
+            .eq('professional_id', user.id).eq('appointment_date', today).in('status', ['pending', 'confirmed', 'completed']),
+          db.from('wellness_appointments').select('id', { count: 'exact', head: true })
+            .eq('professional_id', user.id).eq('status', 'pending').gte('appointment_date', today),
+          db.from('clinical_episodes').select('id', { count: 'exact', head: true })
+            .eq('professional_id', user.id).eq('status', 'abierto'),
+          db.from('wellness_appointments').select('id', { count: 'exact', head: true })
+            .eq('professional_id', user.id).gte('appointment_date', today).in('status', ['pending', 'confirmed']),
+        ]);
+        stats.activePatients = patients.count || 0;
+        stats.appointmentsToday = todayApts.count || 0;
+        stats.pendingRequests = pending.count || 0;
+        stats.openEpisodes = episodes.count || 0;
+        stats.appointments = week.count || 0;
       }
 
       if (effectiveRole === 'school' || effectiveRole === 'admin') {

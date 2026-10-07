@@ -92,7 +92,9 @@ export function useDashboardConfig(
         { id: 'enroll_program', title: 'Inscribirse en Equipo', description: 'Busca una academia y únete.', icon: Trophy, href: '/explore', completed: false }
       ],
       wellness_professional: [
-        { id: 'complete_profile', title: 'Perfil Profesional', description: 'Completa tu especialidad y datos.', icon: Heart, href: '/profile', completed: false }
+        { id: 'complete_profile', title: 'Perfil Profesional', description: 'Tarjeta profesional, especialidad y datos.', icon: Heart, href: '/vendor/onboarding', completed: false },
+        { id: 'set_availability', title: 'Tu disponibilidad', description: 'Define tus horarios de atención.', icon: Clock, href: '/disponibilidad', completed: false },
+        { id: 'add_patient', title: 'Primer paciente', description: 'Registra un paciente y su consentimiento.', icon: Users, href: '/pacientes', completed: false }
       ],
       store_owner: [
         { id: 'create_store', title: 'Configurar Tienda', description: 'Nombre y detalles de tu comercio.', icon: ShoppingBag, href: '/settings', completed: false },
@@ -279,39 +281,44 @@ export function useDashboardConfig(
       case 'wellness_professional':
         return {
           role: 'wellness_professional',
-          title: 'Panel de Bienestar',
-          description: 'Monitorea la salud de tus atletas',
+          title: 'Panel del Profesional',
+          description: 'Tus pacientes, tu agenda y tus tratamientos',
           stats: [
             {
-              title: 'Atletas Asignados',
-              value: 0, // Helper needed for dedicated athlete assignation count
-              description: 'Aún no tienes atletas asignados',
-              icon: Users
+              title: 'Pacientes activos',
+              value: stats.activePatients ?? 0,
+              description: 'En tu lista',
+              icon: Users,
+              href: '/pacientes'
             },
             {
-              title: 'Consultas Programadas',
-              value: stats.appointments,
-              description: 'Esta semana',
-              icon: Calendar
+              title: 'Citas hoy',
+              value: stats.appointmentsToday ?? 0,
+              description: 'Agendadas para hoy',
+              icon: Calendar,
+              href: '/schedule'
             },
             {
-              title: 'Evaluaciones Pendientes',
-              value: stats.evaluations,
-              description: 'Por completar',
-              icon: Activity
+              title: 'Solicitudes por confirmar',
+              value: stats.pendingRequests ?? 0,
+              description: (stats.pendingRequests ?? 0) > 0 ? 'Requieren tu respuesta' : 'Todo al día',
+              icon: Bell,
+              href: '/schedule'
             },
             {
-              title: 'Casos Activos',
-              value: 0,
-              description: 'En seguimiento',
-              icon: Heart
+              title: 'Tratamientos abiertos',
+              value: stats.openEpisodes ?? 0,
+              description: 'Episodios en curso',
+              icon: Heart,
+              href: '/pacientes'
             }
           ],
           activities: [],
           quickActions: [
-            { label: 'Ver Agenda', icon: Calendar, href: '/schedule', variant: 'default' },
-            { label: 'Mis Atletas', icon: Users, href: '/athletes', variant: 'outline' },
-            { label: 'Historial Médico', icon: Heart, href: '/medical-history', variant: 'outline' }
+            { label: 'Ver agenda', icon: Calendar, href: '/schedule', variant: 'default' },
+            { label: 'Pacientes', icon: Users, href: '/pacientes', variant: 'outline' },
+            { label: 'Disponibilidad', icon: Clock, href: '/disponibilidad', variant: 'outline' },
+            { label: 'Reportes', icon: BarChart3, href: '/wellness-reports', variant: 'outline' }
           ],
           onboardingSteps: onboardingConfigs.wellness_professional
         };
