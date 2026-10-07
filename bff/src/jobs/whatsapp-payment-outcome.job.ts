@@ -111,6 +111,21 @@ export async function runWhatsAppPaymentOutcome(log?: Logger): Promise<{ avisado
             continue;
         }
 
+        // Reserva ANTES de enviar. Los tres BFF (dev/stg/prod) comparten la base
+        // y corren este job al mismo tiempo: sin esto, cada uno leía la fila
+        // pendiente y enviaba («La escuela confirmó tu pago» ×3 en el mismo
+        // segundo, 2026-10-06). Se reservan todas las filas del MISMO pago (dos
+        // comprobantes de un pago salían ×6); solo quien las toma avisa.
+        const reservadaEn = new Date().toISOString();
+        const { data: reservadas } = await supabase.from('whatsapp_inbound_queue')
+            .update({ outcome_notified_at: reservadaEn })
+            .eq('result_type', 'payment_receipt')
+            .eq('result_ref_id', fila.result_ref_id as string)
+            .is('outcome_notified_at', null)
+            .select('id');
+        if (!reservadas?.length) continue;
+        const idsReservados = (reservadas as any[]).map((r) => r.id);
+
         const dadoDeBaja = await estaDadoDeBaja(fila.integration_id as string, fila.wa_phone_number as string);
         const final = aFormatoWhatsApp(dadoDeBaja ? texto + AVISO_DADO_DE_BAJA : texto);
 
@@ -118,9 +133,13 @@ export async function runWhatsAppPaymentOutcome(log?: Logger): Promise<{ avisado
             integration as WhatsAppIntegration, fila.wa_phone_number as string, final,
         );
 
-        // Solo se marca si SALIÓ. Si Graph falló, la siguiente vuelta reintenta:
+        // Si Graph falló se libera la reserva y la siguiente vuelta reintenta:
         // perder el aviso de que su plata quedó confirmada es peor que repetirlo.
         if (!enviado.ok) {
+            await supabase.from('whatsapp_inbound_queue')
+                .update({ outcome_notified_at: null })
+                .in('id', idsReservados)
+                .eq('outcome_notified_at', reservadaEn);
             log?.warn?.({ queueId: fila.id, err: enviado.error }, '[wa-outcome] no salió, se reintenta');
             continue;
         }
@@ -144,10 +163,6 @@ export async function runWhatsAppPaymentOutcome(log?: Logger): Promise<{ avisado
                 p_to_wa_id: fila.wa_phone_number,
             });
         }
-
-        await supabase.from('whatsapp_inbound_queue')
-            .update({ outcome_notified_at: new Date().toISOString() })
-            .eq('id', fila.id);
 
         avisados++;
         log?.info?.({ queueId: fila.id, paymentId: pago.id, estado: pago.status }, '[wa-outcome] avisado');
