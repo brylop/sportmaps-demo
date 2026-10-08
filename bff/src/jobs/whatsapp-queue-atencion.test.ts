@@ -302,14 +302,24 @@ describe('runWhatsAppQueue — la puerta de atención', () => {
         expect(ultimoCierre()).toMatchObject({ status: 'ignored', result_type: 'escalated', error_message: 'numero_ambiguo' });
     });
 
-    it.each(['desconocido', 'personal'])('%s: silencio, sin OCR, fila ignored/contacto_no_atendido', async (tipo) => {
-        state.atencion = { atender: tipo === 'desconocido', tipo, botEncendido: true };
+    it('personal: silencio, sin OCR, fila ignored/contacto_no_atendido', async () => {
+        state.atencion = { atender: false, tipo: 'personal', botEncendido: true };
 
         await runWhatsAppQueue();
 
         expect(sendTextMessageMock).not.toHaveBeenCalled();
         expect(downloadMediaMock).not.toHaveBeenCalled();
         expect(extractReceiptMock).not.toHaveBeenCalled();
+        expect(ultimoCierre()).toMatchObject({ status: 'ignored', error_message: 'contacto_no_atendido' });
+    });
+
+    it('desconocido: comprobante sin destino de la escuela ni texto de pago → silencio, sin guardar', async () => {
+        state.atencion = { atender: true, tipo: 'desconocido', botEncendido: true };
+
+        await runWhatsAppQueue();
+
+        expect(sendTextMessageMock).not.toHaveBeenCalled();
+        expect(updatesCola.some((u) => typeof u.storage_path === 'string')).toBe(false);
         expect(ultimoCierre()).toMatchObject({ status: 'ignored', error_message: 'contacto_no_atendido' });
     });
 

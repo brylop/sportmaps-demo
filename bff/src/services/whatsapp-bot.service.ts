@@ -54,7 +54,8 @@ import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from './whatsapp-optin.service';
 import { esActivacionDeAvisos } from './whatsapp-activar-avisos';
 import { estadoDeHorario, mensajeDeEscalamiento } from './whatsapp-horario.service';
 import { sendToUser } from './push.service';
-import { mediosDePago } from './whatsapp-medios-de-pago.service';
+import { mediosDePago, mediosDePagoDeFamilia, type CobroParaPagar } from './whatsapp-medios-de-pago.service';
+import { textoDeEleccion } from './whatsapp-comprobante-de-ficha.service';
 import { infoDeEscuela, fallbackInfoEscuela, horariosDelDia, textoHorarioDeHoy } from './whatsapp-info-escuela.service';
 import {
     esCierreDeCortesia, pideAlgo, seIdentificaComoExterno, preguntaHorarioDeHoy, mencionaCambioOCierre,
@@ -257,6 +258,15 @@ async function cuerpoDelTurno(
     //    el turno sigue: antes se le contestaba con saludo + consentimiento y el
     //    mensaje que había escrito (un comprobante, una pregunta) quedaba sin
     //    respuesta (P2, análisis 2026-10-06).
+    // 0e. Familia sin cuenta (o número sin ficha) que contesta la pregunta de
+    //     un comprobante («¿a cuál cobro?», «¿de qué deportista?»): la
+    //     identificación no la deja llegar a 2.5. Por audio no (mueve plata).
+    if (!conv.identified && text && ctx.origen !== 'audio' && await hayPreguntaDeCobroAbierta(integration, contactWaId)) {
+        const resuelta = await resolverRespuestaDeCobro(integration, contactWaId, textoDeEleccion(botonId, text),
+            (texto, paso) => deliver(integration, conversationId, contactWaId, texto, { step: paso })).catch(() => false);
+        if (resuelta) return;
+    }
+
     if (!conv.identified) {
         const r = await handleIdentification(integration, conversationId, contactWaId, text, botonId,
             textoDeRafaga(recientes, text, waMessageId));
@@ -389,7 +399,7 @@ async function cuerpoDelTurno(
         return;
     }
     const respondio = await resolverRespuestaDeCobro(
-        integration, contactWaId, text,
+        integration, contactWaId, textoDeEleccion(botonId, text),
         (texto, paso) => deliver(integration, conversationId, contactWaId, texto, { step: paso }),
     );
     if (respondio) return;
@@ -770,7 +780,8 @@ async function responderSinModelo(
 ): Promise<void> {
     const ruta = rutaSinModelo(text);
     if (ruta === 'medios') {
-        const medios = await mediosDePago(integration.school_id);
+        const medios = await mediosDePagoDeFamilia(integration.school_id, parentId,
+            { integrationId: integration.id, waPhone: contactWaId });
         await deliver(integration, conversationId, contactWaId,
             fallbackMediosDePago(medios), { step: 'medios_fallback', via: 'llm_error' });
         return;
@@ -905,7 +916,8 @@ async function ejecutarAccionDeBoton(
     }
 
     if (accion === 'get_payment_methods') {
-        const medios = await mediosDePago(integration.school_id);
+        const medios = await mediosDePagoDeFamilia(integration.school_id, parentId,
+            { integrationId: integration.id, waPhone: contactWaId });
         const anexo = await anexoDeConsentimiento(integration, conversationId, contactWaId, parentId);
         const m = conAnexoDeConsentimiento(fallbackMediosDePago(medios),
             { step: 'get_payment_methods', via: 'boton' }, undefined, anexo);
@@ -2053,6 +2065,7 @@ export type ResultadoDesconocido =
     | 'prospecto_horarios' | 'prospecto_precios' | 'prospecto_info' | 'prospecto_persona'
     | 'venta_consulta' | 'medios_de_pago' | 'medios_de_pago_escalado'
     | 'externo' | 'horarios_de_hoy'
+    | 'pregunta_de_comprobante'
     | 'frenado' | 'silencio';
 
 export async function atenderDesconocido(
@@ -2069,6 +2082,14 @@ export async function atenderDesconocido(
 
     const text = (inboundText || '').trim();
     if (!text && !botonId) return 'silencio';
+
+    // 0a. Contesta «¿De qué deportista es este pago?» (o «¿a cuál cobro?») de un
+    //     comprobante que mandó desde este número sin ficha.
+    if (text && await hayPreguntaDeCobroAbierta(integration, contactWaId)) {
+        const resuelta = await resolverRespuestaDeCobro(integration, contactWaId, textoDeEleccion(botonId, text),
+            (texto, paso) => deliver(integration, conversationId, contactWaId, texto, { step: paso })).catch(() => false);
+        if (resuelta) return 'pregunta_de_comprobante';
+    }
 
     // 0. Clase de cortesía EN CURSO: «Juan Pérez», «12», «Confirmar» no son
     //    tema escolar y sin esto el filtro de abajo los callaría a mitad de
@@ -3219,7 +3240,13 @@ COMO PAGAR:
 - Da los numeros de cuenta COMPLETOS, tal como vienen. No los recortes.
 - Si la escuela no tiene cuentas cargadas, no te las inventes: ofrece el enlace para
   pagar en linea y el envio del comprobante por aqui.
-- Si get_payment_methods trae instrucciones_del_enlace, repitelas junto al enlace.`;
+- Si get_payment_methods trae instrucciones_del_enlace, repitelas junto al enlace.
+- Si get_payment_methods trae cobros_pendientes, pon debajo de cada cobro su enlace_pago
+  como «Pagar: <enlace>» (y su enlace_instrucciones si viene). Si enlace_para_pagar
+  viene null, no hay pago en linea general: no lo menciones.
+- NUNCA escribas enlaces de la app que piden iniciar sesion (/my-payments, /dashboard,
+  /login): la familia no tiene la sesion abierta en el chat. Solo los enlaces que trae
+  la herramienta.`;
 
 export const TOOLS: LlmTool[] = [
     {
@@ -3450,7 +3477,10 @@ async function handleIntent(
     }
 
     if (call.name === 'get_payment_methods') {
-        const medios = await mediosDePago(integration.school_id);
+        // Con los cobros pendientes de la familia y el enlace público de cada
+        // uno: nunca /my-payments, que pide iniciar sesión (Dynasty 28-sep → 08-oct).
+        const medios = await mediosDePagoDeFamilia(integration.school_id, parentId,
+            { integrationId: integration.id, waPhone: contactWaId });
 
         messages.push({ role: 'assistant', content: MARCA_CONSULTA });
         messages.push({ role: 'tool', toolName: 'get_payment_methods', content: JSON.stringify(medios) });
@@ -3549,7 +3579,7 @@ async function handleIntent(
  * Si la segunda llamada al LLM falla, el acudiente igual se queda con las
  * cuentas y el enlace. Dejarlo sin respuesta seria peor que un texto plano.
  */
-function fallbackMediosDePago(m: Awaited<ReturnType<typeof mediosDePago>>): string {
+function fallbackMediosDePago(m: Awaited<ReturnType<typeof mediosDePago>> & { cobros_pendientes?: CobroParaPagar[] }): string {
     const lineas: string[] = ['Puedes pagar de estas formas:', ''];
     if (m.cuentas.length) {
         lineas.push('*Transferencia*');
@@ -3558,12 +3588,27 @@ function fallbackMediosDePago(m: Awaited<ReturnType<typeof mediosDePago>>): stri
         }
         lineas.push('');
     }
-    lineas.push(`*En línea:* ${m.enlace_para_pagar}`);
-    // Con link de pago (Wompi/MP de la escuela) va también qué hacer con él:
-    // la familia paga por fuera de SportMaps y, si no manda el comprobante, el
-    // pago no queda registrado. Sin modelo, este texto es lo único que lo dice.
-    if (m.instrucciones_del_enlace) lineas.push(m.instrucciones_del_enlace);
-    lineas.push('');
+    // Cada cobro pendiente con SU enlace público (/p/:token o Wompi con el
+    // monto). Nunca /my-payments: pide iniciar sesión.
+    const cobros = (m.cobros_pendientes ?? []).filter((c) => c.enlace_pago);
+    if (cobros.length) {
+        lineas.push('*Tus cobros pendientes*');
+        for (const c of cobros) {
+            const monto = c.monto != null ? ` — ${new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(c.monto)}` : '';
+            lineas.push(`• ${c.concepto ?? 'Cobro'}${monto}`);
+            lineas.push(`   Pagar: ${c.enlace_pago}`);
+            if (c.enlace_instrucciones) lineas.push(`   (${c.enlace_instrucciones})`);
+        }
+        lineas.push('');
+    }
+    if (m.enlace_para_pagar) {
+        lineas.push(`*En línea:* ${m.enlace_para_pagar}`);
+        // Con link de pago (Wompi/MP de la escuela) va también qué hacer con él:
+        // la familia paga por fuera de SportMaps y, si no manda el comprobante, el
+        // pago no queda registrado. Sin modelo, este texto es lo único que lo dice.
+        if (m.instrucciones_del_enlace) lineas.push(m.instrucciones_del_enlace);
+        lineas.push('');
+    }
     lineas.push('*Y si ya pagaste*, mándame la foto del comprobante por acá mismo y yo lo registro. 📄');
     return lineas.join('\n');
 }
