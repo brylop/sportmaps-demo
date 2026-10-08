@@ -91,6 +91,9 @@ import { ajustesWhatsAppDeEscuela, atencionPresencialDeEscuela, type AjustesWhat
 import { mensajeSemanaDeCortesia } from './whatsapp-cortesia-semana.service';
 import { atenderTurnoVenta } from './whatsapp-venta-servicios.service';
 import { textoDePreciosDeEscuela } from './whatsapp-precios.service';
+import { pidePrecio, preciosParaProspecto } from './whatsapp-precios.service';
+import { leerEstadoDeSupabase } from './whatsapp-clase-cortesia.service';
+import { atenderLlegada, yaReservoClase } from './prospecto-ciclo-clase.service';
 import { preguntaComoPagar, textoComoPagar, textoHorarioPresencial } from './whatsapp-pago-publico';
 import { pideAyudaDeApp, textoAyudaApp } from './whatsapp-ayuda-app.service';
 import {
@@ -1753,6 +1756,14 @@ async function handleIdentification(
         if (palabras.length <= 3 || conVocativo) return 'resuelto';
     }
 
+    // Ya reservó su clase de cortesía: es un prospecto atendido, no se le pide
+    // el correo (embudo 2026-10-08: «escríbeme tu correo» a un «Gracias»
+    // después de reservar). Lo ve la escuela en el buzón.
+    if (!botonId && await yaReservoClase(integration.school_id, contactWaId)) {
+        await abrirEnBuzon(integration, conversationId, contactWaId, { motivo: 'prospecto' });
+        return 'resuelto';
+    }
+
     if (!(await reservarPasoUnaVez(conversationId, 'ask_email', 24))) return 'resuelto';
 
     const nombreEscuela = await nombreDeEscuela(integration.school_id);
@@ -2066,6 +2077,7 @@ export type ResultadoDesconocido =
     | 'venta_consulta' | 'medios_de_pago' | 'medios_de_pago_escalado'
     | 'externo' | 'horarios_de_hoy'
     | 'pregunta_de_comprobante'
+    | 'llegada_clase'
     | 'frenado' | 'silencio';
 
 export async function atenderDesconocido(
@@ -2089,6 +2101,24 @@ export async function atenderDesconocido(
         const resuelta = await resolverRespuestaDeCobro(integration, contactWaId, textoDeEleccion(botonId, text),
             (texto, paso) => deliver(integration, conversationId, contactWaId, texto, { step: paso })).catch(() => false);
         if (resuelta) return 'pregunta_de_comprobante';
+    }
+
+    // 0a. «Llegué / llegamos» el DÍA de su clase de cortesía (embudo 2026-10-08):
+    //     bienvenida + aviso a la escuela + lead en «asistio». Va antes del
+    //     flujo de cortesía: el recordatorio del mismo día lo deja abierto.
+    if (!botonId && !enSimulacion() && await atenderLlegada({
+        schoolId: integration.school_id, conversationId, contactWaId, texto: text,
+        responder: (t) => deliver(integration, conversationId, contactWaId, t, { step: PASO_LLEGADA_CLASE }),
+    })) {
+        return 'llegada_clase';
+    }
+
+    // 0b. «¿Y los precios?» con el flujo de cortesía abierto: la lista corta
+    //     y el flujo sigue donde iba (el saliente conserva su estado). Antes
+    //     el flujo lo tomaba como respuesta al paso y repetía la pregunta.
+    if (!botonId && pidePrecio(text)) {
+        const precioEnFlujo = await precioConCortesiaAbierta(integration, conversationId, contactWaId, text);
+        if (precioEnFlujo) return precioEnFlujo;
     }
 
     // 0. Clase de cortesía EN CURSO: «Juan Pérez», «12», «Confirmar» no son
@@ -2171,6 +2201,7 @@ export async function atenderDesconocido(
     //     escolar (silencio) y «cuánto vale la mensualidad» recibe el enlace.
     //     Mismo step y mismo freno de 30 días que el resto de respuestas al desconocido.
     if (ajustesEscuela.responderPrecios && preguntaPrecioComoProspecto(text)
+        && !interesesDeProspecto(text).some((i) => i === 'horarios' || i === 'edades' || i === 'cortesia' || i === 'visita')
         && !(await yaSeLeContestoEscolar(conversationId))
         && !humanoReciente(await mensajesRecientes(conversationId), SILENCIO_HUMANO_MIN)) {
         const precios = await textoDePreciosDeEscuela(integration.school_id);
@@ -2280,10 +2311,12 @@ export async function atenderDesconocido(
         const paraFamilias =
             'Si ya eres familia de la escuela, escríbeme el *correo electrónico* con el que estás ' +
             'registrado y te envío un código para verificarte; así te digo el valor de tu mensualidad.';
+        const preciosCombinado = await preciosParaProspecto(integration.school_id, ajustesEscuela.responderPrecios);
         if (enlaceCombinado) {
             await deliver(integration, conversationId, contactWaId,
                 S + paraFamilias + '\n\n' +
-                'Si todavía no estás inscrito, en este enlace ves los grupos y los valores, y puedes ' +
+                (preciosCombinado ? `Si todavía no estás inscrito:\n\n${preciosCombinado}\n\n` : '') +
+                (preciosCombinado ? 'En este enlace puedes ' : 'Si todavía no estás inscrito, en este enlace ves los grupos y los valores, y puedes ') +
                 `hacer la inscripción: ${enlaceCombinado}`,
                 { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'pagos_y_precio', con_enlace: true });
             return 'pagos_y_precio';
@@ -2296,6 +2329,16 @@ export async function atenderDesconocido(
             { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'pagos_y_precio', con_enlace: false });
         await abrirEnBuzon(integration, conversationId, contactWaId, { motivo: 'prospecto' });
         return 'pagos_y_precio_sin_enlace';
+    }
+
+    // Prospecto que ya reservó su clase de cortesía: tampoco se le pide el correo.
+    if (tema === 'pagos' && await yaReservoClase(integration.school_id, contactWaId)) {
+        await abrirEnBuzon(integration, conversationId, contactWaId, { motivo: 'prospecto' });
+        if (await pasoReciente(conversationId, PASO_PROSPECTO_SEGUIMIENTO, 24)) return 'frenado';
+        await deliver(integration, conversationId, contactWaId,
+            '¡Gracias! 🙌 Ya pasé tu mensaje a la escuela y alguien te responde por aquí.',
+            { step: PASO_PROSPECTO_SEGUIMIENTO });
+        return 'prospecto_seguimiento';
     }
 
     if (tema === 'pagos') {
@@ -2333,6 +2376,14 @@ export async function atenderDesconocido(
     const intereses = prospecto ? interesesDeProspecto(todoElTexto) : [];
     const quiereVisitar = intereses.includes('visita');
     const esAdulto = prospecto ? buscaParaAdulto(todoElTexto) : false;
+    // ¿Preguntó el precio (ahora o en la ráfaga sin responder)? Va la lista
+    // corta en ESTA respuesta (embudo 2026-10-08: 9 de 24 preguntaron y el
+    // bot dio 0 cifras). Con edad, el grupo que le corresponde.
+    const pidioPrecio = [text, rafaga, ...textosProspecto].some((t) => pidePrecio(t));
+    const preciosPrimera = pidioPrecio
+        ? await preciosParaProspecto(integration.school_id, ajustesEscuela.responderPrecios)
+        : null;
+    const bloquePrecios = preciosPrimera ? `\n\n${preciosPrimera}` : '';
 
     // Cortesía «semana por la app» (ajuste por escuela): el paso a paso del
     // enlace de cortesía reemplaza la clase suelta y el enlace genérico. Mismo
@@ -2340,8 +2391,8 @@ export async function atenderDesconocido(
     // de siempre (el texto habla de «tu hijo/a»). Sin QR válido → null → igual.
     const semana = esAdulto ? null : await mensajeSemanaDeCortesia(integration.school_id, ajustesEscuela);
     if (semana) {
-        await deliver(integration, conversationId, contactWaId, S + semana,
-            { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'cortesia_semana', con_enlace: true });
+        await deliver(integration, conversationId, contactWaId, S + (preciosPrimera ? `${preciosPrimera}\n\n` : '') + semana,
+            { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'cortesia_semana', con_enlace: true, con_precios: Boolean(preciosPrimera) });
         return contestar('cortesia_semana');
     }
 
@@ -2376,7 +2427,7 @@ export async function atenderDesconocido(
                     : 'Y si quieres conocer la escuela antes, puedes venir a una *clase de cortesía* gratis. ' +
                       'Estas son las próximas franjas:';
         await iniciarCortesia(ctxCortesia(integration, conversationId, contactWaId, null), {
-            encabezado: (saludo + lineaEnlace).trim(),
+            encabezado: (saludo + bloquePrecios + lineaEnlace).trim(),
             step: PASO_DESCONOCIDO_ESCOLAR,
             intro,
             texto: prospecto ? todoElTexto : text,
@@ -2390,10 +2441,11 @@ export async function atenderDesconocido(
     if (enlace) {
         await deliver(integration, conversationId, contactWaId,
             S +
-            '¡Gracias por tu interés! 🙌 En este enlace ves los grupos y los valores, y puedes ' +
+            '¡Gracias por tu interés! 🙌' + (await preciosConGrupo(integration.school_id, ajustesEscuela, pidioPrecio, todoElTexto) || ' ') +
+            'En este enlace ves los grupos y los valores, y puedes ' +
             `hacer la inscripción: ${enlace}` + '\n\n' +
             'Si te queda alguna duda, escríbela por acá y la escuela te responde.',
-            { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'inscripcion', con_enlace: true });
+            { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'inscripcion', con_enlace: true, con_precios: pidioPrecio && Boolean(preciosPrimera) });
         if (esAdulto) await abrirEnBuzon(integration, conversationId, contactWaId, { motivo: 'prospecto' });
         return contestar('inscripcion');
     }
@@ -2403,7 +2455,8 @@ export async function atenderDesconocido(
     // desconocido que avisa por push, porque es plata que se está yendo.
     await deliver(integration, conversationId, contactWaId,
         S +
-        '¡Gracias por tu interés! 🙌 Ya le avisé a la escuela y alguien te responde por aquí ' +
+        '¡Gracias por tu interés! 🙌' + (await preciosConGrupo(integration.school_id, ajustesEscuela, pidioPrecio, todoElTexto) || ' ') +
+        'Ya le avisé a la escuela y alguien te responde por aquí ' +
         'con la información de inscripción.',
         { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'inscripcion', con_enlace: false });
     await abrirEnBuzon(integration, conversationId, contactWaId, { motivo: 'prospecto' });
@@ -2412,6 +2465,49 @@ export async function atenderDesconocido(
 
 /** step del acuse al prospecto que sigue escribiendo después de la primera respuesta. */
 export const PASO_PROSPECTO_SEGUIMIENTO = 'prospecto_seguimiento';
+
+/** step de la bienvenida al prospecto que llegó a su clase de cortesía. */
+export const PASO_LLEGADA_CLASE = 'cortesia_llegada';
+
+/**
+ * «\n\n<precios>\n\n👉 <grupo>» para pegar en una respuesta al prospecto que
+ * preguntó el precio; '' si no preguntó o la escuela no responde precios.
+ */
+async function preciosConGrupo(
+    schoolId: string, ajustes: AjustesWhatsAppEscuela, pidio: boolean, texto: string,
+): Promise<string> {
+    if (!pidio) return '';
+    const b = await preciosParaProspecto(schoolId, ajustes.responderPrecios, leerPerfil(texto));
+    return b ? `\n\n${b}\n\n` : '';
+}
+
+/**
+ * «¿Y los precios?» con el flujo de cortesía abierto (Dynasty 2026-10-07: lo
+ * tomó como respuesta al paso). Lista corta y el flujo sigue: el saliente
+ * lleva el mismo estado. null = no aplica (sin flujo, sin ajuste, ya se le
+ * dieron en 24 h). Nunca lanza.
+ */
+async function precioConCortesiaAbierta(
+    integration: WhatsAppIntegration, conversationId: string, contactWaId: string, text: string,
+): Promise<ResultadoDesconocido | null> {
+    try {
+        const estado = await leerEstadoDeSupabase(conversationId);
+        if (!estado || estado.paso === 'recordatorio') return null;
+        if (await pasoReciente(conversationId, PASO_PROSPECTO_PRECIOS, 24)) return null;
+        const ajustes = await ajustesWhatsAppDeEscuela(integration.school_id);
+        const precios = await preciosParaProspecto(integration.school_id, ajustes.responderPrecios, leerPerfil(text));
+        if (!precios) return null;
+        await deliver(integration, conversationId, contactWaId,
+            precios + '\n\nCuando quieras, seguimos con la reserva de tu clase de cortesía. 🙌',
+            {
+                step: PASO_PROSPECTO_PRECIOS, flujo: FLUJO_CORTESIA,
+                paso_cortesia: estado.paso, datos_cortesia: estado.datos ?? {},
+            });
+        return 'prospecto_precios';
+    } catch {
+        return null;
+    }
+}
 
 // ─── Seguimiento del prospecto (2026-10-07) ──────────────────────────────────
 //
@@ -2475,6 +2571,7 @@ async function responderSeguimientoDeProspecto(
 
     const intereses = interesesDeProspecto(nuevo);
     const perfilNuevo = leerPerfil(nuevo);
+    const pidioPrecio = intereses.includes('precio') || pidePrecio(nuevo);
     const enlace = await enlaceDeInscripcion(integration.school_id);
     const lineaEnlace = enlace
         ? `\n\nEn este enlace ves los grupos y los valores, y puedes hacer la inscripción: ${enlace}`
@@ -2489,17 +2586,21 @@ async function responderSeguimientoDeProspecto(
         && await grupoPorEdadEnBot(integration, conversationId, contactWaId, null, nuevo, PASO_PROSPECTO_HORARIOS)) {
         return 'prospecto_horarios';
     }
-    if (pideHorarios) {
-        // Las franjas acaban de salir (el flujo de cortesía las mostró): no se repiten.
-        if (await pasoReciente(conversationId, 'cortesia_ofrecer', 10 / 60)
-            || await pasoReciente(conversationId, PASO_PROSPECTO_HORARIOS, 24)) {
-            return 'frenado';
-        }
+    const horariosFrenados = pideHorarios && (await pasoReciente(conversationId, 'cortesia_ofrecer', 10 / 60)
+        || await pasoReciente(conversationId, PASO_PROSPECTO_HORARIOS, 24));
+    if (pideHorarios && horariosFrenados && !pidioPrecio) return 'frenado';
+    if (pideHorarios && !horariosFrenados) {
+        // Horarios Y precio («costos y disponibilidad de días»): los dos en el
+        // mismo mensaje, la lista de valores arriba.
+        const precios = pidioPrecio && !(await pasoReciente(conversationId, PASO_PROSPECTO_PRECIOS, 24))
+            ? await preciosParaProspecto(integration.school_id, p.ajustesEscuela.responderPrecios)
+            : null;
+        const arriba = precios ? `${precios}\n\n` : '';
         const esAdulto = buscaParaAdulto(p.todo) || !!leerPerfil(p.todo)?.adulto;
         const ofrecidas = await ofrecerHorariosDeCortesia(ctxCortesia(integration, conversationId, contactWaId, null), {
             texto: p.todo,
             textoDelDia: nuevo,
-            intro: (esAdulto ? 'La escuela te confirma por aquí cuál grupo te queda mejor. ' : '') +
+            intro: arriba + (esAdulto ? 'La escuela te confirma por aquí cuál grupo te queda mejor. ' : '') +
                 'Estos son los próximos entrenamientos; en cualquiera puedes tomar una *clase de cortesía* gratis:',
             step: PASO_PROSPECTO_HORARIOS,
         });
@@ -2508,23 +2609,23 @@ async function responderSeguimientoDeProspecto(
         const info = await infoDeEscuela(integration.school_id).catch(() => null);
         if (info && info.grupos.some((g) => g.horario)) {
             await deliver(integration, conversationId, contactWaId,
-                'Estos son los grupos y sus horarios:\n\n' + fallbackInfoEscuela(info) + lineaEnlace,
+                arriba + 'Estos son los grupos y sus horarios:\n\n' + fallbackInfoEscuela(info) + lineaEnlace,
                 { step: PASO_PROSPECTO_HORARIOS, con_enlace: Boolean(enlace) });
             return 'prospecto_horarios';
         }
         if (enlace) {
             await deliver(integration, conversationId, contactWaId,
-                'Los horarios de cada grupo te los confirma la escuela por aquí.' + lineaEnlace,
+                arriba + 'Los horarios de cada grupo te los confirma la escuela por aquí.' + lineaEnlace,
                 { step: PASO_PROSPECTO_HORARIOS, con_enlace: true });
             return 'prospecto_horarios';
         }
         return null;
     }
 
-    // 3. Precio.
-    if (intereses.includes('precio')) {
+    // 3. Precio (con edad dicha, también el grupo que le corresponde).
+    if (pidioPrecio) {
         if (await pasoReciente(conversationId, PASO_PROSPECTO_PRECIOS, 24)) return 'frenado';
-        const precios = p.ajustesEscuela.responderPrecios ? await textoDePreciosDeEscuela(integration.school_id) : null;
+        const precios = await preciosParaProspecto(integration.school_id, p.ajustesEscuela.responderPrecios, leerPerfil(p.todo));
         if (precios) {
             await deliver(integration, conversationId, contactWaId, precios + lineaEnlace,
                 { step: PASO_PROSPECTO_PRECIOS, con_enlace: Boolean(enlace) });
@@ -2701,7 +2802,7 @@ async function modoAsistidoDeConversacion(conversationId: string): Promise<boole
  *
  * Nunca lanza: sin enlace, quien llama manda el caso al buzón.
  */
-async function enlaceDeInscripcion(schoolId: string): Promise<string | null> {
+export async function enlaceDeInscripcion(schoolId: string): Promise<string | null> {
     try {
         const ahora = new Date().toISOString();
         const { data, error } = await supabase

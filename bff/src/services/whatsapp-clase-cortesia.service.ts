@@ -59,6 +59,7 @@ import {
     rangosDeEscuela, elegirGrupo, textoGrupoParaEdad, textoDesdeQueEdad, preguntaGrupoPorEdad,
     type RangoGrupo, type FuenteEdad, type Genero,
 } from './grupos-por-edad.service';
+import { leadSinCupoParaReserva, telefonoAlterno, fusionarReservaEnLead } from './whatsapp-prospecto-lead.service';
 import { indicacionesCortesiaDeEscuela } from './whatsapp-ajustes-escuela.service';
 
 export const FLUJO_CORTESIA = 'clase_cortesia';
@@ -161,7 +162,9 @@ export type ResultadoCancelacion =
     | { ok: false; motivo: 'sin_reserva' | 'sin_rpc' | 'error' };
 
 export type TipoAvisoCortesia =
-    | 'reservada' | 'datos' | 'cancelada' | 'cancelacion_pedida' | 'no_reservada';
+    | 'reservada' | 'datos' | 'cancelada' | 'cancelacion_pedida' | 'no_reservada'
+    /** El prospecto escribió «llegué / llegamos» el día de su clase. */
+    | 'llegada';
 
 export interface AvisoCortesia {
     tipo: TipoAvisoCortesia;
@@ -1816,13 +1819,18 @@ export async function reservarEnSupabase(p: ParamsReserva): Promise<ResultadoRes
     try {
         const slug = await slugDeEscuela(p.schoolId);
         if (!slug) return { ok: false, motivo: 'error' };
-        // El lead SIN cupo que dejó la puerta de prospecto (whatsapp-prospecto-lead)
-        // haría que `submit_school_lead` responda «duplicado» y NO reserve.
-        await liberarLeadParaReserva(p.schoolId, p.contactWaId);
+        // El lead SIN cupo de este número (el que dejó la puerta de prospecto o
+        // el formulario) es el que se agenda: una fila por escuela + teléfono.
+        // La RPC toma el cupo con otro formato del mismo número (su dedupe de
+        // 24 h compara el texto exacto y devolvería «duplicado» SIN reservar) y
+        // después el cupo pasa a esa fila (`fusionarReservaEnLead`). Antes se
+        // BORRABA el lead del bot y, pasadas 24 h, quedaban dos (embudo 10-08).
+        const previo = await leadSinCupoParaReserva(p.schoolId, p.contactWaId);
+        if (!previo) await liberarLeadParaReserva(p.schoolId, p.contactWaId);
         const { data, error } = await supabase.rpc('submit_school_lead', {
             p_slug: slug,
             p_full_name: p.nombre,
-            p_phone: telefonoDelLead(p.contactWaId),
+            p_phone: previo ? telefonoAlterno(previo.phone) : telefonoDelLead(p.contactWaId),
             p_email: null,
             p_gender: null,
             p_birth_date: p.fechaNacimiento,
@@ -1841,7 +1849,8 @@ export async function reservarEnSupabase(p: ParamsReserva): Promise<ResultadoRes
             return { ok: false, motivo: 'error' };
         }
         const r = (data ?? {}) as any;
-        const leadId = r.lead_id ?? null;
+        let leadId = r.lead_id ?? null;
+        if (previo && leadId && !r.duplicate) leadId = await fusionarReservaEnLead(previo.id, leadId);
         let conCupo = !r.duplicate;
         if (r.duplicate && p.franjaId && leadId) {
             const { data: lead } = await supabase.from('school_signup_leads')
