@@ -529,6 +529,15 @@ export async function createTransactionWithPaymentSource(params: {
     reference: string;
     customerEmail: string;
     installments?: number;
+    /** Tipo de la fuente. `installments` y `recurrent` (COF) son solo de tarjeta. */
+    paymentMethodType?: string;
+    /**
+     * Tokens de aceptación. En sandbox el cobro con fuente no los pide (§17.1 del spec
+     * de débito); Wompi no confirmó producción (respuesta del 2026-10-06), así que el
+     * débito los manda solo si AUTOPAY_SEND_ACCEPTANCE_TOKEN=true.
+     */
+    acceptanceToken?: string;
+    personalDataAuthToken?: string;
 }, creds?: WompiCreds): Promise<{ ok: true; transactionId: string; status: string } | { ok: false; error: string; statusCode?: number }> {
     const c = resolveCreds(creds);
     if (!c) return { ok: false, error: 'Credenciales Wompi no disponibles (privateKey ausente)' };
@@ -540,6 +549,7 @@ export async function createTransactionWithPaymentSource(params: {
             amountInCents: params.amountInCents,
         }, creds);
 
+        const isCard = (params.paymentMethodType ?? 'CARD').toUpperCase() === 'CARD';
         const res = await fetch(`${baseUrlFor(c)}/transactions`, {
             method: 'POST',
             headers: {
@@ -553,8 +563,9 @@ export async function createTransactionWithPaymentSource(params: {
                 customer_email: params.customerEmail,
                 reference: params.reference,
                 payment_source_id: params.paymentSourceId,
-                payment_method: { installments: params.installments ?? 1 },
-                recurrent: true,
+                ...(isCard ? { payment_method: { installments: params.installments ?? 1 }, recurrent: true } : {}),
+                ...(params.acceptanceToken ? { acceptance_token: params.acceptanceToken } : {}),
+                ...(params.personalDataAuthToken ? { accept_personal_auth: params.personalDataAuthToken } : {}),
             }),
         });
 
@@ -595,17 +606,44 @@ async function fetchTransactionByReference(
     reference: string,
     creds?: WompiCreds,
 ): Promise<{ id: string; status: string } | null> {
+    const r = await findTransactionsByReference(reference, creds);
+    if (!r.ok || r.transactions.length === 0) return null;
+    // Si hay varias (raro), preferir APPROVED, luego PENDING
+    const arr = r.transactions;
+    const pick = arr.find(t => t.status === 'APPROVED') ?? arr.find(t => t.status === 'PENDING') ?? arr[0];
+    return { id: pick.id, status: pick.status };
+}
+
+/**
+ * Todas las transacciones de una referencia (GET /v1/transactions?reference=…, que
+ * exige la llave privada del comercio). Distingue "no hay ninguna" (ok, lista vacía)
+ * de "no se pudo consultar" (ok:false): el débito decide distinto en cada caso.
+ */
+export async function findTransactionsByReference(
+    reference: string,
+    creds?: WompiCreds,
+): Promise<{ ok: true; transactions: { id: string; status: string }[] } | { ok: false; error: string }> {
+    const c = resolveCreds(creds);
+    if (!c) return { ok: false, error: 'Credenciales Wompi no disponibles (privateKey ausente)' };
     try {
-        const res = await fetch(`${baseUrlFor(creds)}/transactions?reference=${encodeURIComponent(reference)}`);
-        if (!res.ok) return null;
+        const res = await fetch(`${baseUrlFor(c)}/transactions?reference=${encodeURIComponent(reference)}`, {
+            headers: { Authorization: `Bearer ${c.privateKey}`, Accept: 'application/json' },
+        });
+        if (!res.ok) return { ok: false, error: `transactions?reference ${res.status}` };
         const json = await res.json();
         const arr = Array.isArray(json?.data) ? json.data : [];
-        if (arr.length === 0) return null;
-        // Si hay varias (raro), preferir APPROVED, luego PENDING
-        const approved = arr.find((t: any) => t.status === 'APPROVED');
-        const pending = arr.find((t: any) => t.status === 'PENDING');
-        const pick = approved ?? pending ?? arr[0];
-        return { id: pick.id, status: pick.status };
+        return { ok: true, transactions: arr.map((t: any) => ({ id: String(t.id), status: String(t.status) })) };
+    } catch (err: any) {
+        return { ok: false, error: err?.message || 'findTransactionsByReference error' };
+    }
+}
+
+/** Id del comercio dueño de la llave pública (`data.id` de /merchants/info). D11 del débito. */
+export async function fetchMerchantId(creds: WompiCreds): Promise<string | null> {
+    try {
+        const info = await fetchMerchantInfo(baseUrlFor(creds), creds.publicKey);
+        if (!info.ok || info.data?.id == null) return null;
+        return String(info.data.id);
     } catch {
         return null;
     }
@@ -779,4 +817,47 @@ export function buildWebCheckoutUrl(p: {
     if (p.expirationTime) partes.push(['expiration-time', p.expirationTime]);
     if (p.redirectUrl) partes.push(['redirect-url', p.redirectUrl]);
     return WOMPI_WEB_CHECKOUT_URL + '?' + partes.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+}
+
+// ─── Tokenización Nequi (débito automático F3) ─────────────────────────────────
+//
+// POST /v1/tokens/nequi con la llave PÚBLICA: Wompi le manda al celular una solicitud
+// de suscripción que el usuario acepta en la app de Nequi. El token queda PENDING
+// hasta que acepta (o rechaza); GET /v1/tokens/nequi/:id da el estado. Con el token
+// APPROVED se crea la fuente de pago (createPaymentSource type NEQUI).
+// Sandbox: 3991111111 aprueba, 3992222222 aprueba el token pero rechaza los cobros.
+
+export type NequiTokenStatus = 'PENDING' | 'APPROVED' | 'DECLINED' | 'ERROR';
+
+export async function createNequiToken(
+    phone: string,
+    creds: WompiCreds,
+): Promise<{ ok: true; tokenId: string; status: NequiTokenStatus } | { ok: false; error: string; statusCode?: number }> {
+    try {
+        const res = await fetch(`${baseUrlFor(creds)}/tokens/nequi`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${creds.publicKey}` },
+            body: JSON.stringify({ phone_number: phone }),
+        });
+        const json = await res.json().catch(() => null);
+        if (!res.ok || !json?.data?.id) {
+            return { ok: false, statusCode: res.status, error: `tokens/nequi ${res.status}` };
+        }
+        return { ok: true, tokenId: String(json.data.id), status: json.data.status as NequiTokenStatus };
+    } catch (err: any) {
+        return { ok: false, error: err?.message || 'createNequiToken error' };
+    }
+}
+
+export async function getNequiTokenStatus(tokenId: string, creds: WompiCreds): Promise<NequiTokenStatus | null> {
+    try {
+        const res = await fetch(`${baseUrlFor(creds)}/tokens/nequi/${encodeURIComponent(tokenId)}`, {
+            headers: { Authorization: `Bearer ${creds.publicKey}` },
+        });
+        if (!res.ok) return null;
+        const json = await res.json().catch(() => null);
+        return (json?.data?.status as NequiTokenStatus) ?? null;
+    } catch {
+        return null;
+    }
 }
