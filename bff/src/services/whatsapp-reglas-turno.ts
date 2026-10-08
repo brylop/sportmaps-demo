@@ -566,6 +566,42 @@ export function pasoEnVentana(filas: FilaReciente[], paso: string, ms: number, a
 
 export { PASOS_DE_CONSENTIMIENTO };
 
+// ─── Tipos no soportados (video, sticker, contacto, ubicación…) ─────────────
+//
+// Dynasty 2026-10-07 18:32–18:37: una familia mandó 13 videos seguidos (del
+// entrenamiento, junto con fotos) y el bot contestó 13 veces «No puedo ver
+// videos. Si es un comprobante…». Un video de una familia casi nunca es un
+// comprobante: se contesta SOLO si el texto cercano habla de pago, y como mucho
+// una vez cada 24 h por conversación (cualquier `tipo_no_soportado_*`).
+
+/** Prefijo del step de la respuesta a un tipo no soportado. */
+export const PASO_TIPO_NO_SOPORTADO = 'tipo_no_soportado';
+/** Cuánto hacia atrás se mira el texto que acompaña al video. */
+export const VENTANA_TEXTO_DEL_VIDEO_MS = 15 * 60_000;
+const HABLA_DE_PAGO = /\b(pagos?|pague|pagar|comprobantes?|soportes?|transferencias?|transferi|consignacion|consigne|mensualidad|recibos?|abono|cuota|nequi|daviplata|bre b)\b/;
+
+/**
+ * ¿Merece respuesta un video (u otro tipo que el bot no lee)? Pura.
+ *  - `textoPropio`: el pie del video, si trae.
+ *  - `filas`: las recientes de la conversación.
+ * Sí solo si el pie o un entrante de texto de los últimos 15 min habla de pago,
+ * y no salió ningún `tipo_no_soportado_*` en 24 h.
+ */
+export function respuestaATipoNoSoportado(
+    textoPropio: string | null | undefined,
+    filas: FilaReciente[],
+    ahora = Date.now(),
+): boolean {
+    const yaDicho = filas.some((f) => f.direction === 'outbound'
+        && String(pasoDe(f) ?? '').startsWith(PASO_TIPO_NO_SOPORTADO)
+        && momento(f) >= ahora - 24 * 3600_000);
+    if (yaDicho) return false;
+    const habla = (t: string | null | undefined) => HABLA_DE_PAGO.test(normalizarFrase(t)) || !!anunciaComprobante(t);
+    if (habla(textoPropio)) return true;
+    return filas.some((f) => f.direction === 'inbound' && tieneTexto(f)
+        && momento(f) >= ahora - VENTANA_TEXTO_DEL_VIDEO_MS && habla(f.text_body));
+}
+
 // ─── Notas de voz (spec docs/specs/whatsapp-notas-de-voz.md, F1) ─────────────
 
 /** Más de esto no se le pasa al bot: va al buzón con la transcripción (D3). */
