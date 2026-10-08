@@ -1,4 +1,11 @@
--- Pegar COMPLETO en el SQL Editor de Supabase y ejecutar. Paso 08 de 14 (orden obligatorio).
+-- =============================================================================
+-- 20261008183746_pizarra_metricas_uso_y_deportes_v2.sql
+-- Reemplaza a 20261008155459_pizarra_metricas_uso_y_deportes.sql (NO aplicarla): sus policies usan
+-- `x = ANY ((SELECT fn()))`, que Postgres lee como subconsulta y falla con 42883
+-- «operator does not exist: uuid = uuid[]» (falló al aplicarla el 2026-10-08).
+-- Único cambio: ANY ((SELECT public.<fn>())) → ANY ((SELECT public.<fn>())::uuid[]).
+-- Mismo arreglo que 20261006104251 / 20261006104254.
+-- =============================================================================
 
 -- =============================================================================
 -- 20261008155459_pizarra_metricas_uso_y_deportes.sql
@@ -88,7 +95,7 @@ CREATE POLICY tactical_board_events_select_admin
   FOR SELECT
   TO authenticated
   USING (
-    school_id = ANY ((SELECT public.user_admin_school_ids()))
+    school_id = ANY ((SELECT public.user_admin_school_ids())::uuid[])
     OR (SELECT public.is_super_admin())
   );
 
@@ -213,7 +220,3 @@ COMMIT;
 --   set local role anon; select count(*) from public.tactical_board_events;   -- debe fallar (permission denied)
 --   npm run seguridad:invariantes
 -- -----------------------------------------------------------------------------
-
--- Registro (el SQL Editor no deja rastro en schema_migrations)
-insert into supabase_migrations.schema_migrations (version, name, created_by)
-values ('20261008155459', '20261008155459_pizarra_metricas_uso_y_deportes', 'sql-editor 2026-10-08') on conflict (version) do nothing;

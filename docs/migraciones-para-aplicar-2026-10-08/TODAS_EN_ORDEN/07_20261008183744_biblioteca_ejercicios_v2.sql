@@ -1,4 +1,14 @@
 -- Pegar COMPLETO en el SQL Editor de Supabase y ejecutar. Paso 07 de 14 (orden obligatorio).
+-- Versión CORREGIDA (::uuid[]). La original falló con 42883 y NO se aplica.
+
+-- =============================================================================
+-- 20261008183744_biblioteca_ejercicios_v2.sql
+-- Reemplaza a 20261008155457_biblioteca_ejercicios.sql (NO aplicarla): sus policies usan
+-- `x = ANY ((SELECT fn()))`, que Postgres lee como subconsulta y falla con 42883
+-- «operator does not exist: uuid = uuid[]» (falló al aplicarla el 2026-10-08).
+-- Único cambio: ANY ((SELECT public.<fn>())) → ANY ((SELECT public.<fn>())::uuid[]).
+-- Mismo arreglo que 20261006104251 / 20261006104254.
+-- =============================================================================
 
 -- =============================================================================
 -- 20261008155457_biblioteca_ejercicios.sql
@@ -107,7 +117,7 @@ CREATE POLICY training_exercises_select ON public.training_exercises
   FOR SELECT TO authenticated
   USING (
     (school_id IS NULL AND is_template)
-    OR school_id = ANY ((SELECT public.user_staff_school_ids()))
+    OR school_id = ANY ((SELECT public.user_staff_school_ids())::uuid[])
     OR (SELECT public.is_super_admin())
   );
 
@@ -118,7 +128,7 @@ CREATE POLICY training_exercises_insert ON public.training_exercises
     (
       school_id IS NOT NULL
       AND NOT is_template
-      AND school_id = ANY ((SELECT public.user_staff_school_ids()))
+      AND school_id = ANY ((SELECT public.user_staff_school_ids())::uuid[])
       AND created_by = (SELECT auth.uid())
     )
     OR (school_id IS NULL AND is_template AND (SELECT public.is_super_admin()))
@@ -131,8 +141,8 @@ CREATE POLICY training_exercises_update ON public.training_exercises
     (
       school_id IS NOT NULL
       AND (
-        (created_by = (SELECT auth.uid()) AND school_id = ANY ((SELECT public.user_staff_school_ids())))
-        OR school_id = ANY ((SELECT public.user_admin_school_ids()))
+        (created_by = (SELECT auth.uid()) AND school_id = ANY ((SELECT public.user_staff_school_ids())::uuid[]))
+        OR school_id = ANY ((SELECT public.user_admin_school_ids())::uuid[])
       )
     )
     OR (school_id IS NULL AND (SELECT public.is_super_admin()))
@@ -142,7 +152,7 @@ CREATE POLICY training_exercises_update ON public.training_exercises
     (
       school_id IS NOT NULL
       AND NOT is_template
-      AND school_id = ANY ((SELECT public.user_staff_school_ids()))
+      AND school_id = ANY ((SELECT public.user_staff_school_ids())::uuid[])
     )
     OR (school_id IS NULL AND is_template AND (SELECT public.is_super_admin()))
   );
@@ -154,8 +164,8 @@ CREATE POLICY training_exercises_delete ON public.training_exercises
     (
       school_id IS NOT NULL
       AND (
-        (created_by = (SELECT auth.uid()) AND school_id = ANY ((SELECT public.user_staff_school_ids())))
-        OR school_id = ANY ((SELECT public.user_admin_school_ids()))
+        (created_by = (SELECT auth.uid()) AND school_id = ANY ((SELECT public.user_staff_school_ids())::uuid[]))
+        OR school_id = ANY ((SELECT public.user_admin_school_ids())::uuid[])
       )
     )
     OR (school_id IS NULL AND (SELECT public.is_super_admin()))
@@ -409,4 +419,4 @@ COMMIT;
 
 -- Registro (el SQL Editor no deja rastro en schema_migrations)
 insert into supabase_migrations.schema_migrations (version, name, created_by)
-values ('20261008155457', '20261008155457_biblioteca_ejercicios', 'sql-editor 2026-10-08') on conflict (version) do nothing;
+values ('20261008183744', '20261008183744_biblioteca_ejercicios_v2', 'sql-editor 2026-10-08') on conflict (version) do nothing;
