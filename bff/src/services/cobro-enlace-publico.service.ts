@@ -56,6 +56,7 @@ import {
 import { mediosDePago } from './whatsapp-medios-de-pago.service';
 import { categoriaDeCobro } from './payment-accounts';
 import { findDuplicatePaymentIds } from './duplicatePayerGuard.service';
+import { debitoEnCurso, MENSAJE_DEBITO_EN_CURSO } from './autopay.service';
 
 /** Formato del token que emite la RPC: 18 bytes → 24 caracteres base64url. */
 export const TOKEN_COBRO_RE = /^[A-Za-z0-9_-]{24}$/;
@@ -531,6 +532,9 @@ export async function prepararCheckoutDeCobro(
             throw e;
         }
     }
+
+    // Débito automático en vuelo: mismo 409 que create-session (§7.3 del spec de débito).
+    if (await debitoEnCurso(p.id)) return NO_EN_LINEA('autopay_in_progress', MENSAJE_DEBITO_EN_CURSO);
 
     const pasarela = await pasarelaParaCobro(p);
     if (!pasarela) {

@@ -25,6 +25,7 @@ import { resolveProvider, type PaymentProvider } from '../services/payment-provi
 import { extractReceipt } from '../services/ocr.service';
 import { evaluateVerdict, normalizeReference } from '../services/receipt-verdict';
 import { buildVerdictContext } from '../services/receipt-context.service';
+import { debitoEnCurso, MENSAJE_DEBITO_EN_CURSO } from '../services/autopay.service';
 
 const router = Router();
 
@@ -140,6 +141,13 @@ router.post(
                 return res.status(400).json({
                     error: `Este pago no se puede procesar (estado actual: ${payment.status}).`,
                 });
+            }
+
+            // 2.b Débito automático en vuelo (§7.3 del spec de débito): el enlace del
+            //     débito es 'pending' del mismo cobro, así que el reuso de abajo se lo
+            //     entregaría al Widget. Si se rechaza, la familia vuelve a pagar aquí.
+            if (await debitoEnCurso(paymentId)) {
+                return res.status(409).json({ error: MENSAJE_DEBITO_EN_CURSO, code: 'autopay_in_progress' });
             }
 
             // 3. Resolver provider de pago para esta escuela.

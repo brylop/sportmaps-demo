@@ -626,3 +626,24 @@ Respuestas para §17:
 - **`/merchants/info`** exige el header `X-Merchant-Public-Key: <pub>`; sin él da 400. Devuelve los mismos `presigned_acceptance` y `presigned_personal_data_auth` que el endpoint que se apaga el 31-oct.
 
 Quedan abiertas para Wompi: **1** (activación comercial), **8** (aprobación por cobro **en producción**; el sandbox no la exige), **2**, **3**, **6**, **9**, **10**, y una nueva: **11.** en sandbox, `POST /payment_sources` con `BANCOLOMBIA_TRANSFER` y un token APPROVED da 500 siempre, y el clic de rechazo deja el token APPROVED. ¿Es una falla del sandbox o falta algún campo?
+
+### 17.2 Respuesta de Wompi (2026-10-06) y medición de F2 (2026-10-07)
+
+**Soporte de Wompi (Ana Giraldo) respondió citando solo la documentación pública:**
+- **Pregunta 8, Nequi:** el usuario autoriza una sola vez y después se cobra sin él. **Nequi es viable como débito.**
+- **Preguntas 1, 8 y 11, Bancolombia:** no lo confirman y el 500 queda sin explicación. **Bancolombia queda fuera de la v1.**
+- **Pregunta 7:** «no asuman que el sandbox es igual a producción». El motor manda tokens nuevos de `/merchants/info` en cada cobro si `AUTOPAY_SEND_ACCEPTANCE_TOKEN=true`. En sandbox funciona con y sin tokens.
+- **Pregunta 6:** la tarifa es la del plan comercial de cada comercio, es decir, el de la escuela.
+- **Preguntas 2, 3, 9 y 10:** sin respuesta. Se escalaron a Integraciones el 2026-10-07, junto con la activación por comercio.
+
+**Medición en sandbox con las funciones reales del BFF (`wompi.service.ts`):**
+
+| Medio | Respuesta síncrona | Estado final | Tiempo hasta el final |
+|---|---|---|---|
+| Tarjeta 4242 | PENDING | APPROVED | ~2,3 s |
+| Nequi 3991111111 | PENDING | APPROVED | ~1,7 s |
+| Nequi 3992222222 | PENDING | DECLINED | ~1,8 s |
+
+- El cuerpo de Nequi sin `installments`/`recurrent` se acepta.
+- `GET /transactions?reference=` con la llave privada devuelve la transacción.
+- **Consecuencia (§7.5):** el motor espera 1,5 s, luego 2 s y luego 4 s, y concilia en la misma corrida. El backoff del barrido (2, 10 y 30 minutos, después cada hora) queda solo como red de seguridad.
