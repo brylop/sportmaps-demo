@@ -30,9 +30,11 @@ import {
 import { getNavigationByRole, getVendorNavGroup } from '@/config/navigation';
 import { UserRole } from '@/types/dashboard';
 import { useVendorProfile } from '@/hooks/useVendorProfile';
+import { useSchoolStore } from '@/hooks/useSchoolStore';
 import { useIsMultiSport } from '@/hooks/useSportVisual';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { useStoreEnabled } from '@/hooks/useStoreEnabled';
+import { useMySchoolStore } from '@/hooks/useMySchoolStore';
 // NOTE: SchoolSwitcher esta desactivado hasta que el schema soporte sede
 // end-to-end (falta enrollments.branch_id y varios enrollments no tienen
 // team asociado, asi que no se puede scopear fiablemente). El componente
@@ -49,6 +51,7 @@ export function AppSidebar() {
   const location = useLocation();
   const [openSubmenus, setOpenSubmenus] = useState<Record<string, boolean>>({});
   const { hasVendorProfile, canSellProducts, canSellServices, verificationStatus } = useVendorProfile();
+  const { isOpen: schoolStoreOpen } = useSchoolStore();
   const { hasAddon, hasBilling, isModuleEnabled } = useEntitlements();
   // Flag global de la tienda (fail-closed: false mientras carga o si falla).
   const { enabled: storeEnabled } = useStoreEnabled();
@@ -113,7 +116,13 @@ export function AppSidebar() {
     }
   }
 
-  const baseNavigationGroups = getNavigationByRole(navigationRole, hasAddon, isModuleEnabled, storeEnabled);
+  // Comprador (padre / atleta): «Tienda» / «Mis compras» solo si la tienda de
+  // SU escuela activa vende (store_seller_allowed), no por el flag global solo.
+  const isBuyerNav = navigationRole === 'parent' || navigationRole === 'athlete';
+  const { showStore, showMyPurchases } = useMySchoolStore({ enabled: isBuyerNav });
+  const baseNavigationGroups = getNavigationByRole(
+    navigationRole, hasAddon, isModuleEnabled, storeEnabled, { showStore, showMyPurchases },
+  );
 
   // Mi Tienda: grupo ADICIONAL para roles que NO son primariamente vendor
   // pero que decidieron sumarle marketplace a su cuenta.
@@ -135,14 +144,19 @@ export function AppSidebar() {
     effectiveRole === 'personal_trainer' ||
     effectiveRole === 'store_owner'
   );
-  const schoolGateOk = !isSchoolRole || hasAddon('store');
   // Con la tienda apagada el grupo solo sobrevive si vende servicios (queda
   // como "Mis Servicios": panel, servicios, agenda, verificación).
-  const showVendorGroup = hasVendorProfile && schoolGateOk && !isVendorPrimaryRole
+  // Escuela: «Tu tienda» por ESCUELA (useSchoolStore, bug N0), con el adicional
+  // y la tienda prendida en la plataforma. Sin tienda activada, el grupo solo
+  // lleva a Ajustes (donde se activa).
+  const showSchoolStoreGroup = isSchoolRole && hasAddon('store') && storeEnabled;
+  const showVendorGroup = !isSchoolRole && hasVendorProfile && !isVendorPrimaryRole
     && (storeEnabled || canSellServices);
-  const navigationGroupsBase = showVendorGroup
-    ? [...baseNavigationGroups, getVendorNavGroup({ canSellProducts, canSellServices, verificationStatus, storeEnabled })]
-    : baseNavigationGroups;
+  const navigationGroupsBase = showSchoolStoreGroup
+    ? [...baseNavigationGroups, getVendorNavGroup({ canSellProducts, canSellServices, verificationStatus, storeEnabled, isSchool: true, storeOpen: schoolStoreOpen })]
+    : showVendorGroup
+      ? [...baseNavigationGroups, getVendorNavGroup({ canSellProducts, canSellServices, verificationStatus, storeEnabled })]
+      : baseNavigationGroups;
 
   // ── Escuelas que no cobran por SportMaps (CAR-2) ──────────────────────────
   // Club Carmel y los que vengan igual: las membresías se pagan en el club, así

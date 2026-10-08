@@ -153,3 +153,108 @@ export function validatePresetSlots(slots: any[]): string[] {
 export function sanitizeSlots(slots: any[]): { slot_label: string; x: number; y: number }[] {
   return slots.map((s) => ({ slot_label: s.slot_label.trim(), x: s.x, y: s.y }));
 }
+
+// ─── Jugada animada por cuadros (T1, docs/specs/pizarra-nivel-tacticalpad.md §4) ──
+// `frames` jsonb en match_lineups y team_tactical_presets (migración
+// 20261008155454). El CHECK de la base solo mira que sea un arreglo de 1-30 y
+// su tamaño; la forma de cada cuadro la valida esto.
+
+export const MAX_FRAMES = 30;
+export const FRAME_MS_MIN = 200;
+export const FRAME_MS_MAX = 10000;
+/** Dos equipos de 11 + banca de sobra. Igual que MAX_FRAME_PLAYERS del frontend. */
+export const MAX_FRAME_PLAYERS = 60;
+export const MAX_FRAME_KEY = 120;
+export const MAX_FRAME_ID = 64;
+/** Mismo tope que el CHECK de la base (pg_column_size ≤ 512 KB). Se mide sobre
+ *  el JSON ya saneado: es lo que se guarda. */
+export const MAX_FRAMES_BYTES = 512 * 1024;
+
+const isCoord = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 100;
+
+/**
+ * Valida la lista de cuadros. `null` es válido (= la jugada es un solo cuadro).
+ * Los errores llevan el número de cuadro (1-based) para que el mensaje sirva.
+ */
+export function validateFrames(frames: unknown): string[] {
+  if (frames === null) return [];
+  if (!Array.isArray(frames)) return ['frames debe ser una lista de cuadros o null.'];
+  if (frames.length === 0) return ['frames vacío: manda null para una jugada de un solo cuadro.'];
+  if (frames.length > MAX_FRAMES) return [`demasiados cuadros: máximo ${MAX_FRAMES}.`];
+  const errors: string[] = [];
+  frames.forEach((f, i) => {
+    const n = i + 1;
+    if (!isPlainObject(f)) {
+      errors.push(`cuadro ${n}: debe ser un objeto.`);
+      return;
+    }
+    if (typeof f.id !== 'string' || !f.id.trim() || f.id.length > MAX_FRAME_ID) {
+      errors.push(`cuadro ${n}: id inválido.`);
+    }
+    if (typeof f.duration_ms !== 'number' || !Number.isFinite(f.duration_ms) || f.duration_ms < FRAME_MS_MIN || f.duration_ms > FRAME_MS_MAX) {
+      errors.push(`cuadro ${n}: duration_ms debe estar entre ${FRAME_MS_MIN} y ${FRAME_MS_MAX}.`);
+    }
+    if (!Array.isArray(f.players)) {
+      errors.push(`cuadro ${n}: players debe ser una lista.`);
+    } else if (f.players.length > MAX_FRAME_PLAYERS) {
+      errors.push(`cuadro ${n}: demasiados jugadores (máximo ${MAX_FRAME_PLAYERS}).`);
+    } else {
+      const seen = new Set<string>();
+      for (const p of f.players) {
+        if (!isPlainObject(p)) {
+          errors.push(`cuadro ${n}: jugador inválido.`);
+          continue;
+        }
+        if (typeof p.key !== 'string' || !p.key || p.key.length > MAX_FRAME_KEY) {
+          errors.push(`cuadro ${n}: key de jugador inválida (texto de 1 a ${MAX_FRAME_KEY} caracteres).`);
+        } else if (seen.has(p.key)) {
+          errors.push(`cuadro ${n}: jugador repetido (${p.key.slice(0, 40)}).`);
+        } else {
+          seen.add(p.key);
+        }
+        if (!isCoord(p.x) || !isCoord(p.y)) {
+          errors.push(`cuadro ${n}: x/y de un jugador deben estar entre 0 y 100.`);
+        }
+      }
+    }
+    if (f.ball !== null && f.ball !== undefined) {
+      if (!isPlainObject(f.ball) || !isCoord(f.ball.x) || !isCoord(f.ball.y)) {
+        errors.push(`cuadro ${n}: ball debe ser null o {x, y} entre 0 y 100.`);
+      }
+    }
+    if (!Array.isArray(f.arrows)) {
+      errors.push(`cuadro ${n}: arrows debe ser una lista.`);
+    } else {
+      for (const e of validateArrows(f.arrows)) errors.push(`cuadro ${n}: ${e}`);
+    }
+  });
+  if (errors.length > 0) return errors;
+  const bytes = Buffer.byteLength(JSON.stringify(sanitizeFrames(frames)), 'utf8');
+  if (bytes > MAX_FRAMES_BYTES) {
+    return [`la jugada animada es demasiado grande (${Math.ceil(bytes / 1024)} KB; máximo ${MAX_FRAMES_BYTES / 1024} KB). Quita cuadros o figuras.`];
+  }
+  return [];
+}
+
+/** Deja solo los campos conocidos de cada cuadro (y de sus figuras). Se llama
+ *  DESPUÉS de validateFrames. */
+export function sanitizeFrames(frames: any[]): Record<string, unknown>[] {
+  return frames.map((f) => ({
+    id: String(f.id).trim(),
+    duration_ms: Math.round(f.duration_ms),
+    players: f.players.map((p: any) => ({ key: p.key, x: p.x, y: p.y })),
+    ball: f.ball ? { x: f.ball.x, y: f.ball.y } : null,
+    arrows: sanitizeArrows(f.arrows),
+  }));
+}
+
+/** La columna `frames` todavía no existe en esta base (migración
+ *  20261008155454 sin aplicar): PostgREST responde 42703 (select) o PGRST204
+ *  (insert/update con una columna que no está en su caché). El BFF sigue
+ *  funcionando sin animación en vez de responder 500 a todo. */
+export function isMissingFramesColumn(err: unknown): boolean {
+  if (!isPlainObject(err)) return false;
+  const code = String(err.code ?? '');
+  const msg = `${err.message ?? ''} ${err.details ?? ''} ${err.hint ?? ''}`;
+  return (code === '42703' || code === 'PGRST204') && /frames/.test(msg);
+}

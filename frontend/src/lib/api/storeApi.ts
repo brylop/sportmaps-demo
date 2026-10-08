@@ -83,10 +83,32 @@ export type PublicPaymentMethod =
     | { method: 'transfer'; hold_hours: number; requires_receipt?: boolean }
     | { method: 'cash_pickup'; hold_hours: number; requires_pickup?: boolean };
 
+export interface PickupBranch { id: string; name: string; address?: string | null; is_main?: boolean | null }
+
+/**
+ * Modalidad de entrega que ofrece la tienda (store_payment_settings.allow_shipping
+ * y pickup_branch_ids, mig. 20261008163336). `shipping: false` = «solo retiro en
+ * sede»: el checkout no ofrece envío y la base rechaza la orden con
+ * SHIPPING_NOT_OFFERED. Si falta (base sin esa migración o tienda sin fila de
+ * medios) no hay restricción: se ofrece envío como antes.
+ */
+export interface StoreFulfillment {
+    pickup: boolean;
+    shipping: boolean;
+    /** Sedes donde se puede retirar (ya filtradas por la tienda). */
+    pickup_branches?: PickupBranch[];
+}
+
 export interface PaymentMethodsResponse {
     vendor_profile_id: string;
     allowed: boolean;
     methods: PublicPaymentMethod[];
+    fulfillment?: StoreFulfillment;
+}
+
+/** ¿La tienda ofrece envío a domicilio? Sin dato = sí (comportamiento anterior). */
+export function storeOffersShipping(res: Pick<PaymentMethodsResponse, 'fulfillment'> | null | undefined): boolean {
+    return res?.fulfillment?.shipping !== false;
 }
 
 export async function fetchPaymentMethods(vendorProfileId: string): Promise<PaymentMethodsResponse> {
@@ -339,14 +361,56 @@ export async function sellerTransition(orderId: string, body: {
     await bffClient.post(`/api/v1/store/vendor/orders/${orderId}/transition`, clean);
 }
 
-// ─── Código de retiro (se muestra una sola vez; se guarda en ESTE dispositivo) ──
+// ─── Código de retiro ────────────────────────────────────────────────────────
+// La base solo guarda el hash: el código se ve al crear el pedido y queda en ESTE
+// dispositivo. Desde otro dispositivo (o si se borró) el comprador genera uno
+// NUEVO (pedido pagado y sin entregar, máx. 3) y el anterior deja de servir.
+
+export interface RegeneratedPickupCode {
+    order_id: string;
+    status: string;
+    pickup_code: string;
+    regenerations_used: number;
+    regenerations_left: number;
+    regenerations_max: number;
+}
+
+export async function regeneratePickupCode(orderId: string): Promise<RegeneratedPickupCode> {
+    const res = await bffClient.post<{ ok: boolean; data: RegeneratedPickupCode }>(`/api/v1/store/orders/${orderId}/pickup-code`, {});
+    return res.data;
+}
 
 const pickupKey = (userId: string, orderId: string) => `sportmaps_pickup:${userId}:${orderId}`;
 
-export function rememberPickupCode(userId: string, orderId: string, code: string): void {
-    try { localStorage.setItem(pickupKey(userId, orderId), code); } catch { /* modo privado */ }
+/**
+ * `gen` = cuántas regeneraciones llevaba el pedido cuando ESTE dispositivo guardó
+ * el código (0 = el de la compra). Si el historial muestra más, el código se
+ * regeneró en otro dispositivo y el guardado aquí ya no sirve.
+ */
+export interface StoredPickupCode { code: string; gen: number }
+
+export function rememberPickupCode(userId: string, orderId: string, code: string, gen = 0): void {
+    try { localStorage.setItem(pickupKey(userId, orderId), JSON.stringify({ code, gen })); } catch { /* modo privado */ }
+}
+
+export function recallPickupCodeEntry(userId: string, orderId: string): StoredPickupCode | null {
+    let raw: string | null = null;
+    try { raw = localStorage.getItem(pickupKey(userId, orderId)); } catch { return null; }
+    if (!raw) return null;
+    if (/^[0-9]{6}$/.test(raw)) return { code: raw, gen: 0 }; // formato anterior: solo el código
+    try {
+        const v = JSON.parse(raw) as Partial<StoredPickupCode>;
+        return typeof v.code === 'string' ? { code: v.code, gen: Number(v.gen) || 0 } : null;
+    } catch { return null; }
 }
 
 export function recallPickupCode(userId: string, orderId: string): string | null {
-    try { return localStorage.getItem(pickupKey(userId, orderId)); } catch { return null; }
+    return recallPickupCodeEntry(userId, orderId)?.code ?? null;
+}
+
+/** Nota con la que regenerate_my_pickup_code deja rastro en order_status_history. */
+export const PICKUP_CODE_REGENERATED_NOTE = 'Código de retiro regenerado';
+
+export function pickupCodeRegenerations(history: Array<{ note: string | null; actor_role?: string | null }>): number {
+    return history.filter((h) => (h.note ?? '').startsWith(PICKUP_CODE_REGENERATED_NOTE)).length;
 }

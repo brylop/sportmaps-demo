@@ -220,7 +220,7 @@ describe('desconocido (prospecto) pregunta por la clase de cortesía', () => {
 describe('freno del saludo ask_email (responder_desconocidos=true)', () => {
     it('la primera vez saluda', async () => {
         base();
-        await runBotTurn(INTEGRATION, CONV, '573209998877', 'Profe no tienen respuesta aún si se arranca este fin de semana', 'wamid.1');
+        await runBotTurn(INTEGRATION, CONV, '573209998877', 'Buenas, una consulta sobre lo del fin de semana', 'wamid.1');
         expect(borradores()).toHaveLength(1);
         expect(borradores()[0].row.tool_context).toMatchObject({ step: 'ask_email' });
     });
@@ -293,6 +293,33 @@ describe('auditoría Dynasty 2026-10-07: correo en la ráfaga y saludo con el no
         for (const t of ['hola mile\ncomo estas??', 'Hola Mile...buenas tardes...como estas?', 'dale mile\nquedo pendiente\ngracias']) {
             await runBotTurn(INTEGRATION, `conv-${t.length}`, '573209998877', t, `wamid.v-${t.length}`);
         }
+        expect(borradores()).toHaveLength(0);
+    });
+
+    it('2026-10-07 tarde: charla corta o con vocativo sin tema escolar → silencio', async () => {
+        _olvidarReservasDePaso();
+        _limpiarCacheVocativos();
+        base();
+        conEquipo();
+        for (const t of ['noooo', 'De comida', 'No puedo pasar!', 'como estas??', 'Profe no tienen respuesta aún si se arranca este fin de semana']) {
+            await runBotTurn(INTEGRATION, `conv-ch-${t.length}`, '573209998877', t, `wamid.ch-${t.length}`);
+        }
+        expect(borradores()).toHaveLength(0);
+    });
+
+    it('2026-10-07 tarde: «mile voy tenemos entreno?» de alguien con quien la escuela conversa (eco en 30 días) → silencio', async () => {
+        _olvidarReservasDePaso();
+        _limpiarCacheVocativos();
+        base();
+        conEquipo();
+        const previo = h.state.resolve;
+        h.state.resolve = (table, ops) => {
+            if (table === 'whatsapp_messages' && ops.some(([m, a]) => m === 'eq' && a[0] === 'ai_generated' && a[1] === false)) {
+                return { data: [{ direction: 'outbound', type: 'text', text_body: 'Hola, cómo estás', ai_generated: false, payload: {}, created_at: new Date().toISOString() }], error: null };
+            }
+            return previo(table, ops);
+        };
+        await runBotTurn(INTEGRATION, 'conv-eco', '573209998877', 'mile voy tenemos entreno?', 'wamid.eco1');
         expect(borradores()).toHaveLength(0);
     });
 

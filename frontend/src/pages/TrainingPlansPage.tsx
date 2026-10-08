@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -9,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { Plus, Calendar, Target, ClipboardList, Trash2, Activity, Users, Loader2, TrendingUp, Trophy, Star, Goal, IdCard } from 'lucide-react';
+import { Plus, Calendar, Target, ClipboardList, Trash2, Activity, Users, Loader2, TrendingUp, Trophy, Star, Goal, IdCard, ClipboardCheck } from 'lucide-react';
 import { SessionFormDialog } from '@/components/coach/SessionFormDialog';
 import { MesocycleSection } from '@/components/coach/MesocycleSection';
 import { WeekSessionsPanel } from '@/components/school/WeekSessionsPanel';
@@ -305,13 +306,26 @@ export default function TrainingPlansPage() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Métricas y Rendimiento</h1>
           <p className="text-muted-foreground mt-1">
-            Planifica y gestiona tus sesiones y evaluaciones de rendimiento
+            {isAdminRole
+              ? 'Sesiones y evaluaciones de los equipos de la escuela'
+              : 'Planifica y gestiona tus sesiones y evaluaciones de rendimiento'}
           </p>
         </div>
+        {/* Dueño/admin: solo mira (spec rediseno-seguimiento-deportivo F4). Planificar
+            y evaluar es del entrenador; el resumen por entrenador vive en
+            Seguimiento deportivo. */}
+        {isAdminRole && (
+          <Button asChild variant="outline" className="gap-2">
+            <Link to="/seguimiento-deportivo">
+              <ClipboardCheck className="w-4 h-4" />
+              Seguimiento deportivo
+            </Link>
+          </Button>
+        )}
         {/* Con mesociclo activo la sesión se crea SIEMPRE desde un día
             (MesocycleSection → "Crear sesión" por día) para que quede
             enganchada (training_microcycle_days.session_id). Este botón
@@ -320,7 +334,7 @@ export default function TrainingPlansPage() {
             muestra sesiones enganchadas, así que lo creado acá quedaba
             guardado pero invisible en toda la UI (bug real, ver migración
             20260918124721). */}
-        {filterType === 'teams' && selectedTeamId && !currentMesocycle && (
+        {!isAdminRole && filterType === 'teams' && selectedTeamId && !currentMesocycle && (
           <Button className="gap-2" onClick={() => { setEditingSession(null); setDialogOpen(true); }}>
             <Plus className="w-4 h-4" />
             Crear Sesión
@@ -364,7 +378,7 @@ export default function TrainingPlansPage() {
                 <div className="space-y-1.5">
                   <Select value={selectedTeamId} onValueChange={setSelectedTeamId}>
                     <SelectTrigger className="w-full bg-background">
-                      <SelectValue placeholder="Selecciona tu equipo" />
+                      <SelectValue placeholder={isAdminRole ? 'Selecciona un equipo' : 'Selecciona tu equipo'} />
                     </SelectTrigger>
                     <SelectContent>
                       {teams?.map((team) => (
@@ -379,7 +393,7 @@ export default function TrainingPlansPage() {
                 <div className="space-y-1.5">
                   <Select value={selectedPlanId} onValueChange={setSelectedPlanId}>
                     <SelectTrigger className="w-full bg-background">
-                      <SelectValue placeholder="Selecciona tu plan" />
+                      <SelectValue placeholder={isAdminRole ? 'Selecciona un plan' : 'Selecciona tu plan'} />
                     </SelectTrigger>
                     <SelectContent>
                       {offeringPlans?.map((plan) => (
@@ -616,12 +630,16 @@ export default function TrainingPlansPage() {
                     <ClipboardList className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
                     <h3 className="text-lg font-semibold mb-2">No hay sesiones aún</h3>
                     <p className="text-muted-foreground mb-4">
-                      Crea tu primera sesión de entrenamiento
+                      {isAdminRole
+                        ? 'El entrenador todavía no ha cargado sesiones para este equipo.'
+                        : 'Crea tu primera sesión de entrenamiento'}
                     </p>
-                    <Button className="gap-2" onClick={() => { setEditingSession(null); setDialogOpen(true); }}>
-                      <Plus className="w-4 h-4" />
-                      Crear Primera Sesión
-                    </Button>
+                    {!isAdminRole && (
+                      <Button className="gap-2" onClick={() => { setEditingSession(null); setDialogOpen(true); }}>
+                        <Plus className="w-4 h-4" />
+                        Crear Primera Sesión
+                      </Button>
+                    )}
                   </CardContent>
                 </Card>
               )}
@@ -638,7 +656,9 @@ export default function TrainingPlansPage() {
                 <p className="text-muted-foreground text-sm max-w-md mx-auto">
                   Las sesiones de entrenamiento se organizan por Equipos.
                   Para planificar, selecciona la pestaña de <strong>Equipos</strong>.
-                  Usa el panel de la derecha para evaluar el rendimiento de los deportistas de este Plan.
+                  {isAdminRole
+                    ? 'En el panel de la derecha están las tarjetas y la evolución de los deportistas de este Plan.'
+                    : 'Usa el panel de la derecha para evaluar el rendimiento de los deportistas de este Plan.'}
                 </p>
               </CardContent>
             </Card>
@@ -662,7 +682,7 @@ export default function TrainingPlansPage() {
           {activeId && (
             <Card className="border-border/40 bg-background/50 backdrop-blur-sm shadow-sm overflow-hidden flex flex-col">
               <CardHeader className="pb-3 border-b border-border/40 bg-muted/20">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-3">
                     {filterType === 'teams' && (() => {
                       const selectedTeam = teams?.find((t: any) => t.id === selectedTeamId);
@@ -684,16 +704,18 @@ export default function TrainingPlansPage() {
                       </CardDescription>
                     </div>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 gap-1.5 shrink-0"
-                    onClick={() => setPerformanceDialogOpen(true)}
-                    disabled={roster.length === 0}
-                  >
-                    <Activity className="w-3.5 h-3.5" />
-                    Evaluar Lote
-                  </Button>
+                  {!isAdminRole && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 gap-1.5 shrink-0"
+                      onClick={() => setPerformanceDialogOpen(true)}
+                      disabled={roster.length === 0}
+                    >
+                      <Activity className="w-3.5 h-3.5" />
+                      Evaluar Lote
+                    </Button>
+                  )}
                   {(() => {
                     return filterType === 'teams' && isFootballTeam && (
                       <Button
@@ -724,17 +746,21 @@ export default function TrainingPlansPage() {
                     {roster.map((student) => (
                       <div
                         key={student.id}
-                        className="flex items-center justify-between gap-3 p-2 rounded-lg border bg-card/60 hover:bg-accent/40 transition-colors"
+                        className="flex flex-col gap-1.5 p-2 rounded-lg border bg-card/60 hover:bg-accent/40 transition-colors"
                       >
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-semibold truncate">{student.full_name}</p>
+                        {/* El nombre va en su propia línea: la columna es angosta y los
+                            tres botones lo dejaban en "A…", sin saber a quién se evalúa. */}
+                        <div className="flex items-center gap-2 min-w-0">
+                          <p className="text-sm font-semibold leading-snug break-words" title={student.full_name}>
+                            {student.full_name}
+                          </p>
                           {student.athlete_type === 'adult' && (
-                            <Badge variant="outline" className="text-[9px] h-3.5 py-0 px-1 mt-0.5">
+                            <Badge variant="outline" className="text-[9px] h-3.5 py-0 px-1 shrink-0">
                               Adulto
                             </Badge>
                           )}
                         </div>
-                        <div className="flex items-center gap-1">
+                        <div className="flex flex-wrap items-center gap-1 -ml-2">
                           {performanceSubjectById.get(student.id) && (
                             <Button
                               size="sm"
@@ -755,15 +781,17 @@ export default function TrainingPlansPage() {
                             <TrendingUp className="w-3.5 h-3.5" />
                             Evolución
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 text-primary hover:text-primary hover:bg-primary/10 px-2 gap-1"
-                            onClick={() => setIndividualStudent(student)}
-                          >
-                            <Activity className="w-3.5 h-3.5" />
-                            Evaluar
-                          </Button>
+                          {!isAdminRole && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-primary hover:text-primary hover:bg-primary/10 px-2 gap-1"
+                              onClick={() => setIndividualStudent(student)}
+                            >
+                              <Activity className="w-3.5 h-3.5" />
+                              Evaluar
+                            </Button>
+                          )}
                         </div>
                       </div>
                     ))}

@@ -268,11 +268,11 @@ describe('`abe50cda`: mensajes para Milena', () => {
         expect(h.sendToUser).toHaveBeenCalledTimes(1);
     });
 
-    it('«Mile, puedes ir a…» → «Le dejo tu mensaje a Milena 🙌», nunca «solo puedo ayudar con…»', async () => {
+    it('«Mile, puedes ir a…» → «Dejo tu mensaje para Milena 🙌» (tú, sin «le»), nunca «solo puedo ayudar con…»', async () => {
         await runBotTurn(INTEGRATION, CONV, TEL,
             'Mile, puedes ir a comunicación WhatsApp Conversaciones y marcar como personal', 'w1');
         expect(h.chatWithTools).not.toHaveBeenCalled();
-        expect(borradores()[0].row.proposed_text).toContain('Le dejo tu mensaje a Milena 🙌');
+        expect(borradores()[0].row.proposed_text).toContain('Dejo tu mensaje para Milena 🙌');
         expect(borradores()[0].row.proposed_text).not.toMatch(/solo puedo/i);
         expect(h.state.updates.some((u) => u.table === 'whatsapp_conversations' && u.row.status === 'open')).toBe(true);
     });

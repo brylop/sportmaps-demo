@@ -54,10 +54,13 @@ import { supabase } from '../config/supabase';
 import type { BotonInteractivo } from './whatsapp.service';
 import { esSinLimite } from './franjas-cortesia.service';
 import { liberarLeadParaReserva } from './whatsapp-prospecto-lead.service';
+import { celular10 } from './factura-pagador.service';
 import {
     rangosDeEscuela, elegirGrupo, textoGrupoParaEdad, textoDesdeQueEdad, preguntaGrupoPorEdad,
     type RangoGrupo, type FuenteEdad, type Genero,
 } from './grupos-por-edad.service';
+import { leadSinCupoParaReserva, telefonoAlterno, fusionarReservaEnLead } from './whatsapp-prospecto-lead.service';
+import { indicacionesCortesiaDeEscuela } from './whatsapp-ajustes-escuela.service';
 
 export const FLUJO_CORTESIA = 'clase_cortesia';
 /** Misma ventana de atención de Meta: pasada, el papá ya no recuerda la pregunta. */
@@ -159,7 +162,9 @@ export type ResultadoCancelacion =
     | { ok: false; motivo: 'sin_reserva' | 'sin_rpc' | 'error' };
 
 export type TipoAvisoCortesia =
-    | 'reservada' | 'datos' | 'cancelada' | 'cancelacion_pedida' | 'no_reservada';
+    | 'reservada' | 'datos' | 'cancelada' | 'cancelacion_pedida' | 'no_reservada'
+    /** El prospecto escribió «llegué / llegamos» el día de su clase. */
+    | 'llegada';
 
 export interface AvisoCortesia {
     tipo: TipoAvisoCortesia;
@@ -221,6 +226,8 @@ export interface CtxCortesia {
     listadoReciente?: () => Promise<boolean>;
     /** Rangos de edad de los grupos (por defecto, grupos-por-edad.service). */
     rangos?: (schoolId: string) => Promise<RangoGrupo[]>;
+    /** Qué llevar / a quién buscar, de la escuela (por defecto, school_settings). */
+    indicaciones?: (schoolId: string) => Promise<string | null>;
 }
 
 // ─── Botones (ids = contrato con el webhook; títulos ≤ 20) ─────────────────
@@ -699,6 +706,20 @@ export function sedeConDireccion(f: FranjaCortesia): string | null {
  */
 export const QUE_LLEVAR = 'ropa deportiva cómoda, tenis, una botella de agua y una toalla pequeña';
 
+/**
+ * Las líneas de «qué llevar / al llegar» de la confirmación y del recordatorio.
+ * Si la escuela escribió sus indicaciones (school_settings.wa_cortesia_indicaciones,
+ * mig. 20261007183601) van tal cual en lugar del texto genérico. Dynasty
+ * 2026-10-07: «Ropa de entrenamiento. Al llegar, la administración está en el
+ * ingreso por la parte derecha del coliseo, segundo piso.» Pura.
+ */
+export function lineasQueLlevar(indicaciones: string | null | undefined): string {
+    const propias = String(indicaciones ?? '').trim();
+    if (propias) return `🎒 ${propias}\n⏰ Llega 10 minutos antes. La clase es *gratis*.\n\n`;
+    return `🎒 Qué llevar: ${QUE_LLEVAR}.\n` +
+        '⏰ Llega 10 minutos antes y dile al entrenador que vienes a la clase de cortesía. Es *gratis*.\n\n';
+}
+
 export function bloqueFranja(f: FranjaCortesia): string {
     const fin = f.horaFin ? ` a ${horaLegible(f.horaFin)}` : '';
     const sede = sedeConDireccion(f);
@@ -718,7 +739,7 @@ function textoResumen(d: DatosCortesia): string {
     lineas.push(`• Deportista: *${d.nombre ?? ''}* (${d.edad ?? '?'} años)`);
     if (d.acudiente) lineas.push(`• Acudiente: *${d.acudiente}*`);
     lineas.push('• Teléfono: este WhatsApp');
-    lineas.push('', d.franja ? '¿Confirmo la reserva?' : '¿Le paso estos datos a la escuela?');
+    lineas.push('', d.franja ? '¿Confirmo la reserva?' : '¿Paso estos datos a la escuela?');
     return lineas.join('\n');
 }
 
@@ -801,6 +822,7 @@ function deps(ctx: CtxCortesia) {
         reservar: ctx.reservar ?? reservarEnSupabase,
         cancelar: ctx.cancelar ?? cancelarEnSupabase,
         avisar: ctx.avisarEscuela ?? avisarEscuelaCortesia,
+        indicaciones: ctx.indicaciones ?? indicacionesCortesiaDeEscuela,
         ahora: (ctx.ahora ?? (() => new Date()))(),
     };
 }
@@ -1156,15 +1178,36 @@ async function ofrecerFranjas(
         }
     }
 
+    const comoResponder = `Responde con el número (${visibles.map((_, i) => inicio + i + 1).join(', ')})` +
+        (hayMas ? ', *ver más*' : '') + ', un día (*el sábado*) o *asesor* para hablar con una persona.';
+    // Lista (> 3 franjas): el cuerpo NO repite las franjas —van en las filas de
+    // la lista, con día, hora y sede—. Auditoría 2026-10-07: cuerpos de
+    // 860–1026 caracteres con un 📍 por línea, y los de más de 1024 Meta los
+    // rechaza como interactivo y salían como texto de 1394–1647. El listado
+    // numerado completo queda en `enTexto`: es lo que sale si la lista no sale
+    // (modo asistido o Meta la rechaza), y «la 2» se sigue entendiendo.
+    const cuerpoMensaje = comoBotones
+        ? `${encabezado}\n\n${cuerpo}\n\n¿Cuál te reservo?`
+        : `${encabezado}\n\n${resumenDeLista(visibles)} Toca *Ver opciones* y elige el tuyo.`;
     await ctx.enviar(
-        `${encabezado}\n\n${cuerpo}\n\n¿Cuál te reservo?` +
-            (comoBotones ? '' : ' Toca *Ver opciones* o escríbeme el número.'),
+        cuerpoMensaje,
         step,
         { paso: 'elegir_franja', datos: { ...datosPrevios, franja: null, sinFranja: false,
             lista: lista.map((f) => f.id), desde: inicio, intentos: 0 } },
         opcionesUI,
-        `Responde con el número (${visibles.map((_, i) => inicio + i + 1).join(', ')})` +
-            (hayMas ? ', *ver más*' : '') + ', un día (*el sábado*) o *asesor* para hablar con una persona.');
+        comoBotones ? comoResponder : `${cuerpo}\n\n¿Cuál te reservo? ${comoResponder}`);
+}
+
+/** «Tengo 9 horarios entre el miércoles 7 y el viernes 9 de octubre.» Pura. */
+export function resumenDeLista(franjas: FranjaCortesia[]): string {
+    if (!franjas.length) return '';
+    const fechas = franjas.map((f) => f.fecha).sort();
+    const primero = fechaLegible(fechas[0]);
+    const ultimo = fechaLegible(fechas[fechas.length - 1]);
+    const cuantos = `Tengo ${franjas.length} horario${franjas.length === 1 ? '' : 's'}`;
+    return fechas[0] === fechas[fechas.length - 1]
+        ? `${cuantos} el ${primero}.`
+        : `${cuantos} entre el ${primero} y el ${ultimo}.`;
 }
 
 /**
@@ -1540,16 +1583,16 @@ async function reservar(ctx: CtxCortesia, d: Deps, datos: DatosCortesia): Promis
 
     if (!franja) {
         await ctx.enviar(
-            `¡Listo! ✅ Le pasé los datos de *${datos.nombre}* a la escuela. Te van a contactar por aquí para ` +
+            `¡Listo! ✅ Pasé los datos de *${datos.nombre}* a la escuela. Te van a contactar por aquí para ` +
             'agendar la clase de cortesía.', 'cortesia_datos_dejados', null);
         void d.avisar({ ...base, leadId: r.leadId, tipo: 'datos' }).catch(() => {});
         return true;
     }
 
+    const indicaciones = await d.indicaciones(ctx.schoolId).catch(() => null);
     await ctx.enviar(
         `✅ ¡Listo! Quedó reservada la clase de cortesía de *${datos.nombre}*:\n\n${bloqueFranja(franja)}\n\n` +
-        `🎒 Qué llevar: ${QUE_LLEVAR}.\n` +
-        '⏰ Llega 10 minutos antes y dile al entrenador que vienes a la clase de cortesía. Es *gratis*.\n\n' +
+        lineasQueLlevar(indicaciones) +
         'Si no puedes ir, escríbeme *cancelar mi clase* para liberar el cupo.',
         'cortesia_reservada', null);
     void d.avisar({ ...base, leadId: r.leadId, tipo: 'reservada' }).catch(() => {});
@@ -1729,27 +1772,26 @@ export async function franjasDeSupabase(schoolId: string): Promise<FranjaCortesi
     }
 }
 
-function ultimos10(waId: string): string {
-    return String(waId ?? '').replace(/\D/g, '').slice(-10);
-}
-
 /**
  * El teléfono con que se guarda el prospecto: el celular colombiano de 10
  * dígitos, igual que lo escribe la gente en el formulario. Así el dedupe de
- * 24 h de `submit_school_lead` y la búsqueda de la escuela cruzan.
+ * 24 h de `submit_school_lead` y la búsqueda de la escuela cruzan. Un número
+ * extranjero va completo (`+<dígitos>`): sus últimos 10 pueden ser el celular
+ * de otra persona (auditoría de privacidad 2026-10-08).
  */
 function telefonoDelLead(waId: string): string {
     const d = String(waId ?? '').replace(/\D/g, '');
-    const t10 = d.slice(-10);
-    return /^3\d{9}$/.test(t10) ? t10 : `+${d}`;
+    return celular10(d) ?? `+${d}`;
 }
 
 export async function reservaVigenteDeSupabase(schoolId: string, contactWaId: string): Promise<ReservaVigente | null> {
     try {
-        const t10 = ultimos10(contactWaId);
-        if (t10.length < 10) return null;
-        const digitos = String(contactWaId).replace(/\D/g, '');
-        const variantes = [...new Set([t10, `57${t10}`, `+57${t10}`, digitos, `+${digitos}`])];
+        const digitos = String(contactWaId ?? '').replace(/\D/g, '');
+        if (digitos.length < 10) return null;
+        const t10 = celular10(digitos);
+        const variantes = t10
+            ? [...new Set([t10, `57${t10}`, `+57${t10}`, digitos, `+${digitos}`])]
+            : [digitos, `+${digitos}`];
         const { data, error } = await supabase.from('school_signup_leads')
             .select('id, full_name, created_at, school_trial_slots(id, label, slot_date, start_time, end_time, location)')
             .eq('school_id', schoolId)
@@ -1777,13 +1819,18 @@ export async function reservarEnSupabase(p: ParamsReserva): Promise<ResultadoRes
     try {
         const slug = await slugDeEscuela(p.schoolId);
         if (!slug) return { ok: false, motivo: 'error' };
-        // El lead SIN cupo que dejó la puerta de prospecto (whatsapp-prospecto-lead)
-        // haría que `submit_school_lead` responda «duplicado» y NO reserve.
-        await liberarLeadParaReserva(p.schoolId, p.contactWaId);
+        // El lead SIN cupo de este número (el que dejó la puerta de prospecto o
+        // el formulario) es el que se agenda: una fila por escuela + teléfono.
+        // La RPC toma el cupo con otro formato del mismo número (su dedupe de
+        // 24 h compara el texto exacto y devolvería «duplicado» SIN reservar) y
+        // después el cupo pasa a esa fila (`fusionarReservaEnLead`). Antes se
+        // BORRABA el lead del bot y, pasadas 24 h, quedaban dos (embudo 10-08).
+        const previo = await leadSinCupoParaReserva(p.schoolId, p.contactWaId);
+        if (!previo) await liberarLeadParaReserva(p.schoolId, p.contactWaId);
         const { data, error } = await supabase.rpc('submit_school_lead', {
             p_slug: slug,
             p_full_name: p.nombre,
-            p_phone: telefonoDelLead(p.contactWaId),
+            p_phone: previo ? telefonoAlterno(previo.phone) : telefonoDelLead(p.contactWaId),
             p_email: null,
             p_gender: null,
             p_birth_date: p.fechaNacimiento,
@@ -1802,7 +1849,8 @@ export async function reservarEnSupabase(p: ParamsReserva): Promise<ResultadoRes
             return { ok: false, motivo: 'error' };
         }
         const r = (data ?? {}) as any;
-        const leadId = r.lead_id ?? null;
+        let leadId = r.lead_id ?? null;
+        if (previo && leadId && !r.duplicate) leadId = await fusionarReservaEnLead(previo.id, leadId);
         let conCupo = !r.duplicate;
         if (r.duplicate && p.franjaId && leadId) {
             const { data: lead } = await supabase.from('school_signup_leads')

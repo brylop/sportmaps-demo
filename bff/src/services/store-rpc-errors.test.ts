@@ -17,6 +17,12 @@ describe('mapStoreRpcError', () => {
         [{ code: '23505', message: 'ALREADY_REVIEWED' }, 409, 'ALREADY_REVIEWED'],
         [{ code: '22023', message: 'INVALID_TEXT' }, 400, 'INVALID_TEXT'],
         [{ code: '23514', message: 'PAID_WITHOUT_PROOF' }, 409, 'PAID_WITHOUT_PROOF'],
+        // Cobros y entrega de la tienda (20261008163336)
+        [{ code: 'P0001', message: 'SHIPPING_NOT_OFFERED' }, 409, 'SHIPPING_NOT_OFFERED'],
+        [{ code: '22023', message: 'INVALID_TRANSFER_ACCOUNT' }, 400, 'INVALID_TRANSFER_ACCOUNT'],
+        [{ code: '22023', message: 'PICKUP_BRANCH_REQUIRED' }, 400, 'PICKUP_BRANCH_REQUIRED'],
+        [{ code: '22023', message: 'INVALID_PICKUP_BRANCH' }, 400, 'INVALID_PICKUP_BRANCH'],
+        [{ code: '22023', message: 'NO_PAYMENT_METHODS' }, 400, 'NO_PAYMENT_METHODS'],
     ])('%o → %i %s', (err, status, code) => {
         expect(mapStoreRpcError(err)).toMatchObject({ status, code });
     });

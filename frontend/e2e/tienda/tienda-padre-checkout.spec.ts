@@ -57,7 +57,7 @@ test('padre compra camiseta school_only con talla por transferencia → comproba
     await padre.goto(`/tienda/${TIENDA.slug}`);
     const camiseta = card(padre, TIENDA.camiseta);
     await expect(camiseta).toBeVisible({ timeout: 30_000 });
-    await expect(camiseta.getByText('Solo tu escuela')).toBeVisible();
+    await expect(camiseta.getByText('Solo para miembros')).toBeVisible();
     await expect(camiseta.getByText('Agotado')).toHaveCount(0);
     await captura(padre, '01-vitrina-padre-miembro', true);
 

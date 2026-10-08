@@ -200,7 +200,7 @@ export function textoYaPague(
     if (!hayAlgo) {
         lineas.push('No encuentro ningún comprobante tuyo reciente por este medio. 🤔');
         lineas.push('Si ya pagaste, mándame la *foto* o el *PDF* del comprobante por aquí. ' +
-            'Y le dejo el caso a la escuela para que lo revise contigo.');
+            'Y dejo el caso en manos de la escuela para que lo revise contigo.');
     }
     if (pendientes.length) {
         lineas.push('');
@@ -409,10 +409,118 @@ const pasoDe = (f: FilaReciente) => (f.payload?.step ?? null) as string | null;
  */
 export function humanoReciente(filas: FilaReciente[], minutos: number, ahora = Date.now()): boolean {
     const desde = ahora - minutos * 60_000;
-    return filas.some((f) => f.direction === 'outbound'
-        && f.ai_generated === false
-        && !esAutomaticoDeApp(f)
-        && momento(f) >= desde);
+    // Solo imagen / ubicación / sticker (sin texto): la escuela mandó la foto
+    // del horario o el pin del coliseo y siguió con lo suyo. Cuenta como
+    // «atendiendo» unos minutos, no los 15 completos (…1042 y …6297, 07-oct:
+    // el bot cedió por una imagen y nadie volvió a escribir).
+    const desdeAdjunto = ahora - Math.min(minutos, SILENCIO_SOLO_ADJUNTO_MIN) * 60_000;
+    return filas.some((f) => esHumanoDeLaEscuela(f)
+        && momento(f) >= (esSoloAdjunto(f) ? desdeAdjunto : desde));
+}
+
+/** Minutos que «calla» al bot un mensaje de la escuela que es solo imagen, ubicación o sticker. */
+export const SILENCIO_SOLO_ADJUNTO_MIN = 3;
+const TIPOS_SOLO_ADJUNTO = new Set(['image', 'location', 'sticker', 'reaction']);
+
+/** ¿Imagen, ubicación, sticker o reacción sin texto (sin pie de foto)? */
+export function esSoloAdjunto(f: FilaReciente): boolean {
+    return TIPOS_SOLO_ADJUNTO.has(String(f.type ?? '')) && !(f.text_body || '').trim();
+}
+
+/** Saliente escrito por una PERSONA de la escuela (echo de Coexistence o buzón). */
+export function esHumanoDeLaEscuela(f: FilaReciente): boolean {
+    return f.direction === 'outbound' && f.ai_generated === false && !esAutomaticoDeApp(f);
+}
+
+// ─── Retoma: la escuela cedió y nadie contestó ──────────────────────────────
+//
+// Dynasty 2026-10-07: …4445 recibió «Ya pasé tu mensaje a la escuela» a las
+// 12:19 y escribió «Hola» a las 12:56, 15:08 y 17:38 sin respuesta; …1042
+// preguntó «Cuánto es la mensualidad y qué dirección es» después de que la
+// escuela mandó solo una imagen, y …6297 «edad máxima / precios» después del pin
+// del coliseo. El bot había cedido y nadie volvió.
+//
+// `decidirRetoma` es la regla, pura: si tras ceder nadie de la escuela escribió
+// TEXTO en RETOMA_MIN, el bot vuelve a lo que sabe contestar; y si la familia
+// vuelve a escribir más de REAVISO_TRAS_PASE_MIN después de «ya pasé tu
+// mensaje», se re-avisa a la escuela.
+
+/** Minutos sin TEXTO de la escuela tras ceder antes de que el bot retome. */
+export const RETOMA_MIN = Number(process.env.WHATSAPP_RETOMA_MIN) || 30;
+/** Minutos tras «ya pasé tu mensaje» a partir de los cuales un mensaje nuevo re-avisa a la escuela. */
+export const REAVISO_TRAS_PASE_MIN = 60;
+/** Solo se miran conversaciones con un pendiente de estas últimas horas. */
+export const RETOMA_VENTANA_HORAS = 6;
+
+/** step de lo que dice el bot al retomar sin tener la respuesta. */
+export const PASO_RETOMA_SIN_RESPUESTA = 'retoma_sin_respuesta';
+/** Pasos con los que el bot le pasó la conversación a la escuela («ya pasé tu mensaje»). */
+export const PASOS_PASE_A_LA_ESCUELA = new Set([
+    'prospecto_seguimiento', 'escalated', 'ask_email', 'mensaje_para_persona',
+    'escalacion_sin_respuesta', 'comprobante_a_revision_manual', 'correo_no_encontrado',
+    PASO_RETOMA_SIN_RESPUESTA,
+]);
+
+export type DecisionRetoma = {
+    /** ¿Responder ya lo pendiente (esperó RETOMA_MIN sin texto de la escuela)? */
+    responder: boolean;
+    /** ¿Re-avisar a la escuela (volvió a escribir > 1 h después de «ya pasé tu mensaje»)? */
+    reavisar: boolean;
+    /** Entrantes de texto sin respuesta, del más viejo al más nuevo. */
+    pendientes: FilaReciente[];
+    /** El «ya pasé tu mensaje» que se re-avisa (su id/wa_message_id arma la clave). */
+    pase: FilaReciente | null;
+    motivo: string;
+};
+
+const tieneTexto = (f: FilaReciente) => !!(f.text_body || '').trim();
+
+/**
+ * La regla de la retoma. Pura. `filas` en cualquier orden (las de 24 h).
+ *
+ *  - Pendientes = entrantes con texto DESPUÉS de la última respuesta real: del
+ *    bot, o de una persona de la escuela CON TEXTO. Una imagen suelta de la
+ *    escuela no responde «¿cuánto es la mensualidad?».
+ *  - Solo si el bot habló en estas 24 h (un contacto personal de la dueña, al
+ *    que el bot nunca le habla, no entra) y CEDIÓ: una persona de la escuela
+ *    escribió (cualquier tipo) o el bot dijo «ya pasé tu mensaje».
+ *  - `responder`: el primer pendiente lleva ≥ RETOMA_MIN y la escuela no escribió
+ *    texto en ese lapso.
+ *  - `reavisar`: hay un pendiente posterior a un «ya pasé tu mensaje» de hace
+ *    ≥ REAVISO_TRAS_PASE_MIN.
+ */
+export function decidirRetoma(filas: FilaReciente[], ahora = Date.now()): DecisionRetoma {
+    const orden = filas.slice().sort((a, b) => momento(a) - momento(b));
+    const nada = (motivo: string): DecisionRetoma => ({ responder: false, reavisar: false, pendientes: [], pase: null, motivo });
+
+    const esBot = (f: FilaReciente) => f.direction === 'outbound' && f.ai_generated !== false && !esAutomaticoDeApp(f);
+    const respuestas = orden.filter((f) => esBot(f) || (esHumanoDeLaEscuela(f) && tieneTexto(f)));
+    const ultimaRespuesta = respuestas.length ? momento(respuestas[respuestas.length - 1]) : 0;
+    const pendientes = orden.filter((f) => f.direction === 'inbound' && tieneTexto(f) && momento(f) > ultimaRespuesta);
+    if (!pendientes.length) return nada('sin_pendientes');
+    if (ahora - momento(pendientes[pendientes.length - 1]) > RETOMA_VENTANA_HORAS * 3600_000) return nada('viejo');
+
+    if (!orden.some((f) => esBot(f) && momento(f) >= ahora - 24 * 3600_000)) return nada('bot_no_hablo');
+
+    const pases = orden.filter((f) => esBot(f) && PASOS_PASE_A_LA_ESCUELA.has(String(pasoDe(f) ?? '')));
+    const pase = pases.length ? pases[pases.length - 1] : null;
+    const primero = momento(pendientes[0]);
+    const humanoAntes = orden.some((f) => esHumanoDeLaEscuela(f) && momento(f) <= primero
+        && momento(f) >= primero - RETOMA_VENTANA_HORAS * 3600_000);
+    if (!pase && !humanoAntes) return nada('no_cedio');
+
+    // Texto de la escuela en los últimos RETOMA_MIN: está atendiendo.
+    const textoEscuelaReciente = orden.some((f) => esHumanoDeLaEscuela(f) && tieneTexto(f)
+        && momento(f) >= ahora - RETOMA_MIN * 60_000);
+
+    const responder = !textoEscuelaReciente && ahora - primero >= RETOMA_MIN * 60_000;
+    const reavisar = !!pase && ahora - momento(pase) >= REAVISO_TRAS_PASE_MIN * 60_000
+        && pendientes.some((f) => momento(f) - momento(pase) >= REAVISO_TRAS_PASE_MIN * 60_000)
+        && !textoEscuelaReciente;
+    return {
+        responder, reavisar, pendientes, pase,
+        motivo: responder ? 'retomar' : reavisar ? 'reavisar' : textoEscuelaReciente ? 'escuela_atendiendo' : 'esperando',
+    };
 }
 
 const PASOS_DE_CONSENTIMIENTO = new Set([
@@ -457,6 +565,42 @@ export function pasoEnVentana(filas: FilaReciente[], paso: string, ms: number, a
 }
 
 export { PASOS_DE_CONSENTIMIENTO };
+
+// ─── Tipos no soportados (video, sticker, contacto, ubicación…) ─────────────
+//
+// Dynasty 2026-10-07 18:32–18:37: una familia mandó 13 videos seguidos (del
+// entrenamiento, junto con fotos) y el bot contestó 13 veces «No puedo ver
+// videos. Si es un comprobante…». Un video de una familia casi nunca es un
+// comprobante: se contesta SOLO si el texto cercano habla de pago, y como mucho
+// una vez cada 24 h por conversación (cualquier `tipo_no_soportado_*`).
+
+/** Prefijo del step de la respuesta a un tipo no soportado. */
+export const PASO_TIPO_NO_SOPORTADO = 'tipo_no_soportado';
+/** Cuánto hacia atrás se mira el texto que acompaña al video. */
+export const VENTANA_TEXTO_DEL_VIDEO_MS = 15 * 60_000;
+const HABLA_DE_PAGO = /\b(pagos?|pague|pagar|comprobantes?|soportes?|transferencias?|transferi|consignacion|consigne|mensualidad|recibos?|abono|cuota|nequi|daviplata|bre b)\b/;
+
+/**
+ * ¿Merece respuesta un video (u otro tipo que el bot no lee)? Pura.
+ *  - `textoPropio`: el pie del video, si trae.
+ *  - `filas`: las recientes de la conversación.
+ * Sí solo si el pie o un entrante de texto de los últimos 15 min habla de pago,
+ * y no salió ningún `tipo_no_soportado_*` en 24 h.
+ */
+export function respuestaATipoNoSoportado(
+    textoPropio: string | null | undefined,
+    filas: FilaReciente[],
+    ahora = Date.now(),
+): boolean {
+    const yaDicho = filas.some((f) => f.direction === 'outbound'
+        && String(pasoDe(f) ?? '').startsWith(PASO_TIPO_NO_SOPORTADO)
+        && momento(f) >= ahora - 24 * 3600_000);
+    if (yaDicho) return false;
+    const habla = (t: string | null | undefined) => HABLA_DE_PAGO.test(normalizarFrase(t)) || !!anunciaComprobante(t);
+    if (habla(textoPropio)) return true;
+    return filas.some((f) => f.direction === 'inbound' && tieneTexto(f)
+        && momento(f) >= ahora - VENTANA_TEXTO_DEL_VIDEO_MS && habla(f.text_body));
+}
 
 // ─── Notas de voz (spec docs/specs/whatsapp-notas-de-voz.md, F1) ─────────────
 
@@ -516,4 +660,24 @@ export function ecoDeAudios(filas: FilaReciente[], waMessageIdActual: string | n
     let texto = audios.join(' … ');
     if (texto.length > ECO_MAX_CARACTERES) texto = texto.slice(0, ECO_MAX_CARACTERES).trimEnd() + '…';
     return `🎤 Entendí: «${texto}»`;
+}
+
+// ─── Largo y emojis (auditoría 2026-10-07) ──────────────────────────────────
+//
+// Saludo de 1394 caracteres con 12 emojis; listas de cortesía de 860–1026. En
+// WhatsApp un mensaje largo y cargado de íconos se lee como publicidad. Tope:
+// 3 emojis por mensaje (los primeros se quedan, el resto se quita).
+
+export const MAX_EMOJIS_MENSAJE = 3;
+const EMOJI_RE = /\s?\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic}|[\u{1F3FB}-\u{1F3FF}])*/gu;
+
+/** Cuántos emojis trae el texto. Pura. */
+export function contarEmojis(texto: string | null | undefined): number {
+    return ((texto || '').match(EMOJI_RE) ?? []).length;
+}
+
+/** El texto con como mucho `max` emojis (se quedan los primeros). Pura. */
+export function recortarEmojis(texto: string, max = MAX_EMOJIS_MENSAJE): string {
+    let vistos = 0;
+    return texto.replace(EMOJI_RE, (m) => (++vistos <= max ? m : ''));
 }

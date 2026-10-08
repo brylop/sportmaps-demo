@@ -80,8 +80,13 @@ router.get('/:id', async (req: Request, res: Response) => {
             .eq('user_id', req.user.id)
             .maybeSingle();
 
-        if (error || !data) {
-            return res.status(404).json({ ok: false, error: 'Orden no encontrada.' });
+        // Un fallo de la base no es "no existe": el comprador vería "Pedido no
+        // encontrado" de un pedido que sí tiene.
+        if (error) {
+            return res.status(500).json({ ok: false, error: 'INTERNAL', message: 'No pudimos leer el pedido.' });
+        }
+        if (!data) {
+            return res.status(404).json({ ok: false, error: 'NOT_FOUND', message: 'Orden no encontrada.' });
         }
 
         // order_items.variant_id no tiene FK a product_variants en la base

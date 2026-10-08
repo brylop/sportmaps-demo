@@ -82,3 +82,54 @@ export async function ajustesWhatsAppDeEscuela(schoolId: string | null | undefin
         return { ...AJUSTES_POR_DEFECTO };
     }
 }
+
+// ─── Textos libres por escuela (mig. 20261007183601) ─────────────────────────
+//
+// `wa_atencion_presencial` y `wa_cortesia_indicaciones` en school_settings.
+// Mientras la migración no esté aplicada, el mismo dato se lee de
+// `schools.payment_settings` (jsonb legacy que ningún formulario escribe), con
+// la misma clave: así Dynasty lo tiene hoy sin tocar el esquema.
+
+export type TextoDeEscuela = 'wa_atencion_presencial' | 'wa_cortesia_indicaciones';
+
+/** Recorta y descarta lo vacío o lo que no es texto. Pura. */
+export function textoLimpio(v: unknown, max = 400): string | null {
+    if (typeof v !== 'string') return null;
+    const t = v.replace(/\s+/g, ' ').trim();
+    return t ? t.slice(0, max) : null;
+}
+
+/** Columna de school_settings; si no existe o está vacía, la clave puente. Nunca lanza. */
+export async function textoDeEscuela(schoolId: string | null | undefined, campo: TextoDeEscuela): Promise<string | null> {
+    if (!schoolId) return null;
+    try {
+        const { data, error } = await supabase
+            .from('school_settings').select(campo).eq('school_id', schoolId).maybeSingle();
+        if (!error) {
+            const v = textoLimpio((data as Record<string, unknown> | null)?.[campo]);
+            if (v) return v;
+        }
+    } catch { /* columna sin migrar: se intenta el puente */ }
+    try {
+        const { data } = await supabase
+            .from('schools').select('payment_settings').eq('id', schoolId).maybeSingle();
+        return textoLimpio((data as any)?.payment_settings?.[campo]);
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Dónde y cuándo atiende la escuela EN PERSONA (pagos, trámites), tal como lo
+ * escribió la escuela, o null si no lo configuró: entonces el bot no lo dice
+ * (nunca se inventa). Dynasty 2026-10-07: «Club de voleibol Coliseo Dynasty,
+ * Cl. 12 Bis #71g-09, Bogotá. Desde las 4 p. m. hasta las 9 p. m.»
+ */
+export function atencionPresencialDeEscuela(schoolId: string | null | undefined): Promise<string | null> {
+    return textoDeEscuela(schoolId, 'wa_atencion_presencial');
+}
+
+/** Qué llevar / a quién buscar en la clase de cortesía, o null (= texto genérico). */
+export function indicacionesCortesiaDeEscuela(schoolId: string | null | undefined): Promise<string | null> {
+    return textoDeEscuela(schoolId, 'wa_cortesia_indicaciones');
+}

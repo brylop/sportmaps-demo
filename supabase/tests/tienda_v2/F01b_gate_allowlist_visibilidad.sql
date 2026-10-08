@@ -17,7 +17,7 @@ set local role authenticated;
 select set_config('qa.vp_a', public.enable_school_store(current_setting('qa.school_a')::uuid)::text, true);
 reset role;
 insert into public.products (id, name, description, price, stock, vendor_profile_id, status, visibility, category_id, image_url)
-values ('00000000-0000-4000-d000-0000000000a1', 'QA Gorra Academia Andes',
+values (gen_random_uuid(), 'QA Gorra Academia Andes F01b',  -- id propio: la preparación del E2E deja ...a1 commiteado
         'Gorra oficial de la academia para entrenamientos al aire libre', 45000, 5,
         current_setting('qa.vp_a')::uuid, 'active', 'public',
         (select id from public.product_categories limit 1), 'https://example.test/gorra.png');

@@ -56,6 +56,7 @@
  */
 
 import { supabase } from '../config/supabase';
+import { atencionPresencialDeEscuela } from './whatsapp-ajustes-escuela.service';
 
 export interface InfoDeEscuela {
     nombre: string;
@@ -89,6 +90,13 @@ export interface InfoDeEscuela {
     categorias: { nombre: string; rama: string | null }[];
     /** Horario de ATENCIÓN (no de entrenamiento), si está configurado. */
     horario_atencion: string | null;
+    /**
+     * Dónde y cuándo atiende la escuela EN PERSONA (pagos, trámites), tal como
+     * lo escribió la escuela (school_settings.wa_atencion_presencial). Es lo que
+     * se contesta a «dónde pago / hasta qué hora atienden / atención
+     * presencial». null = no configurado: no se inventa.
+     */
+    atencion_presencial: string | null;
     /**
      * Qué NO se puede responder con estos datos. El prompt lo usa para que el
      * modelo lo diga en vez de deducirlo.
@@ -328,7 +336,7 @@ export async function infoDeEscuela(schoolId: string): Promise<InfoDeEscuela> {
     const hoy = hoyEnBogota();
     const desde = new Date(diaUTC(hoy) - (INFERENCIA.semanas * 7 - 1) * 86_400_000).toISOString().slice(0, 10);
 
-    const [escuela, sedes, equipos, categorias, ajustes, sesiones] = await Promise.all([
+    const [escuela, sedes, equipos, categorias, ajustes, sesiones, presencial] = await Promise.all([
         supabase.from('schools').select('name, city, address').eq('id', schoolId).maybeSingle(),
         supabase.from('school_branches').select('name').eq('school_id', schoolId).limit(50),
         supabase.from('teams')
@@ -357,6 +365,7 @@ export async function infoDeEscuela(schoolId: string): Promise<InfoDeEscuela> {
             .gte('session_date', desde)
             .lte('session_date', hoy)
             .limit(5000),
+        atencionPresencialDeEscuela(schoolId),
     ]);
 
     const e = (escuela.data ?? {}) as any;
@@ -403,6 +412,7 @@ export async function infoDeEscuela(schoolId: string): Promise<InfoDeEscuela> {
             .map((c) => ({ nombre: String(c.name ?? '').trim(), rama: vacio(c.rama) ? null : String(c.rama).trim() }))
             .filter((c) => c.nombre),
         horario_atencion: describirAtencion((ajustes.data as any)?.business_hours),
+        atencion_presencial: presencial ?? null,
         no_disponible: [],
     };
 
@@ -424,7 +434,7 @@ export async function infoDeEscuela(schoolId: string): Promise<InfoDeEscuela> {
     info.no_disponible.push('edades exactas de cada categoría');
     info.no_disponible.push('precios de mensualidad, inscripción y uniforme');
     if (!info.sedes.length && !info.direccion) info.no_disponible.push('dirección y sedes');
-    if (!info.horario_atencion) info.no_disponible.push('horario de atención de la escuela');
+    if (!info.horario_atencion && !info.atencion_presencial) info.no_disponible.push('horario de atención de la escuela');
 
     return info;
 }
@@ -440,7 +450,8 @@ export function fallbackInfoEscuela(i: InfoDeEscuela): string {
 
     if (i.ciudad || i.direccion) l.push(`📍 ${[i.direccion, i.ciudad].filter(Boolean).join(', ')}`);
     if (i.sedes.length > 1) l.push(`*Sedes:* ${i.sedes.join(' · ')}`);
-    if (i.horario_atencion) l.push(`*Atención:* ${i.horario_atencion}`);
+    if (i.atencion_presencial) l.push(`*Atención presencial (pagos y trámites):* ${i.atencion_presencial}`);
+    else if (i.horario_atencion) l.push(`*Atención:* ${i.horario_atencion}`);
 
     if (i.grupos.length) {
         l.push('', '*Grupos:*');
@@ -457,4 +468,71 @@ export function fallbackInfoEscuela(i: InfoDeEscuela): string {
         ? 'Los horarios que no aparecen acá y los precios te los confirma la escuela directamente.'
         : 'Los precios te los confirma la escuela directamente.');
     return l.join('\n');
+}
+
+// ─── Horario de HOY (Dynasty 2026-10-08) ─────────────────────────────────────
+//
+// «¿Cambiaron el horario de hoy?» de un desconocido recibía
+// «escríbeme tu correo». El horario del día es público: sale de
+// `teams.schedule` (lo que la escuela cargó). No hay registro de cancelaciones
+// todavía, así que el texto lo dice: si hay un cambio de última hora, avisa la
+// escuela.
+
+/** Franjas de un `teams.schedule` para un día de la semana (0 = domingo). Pura. */
+export function franjasDelDia(raw: unknown, dia: number): string | null {
+    let franjas: any[];
+    try {
+        franjas = typeof raw === 'string' ? JSON.parse(raw) : (raw as any[]);
+    } catch { return null; }
+    if (!Array.isArray(franjas)) return null;
+    const delDia = franjas.filter((f) => f && f.day === dia && f.time);
+    if (!delDia.length) return null;
+    return delDia
+        .map((f) => `${f.group ? `${f.group}: ` : ''}${f.time}${f.end ? ` a ${f.end}` : ''}${f.place ? ` (${f.place})` : ''}`)
+        .join(' · ');
+}
+
+export interface HorarioDelDia {
+    /** «jueves» */
+    dia: string;
+    grupos: { nombre: string; franjas: string }[];
+    /** Cuántos equipos activos tienen horario cargado (0 = no se puede contestar). */
+    conHorario: number;
+}
+
+/** Día de la semana de una fecha 'YYYY-MM-DD' (0 = domingo). */
+function diaDeLaSemana(fecha: string): number {
+    return new Date(diaUTC(fecha)).getUTCDay();
+}
+
+/** Grupos que entrenan hoy (hora de Bogotá), según el horario cargado. null si no se pudo leer. */
+export async function horariosDelDia(schoolId: string, fecha = hoyEnBogota()): Promise<HorarioDelDia | null> {
+    try {
+        const { data, error } = await supabase.from('teams')
+            .select('name, schedule, active')
+            .eq('school_id', schoolId).limit(100);
+        if (error || !Array.isArray(data)) return null;
+        const dia = diaDeLaSemana(fecha);
+        const activos = (data as any[])
+            .filter((t) => t.active !== false && !MARCADO_NO_USAR.test(String(t.name ?? '')) && String(t.name ?? '').trim());
+        const conHorario = activos.filter((t) => describirEntrenamiento(t.schedule)).length;
+        const grupos = activos
+            .map((t) => ({ nombre: String(t.name).trim(), franjas: franjasDelDia(t.schedule, dia) }))
+            .filter((g): g is { nombre: string; franjas: string } => !!g.franjas);
+        return { dia: DIA[dia], grupos, conHorario };
+    } catch {
+        return null;
+    }
+}
+
+/** Texto para «¿hay clase hoy? / ¿cambió el horario de hoy?». Pura. null si no hay horarios cargados. */
+export function textoHorarioDeHoy(h: HorarioDelDia, pasadoALaEscuela: boolean): string | null {
+    if (!h.conHorario) return null;
+    const cierre = 'Si hay un cambio de última hora, la escuela lo avisa por aquí.'
+        + (pasadoALaEscuela ? ' Ya le pasé tu mensaje para que te lo confirme.' : '');
+    if (!h.grupos.length) {
+        return `Según el horario de la escuela, hoy *${h.dia}* no hay entrenamientos programados.\n\n${cierre}`;
+    }
+    const lineas = h.grupos.slice(0, 15).map((g) => `• *${g.nombre}*: ${g.franjas}`);
+    return `Según el horario de la escuela, hoy *${h.dia}* entrenan:\n\n${lineas.join('\n')}\n\n${cierre}`;
 }

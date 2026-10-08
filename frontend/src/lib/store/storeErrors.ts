@@ -111,11 +111,15 @@ const STORE_ERRORS: Record<string, Omit<StoreErrorView, 'code'>> = {
     INVALID_PICKUP_BRANCH: { title: 'Sede no válida', description: 'Elige otra sede para retirar.', action: 'fix_delivery' },
     INVALID_FULFILLMENT: { title: 'Entrega no válida', description: 'Elige retiro en sede o envío.', action: 'fix_delivery' },
     SHIPPING_ZONE_NOT_FOUND: { title: 'No hay envío a ese departamento', description: 'Esta tienda no envía a ese departamento. Elige retiro en sede u otra dirección.', action: 'fix_delivery' },
+    SHIPPING_NOT_OFFERED: { title: 'Solo retiro en sede', description: 'Esta tienda no hace envíos a domicilio. Elige retiro en sede para seguir.', action: 'fix_delivery' },
     NOT_AUTHENTICATED: { title: 'Inicia sesión', description: 'Para comprar necesitas iniciar sesión.', action: 'login' },
     INVALID_STATE: { title: 'El pedido cambió de estado', description: 'Actualizamos el pedido para que veas cómo va.', action: 'reload_order' },
     ORDER_EXPIRED: { title: 'La reserva venció', description: 'El tiempo para pagar este pedido se acabó y los productos se liberaron. Haz un pedido nuevo.', action: 'reload_order' },
     TRANSITION_NOT_ALLOWED: { title: 'Cambio no permitido', description: 'El pedido no admite ese paso desde su estado actual.', action: 'reload_order' },
     INVALID_PICKUP_CODE: { title: 'Código de retiro incorrecto', description: 'Pide al comprador el código de 6 dígitos que recibió al hacer el pedido.', action: 'none' },
+    NOT_A_PICKUP_ORDER: { title: 'Este pedido no se retira en sede', description: 'Los pedidos con envío no usan código de retiro.', action: 'reload_order' },
+    PICKUP_CODE_LIMIT: { title: 'Ya no puedes generar más códigos', description: 'Generaste el máximo de códigos para este pedido. Escríbele a la tienda para retirarlo.', action: 'none' },
+    RATE_LIMITED: { title: 'Demasiadas solicitudes', description: 'Demasiadas solicitudes, intenta en un minuto.', action: 'retry' },
     NOT_OWNER: { title: 'Sin permiso', description: 'Solo el dueño o un administrador de la tienda puede hacer esto.', action: 'none' },
     FORBIDDEN: { title: 'Sin permiso', description: 'No tienes permiso para esta acción.', action: 'none' },
     NOT_FOUND: { title: 'Pedido no encontrado', description: 'No encontramos ese pedido.', action: 'none' },
@@ -165,10 +169,8 @@ export function storeErrorView(err: unknown): StoreErrorView {
     }
     const status = (err as { status?: number } | null)?.status;
     if (status === 401) return { code: 'NOT_AUTHENTICATED', ...STORE_ERRORS.NOT_AUTHENTICATED };
-    // paymentLimiter del BFF: 20 operaciones de pago por minuto.
-    if (status === 429) {
-        return { code: 'RATE_LIMITED', title: 'Demasiadas operaciones seguidas', description: 'Espera un minuto y vuelve a intentarlo.', action: 'retry' };
-    }
+    // Límite de operaciones del BFF (lecturas y escrituras de la tienda, por cliente).
+    if (status === 429) return { code: 'RATE_LIMITED', ...STORE_ERRORS.RATE_LIMITED };
     if (status === 503) return { code: 'STORE_DISABLED', ...STORE_ERRORS.STORE_DISABLED };
     if (err instanceof TypeError) {
         return { code: 'NETWORK', title: 'Sin conexión', description: 'No pudimos comunicarnos. Revisa tu internet e intenta de nuevo.', action: 'retry' };
@@ -182,4 +184,19 @@ export function isRetryableWithSameKey(err: unknown): boolean {
     const status = (err as { status?: number } | null)?.status;
     if (status === 429) return true; // rechazado antes de crear nada; la misma key es segura
     return typeof status === 'number' && status >= 500 && status !== 503;
+}
+
+/**
+ * Por qué no se pudo leer un pedido. Un 429 (límite de operaciones) o una caída
+ * NO son "no existe": la pantalla debe decir "intenta en un minuto" y no
+ * "Pedido no encontrado" (el comprador creía haber perdido su compra).
+ */
+export type OrderLoadError = 'rate_limited' | 'not_found' | 'network' | 'other';
+
+export function orderLoadError(err: unknown): OrderLoadError {
+    if (err instanceof TypeError) return 'network';
+    const status = (err as { status?: number } | null)?.status;
+    if (status === 429) return 'rate_limited';
+    if (status === 404 || status === 400) return 'not_found';
+    return 'other';
 }

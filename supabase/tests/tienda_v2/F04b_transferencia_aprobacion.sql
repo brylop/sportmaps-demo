@@ -32,6 +32,17 @@ on conflict (school_id) do update set payment_accounts = excluded.payment_accoun
   bank_name = excluded.bank_name, bank_account_number = excluded.bank_account_number,
   bank_account_type = excluded.bank_account_type;
 
+-- Línea base de la variante M: el E2E del gemelo deja stock/reservas commiteados;
+-- el caso mide lo que ESTA corrida mueve (reserva +2, y al aprobar stock −2 y reserva de vuelta).
+select set_config('qa.m_stock0', (select stock::text from public.product_variants where id = '00000000-0000-4000-e000-000000000002'), true);
+select set_config('qa.m_res0', (select reserved::text from public.product_variants where id = '00000000-0000-4000-e000-000000000002'), true);
+do $$ begin
+  if current_setting('qa.m_stock0')::int - current_setting('qa.m_res0')::int < 2 then
+    raise exception 'FALLO (fixture): la talla M necesita 2 disponibles (stock %, reservadas %). Correr la preparación del gemelo (frontend/e2e/tienda/gemelo-tienda.sql)',
+      current_setting('qa.m_stock0'), current_setting('qa.m_res0');
+  end if;
+end $$;
+
 -- El admin de la escuela configura los medios (transferencia con cuentas: ok).
 select set_config('request.jwt.claims', json_build_object('sub', current_setting('qa.u_admin'), 'role', 'authenticated')::text, true);
 set local role authenticated;
@@ -125,7 +136,7 @@ select public.release_expired_holds();
 do $$
 begin
   if (select status from public.orders where id = current_setting('qa.o1')::uuid) <> 'awaiting_approval'
-     or (select reserved from public.product_variants where id = '00000000-0000-4000-e000-000000000002') <> 2 then
+     or (select reserved from public.product_variants where id = '00000000-0000-4000-e000-000000000002') <> current_setting('qa.m_res0')::int + 2 then
     raise exception 'FALLO: el cron venció una orden con comprobante en revisión';
   end if;
   raise notice 'OK: D-18 la reserva no vence con comprobante esperando aprobación';
@@ -183,8 +194,8 @@ begin
      or o.payment_provider is not null then
     raise exception 'FALLO: orden aprobada %', row_to_json(o);
   end if;
-  if (select stock from public.product_variants where id = '00000000-0000-4000-e000-000000000002') <> 1
-     or (select reserved from public.product_variants where id = '00000000-0000-4000-e000-000000000002') <> 0 then
+  if (select stock from public.product_variants where id = '00000000-0000-4000-e000-000000000002') <> current_setting('qa.m_stock0')::int - 2
+     or (select reserved from public.product_variants where id = '00000000-0000-4000-e000-000000000002') <> current_setting('qa.m_res0')::int then
     raise exception 'FALLO: stock/reserved tras aprobar';
   end if;
   select count(*) into n from public.inventory_logs where order_id = o.id and reason = 'order_paid' and delta = -2;
@@ -203,7 +214,7 @@ begin
      <> current_setting('qa.u_admin')::uuid then
     raise exception 'FALLO: historial sin el actor que aprobó';
   end if;
-  raise notice 'OK: paid con approved_by=admin, stock 3→1, reserved 0, 1 kardex, settlement seller 0%% (D-3), 1 commerce_sale de la escuela, historial con actor';
+  raise notice 'OK: paid con approved_by=admin, stock −2, reserva liberada, 1 kardex, settlement seller 0%% (D-3), 1 commerce_sale de la escuela, historial con actor';
 end $$;
 
 -- ── Coach no ve settlements; service role sin approved_by no puede pagar ─────

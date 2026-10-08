@@ -2259,15 +2259,43 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
       const { schoolId } = req;
       if (!schoolId) return res.status(400).json({ error: 'Falta el contexto de escuela.' });
 
+      // Un mes (`month=YYYY-MM`, lo de siempre) o un rango de meses
+      // (`fromMonth`/`toMonth`, o `month=all` = desde la primera lista de la
+      // escuela). Carmel pidió ver "todos los meses" juntos, no mes por mes.
+      const YM = /^\d{4}-(0[1-9]|1[0-2])$/;
+      const thisMonth = todayString().slice(0, 7);
       const monthParam = (req.query.month as string) ?? '';
-      const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(monthParam)
-        ? monthParam
-        : todayString().slice(0, 7);
+      let fromMonth: string;
+      let toMonth: string;
+      if (monthParam === 'all') {
+        const { data: first } = await supabase
+          .from('attendance_records')
+          .select('attendance_date')
+          .eq('school_id', schoolId)
+          .order('attendance_date', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        fromMonth = ((first as any)?.attendance_date ?? todayString()).slice(0, 7);
+        toMonth = thisMonth;
+      } else if (YM.test(String(req.query.fromMonth ?? '')) && YM.test(String(req.query.toMonth ?? ''))) {
+        fromMonth = String(req.query.fromMonth);
+        toMonth = String(req.query.toMonth);
+        if (fromMonth > toMonth) [fromMonth, toMonth] = [toMonth, fromMonth];
+      } else {
+        fromMonth = toMonth = YM.test(monthParam) ? monthParam : thisMonth;
+      }
+      // Tope de 24 meses: más que eso es un volcado, no un informe.
+      const [fy, fm] = fromMonth.split('-').map(Number);
+      const [ty, tm] = toMonth.split('-').map(Number);
+      if ((ty - fy) * 12 + (tm - fm) >= 24) {
+        return res.status(400).json({ error: 'El rango máximo es de 24 meses.' });
+      }
+      const isRange = fromMonth !== toMonth;
+      const month = fromMonth;
 
-      const [year, mon] = month.split('-').map(Number);
-      const lastDay = new Date(Date.UTC(year, mon, 0)).getUTCDate();
-      const from = `${month}-01`;
-      const to = `${month}-${String(lastDay).padStart(2, '0')}`;
+      const lastDay = new Date(Date.UTC(ty, tm, 0)).getUTCDate();
+      const from = `${fromMonth}-01`;
+      const to = `${toMonth}-${String(lastDay).padStart(2, '0')}`;
 
       const teamFilter = (req.query.teamId as string) || null;
       const offeringFilter = (req.query.offeringId as string) || null;
@@ -2409,6 +2437,8 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
         aliases: string[];
         contexts: string[]; present: number; absent: number; late: number; excused: number;
         total: number; rate: number; by_day: Record<string, string>;
+        /** Conteo por mes (YYYY-MM): la tabla "Por atleta" en modo rango. */
+        by_month: Record<string, { present: number; absent: number; late: number; excused: number; total: number }>;
       };
 
       const athletes = new Map<string, AthleteRow & { _ctx: Set<string>; _aliases: Set<string> }>();
@@ -2423,6 +2453,11 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
       const days = new Map<string, {
         date: string; present: number; absent: number; late: number; excused: number;
         total: number; athletes: number; rate: number; _athletes: Set<string>;
+      }>();
+      const months = new Map<string, {
+        month: string; present: number; absent: number; late: number; excused: number;
+        total: number; athletes: number; days: number; rate: number;
+        _athletes: Set<string>; _days: Set<string>;
       }>();
 
       for (const r of records) {
@@ -2461,7 +2496,7 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
           row = {
             id, athlete_type: athleteType, full_name: fullName, aliases: [], contexts: [],
             present: 0, absent: 0, late: 0, excused: 0, total: 0, rate: 0,
-            by_day: {}, _ctx: new Set<string>(), _aliases: new Set<string>(),
+            by_day: {}, by_month: {}, _ctx: new Set<string>(), _aliases: new Set<string>(),
           };
           athletes.set(id, row);
         }
@@ -2483,6 +2518,23 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
         day[status] += 1;
         row.total += 1;
         day.total += 1;
+
+        const ym = r.attendance_date.slice(0, 7);
+        let mrow = months.get(ym);
+        if (!mrow) {
+          mrow = {
+            month: ym, present: 0, absent: 0, late: 0, excused: 0, total: 0,
+            athletes: 0, days: 0, rate: 0, _athletes: new Set<string>(), _days: new Set<string>(),
+          };
+          months.set(ym, mrow);
+        }
+        mrow[status] += 1;
+        mrow.total += 1;
+        mrow._athletes.add(id);
+        mrow._days.add(r.attendance_date);
+        const am = (row.by_month[ym] ??= { present: 0, absent: 0, late: 0, excused: 0, total: 0 });
+        am[status] += 1;
+        am.total += 1;
 
         if (ctxLabel) {
           let ctxRow = byContext.get(ctxLabel);
@@ -2523,6 +2575,15 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
         }))
         .sort((a, b) => a.date.localeCompare(b.date));
 
+      const monthRows = [...months.values()]
+        .map(({ _athletes, _days, ...m }) => ({
+          ...m,
+          athletes: _athletes.size,
+          days: _days.size,
+          rate: m.total > 0 ? Math.round(((m.present + m.late) / m.total) * 100) : 0,
+        }))
+        .sort((a, b) => a.month.localeCompare(b.month));
+
       const contextRows = [...byContext.values()]
         .map(({ _athletes, ...ctx }) => ({
           ...ctx,
@@ -2548,7 +2609,9 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
       };
 
       const planPorAtleta: Record<string, any> = {};
-      for (const [tipo, ids] of Object.entries(idsPorTipo)) {
+      // El tope del plan es MENSUAL: contra un rango de varios meses casi todos
+      // saldrían "excedidos". En modo rango no se calcula ni se ofrece facturar.
+      for (const [tipo, ids] of isRange ? [] : Object.entries(idsPorTipo)) {
         if (!ids.length) continue;
         const col = tipo === 'child' ? 'child_id' : tipo === 'adult' ? 'user_id' : 'unregistered_athlete_id';
         const { data } = await supabase
@@ -2585,7 +2648,7 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
         }
       }
 
-      for (const row of athleteRows as any[]) {
+      for (const row of (isRange ? [] : athleteRows) as any[]) {
         const p = planPorAtleta[row.id];
         const asistidas = row.present + row.late;
         if (!p) {
@@ -2643,7 +2706,7 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
         };
       }
 
-      const desfases = {
+      const desfases = isRange ? null : {
         excedidos:      (athleteRows as any[]).filter(a => a.plan?.estado === 'excedido').length,
         con_vencido:    (athleteRows as any[]).filter(a => a.plan?.estado === 'vencido').length,
         sin_plan:       (athleteRows as any[]).filter(a => a.plan?.estado === 'sin_plan').length,
@@ -2667,6 +2730,8 @@ router.get('/history', requireAuth, requireRole('owner', 'super_admin', 'admin',
 
       return res.json({
         month, from, to,
+        range: { from: fromMonth, to: toMonth, is_range: isRange },
+        months: monthRows,
         days: dayRows,
         athletes: athleteRows,
         contexts: contextRows,

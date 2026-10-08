@@ -4,8 +4,9 @@
  * Pedido de Club Carmel (2026-09-18): "ver las sesiones que crean los
  * entrenadores". La página ya las mostraba, pero equipo por equipo: había que
  * saber qué equipo mirar. Acá salen todas las sesiones de todos los equipos de
- * la escuela para una semana, con su entrenador, y un clic salta al detalle del
- * equipo. Solo lectura: no crea ni edita nada.
+ * la escuela para una semana, con su entrenador. Un clic abre la sesión en
+ * SessionViewer (solo lectura, F4 del rediseño de seguimiento deportivo) y el
+ * enlace "Ir al equipo" salta al detalle del equipo. No crea ni edita nada.
  *
  * Fuente: `training_sessions` (contenido de la sesión) — NO `attendance_sessions`
  * (pasar lista), que es otra cosa aunque se llame parecido.
@@ -16,7 +17,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CalendarDays, ChevronLeft, ChevronRight, Loader2, ClipboardList, ArrowRight } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, Loader2, ClipboardList, Eye } from 'lucide-react';
+import { SessionViewer } from '@/components/school/SessionViewer';
 import { addDays, format, startOfWeek } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -52,6 +54,7 @@ const objectiveText = (raw: unknown): string => {
 
 export function WeekSessionsPanel({ schoolId, teams, onSelectTeam }: WeekSessionsPanelProps) {
   const [weekOffset, setWeekOffset] = useState(0);
+  const [viewing, setViewing] = useState<{ id: string; teamId: string; teamName: string } | null>(null);
 
   // Semana lunes→domingo. Se calcula en la zona del navegador: la fecha de la
   // sesión es un `date` sin hora, así que un desfase de horas no la mueve de día.
@@ -181,12 +184,13 @@ export function WeekSessionsPanel({ schoolId, teams, onSelectTeam }: WeekSession
                       const objective = objectiveText(s.objectives);
                       const blocks = Array.isArray(s.session_blocks) ? s.session_blocks.length : 0;
                       return (
-                        <li key={s.id}>
+                        <li key={s.id} className="flex items-stretch gap-1 rounded-lg border">
                           <button
                             type="button"
-                            onClick={() => onSelectTeam(s.team_id)}
-                            className="flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors
+                            onClick={() => setViewing({ id: s.id, teamId: s.team_id, teamName: team?.name ?? 'Equipo' })}
+                            className="flex min-w-0 flex-1 items-center gap-3 rounded-l-lg px-3 py-2 text-left transition-colors
                                        hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            title="Ver la sesión"
                           >
                             <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -203,7 +207,15 @@ export function WeekSessionsPanel({ schoolId, teams, onSelectTeam }: WeekSession
                                 <p className="mt-0.5 truncate text-xs text-muted-foreground">{objective}</p>
                               )}
                             </div>
-                            <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            <Eye className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onSelectTeam(s.team_id)}
+                            className="shrink-0 rounded-r-lg border-l px-2 text-xs font-medium text-primary transition-colors hover:bg-accent
+                                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            Ir al equipo
                           </button>
                         </li>
                       );
@@ -215,6 +227,13 @@ export function WeekSessionsPanel({ schoolId, teams, onSelectTeam }: WeekSession
           </div>
         )}
       </CardContent>
+      <SessionViewer
+        open={!!viewing}
+        onClose={() => setViewing(null)}
+        sessionId={viewing?.id ?? null}
+        teamId={viewing?.teamId ?? ''}
+        teamName={viewing?.teamName ?? ''}
+      />
     </Card>
   );
 }

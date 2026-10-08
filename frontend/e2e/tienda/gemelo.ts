@@ -20,7 +20,7 @@ export const TWIN_ANON_KEY = process.env.QA_TWIN_ANON_KEY
     ?? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
 export const TWIN_BFF_URL = process.env.QA_TWIN_BFF_URL ?? 'http://127.0.0.1:3000';
 /** El Vite propio de playwright.gemelo.config.ts. */
-export const BASE_URL = 'http://localhost:3101';
+export const BASE_URL = `http://localhost:${process.env.QA_TWIN_VITE_PORT ?? 3101}`;
 const TWIN_DB_CONTAINER = 'supabase_db_sportmaps-qa-twin';
 const PASSWORD = 'QaGemelo2026!';
 
@@ -35,7 +35,7 @@ export const TIENDA = {
     escuelaA: '00000000-0000-4000-b000-000000000001',
 };
 
-export type Alias = 'padre.a' | 'padre.b' | 'admin.a' | 'owner.a';
+export type Alias = 'padre.a' | 'padre.b' | 'admin.a' | 'owner.a' | 'atleta.a';
 
 function assertLocal(url: string, what: string) {
     const u = new URL(url);

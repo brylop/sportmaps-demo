@@ -41,7 +41,7 @@ const updatesCola: any[] = [];
 function makeChain(result: any, table?: string) {
     const chain: any = {
         select: () => chain, eq: () => chain, in: () => chain, or: () => chain, gte: () => chain,
-        lte: () => chain, ilike: () => chain, limit: () => chain, order: () => chain,
+        lte: () => chain, ilike: () => chain, limit: () => chain, order: () => chain, neq: () => chain,
         insert: () => chain, upsert: () => chain,
         update: (v: any) => { if (table === 'whatsapp_inbound_queue') updatesCola.push(v); return chain; },
         maybeSingle: () => Promise.resolve(result),
@@ -386,14 +386,14 @@ describe('resumirRafaga (pura)', () => {
 describe('Bandeja: número desconocido', () => {
     beforeEach(() => { state.atencion = { atender: false, tipo: 'desconocido', botEncendido: true }; });
 
-    it('anuncia un pago («Mira mile mi pago de este mes»): se GUARDA el archivo y no se le responde', async () => {
+    it('anuncia un pago («Mira mile mi pago de este mes») y no es un comprobante: se GUARDA el archivo y no se le responde', async () => {
         state.textos = [{ text_body: 'Mira mile mi pago de este mes' }];
+        extractReceiptMock.mockResolvedValue({ isReceipt: false, isTransactionList: false, amount: null });
         await runWhatsAppQueue();
         expect(downloadMediaMock).toHaveBeenCalledTimes(1);
         expect(updatesCola.some((u) => typeof u.storage_path === 'string')).toBe(true);
         expect(updatesCola.find((u) => u.status === 'ignored')).toMatchObject({ error_message: 'contacto_no_atendido' });
         expect(mensajesDelBot()).toBe(0);
-        expect(extractReceiptMock).not.toHaveBeenCalled();
     });
 
     it('pie «Mes octubre»: también se guarda', async () => {
@@ -402,13 +402,62 @@ describe('Bandeja: número desconocido', () => {
         expect(downloadMediaMock).toHaveBeenCalledTimes(1);
     });
 
-    it('sin hablar de pagos, o contacto PERSONAL: ni se baja ni se responde', async () => {
+    it('sin hablar de pagos y sin destino de la escuela: se lee pero NO se guarda ni se responde', async () => {
         state.textos = [{ text_body: 'Urgente' }];
         await runWhatsAppQueue();
+        expect(updatesCola.some((u) => typeof u.storage_path === 'string')).toBe(false);
+        expect(updatesCola.find((u) => u.status === 'ignored')).toMatchObject({ error_message: 'contacto_no_atendido' });
+        expect(mensajesDelBot()).toBe(0);
+    });
+
+    it('contacto PERSONAL: ni se baja ni se lee ni se responde', async () => {
         state.atencion = { atender: false, tipo: 'personal', botEncendido: true };
         state.textos = [{ text_body: 'te mando el pago' }];
         await runWhatsAppQueue();
         expect(downloadMediaMock).not.toHaveBeenCalled();
+        expect(extractReceiptMock).not.toHaveBeenCalled();
         expect(mensajesDelBot()).toBe(0);
+    });
+});
+
+describe('auditoría 2026-10-07 (…0340): la MISMA foto dos veces', () => {
+    /** payments responde «esta imagen ya está en p-oct»; la cola, si ya se avisó hace < 10 min. */
+    async function conImagenYaRecibida(avisadoHacePoco: boolean, correr: () => Promise<unknown>) {
+        const { supabase } = await import('../config/supabase');
+        const fromOriginal = (supabase.from as any).getMockImplementation();
+        (supabase.from as any).mockImplementation((table: string) => {
+            if (table === 'payments') {
+                return makeChain({ data: [{ id: 'p-oct', concept: 'Mensualidad 10/2026', status: 'paid' }], error: null }, table);
+            }
+            if (table === 'whatsapp_inbound_queue') {
+                return makeChain({ data: avisadoHacePoco ? [{ id: 'f-antes' }] : [], error: null }, table);
+            }
+            return fromOriginal(table);
+        });
+        try {
+            await correr();
+        } finally {
+            (supabase.from as any).mockImplementation(fromOriginal);
+        }
+    }
+
+    it('segunda foto igual → «Este comprobante ya lo había recibido 👍», nunca «no tienes cobros pendientes»', async () => {
+        state.primera = false;
+        state.faltaConsentimiento = false;
+        await conImagenYaRecibida(false, () => runWhatsAppQueue());
+        expect(mensajesDelBot()).toBe(1);
+        expect(enviados()[0]).toBe('Este comprobante ya lo había recibido 👍');
+        expect(enviados()[0]).not.toContain('no tienes cobros pendientes');
+        expect(resolverPagoMock).not.toHaveBeenCalled();
+        expect(updatesCola.find((u) => u.status === 'ignored')).toMatchObject({
+            result_type: 'none', result_ref_id: 'p-oct', error_message: 'comprobante ya recibido (misma imagen)' });
+    });
+
+    it('si ya se le dijo hace < 10 min → silencio (la fila igual se cierra)', async () => {
+        state.primera = false;
+        state.faltaConsentimiento = false;
+        await conImagenYaRecibida(true, () => runWhatsAppQueue());
+        expect(enviados()).toHaveLength(0);
+        expect(updatesCola.find((u) => u.status === 'ignored')).toMatchObject({ result_ref_id: 'p-oct' });
     });
 });

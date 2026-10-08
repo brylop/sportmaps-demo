@@ -1,15 +1,35 @@
 import { Router, Request, Response } from 'express';
 import { supabase } from '../../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../../middlewares/authMiddleware';
-import { computeBand, getMetricCatalog } from '../../services/metric-catalog.service';
+import {
+  buildMetricSettingsUpsert,
+  computeBand,
+  DEFAULT_QUICK_SIZE,
+  defaultQuickKeys,
+  getEvaluationCatalog,
+  getMetricCatalog,
+  getSchoolMetricRows,
+  isEntryEligible,
+  MAX_SCHOOL_METRICS,
+  MetricSettingsError,
+  scaleForDefinition,
+  trainingRows,
+} from '../../services/metric-catalog.service';
 
 const router = Router();
 
 const STAFF_ROLES = ['owner', 'super_admin', 'admin', 'school_admin', 'coach', 'staff'] as const;
+/** Quién elige las métricas de evaluación de la escuela (spec F5 §5). */
+const ADMIN_ROLES = ['owner', 'super_admin', 'admin', 'school_admin'] as const;
 
 // ==========================================
 // GET /api/v1/school/performance/metrics
 // Catálogo de métricas activas para el deporte de la escuela actual.
+// `metrics` sigue siendo el catálogo COMPLETO (otras pantallas lo usan para
+// nombrar el historial). `evaluation` dice qué se evalúa de entrada:
+//   quick      → la lista de la escuela (school_metric_definitions) o la corta
+//                por defecto del deporte;
+//   full_keys  → el resto capturable, para el enlace "Evaluación completa".
 // ==========================================
 router.get(
   '/performance/metrics',
@@ -36,10 +56,14 @@ router.get(
       }
 
       const metrics = await getMetricCatalog([school.category_id]);
+      const evaluation = await getEvaluationCatalog(schoolId!, metrics, (err) =>
+        req.log?.warn({ err }, 'school/performance: no se pudo leer school_metric_definitions; lista por defecto')
+      );
 
       res.json({
         sport_category_id: school.category_id,
         metrics,
+        evaluation,
       });
     } catch (err: any) {
       req.log?.error({ err }, 'school/performance unhandled error');
@@ -86,8 +110,11 @@ router.get(
       }
 
       const metrics = await getMetricCatalog([school.category_id]);
+      const evaluation = await getEvaluationCatalog(schoolId!, metrics, (err) =>
+        req.log?.warn({ err }, 'school/performance: no se pudo leer school_metric_definitions; lista por defecto')
+      );
 
-            // 2. Roster del equipo o plan, vía la vista unificada school_athletes
+      // 2. Roster del equipo o plan, vía la vista unificada school_athletes
       let rosterQuery = supabase
         .from('school_athletes' as any)
         .select('id, full_name, athlete_type, avatar_url')
@@ -137,6 +164,7 @@ router.get(
       res.json({
         sport_category_id: school.category_id,
         metrics,
+        evaluation,
         subjects,
         latest_values: latestValues,
       });
@@ -149,7 +177,8 @@ router.get(
 
 // ==========================================
 // GET /api/v1/school/performance/entries
-// Filtros: subject_type, subject_id, metric_key, from_date, to_date
+// Filtros: subject_type, subject_id, metric_key, from_date, to_date,
+//          recorded_by (quién registró), team_id (atletas activos del equipo)
 // ==========================================
 router.get(
   '/performance/entries',
@@ -158,7 +187,23 @@ router.get(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { schoolId } = req;
-      const { subject_type, subject_id, metric_key, from_date, to_date } = req.query as Record<string, string>;
+      const { subject_type, subject_id, metric_key, from_date, to_date, recorded_by, team_id } =
+        req.query as Record<string, string>;
+
+      // team_id → los atletas activos de ese equipo en ESTA escuela. Un equipo de
+      // otra escuela da roster vacío y, por tanto, respuesta vacía.
+      let teamSubjectIds: string[] | null = null;
+      if (team_id) {
+        const { data: roster, error: rosterErr } = await supabase
+          .from('school_athletes' as any)
+          .select('id')
+          .eq('school_id', schoolId)
+          .eq('enrolled_team_id', team_id)
+          .eq('is_active', true);
+        if (rosterErr) throw rosterErr;
+        teamSubjectIds = (roster ?? []).map((a: any) => a.id);
+        if (teamSubjectIds.length === 0) return res.json([]);
+      }
 
       let query = supabase
         .from('performance_entries')
@@ -171,6 +216,8 @@ router.get(
       if (metric_key)   query = query.eq('metric_key', metric_key);
       if (from_date)    query = query.gte('recorded_at', from_date);
       if (to_date)      query = query.lte('recorded_at', to_date);
+      if (recorded_by)  query = query.eq('recorded_by', recorded_by);
+      if (teamSubjectIds) query = query.in('subject_id', teamSubjectIds);
 
       const { data, error } = await query.limit(500);
       if (error) throw error;
@@ -240,6 +287,13 @@ router.post(
           .in('metric_key', metricKeys);
 
         const validSet = new Set((validMetrics ?? []).map((m: any) => m.metric_key));
+        // Las métricas que la escuela eligió para entrenamiento también valen,
+        // aunque no estén en el catálogo del deporte del equipo.
+        try {
+          for (const r of trainingRows(await getSchoolMetricRows(schoolId!))) validSet.add(r.metric_key);
+        } catch (err) {
+          req.log?.warn({ err }, 'school/performance: no se pudo leer school_metric_definitions al validar');
+        }
         const invalid = metricKeys.filter((k) => !validSet.has(k));
         if (invalid.length > 0) {
           return res.status(400).json({
@@ -337,6 +391,130 @@ router.delete(
       res.json({ success: true });
     } catch (err: any) {
       req.log?.error({ err }, 'school/performance unhandled error');
+      res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+  }
+);
+
+// ==========================================
+// GET /api/v1/school/performance/metric-settings
+// Pantalla "Métricas de evaluación": catálogo capturable del deporte + lo que
+// la escuela eligió (o la lista por defecto si no eligió nada).
+// ==========================================
+router.get(
+  '/performance/metric-settings',
+  requireAuth,
+  requireRole(...STAFF_ROLES),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { schoolId } = req;
+      const { data: school, error: schoolErr } = await supabase
+        .from('schools')
+        .select('id, category_id')
+        .eq('id', schoolId)
+        .maybeSingle();
+      if (schoolErr) throw schoolErr;
+
+      if (!school?.category_id) {
+        return res.json({
+          sport_category_id: null,
+          catalog: [],
+          selected_keys: [],
+          default_keys: [],
+          source: 'default',
+          max: MAX_SCHOOL_METRICS,
+          message: 'Esta escuela aún no tiene un deporte asignado. Configúralo en Ajustes.',
+        });
+      }
+
+      const metrics = await getMetricCatalog([school.category_id]);
+      const eligible = metrics.filter(isEntryEligible);
+      const rows = await getSchoolMetricRows(schoolId!);
+      const chosen = trainingRows(rows);
+      const defaults = defaultQuickKeys(metrics);
+
+      res.json({
+        sport_category_id: school.category_id,
+        catalog: eligible.map((d) => ({
+          metric_key: d.metric_key,
+          display_name: d.display_name,
+          parent_label: d.parent_label,
+          category: d.category,
+          unit: d.unit,
+          min_value: d.min_value,
+          max_value: d.max_value,
+          scale: scaleForDefinition(d),
+        })),
+        selected_keys: chosen.length > 0 ? chosen.map((r) => r.metric_key) : defaults,
+        default_keys: defaults,
+        source: chosen.length > 0 ? 'school' : 'default',
+        max: MAX_SCHOOL_METRICS,
+        recommended: { min: 3, max: 6, default_size: DEFAULT_QUICK_SIZE },
+      });
+    } catch (err: any) {
+      req.log?.error({ err }, 'school/performance metric-settings unhandled error');
+      res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+  }
+);
+
+// ==========================================
+// PUT /api/v1/school/performance/metric-settings   (solo administración)
+// Body: { metric_keys: string[] } en el orden en que se muestran.
+// Lista vacía = volver a la lista por defecto del deporte.
+// Un solo upsert (una sentencia, atómico) sobre (school_id, metric_key).
+// ==========================================
+router.put(
+  '/performance/metric-settings',
+  requireAuth,
+  requireRole(...ADMIN_ROLES),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { schoolId, user } = req;
+      const { metric_keys } = req.body ?? {};
+
+      if (!Array.isArray(metric_keys) || metric_keys.some((k: unknown) => typeof k !== 'string')) {
+        return res.status(400).json({ error: 'metric_keys debe ser una lista de claves.' });
+      }
+
+      const { data: school, error: schoolErr } = await supabase
+        .from('schools')
+        .select('id, category_id')
+        .eq('id', schoolId)
+        .maybeSingle();
+      if (schoolErr) throw schoolErr;
+      if (!school?.category_id) {
+        return res.status(400).json({ error: 'Esta escuela aún no tiene un deporte asignado.' });
+      }
+
+      const metrics = await getMetricCatalog([school.category_id]);
+      const existing = await getSchoolMetricRows(schoolId!);
+
+      let rows;
+      try {
+        rows = buildMetricSettingsUpsert({
+          schoolId: schoolId!,
+          userId: user.id,
+          selectedKeys: metric_keys,
+          catalog: metrics,
+          existing,
+        });
+      } catch (err) {
+        if (err instanceof MetricSettingsError) return res.status(400).json({ error: err.message });
+        throw err;
+      }
+
+      if (rows.length > 0) {
+        const { error } = await supabase
+          .from('school_metric_definitions')
+          .upsert(rows, { onConflict: 'school_id,metric_key' });
+        if (error) throw error;
+      }
+
+      const evaluation = await getEvaluationCatalog(schoolId!, metrics);
+      res.json({ evaluation });
+    } catch (err: any) {
+      req.log?.error({ err }, 'school/performance metric-settings unhandled error');
       res.status(500).json({ error: 'Error interno del servidor.' });
     }
   }

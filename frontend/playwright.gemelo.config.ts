@@ -13,7 +13,8 @@
 // Ver docs/qa-gemelo-local.md.
 import { defineConfig, devices } from '@playwright/test';
 
-const PORT = 3101;
+// QA_TWIN_VITE_PORT: otro puerto si 3101 está ocupado por otra corrida (sigue sin reusar).
+const PORT = Number(process.env.QA_TWIN_VITE_PORT ?? 3101);
 // Llave anon de DEMO que la CLI de Supabase usa en todo stack local (no es secreta).
 const LOCAL_ANON =
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';

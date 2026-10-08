@@ -20,6 +20,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { requireMarketplaceAuth, optionalAuth, auditLog } from '../middlewares/authMiddleware';
 import { supabase } from '../config/supabase';
+import { resolvePrimaryVendorProfileId } from '../services/store-access';
 import { getShippingProvider, QuoteRequest } from '../services/shipping';
 import { requireStoreEnabled } from '../services/store-flag.service';
 
@@ -176,9 +177,9 @@ auth.use('/vendor', requireMarketplaceAuth);
 // el gate va por prefijo exacto: NO puede cubrir todo /vendor (wellness vive ahi).
 auth.use(['/vendor/shipping', '/vendor/shipments'], requireStoreEnabled);
 
+// N0: el school_admin que no es dueño gestiona la tienda de SU escuela.
 async function getVendorProfileId(userId: string): Promise<string | null> {
-    const { data } = await supabase.from('vendor_profiles').select('id').eq('user_id', userId).maybeSingle();
-    return (data as any)?.id ?? null;
+    return resolvePrimaryVendorProfileId(userId);
 }
 
 // GET /vendor/shipping/settings

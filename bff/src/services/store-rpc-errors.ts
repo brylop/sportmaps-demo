@@ -61,6 +61,7 @@ const TOKENS: Record<string, { status: number; message: string }> = {
     INVALID_PICKUP_BRANCH: { status: 400, message: 'Sede de retiro inválida.' },
     ADDRESS_REQUIRED: { status: 400, message: 'Falta la dirección de envío.' },
     SHIPPING_ZONE_NOT_FOUND: { status: 422, message: 'No hay envío a ese departamento.' },
+    SHIPPING_NOT_OFFERED: { status: 409, message: 'Esta tienda solo entrega con retiro en sede.' },
     EMPTY_CART: { status: 400, message: 'El carrito está vacío.' },
     TOO_MANY_ITEMS: { status: 400, message: 'Demasiados productos en un checkout.' },
     EMPTY_TOTAL: { status: 400, message: 'El total debe ser mayor a cero.' },
@@ -70,11 +71,18 @@ const TOKENS: Record<string, { status: number; message: string }> = {
     NOT_A_TRANSFER_ORDER: { status: 409, message: 'La orden no es por transferencia.' },
     NOT_A_CASH_ORDER: { status: 409, message: 'La orden no es de pago en efectivo.' },
     INVALID_PICKUP_CODE: { status: 403, message: 'Código de retiro inválido.' },
+    // Código de retiro regenerable (mig. 20261008163338).
+    NOT_A_PICKUP_ORDER: { status: 409, message: 'Este pedido no es de retiro en sede.' },
+    PICKUP_CODE_LIMIT: { status: 409, message: 'Ya generaste el máximo de códigos para este pedido. Escríbele a la tienda.' },
     REASON_REQUIRED: { status: 400, message: 'Escribe el motivo.' },
     TRANSITION_NOT_ALLOWED: { status: 409, message: 'Cambio de estado no permitido.' },
     INVALID_STATUS: { status: 400, message: 'Estado inválido.' },
     ACTOR_WITHOUT_PROFILE: { status: 403, message: 'Tu usuario no tiene perfil.' },
     INVALID_SETTINGS: { status: 400, message: 'Configuración inválida.' },
+    // ── Cobros y entrega de la tienda (20261008163336; SHIPPING_NOT_OFFERED va arriba) ──
+    INVALID_TRANSFER_ACCOUNT: { status: 400, message: 'Esa cuenta no se puede mostrar en la tienda (está apagada o es solo para otro uso).' },
+    PICKUP_BRANCH_REQUIRED: { status: 400, message: 'Elige al menos una sede de retiro.' },
+    NO_PAYMENT_METHODS: { status: 400, message: 'Deja al menos un medio de pago encendido.' },
     FORBIDDEN: { status: 403, message: 'Sin permiso.' },
 };
 

@@ -21,6 +21,7 @@
  */
 
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { openExternalUrl } from '@/lib/openExternalUrl';
@@ -231,6 +232,10 @@ export default function MiPlanPage() {
         [],
     );
 
+    // /mi-plan?upsell=store (desde «Abre tu tienda»): resalta el adicional Tienda.
+    const [searchParams] = useSearchParams();
+    const upsellStore = searchParams.get('upsell') === 'store' && !ent.addons?.store;
+
     const isStaging =
         import.meta.env.VITE_APP_ENV === 'staging' ||
         (typeof window !== 'undefined' && window.location.hostname.includes('staging'));
@@ -351,6 +356,37 @@ export default function MiPlanPage() {
                     Ver planes
                 </Button>
             </div>
+
+            {/* ── Adicional Tienda resaltado (?upsell=store) ────────── */}
+            {upsellStore && (
+                <Card className="border-primary/50 ring-2 ring-primary/30" data-testid="upsell-store">
+                    <CardContent className="p-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-start gap-3 min-w-0">
+                            <div className="w-10 h-10 rounded-lg bg-primary/15 flex items-center justify-center flex-shrink-0">
+                                <Sparkles className="w-5 h-5 text-primary" />
+                            </div>
+                            <div className="min-w-0">
+                                <p className="font-semibold">Adicional Tienda</p>
+                                <p className="text-sm text-muted-foreground">
+                                    Vende uniformes, implementos y suplementos a tus deportistas y familias, con
+                                    cobro por transferencia, efectivo al retirar o tu pasarela.
+                                </p>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    {formatCop(ADDONS.store.priceCents)} al mes. Después de agregarlo, activa tu tienda
+                                    en «Tu tienda → Cobros y entrega»; SportMaps la habilita para vender.
+                                </p>
+                            </div>
+                        </div>
+                        <Button
+                            className="shrink-0"
+                            onClick={async () => openExternalUrl(await buildUrlWithToken('store'))}
+                        >
+                            Agregar el adicional Tienda
+                            <ArrowRight className="w-4 h-4 ml-2" />
+                        </Button>
+                    </CardContent>
+                </Card>
+            )}
 
             {/* ── Grace period (pago vencido) ───────────────────────── */}
             {ent.inGracePeriod && (

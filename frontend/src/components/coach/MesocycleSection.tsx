@@ -1,16 +1,23 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Calendar as CalendarPicker } from '@/components/ui/calendar';
 import {
   AlertDialog,
@@ -23,7 +30,20 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Calendar, CalendarRange, ClipboardList, Copy, Link2, Pencil, Plus, Star, Target, Trash2 } from 'lucide-react';
+import {
+  Calendar,
+  CalendarPlus,
+  CalendarRange,
+  ClipboardList,
+  Copy,
+  Eye,
+  Link2,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Target,
+  Trash2,
+} from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { MesocycleFormDialog, type MesocycleFormSubmit } from './MesocycleFormDialog';
@@ -33,7 +53,10 @@ import { WeeklyLoadPanel } from './WeeklyLoadPanel';
 import { MicrocycleLoadPanel } from './MicrocycleLoadPanel';
 import { StandaloneMicrocyclesPanel } from './StandaloneMicrocyclesPanel';
 import { MesocycleExportButton } from './MesocycleExportButton';
+import { MesocycleDocuments } from './MesocycleDocuments';
+import { ClosingForm, type ClosingField } from './MesocycleClosingForms';
 import { dayToLocalDate, todayColombia } from '@/lib/dateUtils';
+import { isTrainingReadOnlyRole } from '@/lib/school/trainingRoles';
 import { datesBetween, pickDefaultMesocycle, placeLooseSessions, suggestNextStart } from '@/lib/school/mesocyclePlanning';
 
 /** 'YYYY-MM-DD' → texto en es-CO SIN correrse un día (ver dayToLocalDate). */
@@ -64,6 +87,30 @@ const DAY_TYPE_BADGE: Record<string, string> = {
   activacion: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/25',
 };
 
+/**
+ * Roles que MIRAN el mesociclo (spec rediseño §3: "Dueño = MIRAR"). Ven todo,
+ * sin controles de edición. super_admin queda editable (soporte).
+ */
+// La lista vive en lib/school/trainingRoles.ts: la comparten las semanas
+// sueltas, el formulario de la sesión y la pizarra.
+/** Administración de la escuela: puede borrar documentos de cualquiera (= user_admin_school_ids()). */
+const DOC_ADMIN_ROLES = ['owner', 'school', 'school_admin', 'admin', 'super_admin'];
+
+const WEEK_CLOSING_FIELDS: ClosingField[] = [
+  { key: 'objective_compliance', label: 'Cumplimiento de objetivos' },
+  { key: 'collective_performance', label: 'Rendimiento colectivo' },
+  { key: 'improvement_notes', label: 'Aspectos a mejorar' },
+];
+
+const MESO_CLOSING_FIELDS: ClosingField[] = [
+  { key: 'strengths', label: 'Fortalezas' },
+  { key: 'areas_to_improve', label: 'Aspectos a mejorar' },
+  { key: 'next_cycle_notes', label: 'Notas para el próximo mesociclo' },
+];
+
+/** Objetivo largo: se recorta a 2 líneas con "Ver más". */
+const LONG_TEXT = 160;
+
 interface MesocycleSectionProps {
   teamId: string;
   schoolId: string;
@@ -73,19 +120,49 @@ interface MesocycleSectionProps {
   /** Solo para el título del tablero táctico dentro del SessionFormDialog de un día. */
   teamName?: string;
   onEditSession: (session: any) => void;
+  /**
+   * Abre la sesión en modo lectura (SessionViewer). Se usa cuando la sección
+   * está en solo lectura; si no se pasa, cae en onEditSession.
+   */
+  onViewSession?: (session: any) => void;
+  /**
+   * Fuerza el modo solo lectura. Si no se pasa, se deriva del rol en la
+   * escuela: dueño/administración miran, entrenadores editan.
+   */
+  readOnly?: boolean;
 }
 
-export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootball, teamName, onEditSession }: MesocycleSectionProps) {
-  const { user } = useAuth();
+export function MesocycleSection({
+  teamId,
+  schoolId,
+  roster,
+  sessions,
+  isFootball,
+  teamName,
+  onEditSession,
+  onViewSession,
+  readOnly: readOnlyProp,
+}: MesocycleSectionProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { currentUserRole } = useSchoolContext();
+  const readOnly = readOnlyProp ?? isTrainingReadOnlyRole(currentUserRole);
+  const canDeleteAnyDoc = DOC_ADMIN_ROLES.includes(currentUserRole || '');
+  /** Clic en una sesión: en lectura abre el visor (si existe), si no el editor. */
+  const openSession = (session: any) => (readOnly && onViewSession ? onViewSession(session) : onEditSession(session));
+
   const [formOpen, setFormOpen] = useState(false);
   // Microciclo cuya semana está agregando un día ahora mismo (formulario inline, un solo día a la vez).
   const [addingDayFor, setAddingDayFor] = useState<string | null>(null);
   const [newDay, setNewDay] = useState({ day_date: '', day_type: 'entrenamiento', planned_rpe: '', planned_minutes: '', focus: '' });
+  // Semana cuyo selector de fecha de "+ Agregar sesión" está abierto.
+  const [pickingDateFor, setPickingDateFor] = useState<string | null>(null);
   // Día para el que se está creando la sesión de contenido (SessionFormDialog, sin tocar el componente).
   const [sessionDialogDay, setSessionDialogDay] = useState<any | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [objectiveExpanded, setObjectiveExpanded] = useState(false);
+  // Semana elegida en la pestaña Carga (null = la actual).
+  const [loadWeekId, setLoadWeekId] = useState<string | null>(null);
   // Mesociclo elegido en el selector (null = el de por defecto) y si el
   // formulario abre para editar el actual o para crear el siguiente.
   const [selectedMesoId, setSelectedMesoId] = useState<string | null>(null);
@@ -138,7 +215,9 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
   /** TrainingPlansPage lee 'mesocycle-current' para ocultar la lista suelta. */
   const invalidateMesocycles = () => {
     queryClient.invalidateQueries({ queryKey: ['mesocycles', teamId] });
-    invalidateMesocycles();
+    // Antes esta línea se llamaba a sí misma (recursión infinita → RangeError
+    // en el onSuccess de crear/editar/borrar/cerrar mesociclo).
+    queryClient.invalidateQueries({ queryKey: ['mesocycle-current', teamId] });
   };
 
   const { data: microcycles } = useQuery({
@@ -214,6 +293,17 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
     () => placeLooseSessions(sessions, microcycles || []),
     [sessions, microcycles],
   );
+
+  // Semana "actual": la que contiene hoy; si el mesociclo es futuro, la
+  // primera; si ya pasó, la última. Es la única que arranca abierta.
+  const currentWeekId = useMemo(() => {
+    const list = (microcycles || []) as any[];
+    if (list.length === 0) return null;
+    const today = todayColombia();
+    const containing = list.find((mc) => mc.starts_on <= today && today <= mc.ends_on);
+    if (containing) return containing.id as string;
+    return (today < list[0].starts_on ? list[0].id : list[list.length - 1].id) as string;
+  }, [microcycles]);
 
   const createMesocycle = useMutation({
     mutationFn: async (input: MesocycleFormSubmit) => {
@@ -307,10 +397,10 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
     onError: (error: any) => toast({ title: 'Error al agregar el día', description: error.message, variant: 'destructive' }),
   });
 
-  // "+ Crear sesión" en un día que todavía no existe en la semana: crea el
-  // día (entrenamiento) y abre el formulario de sesión ya sobre él. Son dos
-  // escrituras, pero un día sin sesión es un estado válido (no deja nada
-  // huérfano si el coach cancela el formulario).
+  // "+ Agregar sesión" en una fecha que todavía no tiene día en la semana:
+  // crea el día (entrenamiento) y abre el formulario de sesión ya sobre él.
+  // Son dos escrituras, pero un día sin sesión es un estado válido (no deja
+  // nada huérfano si el coach cancela el formulario).
   const createDayForSession = useMutation({
     mutationFn: async ({ microcycleId, date }: { microcycleId: string; date: string }) => {
       const { data, error } = await (supabase as any)
@@ -376,7 +466,7 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
       queryClient.invalidateQueries({ queryKey: ['microcycle-days', mesocycle?.id] });
       toast({
         title: copiedCount > 0 ? `✅ ${copiedCount} día(s) copiados` : 'Sin días para copiar',
-        description: copiedCount > 0 ? 'Editalos como punto de partida para esta semana.' : 'La semana anterior no tenía días cargados.',
+        description: copiedCount > 0 ? 'Edítalos como punto de partida para esta semana.' : 'La semana anterior no tenía días cargados.',
       });
     },
     onError: (error: any) => toast({ title: 'Error al duplicar la semana', description: error.message, variant: 'destructive' }),
@@ -391,7 +481,7 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
     mutationFn: async ({ dayId, ...data }: { dayId: string; [key: string]: any }) => {
       const targetDayId = dayId || sessionDialogDay?.id;
       if (!targetDayId) {
-        throw new Error('No se pudo identificar el día del mesociclo para esta sesión. Cerrá el formulario y volvé a intentar desde "Crear sesión".');
+        throw new Error('No se pudo identificar el día del mesociclo para esta sesión. Cierra el formulario y vuelve a intentar desde "Agregar sesión".');
       }
       // school_id es NOT NULL con RLS que lo exige (deriva sin versionar
       // encontrada y documentada el 25-sep, migración 20260925135425).
@@ -417,19 +507,18 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
       const { error } = await (supabase as any).from('training_microcycles').update(fields).eq('id', id);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['microcycles', mesocycle?.id] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['microcycles', mesocycle?.id] });
+      toast({ title: '✅ Cierre semanal guardado' });
+    },
     onError: (error: any) => toast({ title: 'Error al guardar el cierre semanal', description: error.message, variant: 'destructive' }),
   });
 
   // RPC (merge_mesocycle_closing_review, 20260923215537) en vez de mandar el
   // objeto `closing` completo mergeado en el cliente: closing_review es UNA
-  // sola columna jsonb para las 3 cajas de texto (Fortalezas/A mejorar/
-  // Notas), y `closing` se capturaba por closure al renderizar -- si el
-  // coach llenaba dos campos seguido (tabular de un textarea al siguiente),
-  // el segundo guardado podía salir antes de que el primero terminara su
-  // ida-vuelta + refetch, pisando el valor recién guardado con el viejo. El
-  // merge ahora pasa en la base (closing_review || patch), así cada blur
-  // solo manda SU campo, sin depender de conocer el resto.
+  // sola columna jsonb para las 3 cajas de texto. Con el botón "Guardar"
+  // explícito se mandan las tres juntas, pero el merge sigue pasando en la
+  // base (closing_review || patch) para no pisar otras claves del jsonb.
   const updateClosingReview = useMutation({
     mutationFn: async (patch: Record<string, string>) => {
       const { error } = await (supabase as any).rpc('merge_mesocycle_closing_review', {
@@ -445,6 +534,14 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
     onError: (error: any) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
 
+  /** "+ Agregar sesión" de una semana: abre el día de esa fecha (o lo crea). */
+  const addSessionOn = (mc: any, date: string) => {
+    setPickingDateFor(null);
+    const existing = (days || []).find((d: any) => d.microcycle_id === mc.id && d.day_date === date);
+    if (existing) setSessionDialogDay(existing);
+    else createDayForSession.mutate({ microcycleId: mc.id, date });
+  };
+
   if (loadingMesocycle) return null;
 
   if (!mesocycle) {
@@ -457,43 +554,344 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
           schoolId={schoolId}
           sessions={sessions}
           isFootball={isFootball}
-          onEditSession={onEditSession}
+          onEditSession={openSession}
+          readOnly={readOnly}
         />
         <Card className="border-border/40 bg-background/50 backdrop-blur-sm shadow-sm">
           <CardContent className="pt-6 text-center">
             <CalendarRange className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-40" />
             <h3 className="text-lg font-semibold mb-2">Sin mesociclo activo</h3>
-            <p className="text-muted-foreground mb-4">
-              Planifica el mes — período, objetivo y modelo de juego — antes de cargar sesiones sueltas.
-            </p>
-            <Button className="gap-2" onClick={() => setFormOpen(true)}>
-              <Plus className="w-4 h-4" />
-              Crear Mesociclo
-            </Button>
+            {readOnly ? (
+              <p className="text-muted-foreground">El entrenador de este equipo todavía no planificó el mes.</p>
+            ) : (
+              <>
+                <p className="text-muted-foreground mb-4">
+                  Planifica el mes — período, objetivo y modelo de juego — antes de cargar sesiones sueltas.
+                </p>
+                <Button className="gap-2" onClick={() => setFormOpen(true)}>
+                  <Plus className="w-4 h-4" />
+                  Crear Mesociclo
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
-        <MesocycleFormDialog
-          open={formOpen}
-          onOpenChange={setFormOpen}
-          onSubmit={(data) => createMesocycle.mutate(data)}
-          teamId={teamId}
-          isLoading={createMesocycle.isPending}
-          suggestedStart={todayColombia()}
-        />
+        {!readOnly && (
+          <MesocycleFormDialog
+            open={formOpen}
+            onOpenChange={setFormOpen}
+            onSubmit={(data) => createMesocycle.mutate(data)}
+            teamId={teamId}
+            isLoading={createMesocycle.isPending}
+            suggestedStart={todayColombia()}
+          />
+        )}
       </>
     );
   }
 
   const closing = mesocycle.closing_review || {};
+  const objective: string = mesocycle.general_objective || '';
+  const objectiveIsLong = objective.length > LONG_TEXT || (mesocycle.game_model || '').length > 0;
+  const weeks = (microcycles || []) as any[];
+  const weekIndex = (id: string) => weeks.findIndex((w) => w.id === id);
+  const loadWeek = weeks.find((w) => w.id === (loadWeekId ?? currentWeekId)) ?? weeks[0];
+
+  const sessionRow = (session: any, extraClass = 'bg-muted/20') => (
+    <button
+      key={session.id}
+      type="button"
+      className={`w-full flex items-center gap-2 px-2 py-1.5 text-xs border-t text-left hover:bg-accent/40 ${extraClass}`}
+      onClick={() => openSession(session)}
+    >
+      {readOnly ? <Eye className="w-3 h-3 text-muted-foreground shrink-0" /> : <ClipboardList className="w-3 h-3 text-muted-foreground shrink-0" />}
+      <span className="truncate text-muted-foreground">{session.objectives || 'Sesión sin objetivo'}</span>
+    </button>
+  );
+
+  const renderWeek = (mc: any, idx: number) => {
+    const mcDays = (days || []).filter((d: any) => d.microcycle_id === mc.id);
+    // Adherencia (spec §3.3): días de entrenamiento con al menos una
+    // sesión que registró RPE, sobre el total de días de entrenamiento de
+    // la semana. Es la única métrica que dice si el módulo se está usando
+    // o quedó vacío (R1).
+    const trainingDays = mcDays.filter((d: any) => d.day_type === 'entrenamiento');
+    const daysWithRpe = trainingDays.filter((d: any) =>
+      (sessionsByDayId.get(d.id) || []).some((s: any) => s.evaluation?.rpe != null),
+    );
+    const weekDates = datesBetween(mc.starts_on, mc.ends_on);
+    // Spec §F6: sin días vacíos. Se muestra un día si tiene sesiones (propias
+    // o sueltas), o si el coach lo marcó con algo que planifica la semana
+    // (partido, descanso, regenerativo, activación, o un foco escrito). Los
+    // días de entrenamiento vacíos no aportan nada que mirar.
+    const visibleDates = weekDates.filter((date) => {
+      const day = mcDays.find((d: any) => d.day_date === date);
+      if ((loose.byDate.get(date) || []).length > 0) return true;
+      if (!day) return false;
+      return (sessionsByDayId.get(day.id) || []).length > 0 || day.day_type !== 'entrenamiento' || !!day.focus;
+    });
+    const sessionCount = mcDays.reduce((n: number, d: any) => n + (sessionsByDayId.get(d.id) || []).length, 0);
+
+    return (
+      <AccordionItem key={mc.id} value={mc.id} className="px-3">
+        <AccordionTrigger className="text-sm">
+          <span className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold">Semana {idx + 1}</span>
+            <span className="text-xs text-muted-foreground font-normal">
+              {fmtDay(mc.starts_on, SHORT)}
+              {' – '}
+              {fmtDay(mc.ends_on, SHORT)}
+            </span>
+            {mc.id === currentWeekId && (
+              <Badge className="text-[10px] h-5 shrink-0">Esta semana</Badge>
+            )}
+            <span className="text-xs text-muted-foreground font-normal">
+              {sessionCount === 1 ? '1 sesión' : `${sessionCount} sesiones`}
+            </span>
+            {trainingDays.length > 0 && (
+              <Badge variant="outline" className="text-[10px] h-5 shrink-0">
+                Adherencia {daysWithRpe.length}/{trainingDays.length}
+              </Badge>
+            )}
+          </span>
+        </AccordionTrigger>
+        <AccordionContent className="space-y-3">
+          <div className="space-y-1.5">
+            {visibleDates.length === 0 && (
+              <p className="text-xs text-muted-foreground italic px-1 py-2">
+                {readOnly ? 'Sin sesiones planificadas esta semana.' : 'Todavía no hay sesiones esta semana.'}
+              </p>
+            )}
+            {visibleDates.map((date) => {
+              const day = mcDays.find((d: any) => d.day_date === date);
+              const looseHere = loose.byDate.get(date) || [];
+              const looseRows = looseHere.map((session: any) => (
+                <div key={session.id} className="flex items-center gap-2 px-2 py-1.5 text-xs border-t bg-amber-500/5">
+                  <ClipboardList className="w-3 h-3 text-amber-600 shrink-0" />
+                  <button type="button" className="truncate text-left text-muted-foreground hover:underline flex-1 min-w-0" onClick={() => openSession(session)}>
+                    {session.objectives || 'Sesión sin objetivo'}
+                  </button>
+                  {!readOnly && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-[11px] gap-1 shrink-0 text-muted-foreground"
+                      disabled={linkLooseSession.isPending}
+                      onClick={() => linkLooseSession.mutate({ sessionId: session.id, microcycleId: mc.id, date, dayId: day?.id })}
+                      title="Esta sesión se guardó sin día del mesociclo: engancharla la deja en esta semana"
+                    >
+                      <Link2 className="w-3 h-3" /> Enganchar
+                    </Button>
+                  )}
+                </div>
+              ));
+              if (!day) {
+                return (
+                  <div key={date} className="rounded-md border border-dashed overflow-hidden">
+                    <div className="p-2 text-xs text-muted-foreground capitalize">
+                      {fmtDay(date, { weekday: 'short', day: 'numeric' })}
+                    </div>
+                    {looseRows}
+                  </div>
+                );
+              }
+              // Un día admite cualquier cantidad de sesiones (§8.2 — ej.
+              // gimnasio AM + cancha PM), no una sola.
+              const daySessions = sessionsByDayId.get(day.id) || [];
+              const mdLabels = mdLabelsByDate?.[day.day_date] || [];
+              // H2 (spec periodización §3.3/D6): el rótulo del día
+              // contradice su contenido. Se compara contra el RPE REAL de
+              // una sesión ya evaluada cuando existe -- si ninguna tiene RPE
+              // cargado todavía, se usa el planeado. Aviso, nunca bloqueo.
+              const dayRpe = daySessions.reduce((acc: number | null, s: any) => {
+                const actual = s.evaluation?.rpe;
+                return typeof actual === 'number' ? actual : acc;
+              }, null as number | null) ?? day.planned_rpe ?? null;
+              const labelContradicesContent = day.day_type === 'regenerativo' && dayRpe != null && dayRpe > 4;
+              return (
+                <div key={day.id} className="rounded-md border overflow-hidden">
+                  <div className="flex items-center justify-between gap-2 p-2 text-sm">
+                    <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                      <span className="text-xs text-muted-foreground w-16 shrink-0 capitalize">
+                        {fmtDay(day.day_date, { weekday: 'short', day: 'numeric' })}
+                      </span>
+                      <Badge variant="outline" className={`text-[10px] h-5 shrink-0 ${DAY_TYPE_BADGE[day.day_type] || ''}`}>
+                        {DAY_TYPE_LABEL[day.day_type] || day.day_type}
+                      </Badge>
+                      {mdLabels.map((l) => (
+                        <Badge key={l} variant="outline" className="text-[10px] h-5 shrink-0">
+                          {l}
+                        </Badge>
+                      ))}
+                      {labelContradicesContent && (
+                        <Badge variant="destructive" className="text-[10px] h-5 shrink-0" title="Regenerativo con RPE alto — el contenido no coincide con el rótulo del día">
+                          RPE {dayRpe} en día regenerativo
+                        </Badge>
+                      )}
+                      {daySessions.length === 0 && day.focus && (
+                        <span className="truncate text-xs text-muted-foreground">{day.focus}</span>
+                      )}
+                    </div>
+                    {day.planned_rpe != null && (
+                      <span className="text-xs text-muted-foreground shrink-0">RPE {day.planned_rpe}</span>
+                    )}
+                  </div>
+                  {daySessions.map((session: any) => sessionRow(session))}
+                  {looseRows}
+                </div>
+              );
+            })}
+          </div>
+
+          {!readOnly && (
+            addingDayFor === mc.id ? (
+              <div className="flex flex-wrap items-end gap-2 p-2 rounded-md border bg-muted/30">
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Fecha</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className={`h-8 w-36 justify-start text-left font-normal text-xs bg-background border-input ${!newDay.day_date ? 'text-muted-foreground' : ''}`}
+                      >
+                        <Calendar className="mr-1.5 h-3.5 w-3.5 opacity-75 shrink-0" />
+                        {newDay.day_date ? format(new Date(newDay.day_date + 'T12:00:00'), 'd MMM', { locale: es }) : <span>Elegir</span>}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0 rounded-xl border-border/60 shadow-xl" align="start">
+                      <CalendarPicker
+                        mode="single"
+                        selected={newDay.day_date ? new Date(newDay.day_date + 'T12:00:00') : undefined}
+                        onSelect={(date) => date && setNewDay({ ...newDay, day_date: format(date, 'yyyy-MM-dd') })}
+                        locale={es}
+                        initialFocus
+                        fromDate={new Date(mc.starts_on + 'T00:00:00')}
+                        toDate={new Date(mc.ends_on + 'T00:00:00')}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Tipo</Label>
+                  <Select value={newDay.day_type} onValueChange={(v) => setNewDay({ ...newDay, day_type: v })}>
+                    <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {DAY_TYPE_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Intensidad (0-10)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={10}
+                    className="h-8 w-24"
+                    value={newDay.planned_rpe}
+                    onChange={(e) => setNewDay({ ...newDay, planned_rpe: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Duración (min)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    className="h-8 w-24"
+                    value={newDay.planned_minutes}
+                    onChange={(e) => setNewDay({ ...newDay, planned_minutes: e.target.value })}
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  className="h-8"
+                  disabled={!newDay.day_date || createDay.isPending}
+                  onClick={() => createDay.mutate({ microcycleId: mc.id, day: newDay })}
+                >
+                  Guardar
+                </Button>
+                <Button size="sm" variant="ghost" className="h-8" onClick={() => setAddingDayFor(null)}>
+                  Cancelar
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                {/* Un solo botón por semana (antes: uno por cada día vacío). */}
+                <Popover open={pickingDateFor === mc.id} onOpenChange={(o) => setPickingDateFor(o ? mc.id : null)}>
+                  <PopoverTrigger asChild>
+                    <Button size="sm" className="gap-1.5 h-8 text-xs" disabled={createDayForSession.isPending}>
+                      <Plus className="w-3.5 h-3.5" />
+                      Agregar sesión
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-64 p-2" align="start">
+                    <p className="text-xs font-medium px-1 pb-2">¿Qué día?</p>
+                    <div className="grid grid-cols-2 gap-1">
+                      {weekDates.map((date) => {
+                        const day = mcDays.find((d: any) => d.day_date === date);
+                        const n = day ? (sessionsByDayId.get(day.id) || []).length : 0;
+                        return (
+                          <Button
+                            key={date}
+                            variant="outline"
+                            size="sm"
+                            className="h-8 justify-between text-xs capitalize"
+                            onClick={() => addSessionOn(mc, date)}
+                          >
+                            {fmtDay(date, { weekday: 'short', day: 'numeric' })}
+                            {day && day.day_type !== 'entrenamiento' ? (
+                              <span className="text-[10px] text-muted-foreground normal-case">{DAY_TYPE_LABEL[day.day_type]}</span>
+                            ) : n > 0 ? (
+                              <span className="text-[10px] text-muted-foreground normal-case">{n}</span>
+                            ) : null}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs text-muted-foreground" aria-label="Más acciones de la semana">
+                      <MoreHorizontal className="w-4 h-4" />
+                      Más
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuItem onClick={() => setAddingDayFor(mc.id)}>
+                      <CalendarPlus className="w-4 h-4 mr-2" />
+                      Planificar un día (partido, descanso…)
+                    </DropdownMenuItem>
+                    {idx > 0 && (
+                      <DropdownMenuItem
+                        disabled={duplicatePreviousWeek.isPending}
+                        onClick={() => duplicatePreviousWeek.mutate({ sourceMicrocycleId: weeks[idx - 1].id, targetMicrocycleId: mc.id })}
+                      >
+                        <Copy className="w-4 h-4 mr-2" />
+                        Duplicar semana anterior
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            )
+          )}
+        </AccordionContent>
+      </AccordionItem>
+    );
+  };
 
   return (
     <div className="space-y-4">
+      {/* ── Encabezado ─────────────────────────────────────────────────── */}
       <Card className="border-border/40 bg-background/50 backdrop-blur-sm shadow-sm">
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
+            <div className="min-w-0 flex-1">
               <CardTitle className="text-base font-bold flex items-center gap-2">
-                <CalendarRange className="w-4 h-4 text-primary" />
+                <CalendarRange className="w-4 h-4 text-primary shrink-0" />
                 Mesociclo — {fmtDay(mesocycle.starts_on, SHORT)}
                 {' → '}
                 {fmtDay(mesocycle.ends_on, SHORT)}
@@ -512,416 +910,234 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
                   </SelectContent>
                 </Select>
               )}
-              {mesocycle.general_objective && (
-                <CardDescription className="mt-1 flex items-start gap-1.5">
-                  <Target className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                  {mesocycle.general_objective}
-                </CardDescription>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <MesocycleExportButton mesocycleId={mesocycle.id} mesocycle={mesocycle} teamName={teamName || 'Equipo'} />
+              {!readOnly && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-8 w-8 p-0" aria-label="Acciones del mesociclo">
+                      <MoreHorizontal className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => { setFormMode('create'); setFormOpen(true); }}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Nuevo mesociclo
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { setFormMode('edit'); setFormOpen(true); }}>
+                      <Pencil className="w-4 h-4 mr-2" />
+                      Editar
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setConfirmDelete(true)}>
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Eliminar
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
             </div>
-            <div className="flex flex-wrap gap-1.5 w-full sm:w-auto sm:justify-end">
-              <Button size="sm" className="gap-1.5" onClick={() => { setFormMode('create'); setFormOpen(true); }}>
-                <Plus className="w-3.5 h-3.5" />
-                Nuevo mesociclo
-              </Button>
-              <MesocycleExportButton mesocycleId={mesocycle.id} mesocycle={mesocycle} teamName={teamName || 'Equipo'} />
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => { setFormMode('edit'); setFormOpen(true); }}>
-                <Pencil className="w-3.5 h-3.5" />
-                Editar
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 text-destructive hover:text-destructive"
-                onClick={() => setConfirmDelete(true)}
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                Eliminar
-              </Button>
-            </div>
           </div>
+          {objective && (
+            <CardDescription className="mt-1 flex items-start gap-1.5">
+              <Target className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <span className={objectiveExpanded ? 'whitespace-pre-wrap' : 'line-clamp-2'}>{objective}</span>
+            </CardDescription>
+          )}
+          {objectiveExpanded && mesocycle.game_model && (
+            <div className="mt-2">
+              <Badge variant="secondary" className="mb-1.5">Modelo de juego</Badge>
+              <p className="text-sm text-muted-foreground whitespace-pre-wrap">{mesocycle.game_model}</p>
+            </div>
+          )}
+          {objectiveIsLong && (
+            <button
+              type="button"
+              className="text-xs text-primary hover:underline self-start mt-1"
+              onClick={() => setObjectiveExpanded((v) => !v)}
+            >
+              {objectiveExpanded
+                ? 'Ver menos'
+                : !mesocycle.game_model
+                  ? 'Ver más'
+                  : objective.length > LONG_TEXT
+                    ? 'Ver objetivo completo y modelo de juego'
+                    : 'Ver modelo de juego'}
+            </button>
+          )}
         </CardHeader>
-        {mesocycle.game_model && (
-          <CardContent className="pt-0">
-            <Badge variant="secondary" className="mb-1.5">Modelo de juego</Badge>
-            <p className="text-sm text-muted-foreground">{mesocycle.game_model}</p>
-          </CardContent>
-        )}
       </Card>
 
-      {microcycles && microcycles.length > 0 && (
-        <Accordion type="multiple" defaultValue={[microcycles[0]?.id]} className="rounded-lg border bg-background/50">
-          {microcycles.map((mc: any, idx: number) => {
-            const mcDays = (days || []).filter((d: any) => d.microcycle_id === mc.id);
-            // Adherencia (spec §3.3): días de entrenamiento con al menos una
-            // sesión que registró RPE, sobre el total de días de
-            // entrenamiento de la semana. Es la única métrica que dice si el
-            // módulo se está usando o quedó vacío (R1) — nunca se mostraba
-            // en ningún lado.
-            const trainingDays = mcDays.filter((d: any) => d.day_type === 'entrenamiento');
-            const daysWithRpe = trainingDays.filter((d: any) =>
-              (sessionsByDayId.get(d.id) || []).some((s: any) => s.evaluation?.rpe != null),
-            );
-            return (
-              <AccordionItem key={mc.id} value={mc.id} className="px-3">
-                <AccordionTrigger className="text-sm">
-                  <span className="flex items-center gap-2">
-                    <span className="font-semibold">Semana {idx + 1}</span>
-                    <span className="text-xs text-muted-foreground font-normal">
-                      {fmtDay(mc.starts_on, SHORT)}
-                      {' – '}
-                      {fmtDay(mc.ends_on, SHORT)}
-                    </span>
-                    {trainingDays.length > 0 && (
-                      <Badge variant="outline" className="text-[10px] h-5 shrink-0">
-                        Adherencia {daysWithRpe.length}/{trainingDays.length}
-                      </Badge>
-                    )}
+      {/* ── Pestañas ───────────────────────────────────────────────────── */}
+      <Tabs defaultValue="plan" className="space-y-3">
+        <div className="overflow-x-auto">
+          <TabsList className="w-max">
+            <TabsTrigger value="plan">Plan</TabsTrigger>
+            <TabsTrigger value="carga">Carga</TabsTrigger>
+            <TabsTrigger value="rubrica">Rúbrica</TabsTrigger>
+            <TabsTrigger value="cierre">Cierre</TabsTrigger>
+            <TabsTrigger value="documentos">Documentos</TabsTrigger>
+          </TabsList>
+        </div>
+
+        <TabsContent value="plan" className="space-y-4 mt-0">
+          {weeks.length > 0 ? (
+            // key: al cambiar de mesociclo vuelve a abrir solo su semana actual.
+            <Accordion
+              key={mesocycle.id}
+              type="multiple"
+              defaultValue={currentWeekId ? [currentWeekId] : []}
+              className="rounded-lg border bg-background/50"
+            >
+              {weeks.map((mc, idx) => renderWeek(mc, idx))}
+            </Accordion>
+          ) : (
+            <p className="text-sm text-muted-foreground">Este mesociclo no tiene semanas.</p>
+          )}
+
+          {loose.outside.length > 0 && (
+            // Sesiones sueltas fuera de este mesociclo (de otro mes, o de antes de
+            // planificar). Antes no se veían en ningún lado con mesociclo creado.
+            <Card className="border-dashed">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold">Sesiones sin semana ({loose.outside.length})</CardTitle>
+                <CardDescription className="text-xs">
+                  {readOnly
+                    ? 'Guardadas sin día de mesociclo.'
+                    : 'Guardadas sin día de mesociclo. Ábrelas para revisarlas o cambiarles la fecha.'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-1">
+                {[...loose.outside].sort((a: any, b: any) => b.session_date.localeCompare(a.session_date)).map((session: any) => (
+                  <button
+                    key={session.id}
+                    type="button"
+                    onClick={() => openSession(session)}
+                    className="w-full flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs text-left hover:bg-accent/40"
+                  >
+                    <span className="w-24 shrink-0 text-muted-foreground capitalize">{fmtDay(session.session_date, { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+                    <span className="truncate">{session.objectives || 'Sesión sin objetivo'}</span>
+                  </button>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="carga" className="space-y-3 mt-0">
+          {loadWeek ? (
+            <>
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Semana">
+                {weeks.map((mc, idx) => (
+                  <Button
+                    key={mc.id}
+                    size="sm"
+                    variant={mc.id === loadWeek.id ? 'default' : 'outline'}
+                    className="h-8 text-xs"
+                    onClick={() => setLoadWeekId(mc.id)}
+                  >
+                    Semana {idx + 1}
+                    <span className="ml-1.5 opacity-70">{fmtDay(mc.starts_on, SHORT)}</span>
+                  </Button>
+                ))}
+              </div>
+              <MicrocycleLoadPanel microcycleId={loadWeek.id} />
+              <WeeklyLoadPanel microcycleId={loadWeek.id} />
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">Este mesociclo no tiene semanas.</p>
+          )}
+        </TabsContent>
+
+        <TabsContent value="rubrica" className="mt-0">
+          <MesocycleRubricTable
+            mesocycleId={mesocycle.id}
+            schoolId={schoolId}
+            evaluationMode={mesocycle.evaluation_mode}
+            roster={roster}
+            readOnly={readOnly}
+          />
+        </TabsContent>
+
+        {/* forceMount: cambiar de pestaña no debe tirar lo escrito sin guardar. */}
+        <TabsContent value="cierre" forceMount className="space-y-4 mt-0 data-[state=inactive]:hidden">
+          <Card className="border-border/40 bg-background/50 shadow-sm">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-bold">Cierre del mesociclo</CardTitle>
+              <CardDescription className="text-xs">Balance del mes y notas para el siguiente.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ClosingForm
+                key={mesocycle.id}
+                fields={MESO_CLOSING_FIELDS}
+                saved={{
+                  strengths: closing.strengths || '',
+                  areas_to_improve: closing.areas_to_improve || '',
+                  next_cycle_notes: closing.next_cycle_notes || '',
+                }}
+                readOnly={readOnly}
+                onSave={(values) => updateClosingReview.mutateAsync(values)}
+              />
+            </CardContent>
+          </Card>
+
+          {weeks.map((mc) => (
+            <Card key={mc.id} className="border-border/40 bg-background/50 shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold">
+                  Cierre de la semana {weekIndex(mc.id) + 1}
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    {fmtDay(mc.starts_on, SHORT)} – {fmtDay(mc.ends_on, SHORT)}
                   </span>
-                </AccordionTrigger>
-                <AccordionContent className="space-y-3">
-                  <div className="space-y-1.5">
-                    {datesBetween(mc.starts_on, mc.ends_on).map((date) => {
-                      const day = mcDays.find((d: any) => d.day_date === date);
-                      const looseHere = loose.byDate.get(date) || [];
-                      const looseRows = looseHere.map((session: any) => (
-                        <div key={session.id} className="flex items-center gap-2 px-2 py-1.5 text-xs border-t bg-amber-500/5">
-                          <ClipboardList className="w-3 h-3 text-amber-600 shrink-0" />
-                          <button type="button" className="truncate text-left text-muted-foreground hover:underline flex-1 min-w-0" onClick={() => onEditSession(session)}>
-                            {session.objectives || 'Sesión sin objetivo'}
-                          </button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-6 px-2 text-[11px] gap-1 shrink-0"
-                            disabled={linkLooseSession.isPending}
-                            onClick={() => linkLooseSession.mutate({ sessionId: session.id, microcycleId: mc.id, date, dayId: day?.id })}
-                            title="Esta sesión se guardó sin día del mesociclo: engancharla la deja en esta semana"
-                          >
-                            <Link2 className="w-3 h-3" /> Enganchar
-                          </Button>
-                        </div>
-                      ));
-                      if (!day) {
-                        // Día sin planear: se ve igual, con su botón. Antes la
-                        // semana solo mostraba los días ya cargados y "Sin días
-                        // cargados" — el coach no encontraba cómo crear la
-                        // sesión del domingo (Carmel, arqueros, 2026-10-02).
-                        return (
-                          <div key={date} className="rounded-md border border-dashed overflow-hidden">
-                            <div className="flex items-center justify-between gap-2 p-2 text-sm">
-                              <span className="text-xs text-muted-foreground w-16 shrink-0 capitalize">
-                                {fmtDay(date, { weekday: 'short', day: 'numeric' })}
-                              </span>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 px-2 text-[11px] gap-1"
-                                disabled={createDayForSession.isPending}
-                                onClick={() => createDayForSession.mutate({ microcycleId: mc.id, date })}
-                              >
-                                <Plus className="w-3 h-3" />
-                                Crear sesión
-                              </Button>
-                            </div>
-                            {looseRows}
-                          </div>
-                        );
-                      }
-                      return (() => {
-                      // Un día admite cualquier cantidad de sesiones (§8.2 —
-                      // ej. gimnasio AM + cancha PM), no una sola.
-                      const daySessions = sessionsByDayId.get(day.id) || [];
-                      const mdLabels = mdLabelsByDate?.[day.day_date] || [];
-                      // H2 (spec periodización §3.3/D6): el rótulo del día
-                      // contradice su contenido. Se compara contra el RPE
-                      // REAL de una sesión ya evaluada cuando existe -- si
-                      // ninguna sesión del día tiene RPE cargado todavía, se
-                      // usa el planeado como aproximación. Aviso, nunca
-                      // bloqueo (D6) -- por eso es un badge, no un error.
-                      const dayRpe = daySessions.reduce((acc: number | null, s: any) => {
-                        const actual = s.evaluation?.rpe;
-                        return typeof actual === 'number' ? actual : acc;
-                      }, null as number | null) ?? day.planned_rpe ?? null;
-                      const labelContradicesContent = day.day_type === 'regenerativo' && dayRpe != null && dayRpe > 4;
-                      return (
-                        <div key={day.id} className="rounded-md border overflow-hidden">
-                          <div className="flex items-center justify-between gap-2 p-2 text-sm">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className="text-xs text-muted-foreground w-16 shrink-0 capitalize">
-                                {fmtDay(day.day_date, { weekday: 'short', day: 'numeric' })}
-                              </span>
-                              <Badge variant="outline" className={`text-[10px] h-5 shrink-0 ${DAY_TYPE_BADGE[day.day_type] || ''}`}>
-                                {DAY_TYPE_LABEL[day.day_type] || day.day_type}
-                              </Badge>
-                              {mdLabels.map((l) => (
-                                <Badge key={l} variant="outline" className="text-[10px] h-5 shrink-0">
-                                  {l}
-                                </Badge>
-                              ))}
-                              {labelContradicesContent && (
-                                <Badge variant="destructive" className="text-[10px] h-5 shrink-0" title="Regenerativo con RPE alto — el contenido no coincide con el rótulo del día">
-                                  RPE {dayRpe} en día regenerativo
-                                </Badge>
-                              )}
-                              {daySessions.length === 0 && (
-                                <span className="truncate text-muted-foreground">{day.focus || ''}</span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              {day.planned_rpe != null && (
-                                <span className="text-xs text-muted-foreground">RPE {day.planned_rpe}</span>
-                              )}
-                              {day.day_type !== 'descanso' && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-6 px-2 text-[11px] gap-1"
-                                  onClick={() => setSessionDialogDay(day)}
-                                >
-                                  <ClipboardList className="w-3 h-3" />
-                                  {daySessions.length === 0 ? 'Crear sesión' : 'Agregar otra'}
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                          {daySessions.map((session: any) => (
-                            <div
-                              key={session.id}
-                              className="flex items-center gap-2 px-2 py-1.5 text-xs border-t bg-muted/20 cursor-pointer hover:bg-accent/40"
-                              onClick={() => onEditSession(session)}
-                            >
-                              <ClipboardList className="w-3 h-3 text-muted-foreground shrink-0" />
-                              <span className="truncate text-muted-foreground">{session.objectives}</span>
-                            </div>
-                          ))}
-                          {looseRows}
-                        </div>
-                      );
-                      })();
-                    })}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ClosingForm
+                  fields={WEEK_CLOSING_FIELDS}
+                  gridClassName="grid grid-cols-1 sm:grid-cols-3 gap-3"
+                  saved={{
+                    objective_compliance: mc.objective_compliance || '',
+                    collective_performance: mc.collective_performance || '',
+                    improvement_notes: mc.improvement_notes || '',
+                  }}
+                  readOnly={readOnly}
+                  onSave={(values) => updateMicrocycleClosing.mutateAsync({ id: mc.id, ...values })}
+                />
+              </CardContent>
+            </Card>
+          ))}
+        </TabsContent>
 
-                    {addingDayFor === mc.id ? (
-                      <div className="flex flex-wrap items-end gap-2 p-2 rounded-md border bg-muted/30">
-                        <div className="space-y-1">
-                          <Label className="text-[10px]">Fecha</Label>
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className={`h-8 w-36 justify-start text-left font-normal text-xs bg-background border-input ${!newDay.day_date ? 'text-muted-foreground' : ''}`}
-                              >
-                                <Calendar className="mr-1.5 h-3.5 w-3.5 opacity-75 shrink-0" />
-                                {newDay.day_date ? format(new Date(newDay.day_date + 'T12:00:00'), 'd MMM', { locale: es }) : <span>Elegir</span>}
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0 rounded-xl border-border/60 shadow-xl" align="start">
-                              <CalendarPicker
-                                mode="single"
-                                selected={newDay.day_date ? new Date(newDay.day_date + 'T12:00:00') : undefined}
-                                onSelect={(date) => date && setNewDay({ ...newDay, day_date: format(date, 'yyyy-MM-dd') })}
-                                locale={es}
-                                initialFocus
-                                fromDate={new Date(mc.starts_on + 'T00:00:00')}
-                                toDate={new Date(mc.ends_on + 'T00:00:00')}
-                              />
-                            </PopoverContent>
-                          </Popover>
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-[10px]">Tipo</Label>
-                          <Select value={newDay.day_type} onValueChange={(v) => setNewDay({ ...newDay, day_type: v })}>
-                            <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              {DAY_TYPE_OPTIONS.map((o) => (
-                                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-[10px]">Intensidad (0-10)</Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            max={10}
-                            className="h-8 w-24"
-                            value={newDay.planned_rpe}
-                            onChange={(e) => setNewDay({ ...newDay, planned_rpe: e.target.value })}
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-[10px]">Duración (min)</Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            className="h-8 w-24"
-                            value={newDay.planned_minutes}
-                            onChange={(e) => setNewDay({ ...newDay, planned_minutes: e.target.value })}
-                          />
-                        </div>
-                        <Button
-                          size="sm"
-                          className="h-8"
-                          disabled={!newDay.day_date || createDay.isPending}
-                          onClick={() => createDay.mutate({ microcycleId: mc.id, day: newDay })}
-                        >
-                          Guardar
-                        </Button>
-                        <Button size="sm" variant="ghost" className="h-8" onClick={() => setAddingDayFor(null)}>
-                          Cancelar
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={() => setAddingDayFor(mc.id)}>
-                          <Plus className="w-3.5 h-3.5" />
-                          Agregar día
-                        </Button>
-                        {idx > 0 && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="gap-1.5 h-7 text-xs"
-                            disabled={duplicatePreviousWeek.isPending}
-                            onClick={() => duplicatePreviousWeek.mutate({ sourceMicrocycleId: microcycles[idx - 1].id, targetMicrocycleId: mc.id })}
-                          >
-                            <Copy className="w-3.5 h-3.5" />
-                            Duplicar semana anterior
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                  </div>
+        <TabsContent value="documentos" className="mt-0">
+          {/* Staff (dueño incluido) puede ver, descargar y subir; borra quien
+              subió o la administración (RLS 20261008154654). */}
+          <MesocycleDocuments mesocycleId={mesocycle.id} schoolId={schoolId} canDeleteAny={canDeleteAnyDoc} />
+        </TabsContent>
+      </Tabs>
 
-                  <MicrocycleLoadPanel microcycleId={mc.id} />
-                  <WeeklyLoadPanel microcycleId={mc.id} />
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t">
-                    <div className="space-y-1">
-                      <Label className="text-xs">Cumplimiento de objetivos</Label>
-                      <Textarea
-                        rows={2}
-                        className="text-xs"
-                        defaultValue={mc.objective_compliance || ''}
-                        onBlur={(e) => updateMicrocycleClosing.mutate({ id: mc.id, objective_compliance: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Rendimiento colectivo</Label>
-                      <Textarea
-                        rows={2}
-                        className="text-xs"
-                        defaultValue={mc.collective_performance || ''}
-                        onBlur={(e) => updateMicrocycleClosing.mutate({ id: mc.id, collective_performance: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Aspectos a mejorar</Label>
-                      <Textarea
-                        rows={2}
-                        className="text-xs"
-                        defaultValue={mc.improvement_notes || ''}
-                        onBlur={(e) => updateMicrocycleClosing.mutate({ id: mc.id, improvement_notes: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            );
-          })}
-        </Accordion>
+      {!readOnly && (
+        <MesocycleFormDialog
+          open={formOpen}
+          onOpenChange={setFormOpen}
+          onSubmit={(data) => (formMode === 'edit' ? updateMesocycle.mutate(data) : createMesocycle.mutate(data))}
+          teamId={teamId}
+          isLoading={createMesocycle.isPending || updateMesocycle.isPending}
+          mesocycle={formMode === 'edit' ? mesocycle : null}
+          // Nuevo: arranca el día después del último y hereda modelo de juego,
+          // sesiones planeadas y duración del actual (el coach los ajusta).
+          suggestedStart={formMode === 'create' ? suggestNextStart(mesocycles || [], todayColombia()) : undefined}
+          template={formMode === 'create' ? mesocycle : undefined}
+        />
       )}
-
-      {loose.outside.length > 0 && (
-        // Sesiones sueltas fuera de este mesociclo (de otro mes, o de antes de
-        // planificar). Antes no se veían en ningún lado con mesociclo creado.
-        <Card className="border-dashed">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Sesiones sin semana ({loose.outside.length})</CardTitle>
-            <CardDescription className="text-xs">Guardadas sin día de mesociclo. Ábrelas para revisarlas o cambiarles la fecha.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-1">
-            {[...loose.outside].sort((a: any, b: any) => b.session_date.localeCompare(a.session_date)).map((session: any) => (
-              <button
-                key={session.id}
-                type="button"
-                onClick={() => onEditSession(session)}
-                className="w-full flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs text-left hover:bg-accent/40"
-              >
-                <span className="w-24 shrink-0 text-muted-foreground capitalize">{fmtDay(session.session_date, { weekday: 'short', day: 'numeric', month: 'short' })}</span>
-                <span className="truncate">{session.objectives || 'Sesión sin objetivo'}</span>
-              </button>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-
-      <Card className="border-border/40 bg-background/50 backdrop-blur-sm shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-bold flex items-center gap-2">
-            <Star className="w-4 h-4 text-primary" />
-            Cierre del Mesociclo
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs">Fortalezas</Label>
-              <Textarea
-                rows={2}
-                defaultValue={closing.strengths || ''}
-                onBlur={(e) => updateClosingReview.mutate({ strengths: e.target.value })}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Aspectos a mejorar</Label>
-              <Textarea
-                rows={2}
-                defaultValue={closing.areas_to_improve || ''}
-                onBlur={(e) => updateClosingReview.mutate({ areas_to_improve: e.target.value })}
-              />
-            </div>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Notas para el próximo mesociclo</Label>
-            <Textarea
-              rows={2}
-              defaultValue={closing.next_cycle_notes || ''}
-              onBlur={(e) => updateClosingReview.mutate({ next_cycle_notes: e.target.value })}
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      <MesocycleRubricTable
-        mesocycleId={mesocycle.id}
-        schoolId={schoolId}
-        evaluationMode={mesocycle.evaluation_mode}
-        roster={roster}
-      />
-
-      <MesocycleFormDialog
-        open={formOpen}
-        onOpenChange={setFormOpen}
-        onSubmit={(data) => (formMode === 'edit' ? updateMesocycle.mutate(data) : createMesocycle.mutate(data))}
-        teamId={teamId}
-        isLoading={createMesocycle.isPending || updateMesocycle.isPending}
-        mesocycle={formMode === 'edit' ? mesocycle : null}
-        // Nuevo: arranca el día después del último y hereda modelo de juego,
-        // sesiones planeadas y duración del actual (el coach los ajusta).
-        suggestedStart={formMode === 'create' ? suggestNextStart(mesocycles || [], todayColombia()) : undefined}
-        template={formMode === 'create' ? mesocycle : undefined}
-      />
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>¿Eliminar este mesociclo?</AlertDialogTitle>
             <AlertDialogDescription>
-              Se borran sus semanas, días y la rúbrica de evaluación. Las sesiones de contenido ya
-              creadas NO se eliminan, solo pierden el enganche al día. Esta acción no se puede deshacer.
+              Se borran sus semanas, días, la rúbrica de evaluación y los documentos adjuntos. Las sesiones de
+              contenido ya creadas NO se eliminan, solo pierden el enganche al día. Esta acción no se puede deshacer.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -937,7 +1153,7 @@ export function MesocycleSection({ teamId, schoolId, roster, sessions, isFootbal
         </AlertDialogContent>
       </AlertDialog>
 
-      {sessionDialogDay && (
+      {sessionDialogDay && !readOnly && (
         <SessionFormDialog
           open={!!sessionDialogDay}
           onOpenChange={(open) => { if (!open) setSessionDialogDay(null); }}

@@ -336,22 +336,24 @@ export function useDashboardConfig(
               icon: ShoppingBag
             },
             {
-              title: 'Ventas del Mes',
-              value: '$0',
-              description: 'Este mes',
-              icon: TrendingUp
+              title: 'Ventas (30 días)',
+              value: `$${Math.round(stats.totalRevenue || 0).toLocaleString('es-CO')}`,
+              description: 'Pedidos pagados',
+              icon: TrendingUp,
+              href: '/vendor/dashboard'
             },
             {
-              title: 'Pedidos Pendientes',
+              title: 'Pedidos pagados',
               value: stats.orders,
-              description: 'Por procesar',
-              icon: Clock
+              description: 'Últimos 30 días',
+              icon: Clock,
+              href: '/orders'
             },
             {
-              title: 'Clientes',
-              value: 0,
-              description: 'Registrados',
-              icon: Users
+              title: 'Ticket promedio',
+              value: `$${Math.round(stats.storeAvgTicket || 0).toLocaleString('es-CO')}`,
+              description: 'Por pedido pagado',
+              icon: DollarSign
             }
           ],
           activities: [],

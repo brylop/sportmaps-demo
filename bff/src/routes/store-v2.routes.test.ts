@@ -223,6 +223,23 @@ describe('/store (acciones con actor)', () => {
         const r = await post('/store/vendor/orders/no-uuid/approve-receipt');
         expect(r.status).toBe(400);
     });
+
+    it('pickup-code → regenerate_my_pickup_code con p_actor de la sesión; tope → 409 PICKUP_CODE_LIMIT', async () => {
+        estado.rpcResult.regenerate_my_pickup_code = {
+            data: { order_id: OID, pickup_code: '123456', regenerations_used: 1, regenerations_left: 2 }, error: null,
+        };
+        let r = await post(`/store/orders/${OID}/pickup-code`, { p_actor: 'otro' });
+        expect(r.status).toBe(200);
+        expect((await r.json()).data.pickup_code).toBe('123456');
+        expect(estado.rpc).toContainEqual(['regenerate_my_pickup_code', { p_order_id: OID, p_actor: 'u1' }]);
+        estado.rpcResult.regenerate_my_pickup_code = { data: null, error: { code: 'P0001', message: 'PICKUP_CODE_LIMIT' } };
+        r = await post(`/store/orders/${OID}/pickup-code`);
+        expect(r.status).toBe(409);
+        expect((await r.json()).error).toBe('PICKUP_CODE_LIMIT');
+        estado.rpcResult.regenerate_my_pickup_code = { data: null, error: { code: 'P0002', message: 'NOT_FOUND' } };
+        r = await post(`/store/orders/${OID}/pickup-code`);
+        expect(r.status).toBe(404);
+    });
 });
 
 describe('Webhook Wompi CART-* (D-5 = A, un solo camino)', () => {

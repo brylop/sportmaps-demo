@@ -69,7 +69,7 @@ Respuesta `201` (`200` si idempotente) — `data`:
   "signature": "firma de integridad Wompi con el secreto DEL VENDEDOR" | null,
   "transfer": { "accounts": [{ "type", "label", "value", "bank", "account_type", "holder", "holder_id" }],
                 "instructions", "amount", "reference", "expires_at" } | null,
-  "pickupCode": "123456" | null,                         // retiro en sede: mostrarlo UNA vez (no se puede recuperar)
+  "pickupCode": "123456" | null,                         // retiro en sede: se muestra y se guarda en ESTE dispositivo; en otro, se regenera (§2.3)
   "idempotent": false
 }
 ```
@@ -92,8 +92,11 @@ Qué hace la UI con cada medio:
 | `POST /orders/:id/receipt` `{path}` | Tras subir: `pending_payment → awaiting_approval` | `submit_order_receipt` |
 | `POST /orders/:id/cancel` `{reason?}` | Solo `pending_payment`/`awaiting_approval`; libera la reserva | `cancel_my_order` |
 | `POST /orders/:id/received` | "Ya lo recibí" (`shipped → delivered`) | `order_transition` |
+| `POST /orders/:id/pickup-code` | Código de retiro **nuevo** desde cualquier dispositivo (invalida el anterior). Solo retiro en sede `paid`/`preparing`/`ready_for_pickup`, máx. 3 por pedido, auditado en `order_status_history`. Devuelve `{order_id, status, pickup_code, regenerations_used, regenerations_left, regenerations_max}` | `regenerate_my_pickup_code` (mig. `20261008163338`) |
 
 Subida: `supabase.storage.from('order-receipts').uploadToSignedUrl(path, token, file)`.
+
+**Límite de operaciones (2026-10-08).** `/api/v1/marketplace/checkout/*`, `/api/v1/marketplace/orders` y `/api/v1/store` usan `middlewares/storeRateLimit.ts`, no el `paymentLimiter`: **lecturas** (GET y `POST /checkout/cart/quote`) 120/min y **escrituras** 20/min, por **IP real del cliente** (`CF-Connecting-IP`; `req.ip` detrás de Cloudflare es la IP del borde) y contadas una sola vez por request. El 429 responde `{ ok:false, error:'RATE_LIMITED', message:'Demasiadas solicitudes, intenta en un minuto.' }`: la UI lo muestra así y **nunca** como "Pedido no encontrado" (404).
 
 ### 2.4 Tienda (owner/admin de la escuela o dueño del perfil; **no** coach) — `/api/v1/store/vendor`
 | Método y ruta | Qué hace | RPC |
@@ -104,12 +107,15 @@ Subida: `supabase.storage.from('order-receipts').uploadToSignedUrl(path, token, 
 | `POST /orders/:id/confirm-cash` `{pickupCode}` | Efectivo: cobra y entrega a la vez (`paid` + `delivered`) | `confirm_cash_pickup` |
 | `POST /orders/:id/transition` `{to, note?, trackingNumber?, carrier?, pickupCode?}` | `paid→preparing`, `preparing→ready_for_pickup` (retiro) / `shipped` (envío), `ready_for_pickup→delivered` (**exige `pickupCode`**), `shipped→delivered`, cancelar una orden sin pagar | `order_transition` |
 | `GET  /:vendorProfileId/payment-settings` | Configuración + medios efectivos | — |
-| `PUT  /:vendorProfileId/payment-settings` | `{accept_wompi, accept_mercadopago, accept_transfer, accept_cash_pickup, transfer_instructions, transfer_hold_hours, cash_hold_hours}` | `set_store_payment_settings` |
+| `PUT  /:vendorProfileId/payment-settings` | `{accept_wompi, accept_mercadopago, accept_transfer, accept_cash_pickup, transfer_instructions, transfer_hold_hours, cash_hold_hours, transfer_account_ids, allow_shipping, pickup_branch_ids}` (las tres últimas desde `20261008163336`: cuentas que se muestran —`null` = todas las aptas—, «solo retiro» vs «también envío», sedes de retiro —`null` = todas—). El `GET` trae además `admin` (`store_admin_settings`: estado de habilitación, cuentas enmascaradas con su aptitud, sedes, pasarelas conectadas) | `set_store_payment_settings` |
+| `GET  /school-store/:schoolId` | La tienda de la escuela que el usuario administra (por `school_id`, no por `user_id`: bug N0). Desde el frontend, RPC `my_school_store(p_school_id)` | `can_manage_store_as` |
 
 `PATCH /api/v1/marketplace/orders/vendor/:id/status` sigue vivo y para órdenes nuevas pasa por `order_transition` (acepta `pickup_code`).
 
 ### 2.5 Público
-`GET /api/v1/store/payment-methods/:vendorProfileId` → `{ allowed, methods: [{method:'wompi', public_key, sandbox} | {method:'transfer', hold_hours} | {method:'cash_pickup', hold_hours}] }`. Sin números de cuenta ni secretos.
+`GET /api/v1/store/payment-methods/:vendorProfileId` → `{ allowed, methods: [{method:'wompi', public_key, sandbox} | {method:'transfer', hold_hours} | {method:'cash_pickup', hold_hours}], fulfillment: { pickup, shipping, pickup_branches: [{id, name, address, is_main}] } }`. Sin números de cuenta ni secretos.
+
+`fulfillment` (mig. `20261008163336`, `store_payment_settings.allow_shipping` / `pickup_branch_ids`): con `shipping: false` ("solo retiro en sede", así nace la tienda escolar) el checkout **no muestra** envío a domicilio y la base rechaza la orden con `SHIPPING_NOT_OFFERED`. Si `fulfillment` no viene (base sin esa migración o tienda sin fila de medios) no hay restricción. Las sedes del selector salen de `pickup_branches`.
 
 ## 3. RPC directas con el JWT (sin BFF)
 
@@ -136,7 +142,11 @@ create_cart_order(p_items jsonb, p_fulfillment text, p_pickup_branch uuid, p_add
 | `PAYMENT_METHOD_NOT_ACCEPTED` / `GATEWAY_NOT_CONFIGURED` / `NO_TRANSFER_ACCOUNTS` | 409 | Medio no ofrecido por la tienda |
 | `SELLER_GATEWAY_NOT_CONFIGURED` | 409 | Pasarela elegida no utilizable (BFF) |
 | `CASH_REQUIRES_PICKUP`, `ADDRESS_REQUIRED`, `INVALID_PICKUP_BRANCH`, `INVALID_FULFILLMENT` | 400 | Entrega |
-| `SHIPPING_ZONE_NOT_FOUND` | 422 | No hay envío al departamento (sin tarifa por defecto) |
+| `SHIPPING_ZONE_NOT_FOUND` | 422 | No hay envío al departamento (sin tarifa por defecto). La UI dice "Esta tienda todavía no hace envíos a X" y ofrece retiro |
+| `SHIPPING_NOT_OFFERED` | 409 | Envío en una tienda "solo retiro en sede" |
+| `INVALID_TRANSFER_ACCOUNT`, `PICKUP_BRANCH_REQUIRED`, `NO_PAYMENT_METHODS` | 400 | Ajustes de cobros de la tienda (`set_store_payment_settings`): cuenta no apta (p.ej. «Solo para inscripciones»), cero sedes, ningún medio |
+| `NOT_A_PICKUP_ORDER` / `PICKUP_CODE_LIMIT` | 409 | Regenerar código: pedido con envío / ya van 3 |
+| `RATE_LIMITED` | 429 | Límite de operaciones de la tienda (ver §2.3) |
 | `INVALID_STATE`, `ORDER_EXPIRED`, `TRANSITION_NOT_ALLOWED` | 409 | La orden no admite esa acción |
 | `INVALID_PICKUP_CODE` | 403 | Código de retiro errado |
 | `NOT_OWNER` / `FORBIDDEN` | 403 | No administra la tienda / no es su orden |
@@ -144,4 +154,4 @@ create_cart_order(p_items jsonb, p_fulfillment text, p_pickup_branch uuid, p_add
 
 ## 5. Lo que NO hace esta fase (para no construir UI de más)
 
-Cupones (F3b) · invitado sin cuenta · recuperar el `pickupCode` perdido · reembolso MP (el BFF responde `501`) · tope de 72 h de revisión de comprobante · OCR del comprobante · fee real de pasarela (se estima) · catálogo/ficha/variantes en la vitrina (F1–F3).
+Cupones (F3b) · invitado sin cuenta · regenerar el código de un pedido en efectivo **sin pagar** (el código es la prueba del cobro; sí se regenera desde `paid`) · reembolso MP (el BFF responde `501`) · tope de 72 h de revisión de comprobante · OCR del comprobante · fee real de pasarela (se estima) · catálogo/ficha/variantes en la vitrina (F1–F3).

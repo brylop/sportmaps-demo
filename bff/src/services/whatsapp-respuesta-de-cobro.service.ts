@@ -14,6 +14,7 @@
 import { supabase } from '../config/supabase';
 import { aplicarComprobante } from '../jobs/whatsapp-queue.job';
 import { interpretarEleccion, loQueQueda } from './whatsapp-eleccion-de-pago.service';
+import { resolverRespuestaDeDeportista } from './whatsapp-comprobante-de-ficha.service';
 import { describirPago, mensajeElegirPago, type PagoPendiente } from './whatsapp-receipt-matching.service';
 import type { WhatsAppIntegration } from './whatsapp.service';
 
@@ -36,7 +37,10 @@ interface FilaEsperando {
         ocr: any;
         sha: string;
         storagePath: string | null;
-        parentId: string;
+        /** null: familia sin cuenta (cobros por ficha). */
+        parentId: string | null;
+        /** 'deportista': se preguntó de qué deportista es (número sin ficha). */
+        tipo?: 'deportista';
     } | null;
     pregunta_at: string | null;
     retries: number;
@@ -69,6 +73,14 @@ export async function resolverRespuestaDeCobro(
 
     const fila = data as FilaEsperando | null;
     if (!fila) return false;
+
+    // «¿De qué deportista es este pago?» (número sin ficha): la respuesta es un
+    // nombre, no una opción. Vencida, sigue su curso (la vence el worker).
+    if (fila.pregunta_ocr?.tipo === 'deportista') {
+        const edad = fila.pregunta_at ? (Date.now() - new Date(fila.pregunta_at).getTime()) / 3_600_000 : Infinity;
+        if (edad > VIGENCIA_H) return false;
+        return resolverRespuestaDeDeportista(fila, texto, responder);
+    }
 
     // Filas de antes de esta función, sin contexto congelado: no hay con qué
     // aplicarlas. Se cierran para que dejen de interceptar mensajes, y la

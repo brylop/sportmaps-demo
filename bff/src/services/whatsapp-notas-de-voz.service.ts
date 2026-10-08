@@ -38,6 +38,7 @@ import {
 } from './whatsapp-reglas-turno';
 import { transcribirAudio, type ResultadoTranscripcion } from './transcripcion.service';
 import { intencionDeProspecto, DIAS_MARCA_PROSPECTO, type TipoDeContacto } from './whatsapp-atencion.service';
+import { seIdentificaComoExterno } from './whatsapp-desconocido-reglas';
 
 /** Tipos de contacto cuyas notas de voz se pueden transcribir (D6: nunca desconocidos). */
 const TIPOS_TRANSCRIBIBLES: ReadonlySet<TipoDeContacto> = new Set(['familia', 'familia_sin_cuenta', 'ambiguo']);
@@ -82,7 +83,8 @@ export type ResultadoNotaDeVoz =
     | 'ofrece_consentimiento'   // «no puedo escuchar» + la pregunta que lo habilita
     | 'silencio_humano'         // P4 sin transcribir
     | 'silencio_persona'        // P9: la ráfaga es para una persona del equipo
-    | 'ya_avisado';             // ya se dijo «no puedo escuchar» hace < 10 min
+    | 'ya_avisado'              // ya se dijo «no puedo escuchar» hace < 10 min
+    | 'silencio_desconocido';   // desconocido sin intención escolar previa: al buzón, sin respuesta
 
 /** ¿La escuela prendió la transcripción? Sin la columna (migración sin aplicar) → no. */
 export async function transcribirAudiosActivo(integrationId: string): Promise<boolean> {
@@ -190,8 +192,27 @@ export async function atenderNotaDeVoz(p: {
 }): Promise<ResultadoNotaDeVoz> {
     const { integration, conversationId, msg } = p;
     const contactWaId = msg.contactWaId;
+    // Desconocido (la escuela tiene `responder_desconocidos`): su audio solo se
+    // atiende si antes escribió algo con intención clara de entrar a la escuela
+    // (prospecto). Si no, silencio: queda en el buzón. Dynasty 2026-10-08: a
+    // dos números sin nada escolar se les respondió «Hola 👋 soy el asistente…
+    // No puedo escuchar notas de voz»; eran contactos de la dueña.
+    let prospecto = false;
+    if (p.tipo === 'desconocido') {
+        const previos = await entrantesDeTexto(conversationId, DIAS_MARCA_PROSPECTO);
+        // Otra institución (entrenadora de otro club, proveedor) tampoco.
+        if (!previos.some((t) => intencionDeProspecto(t))
+            || previos.some((t) => seIdentificaComoExterno(t))) return 'silencio_desconocido';
+        prospecto = true;
+    }
+
     const recientes = await mensajesRecientes(conversationId);
     const escuelaHablando = humanoReciente(recientes, SILENCIO_HUMANO_MIN);
+
+    // Prospecto con el ajuste `wa_transcribir_sin_consentimiento`: se transcribe.
+    if (prospecto && msg.mediaId && await transcribeSinConsentimiento(integration.school_id)) {
+        return transcribirYAtender(p, recientes, escuelaHablando);
+    }
 
     const esFamilia = TIPOS_TRANSCRIBIBLES.has(p.tipo) && !!msg.mediaId;
     const flagAudios = esFamilia && await transcribirAudiosActivo(integration.id);
@@ -260,6 +281,7 @@ export async function atenderNotaDeVozDeProspecto(p: {
     if (!(await transcribeSinConsentimiento(p.integration.school_id))) return 'no_aplica';
     const previos = await entrantesDeTexto(p.conversationId, DIAS_MARCA_PROSPECTO);
     if (!previos.some((t) => intencionDeProspecto(t))) return 'no_aplica';
+    if (previos.some((t) => seIdentificaComoExterno(t))) return 'no_aplica';
     const recientes = await mensajesRecientes(p.conversationId);
     const escuelaHablando = humanoReciente(recientes, SILENCIO_HUMANO_MIN);
     return transcribirYAtender(p, recientes, escuelaHablando);

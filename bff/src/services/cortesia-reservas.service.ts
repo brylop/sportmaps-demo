@@ -300,6 +300,7 @@ const TITULO: Record<TipoAvisoCortesia, string> = {
     cancelada: 'Clase de cortesía cancelada',
     cancelacion_pedida: 'Piden cancelar una clase de cortesía',
     no_reservada: 'Clase de cortesía por confirmar',
+    llegada: 'Llegó un prospecto a su clase de cortesía',
 };
 
 const ACCION: Record<TipoAvisoCortesia, string> = {
@@ -308,6 +309,7 @@ const ACCION: Record<TipoAvisoCortesia, string> = {
     cancelada: 'El cupo quedó libre.',
     cancelacion_pedida: 'Cancélala y libera el cupo; el asistente le dijo que le confirmarían.',
     no_reservada: 'El asistente no pudo tomar el cupo: confírmale el horario por WhatsApp.',
+    llegada: 'Ya está en la sede: que alguien lo reciba.',
 };
 
 export interface ContenidoAviso {
@@ -409,7 +411,10 @@ export async function avisarCortesia(a: AvisoCortesia): Promise<{ inApp: number;
             if (r && r.sent > 0) salida.push++;
         }));
 
-        const { escuela, correos } = await destinatariosDeEscuela(a.schoolId);
+        // La llegada es para ESTE momento: push e in-app; un correo llega tarde.
+        const { escuela, correos } = a.tipo === 'llegada'
+            ? { escuela: '', correos: [] as string[] }
+            : await destinatariosDeEscuela(a.schoolId);
         if (correos.length) {
             salida.correo = await enviarConReserva({
                 clave,

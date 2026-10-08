@@ -38,8 +38,9 @@ import { toCheckoutItems } from '@/lib/store/cart';
 import { PAYMENT_METHOD_LABELS, type Fulfillment, type StorePaymentMethod } from '@/lib/store/orderStatus';
 import { isRetryableWithSameKey, storeErrorView, type StoreErrorView } from '@/lib/store/storeErrors';
 import {
-  createStoreOrder, fetchPaymentMethods, rememberPickupCode, type CreatedOrder, type PublicPaymentMethod,
+  createStoreOrder, fetchPaymentMethods, rememberPickupCode, storeOffersShipping, type CreatedOrder, type PublicPaymentMethod,
 } from '@/lib/api/storeApi';
+import { buyerCopy } from '@/lib/store/buyerCopy';
 import { openWompiCheckout } from '@/lib/api/wompi';
 import { MercadoPagoBrick } from '@/components/checkout/MercadoPagoBrick';
 
@@ -89,7 +90,7 @@ export default function StoreCheckoutPage() {
   });
   const isSchoolStore = vendor?.vendor_type === 'school';
 
-  const { data: branches = [] } = useQuery<Branch[]>({
+  const { data: schoolBranches = [] } = useQuery<Branch[]>({
     queryKey: ['store', 'branches', vendor?.school_id],
     queryFn: async () => {
       const { data } = await supabase
@@ -110,6 +111,19 @@ export default function StoreCheckoutPage() {
     retry: false,
   });
 
+  // Entrega que ofrece la tienda (mig. 20261008163336). «Solo retiro en sede»
+  // (GYM RM) = no se muestra el envío. Sin dato = sin restricción (como antes).
+  const offersShipping = storeOffersShipping(methodsRes);
+  // Retiro: la tienda escolar siempre; una externa solo si la tienda lo publica.
+  const offersPickup = isSchoolStore || (!!methodsRes?.fulfillment && !offersShipping);
+  const branches: Branch[] = useMemo(() => {
+    const fromStore = methodsRes?.fulfillment?.pickup_branches;
+    if (fromStore && fromStore.length) {
+      return fromStore.map((b) => ({ id: b.id, name: b.name, address: b.address ?? null, is_main: b.is_main ?? null }));
+    }
+    return schoolBranches;
+  }, [methodsRes, schoolBranches]);
+
   // ── Estado del formulario ────────────────────────────────────────────────
   const [fulfillment, setFulfillment] = useState<Fulfillment>('pickup');
   const [fulfillmentTouched, setFulfillmentTouched] = useState(false);
@@ -126,13 +140,16 @@ export default function StoreCheckoutPage() {
   const keyRef = useRef<string | null>(null);
   const inFlight = useRef(false);
 
-  // Externo: envío por defecto. Escolar: retiro en sede.
+  // Externo: envío por defecto. Escolar: retiro en sede. Solo retiro: siempre retiro.
   useEffect(() => {
-    if (vendor && !fulfillmentTouched) setFulfillment(isSchoolStore ? 'pickup' : 'shipping');
-  }, [vendor, isSchoolStore, fulfillmentTouched]);
+    if (vendor && !fulfillmentTouched) setFulfillment(isSchoolStore || !offersShipping ? 'pickup' : 'shipping');
+  }, [vendor, isSchoolStore, fulfillmentTouched, offersShipping]);
+  useEffect(() => {
+    if (!offersShipping && fulfillment === 'shipping') setFulfillment('pickup');
+  }, [offersShipping, fulfillment]);
 
   useEffect(() => {
-    if (!branchId && branches.length) setBranchId(branches[0].id);
+    if (branches.length && (!branchId || !branches.some((b) => b.id === branchId))) setBranchId(branches[0].id);
   }, [branches, branchId]);
 
   useEffect(() => {
@@ -171,7 +188,8 @@ export default function StoreCheckoutPage() {
 
   const addressReady = fulfillment === 'pickup' || (!!departamento && ciudad.trim().length > 1 && direccion.trim().length > 4);
   const buyerReady = buyer.name.trim().length > 1 && /\S+@\S+\.\S+/.test(buyer.email.trim()) && buyer.phone.trim().length >= 7;
-  const shippingProblem = fulfillment === 'shipping' && quote?.shipping_error === 'SHIPPING_ZONE_NOT_FOUND';
+  // Sin zona de envío para el departamento: mensaje claro (nunca el código crudo).
+  const shippingProblem = fulfillment === 'shipping' && !!departamento && !!quote?.shipping_error;
   const canPay = !!quote && !blocked && !quoting && !!method && addressReady && buyerReady && !shippingProblem
     && lines.length > 0 && !paying && quote.store_enabled !== false;
 
@@ -281,20 +299,33 @@ export default function StoreCheckoutPage() {
             {/* 1. Entrega */}
             <section className="rounded-xl border bg-card p-4 space-y-3" aria-labelledby="sec-entrega">
               <h2 id="sec-entrega" className="font-semibold">1. Entrega</h2>
+              {!offersShipping ? (
+                <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 flex gap-3 items-start" data-testid="pickup-only">
+                  <School className="h-5 w-5 mt-0.5 shrink-0 text-primary" />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold">Retiro en sede · Gratis</span>
+                    <span className="block text-xs text-muted-foreground">Esta tienda entrega solo en la sede: no hace envíos a domicilio.</span>
+                  </span>
+                </div>
+              ) : (
               <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Entrega">
-                {isSchoolStore && (
+                {offersPickup && (
                   <OptionCard
                     selected={fulfillment === 'pickup'}
                     onSelect={() => { setFulfillment('pickup'); setFulfillmentTouched(true); }}
                     icon={School} title="Retiro en sede" subtitle="Gratis"
                   />
                 )}
+                {/* Hasta saber qué ofrece la tienda no se muestra el envío (evita ofrecerlo y quitarlo). */}
+                {!methodsLoading && (
                 <OptionCard
                   selected={fulfillment === 'shipping'}
                   onSelect={() => { setFulfillment('shipping'); setFulfillmentTouched(true); }}
                   icon={Truck} title="Envío a domicilio" subtitle="Según el departamento"
                 />
+                )}
               </div>
+              )}
 
               {fulfillment === 'pickup' && branches.length > 0 && (
                 <div className="space-y-1.5">
@@ -331,7 +362,13 @@ export default function StoreCheckoutPage() {
                     <Input id="addr" value={direccion} onChange={(e) => setDireccion(e.target.value)} placeholder="Cra 1 # 2-3, apto 101" autoComplete="street-address" />
                   </div>
                   {shippingProblem && (
-                    <p className="sm:col-span-2 text-sm text-destructive flex items-center gap-1"><MapPin className="h-4 w-4" /> Esta tienda no envía a {departamento}.</p>
+                    <p className="sm:col-span-2 text-sm text-destructive flex items-start gap-1" role="alert" data-testid="shipping-zone-problem">
+                      <MapPin className="h-4 w-4 mt-0.5 shrink-0" />
+                      <span>
+                        Esta tienda todavía no hace envíos a {departamento}.{' '}
+                        {offersPickup ? 'Elige retiro en sede o escríbele a la tienda para coordinar.' : 'Prueba con otro departamento o escríbele a la tienda para coordinar.'}
+                      </span>
+                    </p>
                   )}
                 </div>
               )}
@@ -347,7 +384,7 @@ export default function StoreCheckoutPage() {
                 <Field id="b-phone" label="Celular" type="tel" value={buyer.phone} onChange={(v) => setBuyer({ ...buyer, phone: v })} autoComplete="tel" />
                 <div className="sm:col-span-2 space-y-1.5">
                   <Label htmlFor="b-notes">Nota para la tienda (opcional)</Label>
-                  <Textarea id="b-notes" rows={2} value={buyer.notes} onChange={(e) => setBuyer({ ...buyer, notes: e.target.value })} placeholder="Ej.: es para el hijo de la categoría sub 11" />
+                  <Textarea id="b-notes" rows={2} value={buyer.notes} onChange={(e) => setBuyer({ ...buyer, notes: e.target.value })} placeholder={buyerCopy(profile?.role).notesPlaceholder} />
                 </div>
               </div>
             </section>
@@ -400,7 +437,7 @@ export default function StoreCheckoutPage() {
             ))}
             <div className="border-t pt-2 space-y-1 text-sm">
               <Row label="Productos" value={quote ? formatCurrency(quote.subtotal) : '—'} />
-              <Row label="Envío" value={fulfillment === 'pickup' ? 'Gratis' : quote?.shipping != null ? formatCurrency(quote.shipping) : '—'} />
+              <Row label="Envío" value={fulfillment === 'pickup' ? 'Gratis' : shippingProblem ? 'No disponible' : quote?.shipping != null ? formatCurrency(quote.shipping) : '—'} />
               <div className="flex justify-between font-bold text-base pt-1">
                 <span>Total</span>
                 <span className="tabular-nums" data-testid="checkout-total">{quote ? formatCurrency(total) : <Loader2 className="h-4 w-4 animate-spin" />}</span>
