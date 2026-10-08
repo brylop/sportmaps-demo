@@ -278,6 +278,33 @@ describe('notas de voz: cuándo se transcriben', () => {
         expect(h.chatWithTools).not.toHaveBeenCalled();
     });
 
+    it('2026-10-08: desconocido SIN intención escolar previa (responder desconocidos prendido) → no se le responde nada', async () => {
+        h.debeAtender.mockResolvedValue({ atender: true, tipo: 'desconocido', botEncendido: true });
+        await handleBotTurn(req, INTEGRATION, CONV, audio());
+        expect(h.sendTextMessage).not.toHaveBeenCalled();
+        expect(h.downloadMedia).not.toHaveBeenCalled();
+    });
+
+    it('2026-10-08: desconocido que se presentó como entrenadora de otro club → tampoco', async () => {
+        h.debeAtender.mockResolvedValue({ atender: true, tipo: 'desconocido', botEncendido: true });
+        const antes = new Date(Date.now() - 20 * 60_000).toISOString();
+        h.state.filas.push({ wa_message_id: 'wamid.t1', direction: 'inbound', type: 'text',
+            text_body: 'Hola, hablas con Paula entrenadora del club Albatros, ¿pueden venir a un amistoso de categorías infantiles?',
+            payload: {}, ai_generated: null, wa_timestamp: antes, created_at: antes });
+        await handleBotTurn(req, INTEGRATION, CONV, audio());
+        expect(h.sendTextMessage).not.toHaveBeenCalled();
+    });
+
+    it('2026-10-08: desconocido que antes pidió inscribir (prospecto) sí recibe respuesta al audio', async () => {
+        h.debeAtender.mockResolvedValue({ atender: true, tipo: 'desconocido', botEncendido: true });
+        const antes = new Date(Date.now() - 20 * 60_000).toISOString();
+        h.state.filas.push({ wa_message_id: 'wamid.t1', direction: 'inbound', type: 'text',
+            text_body: 'Buenas, quiero inscribir a mi hija en voleibol', payload: {}, ai_generated: null,
+            wa_timestamp: antes, created_at: antes });
+        await handleBotTurn(req, INTEGRATION, CONV, audio());
+        expect(h.sendTextMessage).toHaveBeenCalledTimes(1);
+    });
+
     it('P4: la escuela escribió hace 5 min → se transcribe para el buzón, el bot calla', async () => {
         const hace5 = new Date(Date.now() - 5 * 60_000).toISOString();
         h.state.filas.push({ wa_message_id: 'wamid.mile', direction: 'outbound', type: 'text', text_body: 'Hola mamá',

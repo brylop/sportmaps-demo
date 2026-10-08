@@ -39,7 +39,9 @@ import { filtrarSalidaDelModelo } from './whatsapp-salida-segura';
 import {
     clasificarUrgencia, incidenciaUrgente, avisarEscalacionAlEquipo, PLAZO_ESCALACION_MIN,
     escalacionesSinRevisar, respondioUnaPersona, reservarRevision, plazoVencido, textoSinRespuesta,
-    type Urgencia, type CategoriaUrgente,
+    esSolicitudDeRetiro, estadoDeEscalacion, decidirEscalacion, unaPorConversacion,
+    MENSAJE_ESCALACION_RETIRO,
+    type Urgencia, type CategoriaUrgente, type TemaEscalacion,
 } from './whatsapp-escalaciones.service';
 import {
     sendTextMessage, sendInteractiveButtons, sendCtaUrl, sendImage, aFormatoWhatsApp, markAsRead,
@@ -52,7 +54,10 @@ import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from './whatsapp-optin.service';
 import { estadoDeHorario, mensajeDeEscalamiento } from './whatsapp-horario.service';
 import { sendToUser } from './push.service';
 import { mediosDePago } from './whatsapp-medios-de-pago.service';
-import { infoDeEscuela, fallbackInfoEscuela } from './whatsapp-info-escuela.service';
+import { infoDeEscuela, fallbackInfoEscuela, horariosDelDia, textoHorarioDeHoy } from './whatsapp-info-escuela.service';
+import {
+    esCierreDeCortesia, pideAlgo, seIdentificaComoExterno, preguntaHorarioDeHoy, mencionaCambioOCierre,
+} from './whatsapp-desconocido-reglas';
 import { resolverRespuestaDeCobro } from './whatsapp-respuesta-de-cobro.service';
 import {
     botEncendido, debeAtender, temaEscolar, preguntaPrecioComoProspecto,
@@ -390,6 +395,16 @@ async function cuerpoDelTurno(
     //      «¡De nada! 😊 Si necesitas consultar algún pago…» a cada cierre.
     if (!botonId && esCierreSuelto(text, await vocativosDeEscuela(integration.school_id))) {
         console.info('[whatsapp-bot] cierre suelto; no se contesta', { conversationId });
+        return;
+    }
+
+    // 2.62. Solicitud de RETIRO («ya no va a seguir», «retirarla», «no me siga
+    //       el cobro»): a una persona, con prioridad y diciendo que es un
+    //       retiro (Dynasty 2026-10-08). Va antes del aviso de ausencia: «ya no
+    //       va a seguir en el club» no es «hoy no va».
+    if (!botonId && esSolicitudDeRetiro(rafaga)) {
+        await escalate(integration, conversationId, contactWaId, 'solicitud_de_retiro',
+            { texto: rafaga, tema: 'retiro' });
         return;
     }
 
@@ -1359,6 +1374,19 @@ async function responderReclamoDeValor(
     return true;
 }
 
+/** ¿Salió este paso en la conversación después de `desde`? Ante un error, sí (no repetir). */
+async function pasoDesde(conversationId: string, step: string, desde: string): Promise<boolean> {
+    const { count, error } = await supabase
+        .from('whatsapp_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', conversationId)
+        .eq('direction', 'outbound')
+        .eq('payload->>step', step)
+        .gt('created_at', desde);
+    if (error) return true;
+    return (count ?? 0) > 0;
+}
+
 /**
  * ¿Ya salió (o quedó en borrador) este paso en las últimas `horas`? Cuenta
  * borradores por lo mismo que `yaSePreguntoConsentimiento`: en modo asistido
@@ -1660,7 +1688,17 @@ async function handleIdentification(
     // del fix anterior, 3 «escríbeme tu correo» más a saludos con vocativo.
     const todo = [rafaga, text].filter(Boolean).join('\n');
     const equipo = botonId ? new Map<string, string>() : await vocativosDeEscuela(integration.school_id);
-    if (!botonId && todo.split('\n').every((l) => saludoSinContenido(l, equipo) || esCierreSuelto(l, equipo))) {
+    const sinContenido = (l: string) => saludoSinContenido(l, equipo) || esCierreSuelto(l, equipo)
+        || esCierreDeCortesia(l, equipo);
+    if (!botonId && todo.split('\n').every(sinContenido)) {
+        return 'resuelto';
+    }
+
+    // Termina con un cierre de cortesía («Cualquier inquietud quedo pendiente») y
+    // nada de la ráfaga pide algo: no hay trámite que contestar (Dynasty
+    // 2026-10-08). Si antes preguntó algo, se sigue.
+    if (!botonId && esCierreDeCortesia(text, equipo)
+        && !todo.split('\n').some((l) => l.trim() && !sinContenido(l) && pideAlgo(l))) {
         return 'resuelto';
     }
 
@@ -1941,6 +1979,40 @@ export async function responderComoPagarPublico(
     return 'medios_de_pago';
 }
 
+/** step de la respuesta «hoy entrenan…». */
+export const PASO_HORARIOS_DE_HOY = 'horarios_de_hoy';
+
+/**
+ * «¿Cambiaron el horario de hoy?» (Dynasty 2026-10-08, de un
+ * desconocido que recibió «escríbeme tu correo»). Contesta con los grupos que
+ * entrenan hoy según `teams.schedule`, sin pedir correo, y aclara que los
+ * cambios de última hora los avisa la escuela (todavía no hay registro de
+ * cancelaciones). Si habla de un cambio, una cancelación o la sede cerrada, la
+ * conversación además va al buzón. Una vez cada 6 h. null si no es esto, si la
+ * escuela está escribiendo o si no hay horarios cargados.
+ */
+export async function responderHorarioDeHoy(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    texto: string,
+    rafaga: string | null = null,
+): Promise<'horarios_de_hoy' | 'frenado' | null> {
+    if (!preguntaHorarioDeHoy(texto) && !preguntaHorarioDeHoy(rafaga)) return null;
+    if (humanoReciente(await mensajesRecientes(conversationId), SILENCIO_HUMANO_MIN)) return null;
+    if (await pasoReciente(conversationId, PASO_HORARIOS_DE_HOY, 6)) return 'frenado';
+    const horario = await horariosDelDia(integration.school_id);
+    if (!horario) return null;
+    const alBuzon = mencionaCambioOCierre([rafaga, texto].filter(Boolean).join('\n'));
+    const cuerpo = textoHorarioDeHoy(horario, alBuzon);
+    if (!cuerpo) return null;
+    const saludo = await saludoDePresentacion(conversationId, await nombreDeEscuela(integration.school_id));
+    await deliver(integration, conversationId, contactWaId, (saludo ? `${saludo}\n\n` : '') + cuerpo,
+        { step: PASO_HORARIOS_DE_HOY, grupos: horario.grupos.length, al_buzon: alBuzon });
+    if (alBuzon) await abrirEnBuzon(integration, conversationId, contactWaId);
+    return 'horarios_de_hoy';
+}
+
 /** step del saliente que cuenta para el freno de 30 días. */
 export const PASO_DESCONOCIDO_ESCOLAR = 'desconocido_tema_escolar';
 const FRENO_DESCONOCIDO_DIAS = 30;
@@ -1952,6 +2024,7 @@ export type ResultadoDesconocido =
     | 'prospecto_seguimiento' | 'escuela_atendiendo'
     | 'prospecto_horarios' | 'prospecto_precios' | 'prospecto_info' | 'prospecto_persona'
     | 'venta_consulta' | 'medios_de_pago' | 'medios_de_pago_escalado'
+    | 'externo' | 'horarios_de_hoy'
     | 'frenado' | 'silencio';
 
 export async function atenderDesconocido(
@@ -1997,6 +2070,37 @@ export async function atenderDesconocido(
         await arrancarOtp(integration, conversationId, contactWaId, emailMatch[0]);
         return 'otp_correo';
     }
+
+    // 1b1. Otra institución: entrenador(a) de otro club, empresa, proveedor,
+    //      «le escribo de parte de…», invitación a un amistoso. No es familia
+    //      ni prospecto: ni plantilla de inscripción ni pedido de correo. Al
+    //      buzón en silencio; la escuela lo ve y contesta ella (Dynasty
+    //      2026-10-08: a una entrenadora que invitaba a un amistoso le llegó
+    //      el enlace de inscripción con las franjas de cortesía).
+    if (!botonId && (seIdentificaComoExterno(rafaga, text)
+        || (await entrantesDeTexto(conversationId, DIAS_MARCA_PROSPECTO)).some((t) => seIdentificaComoExterno(t)))) {
+        await abrirEnBuzon(integration, conversationId, contactWaId);
+        return 'externo';
+    }
+
+    // 1b2. Cierre de cortesía («Cualquier inquietud quedo pendiente», «quedo
+    //      atenta», «gracias por la información») y nada antes en la ráfaga
+    //      que pida algo o hable de la escuela: no hay qué contestar. Dynasty
+    //      2026-10-08 recibió «escríbeme tu correo» a eso.
+    if (!botonId) {
+        const equipoCierre = await vocativosDeEscuela(integration.school_id);
+        if (esCierreDeCortesia(text, equipoCierre)) {
+            const conContenido = (rafaga || '').split('\n').map((l) => l.trim()).filter(Boolean)
+                .some((l) => !esCierreDeCortesia(l, equipoCierre) && !saludoSinContenido(l, equipoCierre)
+                    && (pideAlgo(l) || hablaDeLaEscuela(l)));
+            if (!conContenido) return 'silencio';
+        }
+    }
+
+    // 1b3. «¿Cambiaron el horario de hoy?», «¿hay entreno
+    //      hoy?»: el horario del día, sin pedir el correo (es público).
+    const deHoy = await responderHorarioDeHoy(integration, conversationId, contactWaId, text, rafaga);
+    if (deHoy) return deHoy;
 
     // 1b'. «¿En qué horario se puede ir a cancelar la mensualidad?» (…5281,
     //      07-oct): cómo / dónde / cuándo pagar y la atención presencial son
@@ -3916,6 +4020,7 @@ async function escalate(
         texto?: string;
         urgencia?: Urgencia;
         categoria?: CategoriaUrgente | null;
+        tema?: TemaEscalacion;
     } = {},
 ): Promise<void> {
     // Urgencia (2026-10-06, `62db6756`): incidencia en la sede o la clase,
@@ -3925,6 +4030,11 @@ async function escalate(
         ? { urgencia: opciones.urgencia, categoria: opciones.categoria ?? null }
         : clasificarUrgencia(opciones.texto, reason);
     const urgente = clasif.urgencia === 'urgente';
+    // Retiro (2026-10-08): «ya no va a seguir», «que no me sigan cobrando». Prioridad:
+    // push inmediato y el aviso dice «Solicitud de retiro».
+    const tema: TemaEscalacion = opciones.tema
+        ?? (esSolicitudDeRetiro(opciones.texto) || esSolicitudDeRetiro(reason) ? 'retiro' : null);
+    const retiro = tema === 'retiro' && !urgente;
 
     // Solo se avisa en la TRANSICION a abierta. `escalate` puede correr varias
     // veces sobre la misma conversacion —el bot se atasca dos veces seguidas— y
@@ -3932,26 +4042,57 @@ async function escalate(
     const { data: previa } = await supabase.from('whatsapp_conversations')
         .select('status, contact_name').eq('id', conversationId).maybeSingle();
 
+    // Una sola escalación ABIERTA por conversación (Dynasty 2026-10-08: dos
+    // «Voy a pasar tu caso…» y dos re-avisos por una misma ráfaga). La reserva
+    // es el saliente «escalated» guardado en la base: los turnos de una misma
+    // conversación no corren a la vez (candado `bot_turno_hasta`), así que el
+    // turno siguiente ya lo ve.
+    const estado = estadoDeEscalacion(await mensajesRecientes(conversationId),
+        (previa as any)?.status === 'closed');
+    const decision = decidirEscalacion(estado, { urgencia: clasif.urgencia, tema });
+
     await supabase.from('whatsapp_conversations')
         .update({ status: 'open', assigned_to: null, updated_at: new Date().toISOString() })
         .eq('id', conversationId);
 
     if ((previa as any)?.status !== 'open') {
         await avisarQueEsperan(integration, conversationId, contactWaId,
-            (previa as any)?.contact_name ?? null, undefined, reason, urgente);
+            (previa as any)?.contact_name ?? null, undefined, reason, urgente || retiro);
+    }
+
+    if (decision === 'nada') {
+        console.info('[whatsapp-bot] escalación ya abierta; no se repite', { conversationId, reason });
+        if (opciones.antes) {
+            await deliver(integration, conversationId, contactWaId, opciones.antes,
+                { step: 'escalacion_abierta_detalle', reason });
+        }
+        return;
     }
 
     // In-app SIEMPRE (el push del buzón solo sale en la transición y no queda
-    // en la campana) y push inmediato si es urgente, aunque ya estuviera
-    // abierta. Ancla = ventana de 10 min: dos escalaciones seguidas de la misma
-    // conversación no duplican el aviso. No bloquea la respuesta a la familia.
+    // en la campana) y push inmediato si es urgente o retiro, aunque ya
+    // estuviera abierta. Ancla = ventana de 10 min: dos escalaciones seguidas
+    // de la misma conversación no duplican el aviso. No bloquea la respuesta a
+    // la familia.
     if (!enSimulacion()) {
         void avisarEscalacionAlEquipo({
             schoolId: integration.school_id, conversationId, contactWaId,
             contactName: (previa as any)?.contact_name ?? null,
             urgencia: clasif.urgencia, categoria: clasif.categoria, etapa: 'inicial',
-            ancla: String(Math.floor(Date.now() / 600_000)), push: urgente,
+            ancla: `${tema ?? 'gen'}:${Math.floor(Date.now() / 600_000)}`, push: urgente || retiro,
+            tema: retiro ? 'retiro' : null,
         }).catch(() => undefined);
+    }
+
+    // Ya se le dijo «Dejo tu mensaje para …» en este turno, o la escalación
+    // abierta sube a retiro: a la familia no se le repite «Voy a pasar tu caso».
+    if (decision === 'solo_equipo') {
+        console.info('[whatsapp-bot] escalación solo al equipo', { conversationId, reason, tema });
+        if (opciones.antes) {
+            await deliver(integration, conversationId, contactWaId, opciones.antes,
+                { step: 'escalacion_abierta_detalle', reason });
+        }
+        return;
     }
 
     // El bot responde 24/7 — eso no cambia. Lo que cambia fuera de horario es lo
@@ -3960,13 +4101,15 @@ async function escalate(
     // puede cumplir.
     const horario = await estadoDeHorario(integration.id);
     // `antes`: lo que se le dice primero (el reclamo de valor muestra los cobros).
-    const aviso = urgente ? mensajeDeEscalamientoUrgente(clasif.categoria) : mensajeDeEscalamiento(horario);
+    const aviso = urgente ? mensajeDeEscalamientoUrgente(clasif.categoria)
+        : retiro ? MENSAJE_ESCALACION_RETIRO
+        : mensajeDeEscalamiento(horario);
     await deliver(integration, conversationId, contactWaId,
         opciones.antes ? `${opciones.antes}\n\n${aviso}` : aviso,
         {
             step: 'escalated', reason, fuera_de_horario: horario.fueraDeHorario,
             // El plazo lo vigila `revisarEscalacionesVencidas`.
-            urgencia: clasif.urgencia, categoria: clasif.categoria,
+            urgencia: clasif.urgencia, categoria: clasif.categoria, tema: retiro ? 'retiro' : null,
             plazo_min: PLAZO_ESCALACION_MIN[clasif.urgencia],
         });
 }
@@ -3991,7 +4134,14 @@ export type ResultadoRevision = { revisadas: number; reavisadas: number; atendid
 
 export async function revisarEscalacionesVencidas(ahora = Date.now()): Promise<ResultadoRevision> {
     const r: ResultadoRevision = { revisadas: 0, reavisadas: 0, atendidas: 0 };
-    for (const e of await escalacionesSinRevisar(ahora)) {
+    // Un solo re-aviso por conversación (2026-10-08: dos escalaciones de la
+    // misma ráfaga → dos «Todavía nadie…» idénticos). Las demás pendientes de
+    // la misma conversación se marcan sin re-avisar.
+    const { revisar, duplicadas } = unaPorConversacion(await escalacionesSinRevisar(ahora));
+    for (const e of duplicadas) {
+        await reservarRevision(e, 'duplicada', ahora).catch(() => false);
+    }
+    for (const e of revisar) {
         try {
             const plazo = Number(e.payload?.plazo_min) || PLAZO_ESCALACION_MIN.normal;
             if (!plazoVencido(e.createdAt, plazo, ahora)) continue;
@@ -4007,6 +4157,9 @@ export async function revisarEscalacionesVencidas(ahora = Date.now()): Promise<R
 
             if (!(await reservarRevision(e, atendida ? 'atendida' : 'reavisada', ahora))) continue;
             if (atendida) { r.atendidas++; continue; }
+            // Una escalación vieja de la misma conversación ya tuvo su re-aviso
+            // después de que se creó esta: no se repite.
+            if (await pasoDesde(e.conversationId, 'escalacion_sin_respuesta', e.createdAt)) continue;
 
             const { data: integ } = await supabase.from('school_whatsapp_integrations')
                 .select('*').eq('id', e.integrationId).maybeSingle();
@@ -4019,6 +4172,7 @@ export async function revisarEscalacionesVencidas(ahora = Date.now()): Promise<R
                 schoolId: integration.school_id, conversationId: e.conversationId,
                 contactWaId: c.contact_wa_id, contactName: c.contact_name ?? null,
                 urgencia, categoria, etapa: 'reaviso', ancla: e.id, push: true,
+                tema: e.payload?.tema === 'retiro' ? 'retiro' : null,
             });
 
             // A la familia, salvo que la escuela esté escribiendo justo ahora.

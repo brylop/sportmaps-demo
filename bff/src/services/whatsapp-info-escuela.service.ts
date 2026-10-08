@@ -469,3 +469,70 @@ export function fallbackInfoEscuela(i: InfoDeEscuela): string {
         : 'Los precios te los confirma la escuela directamente.');
     return l.join('\n');
 }
+
+// ─── Horario de HOY (Dynasty 2026-10-08) ─────────────────────────────────────
+//
+// «¿Cambiaron el horario de hoy?» de un desconocido recibía
+// «escríbeme tu correo». El horario del día es público: sale de
+// `teams.schedule` (lo que la escuela cargó). No hay registro de cancelaciones
+// todavía, así que el texto lo dice: si hay un cambio de última hora, avisa la
+// escuela.
+
+/** Franjas de un `teams.schedule` para un día de la semana (0 = domingo). Pura. */
+export function franjasDelDia(raw: unknown, dia: number): string | null {
+    let franjas: any[];
+    try {
+        franjas = typeof raw === 'string' ? JSON.parse(raw) : (raw as any[]);
+    } catch { return null; }
+    if (!Array.isArray(franjas)) return null;
+    const delDia = franjas.filter((f) => f && f.day === dia && f.time);
+    if (!delDia.length) return null;
+    return delDia
+        .map((f) => `${f.group ? `${f.group}: ` : ''}${f.time}${f.end ? ` a ${f.end}` : ''}${f.place ? ` (${f.place})` : ''}`)
+        .join(' · ');
+}
+
+export interface HorarioDelDia {
+    /** «jueves» */
+    dia: string;
+    grupos: { nombre: string; franjas: string }[];
+    /** Cuántos equipos activos tienen horario cargado (0 = no se puede contestar). */
+    conHorario: number;
+}
+
+/** Día de la semana de una fecha 'YYYY-MM-DD' (0 = domingo). */
+function diaDeLaSemana(fecha: string): number {
+    return new Date(diaUTC(fecha)).getUTCDay();
+}
+
+/** Grupos que entrenan hoy (hora de Bogotá), según el horario cargado. null si no se pudo leer. */
+export async function horariosDelDia(schoolId: string, fecha = hoyEnBogota()): Promise<HorarioDelDia | null> {
+    try {
+        const { data, error } = await supabase.from('teams')
+            .select('name, schedule, active')
+            .eq('school_id', schoolId).limit(100);
+        if (error || !Array.isArray(data)) return null;
+        const dia = diaDeLaSemana(fecha);
+        const activos = (data as any[])
+            .filter((t) => t.active !== false && !MARCADO_NO_USAR.test(String(t.name ?? '')) && String(t.name ?? '').trim());
+        const conHorario = activos.filter((t) => describirEntrenamiento(t.schedule)).length;
+        const grupos = activos
+            .map((t) => ({ nombre: String(t.name).trim(), franjas: franjasDelDia(t.schedule, dia) }))
+            .filter((g): g is { nombre: string; franjas: string } => !!g.franjas);
+        return { dia: DIA[dia], grupos, conHorario };
+    } catch {
+        return null;
+    }
+}
+
+/** Texto para «¿hay clase hoy? / ¿cambió el horario de hoy?». Pura. null si no hay horarios cargados. */
+export function textoHorarioDeHoy(h: HorarioDelDia, pasadoALaEscuela: boolean): string | null {
+    if (!h.conHorario) return null;
+    const cierre = 'Si hay un cambio de última hora, la escuela lo avisa por aquí.'
+        + (pasadoALaEscuela ? ' Ya le pasé tu mensaje para que te lo confirme.' : '');
+    if (!h.grupos.length) {
+        return `Según el horario de la escuela, hoy *${h.dia}* no hay entrenamientos programados.\n\n${cierre}`;
+    }
+    const lineas = h.grupos.slice(0, 15).map((g) => `• *${g.nombre}*: ${g.franjas}`);
+    return `Según el horario de la escuela, hoy *${h.dia}* entrenan:\n\n${lineas.join('\n')}\n\n${cierre}`;
+}
