@@ -36,7 +36,9 @@
 
 import crypto from 'node:crypto';
 import { supabase } from '../config/supabase';
-import { sendTextMessage, aFormatoWhatsApp, type WhatsAppIntegration } from '../services/whatsapp.service';
+import {
+    sendTextMessage, sendInteractiveButtons, aFormatoWhatsApp, type WhatsAppIntegration,
+} from '../services/whatsapp.service';
 import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from '../services/whatsapp-optin.service';
 import { conversacionTomada } from '../services/whatsapp-tomada.service';
 import {
@@ -257,6 +259,24 @@ async function avisarPorPlantilla(pago: PagoDesenlace, telefono: string): Promis
     return { tipo: 'no_entregado', motivo: `ventana cerrada; plantilla: ${r.motivo}${r.detalle ? ` (${r.detalle})` : ''}`.slice(0, 200) };
 }
 
+/**
+ * La pregunta del consentimiento para el pie del «pago confirmado», o null.
+ * Import perezoso (el bot arrastra el modelo y media app, como en la cola) y
+ * nunca lanza: sin pregunta, el aviso sale solo.
+ */
+async function anexoDeConsentimientoAlPie(
+    integration: WhatsAppIntegration, conversationId: string, waPhone: string, parentId: string | null,
+): Promise<{ texto: string; botones: any[] | null } | null> {
+    if (!parentId) return null;
+    try {
+        const bot = await import('../services/whatsapp-bot.service');
+        const anexo = await bot.anexoDeConsentimiento(integration, conversationId, waPhone, parentId);
+        return anexo?.texto ? { texto: anexo.texto, botones: (bot.BOTONES_CONSENTIMIENTO as any[]) ?? null } : null;
+    } catch {
+        return null;
+    }
+}
+
 async function guardarAviso(
     ids: string[], base: string | null, aviso: EstadoAviso, extra: Record<string, unknown> = {},
 ): Promise<void> {
@@ -402,11 +422,32 @@ export async function runWhatsAppPaymentOutcome(log?: Logger): Promise<{ avisado
         }
 
         const dadoDeBaja = await estaDadoDeBaja(fila.integration_id as string, fila.wa_phone_number as string);
-        const final = aFormatoWhatsApp(dadoDeBaja ? texto + AVISO_DADO_DE_BAJA : texto);
+        // «Pago confirmado» con la ventana abierta es el mejor momento para
+        // pedir el consentimiento: la familia acaba de ver que el canal le
+        // sirve. Va al pie del mismo mensaje (no como uno aparte), con las
+        // mismas reglas que en el bot (con cuenta, sin opt-in, sin baja, sin
+        // haber dicho que no, una vez cada DIAS_PARA_REPREGUNTAR).
+        const consentimiento = (pago.status === 'paid' && !dadoDeBaja && conv?.id)
+            ? await anexoDeConsentimientoAlPie(integration as WhatsAppIntegration, conv.id as string,
+                fila.wa_phone_number as string, (pago as any).parent_id ?? null)
+            : null;
+        const final = aFormatoWhatsApp((dadoDeBaja ? texto + AVISO_DADO_DE_BAJA : texto)
+            + (consentimiento ? `\n\n${consentimiento.texto}` : ''));
 
-        const enviado = await sendTextMessage(
-            integration as WhatsAppIntegration, fila.wa_phone_number as string, final,
-        );
+        let tipo = 'text';
+        let enviado = consentimiento?.botones?.length
+            ? await sendInteractiveButtons(integration as WhatsAppIntegration, fila.wa_phone_number as string,
+                final, consentimiento.botones)
+            : null;
+        if (enviado?.ok) {
+            tipo = 'interactive';
+        } else {
+            // Sin botones, o Meta los rechazó: el texto plano sale igual (la
+            // pregunta dice «Responde *SÍ*»).
+            enviado = await sendTextMessage(
+                integration as WhatsAppIntegration, fila.wa_phone_number as string, final,
+            );
+        }
 
         if (!enviado.ok) {
             // Ventana cerrada en el acto (el último entrante estaba al borde):
@@ -439,9 +480,14 @@ export async function runWhatsAppPaymentOutcome(log?: Logger): Promise<{ avisado
                 p_conversation_id: conv.id,
                 p_integration_id: fila.integration_id,
                 p_wa_message_id: enviado.waMessageId || `local-${crypto.randomUUID()}`,
-                p_type: 'text',
+                p_type: tipo,
                 p_text_body: final,
-                p_payload: { step: `resultado_${pago.status}`, queue_id: fila.id, payment_id: pago.id },
+                p_payload: {
+                    step: `resultado_${pago.status}`, queue_id: fila.id, payment_id: pago.id,
+                    // `pregunta` es lo que miran preguntaAbierta y yaSePreguntoConsentimiento.
+                    ...(consentimiento ? { pregunta: 'ask_consent' } : {}),
+                    ...(tipo === 'interactive' ? { botones: consentimiento?.botones } : {}),
+                },
                 p_ai_generated: true,
                 p_to_wa_id: fila.wa_phone_number,
             });

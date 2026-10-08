@@ -51,6 +51,7 @@ import { conEnlacesDePago, lineaPagar, botonPagarUnico } from './whatsapp-enlace
 import { esSalienteAutomatico } from './whatsapp-buzon';
 import { avisarEscalamientoPorCorreo } from './avisos-correo.service';
 import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from './whatsapp-optin.service';
+import { esActivacionDeAvisos } from './whatsapp-activar-avisos';
 import { estadoDeHorario, mensajeDeEscalamiento } from './whatsapp-horario.service';
 import { sendToUser } from './push.service';
 import { mediosDePago } from './whatsapp-medios-de-pago.service';
@@ -242,6 +243,15 @@ async function cuerpoDelTurno(
         .maybeSingle();
 
     if (!conv) return;
+
+    // 0d. «… ACTIVAR AVISOS»: el texto prellenado del enlace de /p/:token y del
+    //     correo del estado de cuenta (whatsapp-activar-avisos). Lo escribe el
+    //     número mismo, así que vale como consentimiento aunque no esté
+    //     identificado: va antes del OTP para no pedirle un código por esto.
+    if (!botonId && esActivacionDeAvisos(text)) {
+        await activarAvisosPorPedido(integration, conversationId, contactWaId, conv.parent_id, waMessageId);
+        return;
+    }
 
     // 1. No identificado → flujo OTP determinista. Si el TELÉFONO lo reconoce,
     //    el turno sigue: antes se le contestaba con saludo + consentimiento y el
@@ -2818,7 +2828,11 @@ export const textoPreguntaConsentimiento = (escuela: string) =>
     `Una cosa más 🙂 ¿Quieres que *${escuela}* te envíe por aquí los recordatorios de pago ` +
     'y los avisos de tu atleta?\n\nResponde *SÍ* para activarlos. Puedes darte de baja cuando quieras.';
 
-/** Una vez por conversación, solo a familias con cuenta, nunca a quien ya aceptó o se dio de baja. */
+/**
+ * Solo a familias con cuenta, nunca a quien ya aceptó, se dio de baja o dijo
+ * que no; a quien la ignoró, otra vez pasados DIAS_PARA_REPREGUNTAR (máximo
+ * MAX_PREGUNTAS_CONSENTIMIENTO veces).
+ */
 async function faltaPreguntarConsentimiento(
     integration: WhatsAppIntegration,
     conversationId: string,
@@ -2941,42 +2955,109 @@ async function registrarOptIn(
     if (error) console.error('[whatsapp-bot] wa_register_optin error:', error);
 }
 
-export async function yaSePreguntoConsentimiento(conversationId: string): Promise<boolean> {
-    const { count: enviados } = await supabase
+/**
+ * La familia mandó «… ACTIVAR AVISOS» (enlace de /p/:token o del correo). Su
+ * propio mensaje es la prueba: se registra con ESE wa_message_id. Si ya tenía
+ * el opt-in vigente, solo se le confirma.
+ */
+async function activarAvisosPorPedido(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    parentId: string | null,
+    waMessageId: string,
+): Promise<void> {
+    const { data: optin } = await supabase
+        .from('whatsapp_optins')
+        .select('opted_in_at, opted_out_at')
+        .eq('integration_id', integration.id)
+        .eq('contact_wa_id', contactWaId)
+        .maybeSingle();
+    if ((optin as any)?.opted_in_at && !(optin as any)?.opted_out_at) {
+        await deliver(integration, conversationId, contactWaId,
+            '👍 Ya tienes activos los avisos por aquí. (Si algún día no quieres recibirlos, me escribes *BAJA*.)',
+            { step: 'opt_in_registrado', via: 'enlace_activar', ya_estaba: true });
+        return;
+    }
+    await registrarOptIn(integration, contactWaId, parentId, waMessageId);
+    await deliver(integration, conversationId, contactWaId,
+        '✅ Listo, te avisaré por aquí de tus pagos y de tu atleta. ' +
+        '(Si algún día no quieres recibirlos, me escribes *BAJA*.)',
+        { step: 'opt_in_registrado', via: 'enlace_activar' });
+}
+
+/**
+ * Cada cuánto se puede volver a hacer la pregunta a quien la IGNORÓ (ni sí ni
+ * no), y cuántas veces como máximo. Antes era una sola vez por conversación, y
+ * como cada número tiene UNA conversación, era una sola vez para siempre: de
+ * 28 familias preguntadas en Dynasty (06–08 oct) 10 no contestaron a la
+ * pregunta y no se les iba a volver a ofrecer nunca. A quien dijo «no» no se
+ * le vuelve a preguntar.
+ */
+export const DIAS_PARA_REPREGUNTAR = 14;
+export const MAX_PREGUNTAS_CONSENTIMIENTO = 3;
+
+/** ¿Se da por preguntado? Pura: fechas de las preguntas que salieron y si dijo que no. */
+export function consentimientoYaPreguntado(
+    fechas: (string | null | undefined)[],
+    rechazo: boolean,
+    ahora = Date.now(),
+): boolean {
+    if (rechazo) return true;
+    const ts = fechas.map((f) => Date.parse(String(f ?? ''))).filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
+    if (!ts.length) return false;
+    // Un borrador aprobado y su saliente son la MISMA pregunta: se cuentan
+    // como una si están a menos de una hora.
+    const veces = ts.filter((t, i) => i === 0 || t - ts[i - 1] > 3_600_000).length;
+    if (veces >= MAX_PREGUNTAS_CONSENTIMIENTO) return true;
+    return ts[ts.length - 1] >= ahora - DIAS_PARA_REPREGUNTAR * 86_400_000;
+}
+
+export async function yaSePreguntoConsentimiento(conversationId: string, ahora = Date.now()): Promise<boolean> {
+    const { count: rechazos } = await supabase
         .from('whatsapp_messages')
         .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', conversationId)
+        .eq('direction', 'outbound')
+        .eq('payload->>step', 'consent_rechazado');
+    if ((rechazos ?? 0) > 0) return true;
+
+    const fechas = (r: { data: any[] | null }) => ((r.data ?? []) as any[]).map((f) => f?.created_at);
+    const enviados = await supabase
+        .from('whatsapp_messages')
+        .select('created_at')
         .eq('conversation_id', conversationId)
         .eq('direction', 'outbound')
         .eq('payload->>step', 'ask_consent');
-    if ((enviados ?? 0) > 0) return true;
     // La pregunta al pie de otra respuesta (`conAnexoDeConsentimiento`).
-    const { count: alPie } = await supabase
+    const alPie = await supabase
         .from('whatsapp_messages')
-        .select('id', { count: 'exact', head: true })
+        .select('created_at')
         .eq('conversation_id', conversationId)
         .eq('direction', 'outbound')
         .eq('payload->>pregunta', 'ask_consent');
-    if ((alPie ?? 0) > 0) return true;
 
     // Borradores: solo cuentan los que SALIERON (aprobados o enviados desde el
     // buzón). Antes contaba cualquiera, y el modo asistido del 06-oct dejó 9
     // familias marcadas como «ya preguntadas» por un borrador que nunca vieron
     // (auditoría P1-8a). Un borrador `pending` igual no se repite: `deliver` no
     // deja dos borradores idénticos pendientes en la misma conversación.
-    const { count: borradores } = await supabase
+    const borradores = await supabase
         .from('whatsapp_message_drafts')
-        .select('id', { count: 'exact', head: true })
+        .select('created_at')
         .eq('conversation_id', conversationId)
         .eq('tool_context->>step', 'ask_consent')
         .in('status', ['approved', 'sent']);
-    if ((borradores ?? 0) > 0) return true;
-    const { count: borradoresAlPie } = await supabase
+    const borradoresAlPie = await supabase
         .from('whatsapp_message_drafts')
-        .select('id', { count: 'exact', head: true })
+        .select('created_at')
         .eq('conversation_id', conversationId)
         .eq('tool_context->>pregunta', 'ask_consent')
         .in('status', ['approved', 'sent']);
-    return (borradoresAlPie ?? 0) > 0;
+
+    return consentimientoYaPreguntado(
+        [...fechas(enviados as any), ...fechas(alPie as any), ...fechas(borradores as any), ...fechas(borradoresAlPie as any)],
+        false, ahora);
 }
 
 export async function nombreDeEscuela(schoolId: string): Promise<string> {

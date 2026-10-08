@@ -54,6 +54,7 @@ import {
     signIntegrity, wompiCredsFrom, buildWebCheckoutUrl, signIntegrityWithExpiration,
 } from './wompi.service';
 import { mediosDePago } from './whatsapp-medios-de-pago.service';
+import { enlaceActivarAvisosParaPagador } from './whatsapp-activar-avisos';
 import { categoriaDeCobro } from './payment-accounts';
 import { findDuplicatePaymentIds } from './duplicatePayerGuard.service';
 import { debitoEnCurso, MENSAJE_DEBITO_EN_CURSO } from './autopay.service';
@@ -112,6 +113,13 @@ export interface VistaCobroPublico {
      * un solo cobro; sin esta lista la familia no vería el resto. Solo concepto,
      * periodo, nombre corto, monto y vencimiento — lo mismo que ya dice el correo.
      */
+    /**
+     * wa.me a la línea de la escuela con «… ACTIVAR AVISOS» prellenado: la
+     * familia lo envía desde su WhatsApp y el bot registra el consentimiento
+     * con ese mensaje como prueba (whatsapp-activar-avisos). null si la escuela
+     * no tiene WhatsApp activo o si el número del pagador ya lo dio.
+     */
+    whatsappAvisos: string | null;
     otrosPendientes: {
         token: string;
         concepto: string;
@@ -430,6 +438,8 @@ export async function vistaDelCobro(r: Extract<ResultadoResolver, { ok: true }>)
                 linkDePago: medios.link_de_pago ?? null,
             }
             : { cuentas: [], whatsappComprobante: null, qrEscuelaUrl: null, linkDePago: null },
+        whatsappAvisos: await enlaceActivarAvisosParaPagador(
+            p.school_id, p.parent_id || p.user_id || null, (escuela as any)?.name ?? 'la escuela'),
         otrosPendientes: otros,
     };
 }
