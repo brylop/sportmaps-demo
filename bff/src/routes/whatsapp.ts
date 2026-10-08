@@ -34,11 +34,14 @@ import {
 import {
     runBotTurn, deliver, atenderDesconocido, mensajesRecientes, SILENCIO_HUMANO_MIN,
     TEXTO_MIME_RECHAZADO, vocativosDeEscuela, revisarEscalacionesVencidas, revisarRetomas,
+    reservarPasoUnaVez,
 } from '../services/whatsapp-bot.service';
 import { debeAtender } from '../services/whatsapp-atencion.service';
 import { encolarAdjunto } from '../services/whatsapp-queue.service';
 import { correrTurnoAgrupado, ESPERA_RAFAGA_MS } from '../services/whatsapp-turno-agrupado.service';
-import { humanoReciente, esCierreSuelto } from '../services/whatsapp-reglas-turno';
+import {
+    humanoReciente, esCierreSuelto, respuestaATipoNoSoportado, PASO_TIPO_NO_SOPORTADO,
+} from '../services/whatsapp-reglas-turno';
 import { cerrarSiEsCierre } from '../services/whatsapp-ponerse-al-dia.service';
 import { atenderNotaDeVoz, atenderNotaDeVozDeProspecto } from '../services/whatsapp-notas-de-voz.service';
 
@@ -571,20 +574,29 @@ async function handleBotTurn(
         return;
     }
 
-    // Video NO se puede procesar, pero callarse es peor: el acudiente manda un
-    // video y se queda esperando una respuesta que nunca llega.
+    // Video NO se puede procesar. Dynasty 2026-10-07: 13 videos seguidos del
+    // entrenamiento → 13 «No puedo ver videos…». Un video de una familia casi
+    // nunca es un comprobante: se contesta SOLO si el texto cercano (o el pie)
+    // habla de pago, y como mucho UNA vez cada 24 h por conversación; la ráfaga
+    // la frena la reserva en memoria (los webhooks llegan a un solo BFF).
     //
     // Los stickers y las reacciones sí se ignoran: son ruido social, no una
     // pregunta, y responderles sería molesto.
     if (msg.type === 'video') {
+        const recientes = await mensajesRecientes(conversationId);
         // P4: si la escuela está escribiendo en el chat, el video es para ella.
-        if (humanoReciente(await mensajesRecientes(conversationId), SILENCIO_HUMANO_MIN)) {
+        if (humanoReciente(recientes, SILENCIO_HUMANO_MIN)) {
             req.log?.info({ conversationId }, 'WhatsApp: video con la escuela atendiendo; el bot se calla');
+            return;
+        }
+        if (!respuestaATipoNoSoportado(msg.textBody, recientes)
+            || !(await reservarPasoUnaVez(conversationId, `${PASO_TIPO_NO_SOPORTADO}_${msg.type}`, 24))) {
+            req.log?.info({ conversationId }, 'WhatsApp: video sin texto de pago (o ya respondido); el bot se calla');
             return;
         }
         const texto = 'No puedo ver videos. Si es un comprobante de pago, mándame la *foto* o el *PDF* ' +
             'que te da el banco y lo valido enseguida.';
-        await deliver(integration, conversationId, msg.contactWaId, texto, { step: `tipo_no_soportado_${msg.type}` })
+        await deliver(integration, conversationId, msg.contactWaId, texto, { step: `${PASO_TIPO_NO_SOPORTADO}_${msg.type}` })
             .catch((err) => req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: no se pudo responder al tipo no soportado'));
         return;
     }
