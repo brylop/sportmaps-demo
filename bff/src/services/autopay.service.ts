@@ -29,6 +29,7 @@ import crypto from 'crypto';
 import * as Sentry from '@sentry/node';
 import { supabase } from '../config/supabase';
 import { resolveProvider } from './payment-provider.resolver';
+import { correoAutopayActivo, enviarCorreoDeAviso } from './autopay-correo.service';
 import {
     wompiCredsFrom,
     fetchMerchantId,
@@ -858,6 +859,9 @@ export function defaultDeps(): AutopayDeps {
                 user_id: a.userId, school_id: a.schoolId, type: 'autopay', category: 'payment',
                 title: a.title, message: a.message, link: a.link, data: a.data,
             });
+            // §10.1: copia por correo (AUTOPAY_EMAIL_NOTICES=true). No bloquea ni decide D4:
+            // el aviso cuenta como entregado por la notificación in-app.
+            if (!error && correoAutopayActivo()) void enviarCorreoDeAviso(a);
             return !error;
         },
         alert: (kind, detail) => {
