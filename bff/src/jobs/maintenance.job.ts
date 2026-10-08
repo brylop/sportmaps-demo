@@ -29,6 +29,7 @@ import { vencerComprobantesColgados } from './whatsapp-cola-vencimiento.job';
 import { runWhatsAppPlantillasSync } from './whatsapp-plantillas-sync.job';
 import { runWhatsAppResumenDiario } from './whatsapp-resumen-diario.job';
 import { runBotResumenSemanal } from './bot-resumen-semanal.job';
+import { runInformeCalidadBotSemanal } from '../services/informe-calidad-bot.service';
 import { runInformeCarteraSemanal } from '../services/informe-cartera.service';
 import { runFranjasCortesia } from '../services/franjas-cortesia.service';
 import { anularCobrosSueltosVencidos } from '../services/ventas-servicios.service';
@@ -631,6 +632,27 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Resumen semanal de los bots registrado para los lunes 07:05 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Informe de CALIDAD Y COSTO del bot a SportMaps — lunes 08:00 COT, con
+    // ticks hasta las 11:00 para recoger un BFF dormido o reiniciado. Por
+    // escuela con WhatsApp: resolución bot/escuela/sin respuesta, escalaciones,
+    // errores, comprobantes, cortesías, opt-ins y costo (llm_usage). Uno por
+    // semana entre los tres BFF (email_sends, clave por lunes). Destino:
+    // BOT_REPORT_EMAIL o SUPPORT_ALERT_EMAIL. Kill-switch: DISABLE_INFORME_CALIDAD_BOT.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('0 8-11 * * 1', async () => {
+        if (process.env.DISABLE_INFORME_CALIDAD_BOT === 'true') return;
+        try {
+            const r = await runInformeCalidadBotSemanal();
+            if (r !== 'duplicado') console.log(`[CRON] Informe de calidad del bot: ${r}.`);
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en el informe de calidad del bot:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Informe de calidad del bot registrado para los lunes 08:00 COT.');
 
     // ────────────────────────────────────────────────────────────────────────
     // Informe de CARTERA semanal a owner + admins — lunes 07:10 COT, con ticks

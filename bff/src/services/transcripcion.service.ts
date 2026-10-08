@@ -20,6 +20,7 @@
  *  - OPENAI_STT_MODEL            → idem para el respaldo.
  */
 
+import { registrarUsoLlm } from './llm-usage.service';
 export const GROQ_STT_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
 export const OPENAI_STT_URL = 'https://api.openai.com/v1/audio/transcriptions';
 
@@ -211,6 +212,8 @@ export async function transcribirAudio(
             console.info('[transcripcion] ok', {
                 proveedor, modelo: r.modelo, ms, duracion_s: r.duracionS, largo: r.texto.length,
             });
+            // Se cobra por duración del audio: queda en llm_usage (best-effort).
+            registrarUsoLlm({ feature: 'transcripcion', provider: proveedor, model: r.modelo, audioSegundos: r.duracionS });
             return {
                 ok: true,
                 ...r,

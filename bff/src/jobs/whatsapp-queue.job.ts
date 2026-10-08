@@ -27,6 +27,7 @@ import {
 } from '../services/whatsapp.service';
 import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from '../services/whatsapp-optin.service';
 import { extractReceipt } from '../services/ocr.service';
+import { conContextoLlm } from '../services/llm-usage.service';
 import { extractEnrollmentForm, type EnrollmentFormResult } from '../services/enrollment-ocr.service';
 import { buildVerdictContext } from '../services/receipt-context.service';
 import { normalizeDestination, normalizeReference, evaluateVerdict, destinationMatchesRegistered } from '../services/receipt-verdict';
@@ -1363,7 +1364,9 @@ async function procesarFila(fila: FilaCola, log?: Logger, rafaga?: Rafaga): Prom
     // contestar, y se desarma al salir.
     let acuseTimer: ReturnType<typeof setTimeout> | null = null;
     try {
-        await procesarFilaInterna(fila, log, rafaga, (t) => { acuseTimer = t; });
+        // La escuela de la fila queda en el contexto para el registro de consumo (llm_usage).
+        await conContextoLlm({ schoolId: fila.school_id, feature: 'ocr' },
+            () => procesarFilaInterna(fila, log, rafaga, (t) => { acuseTimer = t; }));
     } finally {
         if (acuseTimer) clearTimeout(acuseTimer);
     }

@@ -44,6 +44,7 @@ import {
 } from '../services/whatsapp-reglas-turno';
 import { cerrarSiEsCierre } from '../services/whatsapp-ponerse-al-dia.service';
 import { atenderNotaDeVoz, atenderNotaDeVozDeProspecto } from '../services/whatsapp-notas-de-voz.service';
+import { conContextoLlm } from '../services/llm-usage.service';
 
 /**
  * Corre en segundo plano lo que espera (la ráfaga, el acuse): el webhook
@@ -404,7 +405,10 @@ async function processInboundMessage(req: Request, msg: ParsedInboundMessage): P
 
     // 5. Disparar el bot. En WA2 esto encola en pg-boss y corre DeepSeek +
     //    intents + identificación OTP. Por ahora dejamos el punto de entrada.
-    await handleBotTurn(req, integration, conversationId, msg, optedOut);
+    //    Con escuela y conversación en el contexto: cada llamada a un modelo
+    //    (bot, audio, prospecto) queda en llm_usage para el informe de costo.
+    await conContextoLlm({ schoolId: integration.school_id, conversationId, feature: 'bot' },
+        () => handleBotTurn(req, integration, conversationId, msg, optedOut));
 }
 
 /**

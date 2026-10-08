@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 706,
-  "head": "20261007183601",
+  "count": 707,
+  "head": "20261008164445",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -709,6 +709,7 @@
     {"v":"20261007134859","file":"20261007134859_autopay_f2_motor.sql","sha256":"dfddf7dbcf21a9da652beb315504de01e090d36414e6f676a270a57ecc0d48cf","added":"2026-10-07","by":"Brayan Steven Lopez"},
     {"v":"20261007163321","file":"20261007163321_autopay_f3_familia_escuela.sql","sha256":"8c1c262a910a2fc4f5b4295737e84ffff30edc648a0b092c52332703bc79e2b6","added":"2026-10-07","by":"Brayan Steven Lopez"},
     {"v":"20261007182206","file":"20261007182206_informe_cartera_flag.sql","sha256":"21d34f15a8a893aaaf73a950394c9c7ea1ae432a6af342cf3b74b5e98899d7c9","added":"2026-10-07","by":"Brayan Steven Lopez"},
-    {"v":"20261007183601","file":"20261007183601_wa_atencion_presencial_y_cortesia_indicaciones.sql","sha256":"76261fa05b825d655f6acc58b687137f9f0517c005f204ddafc696027fdd66ee","added":"2026-10-07","by":"Brayan Steven Lopez"}
+    {"v":"20261007183601","file":"20261007183601_wa_atencion_presencial_y_cortesia_indicaciones.sql","sha256":"76261fa05b825d655f6acc58b687137f9f0517c005f204ddafc696027fdd66ee","added":"2026-10-07","by":"Brayan Steven Lopez"},
+    {"v":"20261008164445","file":"20261008164445_llm_usage_registro_de_consumo.sql","sha256":"8f2aa1946e9315f59ef37c09aa09c856ffacea70b6a2f6e111f4e77e15abb75f","added":"2026-10-08","by":"Brayan Steven Lopez"}
   ]
 }

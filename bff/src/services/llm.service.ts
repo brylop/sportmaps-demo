@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { conContextoLlm, registrarUsoLlm, tokensDeRespuesta, type ContextoUsoLlm } from './llm-usage.service';
 /**
  * llm.service — Abstracción de LLM con tool-calling para el bot de WhatsApp (WA2).
  *
@@ -173,6 +174,8 @@ ${m.content}` }],
     if (!res.ok) {
         throw new Error(`gemini_${res.status}: ${json?.error?.message || 'error'}`);
     }
+    // Consumo para el informe de calidad del bot (best-effort, no espera).
+    registrarUsoLlm({ provider: 'gemini', model: json?.modelVersion || GEMINI_MODEL, tokens: tokensDeRespuesta(json) });
 
     const parts = json?.candidates?.[0]?.content?.parts ?? [];
     const toolCalls: LlmToolCall[] = parts
@@ -238,6 +241,7 @@ async function chatOpenAICompatible(
     if (!res.ok) {
         throw new Error(`${provider}_${res.status}: ${json?.error?.message || 'error'}`);
     }
+    registrarUsoLlm({ provider, model: json?.model || cfg.model, tokens: tokensDeRespuesta(json) });
 
     const choice = json?.choices?.[0]?.message;
     const rawCalls = choice?.tool_calls ?? [];
@@ -320,6 +324,7 @@ ${m.content}`
             salida: u.output_tokens,
         });
     }
+    registrarUsoLlm({ provider: 'claude', model: res.model || body.model, tokens: tokensDeRespuesta(res) });
     if (res.stop_reason === 'refusal') throw new Error('claude_refusal');
     const blocks: any[] = res.content ?? [];
     const toolCalls: LlmToolCall[] = blocks
@@ -337,12 +342,17 @@ export async function chatWithTools(params: {
     messages: LlmMessage[];
     tools?: LlmTool[];
     provider?: LlmProvider;
+    /** Escuela / conversación / función para el registro de consumo (llm_usage). */
+    uso?: ContextoUsoLlm;
 }): Promise<LlmResult> {
     const primary: LlmProvider =
         params.provider || (process.env.WHATSAPP_LLM_PROVIDER as LlmProvider) || 'gemini';
     const tools = params.tools ?? [];
 
-    const run = (p: LlmProvider) =>
+    const run = (p: LlmProvider): Promise<LlmResult> => (params.uso
+        ? conContextoLlm(params.uso, () => correr(p))
+        : correr(p));
+    const correr = (p: LlmProvider) =>
         p === 'claude'
             ? chatClaude(params.system, params.messages, tools)
             : p === 'gemini'

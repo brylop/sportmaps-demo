@@ -194,7 +194,10 @@ export async function generarRespuesta(
         const conTools = ronda < MAX_RONDAS_TOOLS;
         let res;
         try {
-            res = await chatWithTools({ system, messages, tools: conTools ? TOOLS : [] });
+            res = await chatWithTools({
+                system, messages, tools: conTools ? TOOLS : [],
+                uso: { feature: 'sportbot', schoolId: params.schoolId ?? null },
+            });
         } catch (err: any) {
             console.error('[inapp-support-bot] LLM error:', err?.message);
             return sinTexto('llm_error');
