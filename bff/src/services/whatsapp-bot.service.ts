@@ -57,7 +57,7 @@ import { resolverRespuestaDeCobro } from './whatsapp-respuesta-de-cobro.service'
 import {
     botEncendido, debeAtender, temaEscolar, preguntaPrecioComoProspecto,
     ajustesDeAtencion, puertaDeProspecto, interesesDeProspecto, buscaParaAdulto, DIAS_MARCA_PROSPECTO,
-    soloSaludoOCortesia,
+    soloSaludoOCortesia, intencionDeProspecto,
     type PuertaDeProspecto,
 } from './whatsapp-atencion.service';
 import { registrarLeadDeProspecto } from './whatsapp-prospecto-lead.service';
@@ -75,7 +75,7 @@ import { preguntaGrupoPorEdad } from './grupos-por-edad.service';
 import {
     anunciaComprobante, nombreDelCobroAnunciado, yaPagoYReclama, textoYaPague, pideALaPersona,
     vocativosDelEquipo, esCierreSuelto, esAutoRespuesta, rutaSinModelo, humanoReciente,
-    preguntaAbierta, pasoEnVentana, normalizarFrase, ecoDeAudios, PASOS_SIN_CUENTA, VOCATIVOS_GENERICOS,
+    preguntaAbierta, pasoEnVentana, normalizarFrase, esHumanoDeLaEscuela, ecoDeAudios, PASOS_SIN_CUENTA, VOCATIVOS_GENERICOS,
     decidirRetoma, RETOMA_VENTANA_HORAS, PASO_RETOMA_SIN_RESPUESTA, recortarEmojis,
     type FilaReciente, type ComprobanteAnunciado,
 } from './whatsapp-reglas-turno';
@@ -559,7 +559,8 @@ export function _limpiarCacheVocativos(): void { cacheVocativos.clear(); }
 
 /** Palabras de saludo/cierre que `soloSaludoOCortesia` no trae y no deben abrir un pedido de correo. */
 const SALUDO_EXTRA = new Set(['quedo', 'pendiente', 'pendientes', 'atento', 'atenta', 'holaa', 'holaaa', 'buenass',
-    'querida', 'querido', 'linda', 'lindo', 'reina', 'amiga', 'amigo', 'mija', 'mijo', 'recuerdas']);
+    'querida', 'querido', 'linda', 'lindo', 'reina', 'amiga', 'amigo', 'mija', 'mijo', 'recuerdas',
+    'espero', 'se', 'te', 'encuentre', 'encuentres', 'bien', 'muy', 'estes', 'este']);
 
 /**
  * ¿Es solo saludo/cortesía, contando el nombre de quien atiende («hola mile»,
@@ -1642,6 +1643,12 @@ async function handleIdentification(
     // «Estoy interesado en iniciar» recibía el «escríbeme tu correo» genérico
     // en vez del enlace, los horarios y la clase de cortesía. Misma respuesta
     // que con el ajuste apagado (`atenderDesconocido`).
+    // Alguien con quien una PERSONA de la escuela conversa (eco de Coexistence
+    // en 30 días): la conversación es humana. Ni plantilla de prospecto ni
+    // «escríbeme tu correo»; queda en el buzón. Dynasty 2026-10-07: «mile voy
+    // tenemos entreno?», «No puedo pasar!», «De comida» de conocidas de la dueña.
+    if (!botonId && await escuelaLeEscribioEnDias(conversationId, 30)) return 'resuelto';
+
     const comoDesconocido = await atenderDesconocido(integration, conversationId, contactWaId, text, botonId, rafaga);
     if (comoDesconocido !== 'silencio') return 'resuelto';
 
@@ -1655,6 +1662,17 @@ async function handleIdentification(
     const equipo = botonId ? new Map<string, string>() : await vocativosDeEscuela(integration.school_id);
     if (!botonId && todo.split('\n').every((l) => saludoSinContenido(l, equipo) || esCierreSuelto(l, equipo))) {
         return 'resuelto';
+    }
+
+    // Corto (≤ 3 palabras) o con el nombre de quien atiende («mile», «profe»),
+    // sin tema escolar: charla, no un trámite («noooo», «De comida», «No puedo
+    // pasar!», «como estas??»). Queda en el buzón.
+    if (!botonId && !hablaDeLaEscuela(todo)) {
+        // La ráfaga puede traer también el texto actual: cada línea cuenta una vez.
+        const lineas = [...new Set(todo.split('\n').map((l) => l.trim()).filter(Boolean))];
+        const palabras = normalizarFrase(lineas.join(' ')).split(' ').filter(Boolean);
+        const conVocativo = palabras.some((w) => equipo.has(w) || VOCATIVOS_GENERICOS.includes(w));
+        if (palabras.length <= 3 || conVocativo) return 'resuelto';
     }
 
     if (!(await reservarPasoUnaVez(conversationId, 'ask_email', 24))) return 'resuelto';
@@ -4099,7 +4117,7 @@ async function responderLoQueSeSabe(
             pregunto = true;
             if (await grupoPorEdadEnBot(integration, conversationId, contactWaId, null, t, PASO_RETOMA_RESPUESTA)) respondio = true;
             else queda();
-        } else if (intereses.includes('horarios') || leerPerfil(t) !== null) {
+        } else if (intereses.includes('horarios') || intereses.includes('cortesia')) {
             pregunto = true;
             if (!horariosDados) {
                 horariosDados = await ofrecerHorariosDeCortesia(ctxCortesia(integration, conversationId, contactWaId, null), {
@@ -4151,6 +4169,115 @@ async function responderLoQueSeSabe(
     return { respondio, sinRespuesta };
 }
 
+// ─── Quién merece retoma / «escríbeme tu correo» (Dynasty 2026-10-07 tarde) ──
+//
+// El número de Dynasty es también el WhatsApp personal de la dueña y la escuela
+// tiene `responder_desconocidos=true` a propósito. Esa tarde la retoma le
+// escribió «Todavía nadie de la escuela ha podido contestarte…» a «hola mile»,
+// «Graciasss mile» y «Si me recuerdas?», y los horarios de cortesía a «gracias»
+// y «me avisas nena»; y el «escríbeme tu correo» salió a «noooo», «De comida»,
+// «No puedo pasar!». Eran amigas y conocidas con las que la dueña conversa.
+
+/** Palabras de tema escolar (además de temaEscolar, prospecto, pago, grupo y precio). */
+const TEMA_DE_ESCUELA = /\b(horarios?|precios?|valor(es)?|costos?|tarifas?|cuanto (cuesta|vale|es|son|cobran)|mensualidad(es)?|matricul\w*|inscrip\w*|categorias?|edad(es)?|clases?|entrenamientos?|entrenos?|entrenan|entrenar|cortesia|pagos?|pagar|pague|comprobantes?|soportes?|cuotas?|uniformes?|sedes?|direccion|ubicacion|cupos?|torneos?|partidos?)\b/;
+
+/** ¿El texto toca un tema de la escuela (pago, horario, grupo, precio, inscripción, sede…)? */
+export function hablaDeLaEscuela(texto: string | null | undefined): boolean {
+    const t = (texto || '').trim();
+    if (!t) return false;
+    if (temaEscolar(t) || intencionDeProspecto(t) || preguntaGrupoPorEdad(t) || preguntaPrecioComoProspecto(t)) return true;
+    const pago = preguntaComoPagar(t);
+    if (pago.pagar || pago.presencial) return true;
+    return TEMA_DE_ESCUELA.test(normalizarFrase(t)) || PREGUNTA_SEDE.test(normalizarCortesia(t));
+}
+
+/** ¿Pregunta o pedido con tema escolar, que no sea saludo, cierre ni charla? */
+export function pedidoEscolarClaro(texto: string | null | undefined, equipo: ReadonlyMap<string, string> = new Map()): boolean {
+    const t = (texto || '').trim();
+    if (!t) return false;
+    if (saludoSinContenido(t, equipo) || soloSaludoOCortesia(t) || esCierreSuelto(t, equipo)) return false;
+    return hablaDeLaEscuela(t);
+}
+
+/**
+ * ¿Una PERSONA de la escuela (eco de Coexistence o buzón, no el bot) le ha
+ * escrito charla personal a este contacto? Al menos dos textos sin tema
+ * escolar, y más que los que sí lo tienen («Hola mi …», «Sii soy», «uyy no»).
+ */
+export function charlaPersonalDeLaEscuela(filas: FilaReciente[]): boolean {
+    const humanos = filas.filter((f) => esHumanoDeLaEscuela(f) && !!(f.text_body || '').trim());
+    const deEscuela = humanos.filter((f) => hablaDeLaEscuela(f.text_body)).length;
+    const charla = humanos.length - deEscuela;
+    return charla >= 2 && charla > deEscuela;
+}
+
+/** ¿Escribió una PERSONA de la escuela (no el bot ni un automático) en estas filas? */
+export function escuelaLeEscribio(filas: FilaReciente[]): boolean {
+    return filas.some((f) => esHumanoDeLaEscuela(f));
+}
+
+export type RetomaPermitida = { permitida: boolean; motivo: string; pedidos: string[] };
+
+/**
+ * La puerta de la retoma, pura. Además de `decidirRetoma`:
+ *  - nunca a contactos personales ni del equipo;
+ *  - el ÚLTIMO entrante pendiente es una pregunta/pedido con tema escolar (no
+ *    saludo, cierre, vocativo suelto ni charla);
+ *  - a un desconocido, solo si él mismo ya habló de la escuela (7 días);
+ *  - si en 7 días la escuela le escribió charla personal, no.
+ * `pedidos`: los pendientes con tema escolar, lo único que se contesta.
+ */
+export function retomaPermitida(op: {
+    tipo: string | null | undefined;
+    pendientes: FilaReciente[];
+    historia: FilaReciente[];
+    equipo?: ReadonlyMap<string, string>;
+}): RetomaPermitida {
+    const equipo = op.equipo ?? new Map<string, string>();
+    const no = (motivo: string): RetomaPermitida => ({ permitida: false, motivo, pedidos: [] });
+    if (op.tipo === 'personal' || op.tipo === 'staff') return no('contacto_personal');
+    const ultimo = op.pendientes[op.pendientes.length - 1];
+    if (!ultimo || !pedidoEscolarClaro(ultimo.text_body, equipo)) return no('ultimo_sin_pedido_escolar');
+    if (op.tipo === 'desconocido') {
+        const intencion = [...op.historia, ...op.pendientes]
+            .some((f) => f.direction === 'inbound' && pedidoEscolarClaro(f.text_body, equipo));
+        if (!intencion) return no('desconocido_sin_intencion_escolar');
+    }
+    if (charlaPersonalDeLaEscuela(op.historia)) return no('charla_personal');
+    const pedidos = op.pendientes.map((f) => (f.text_body || '').trim()).filter((t) => pedidoEscolarClaro(t, equipo));
+    return { permitida: true, motivo: 'ok', pedidos };
+}
+
+/** Mensajes de los últimos `dias` de una conversación (para las puertas de arriba). Nunca lanza. */
+async function historiaDeDias(conversationId: string, dias: number): Promise<FilaReciente[]> {
+    try {
+        const { data, error } = await supabase.from('whatsapp_messages')
+            .select('wa_message_id, direction, type, text_body, payload, ai_generated, wa_timestamp, created_at')
+            .eq('conversation_id', conversationId)
+            .gte('created_at', new Date(Date.now() - dias * 24 * 3600_000).toISOString())
+            .limit(300);
+        return !error && Array.isArray(data) ? (data as FilaReciente[]) : [];
+    } catch {
+        return [];
+    }
+}
+
+/** ¿Una persona de la escuela le escribió a este contacto en los últimos `dias`? Nunca lanza (false). */
+async function escuelaLeEscribioEnDias(conversationId: string, dias: number): Promise<boolean> {
+    try {
+        const { data, error } = await supabase.from('whatsapp_messages')
+            .select('direction, type, text_body, payload, ai_generated, created_at')
+            .eq('conversation_id', conversationId)
+            .eq('direction', 'outbound')
+            .eq('ai_generated', false)
+            .gte('created_at', new Date(Date.now() - dias * 24 * 3600_000).toISOString())
+            .limit(30);
+        return !error && Array.isArray(data) && escuelaLeEscribio(data as FilaReciente[]);
+    } catch {
+        return false;
+    }
+}
+
 export async function revisarRetomas(ahora = Date.now()): Promise<ResultadoRetomas> {
     const r: ResultadoRetomas = { revisadas: 0, respondidas: 0, reavisadas: 0 };
     for (const cand of await conversacionesConEntrantesRecientes(ahora)) {
@@ -4174,6 +4301,13 @@ export async function revisarRetomas(ahora = Date.now()): Promise<ResultadoRetom
             // Tomada, bot apagado, staff o contacto personal: nada.
             if (atencion.tomada || !atencion.botEncendido
                 || !(atencion.atender || atencion.tipo === 'desconocido')) continue;
+            // Solo pedidos escolares, y nunca a la charla de la dueña (2026-10-07 tarde).
+            const equipo = await vocativosDeEscuela(integration.school_id).catch(() => new Map<string, string>());
+            const puerta = retomaPermitida({
+                tipo: atencion.tipo, pendientes: d.pendientes,
+                historia: await historiaDeDias(cand.conversationId, 7), equipo,
+            });
+            if (!puerta.permitida) continue;
 
             const reavisar = async (ancla: string) => {
                 const nuevas = await avisarEscalacionAlEquipo({
@@ -4193,7 +4327,7 @@ export async function revisarRetomas(ahora = Date.now()): Promise<ResultadoRetom
             if (!(await reservarRetoma(cand.conversationId, ultimo, ahora))) continue;
 
             const { respondio, sinRespuesta } = await responderLoQueSeSabe(integration, cand.conversationId,
-                c.contact_wa_id, d.pendientes.map((f) => (f.text_body || '').trim()), atencion.tipo === 'familia');
+                c.contact_wa_id, puerta.pedidos, atencion.tipo === 'familia');
             if (respondio) {
                 r.respondidas++;
                 if (sinRespuesta) await reavisar(`retoma:${ultimo.wa_message_id}`);

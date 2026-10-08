@@ -95,7 +95,7 @@ vi.mock('./whatsapp-coexistence.service', () => ({
 }));
 vi.mock('./whatsapp-prospecto-lead.service', () => ({ registrarLeadDeProspecto: vi.fn(async () => {}) }));
 
-import { atenderDesconocido, revisarRetomas } from './whatsapp-bot.service';
+import { atenderDesconocido, revisarRetomas, retomaPermitida } from './whatsapp-bot.service';
 
 const INTEGRATION = { id: 'int-1', school_id: 'school-1' } as any;
 const CONV = 'conv-ejemplo';
@@ -240,10 +240,21 @@ describe('…1042: la escuela mandó solo una imagen y nadie volvió', () => {
         expect(avisos()).toHaveLength(0);
     });
 
-    it('solo «Hola» pendiente tras «ya pasé tu mensaje» (…4445) → algo honesto UNA vez', async () => {
+    it('solo «Hola» pendiente tras «ya pasé tu mensaje» (…4445) → la retoma NO le escribe (2026-10-07 tarde)', async () => {
         base({ filas: [
+            { wa_message_id: 'in-0', direction: 'inbound', type: 'text', text_body: 'Quiero inscribir a mi hija en voleibol', ai_generated: false, created_at: hace(50) },
             { wa_message_id: 'bot-1', direction: 'outbound', type: 'text', text_body: '¡Gracias! 🙌 Ya pasé tu mensaje a la escuela…', payload: { step: 'prospecto_seguimiento' }, ai_generated: true, created_at: hace(40) },
             { wa_message_id: 'in-1', direction: 'inbound', type: 'text', text_body: 'Hola', ai_generated: false, created_at: hace(35) },
+        ] });
+        await revisarRetomas(Date.now());
+        expect(borradores()).toHaveLength(0);
+    });
+
+    it('pregunta escolar sin respuesta que el bot sepa → algo honesto UNA vez', async () => {
+        base({ filas: [
+            { wa_message_id: 'in-0', direction: 'inbound', type: 'text', text_body: 'Quiero inscribir a mi hija en voleibol', ai_generated: false, created_at: hace(50) },
+            { wa_message_id: 'bot-1', direction: 'outbound', type: 'text', text_body: '¡Gracias! 🙌 Ya pasé tu mensaje a la escuela…', payload: { step: 'prospecto_seguimiento' }, ai_generated: true, created_at: hace(40) },
+            { wa_message_id: 'in-1', direction: 'inbound', type: 'text', text_body: '¿Llevan uniforme a las clases?', ai_generated: false, created_at: hace(35) },
         ] });
         await revisarRetomas(Date.now());
         const [b] = borradores();
@@ -253,10 +264,83 @@ describe('…1042: la escuela mandó solo una imagen y nadie volvió', () => {
 
     it('…y si ya lo dijo en 24 h, no lo repite', async () => {
         base({ pasos: ['retoma_sin_respuesta'], filas: [
+            { wa_message_id: 'in-0', direction: 'inbound', type: 'text', text_body: 'Quiero inscribir a mi hija en voleibol', ai_generated: false, created_at: hace(50) },
             { wa_message_id: 'bot-1', direction: 'outbound', type: 'text', text_body: 'Ya pasé tu mensaje…', payload: { step: 'prospecto_seguimiento' }, ai_generated: true, created_at: hace(40) },
-            { wa_message_id: 'in-1', direction: 'inbound', type: 'text', text_body: 'Hola', ai_generated: false, created_at: hace(35) },
+            { wa_message_id: 'in-1', direction: 'inbound', type: 'text', text_body: '¿Llevan uniforme a las clases?', ai_generated: false, created_at: hace(35) },
         ] });
         await revisarRetomas(Date.now());
         expect(borradores()).toHaveLength(0);
+    });
+});
+
+describe('2026-10-07 tarde: la retoma no le escribe a contactos personales de la dueña', () => {
+    const askEmail = (min: number): Fila => ({ wa_message_id: `bot-${min}`, direction: 'outbound', type: 'text', text_body: 'Hola 👋 Soy el asistente…', payload: { step: 'ask_email' }, ai_generated: true, created_at: hace(min) });
+    const entra = (min: number, t: string): Fila => ({ wa_message_id: `in-${min}`, direction: 'inbound', type: 'text', text_body: t, ai_generated: false, created_at: hace(min) });
+    const eco = (min: number, t: string): Fila => ({ wa_message_id: `eco-${min}`, direction: 'outbound', type: 'text', text_body: t, ai_generated: false, created_at: hace(min) });
+
+    const casos: [string, Fila[]][] = [
+        ['«hola mile» / «como estas??» / relato / «gracias»', [
+            entra(120, 'hola mile'), entra(120, 'como estas??'), askEmail(119),
+            entra(118, 'mile es que el fin de semana que jugamos contra las niñas de infantil'),
+            entra(118, 'se las podrías pedir o preguntarle dónde las dejó'), entra(118, 'gracias'),
+        ]],
+        ['«Si me recuerdas?» tras un saludo', [
+            entra(80, 'Hola Mile...buenas tardes...como estas?'), askEmail(79), entra(78, 'Si me recuerdas?'),
+        ]],
+        ['charla personal + «me avisas nena»', [
+            eco(150, 'Una pregunta'), eco(150, 'Ustedes ya vendieron el apto'), eco(149, '???'),
+            entra(120, 'noooo'), askEmail(119), entra(118, 'mañana paso por lo que te dije'),
+            eco(100, 'En serio'), eco(100, 'y cuánto lo dejas'),
+            entra(60, 'si quieres pasas y hablamos con calma'), entra(60, 'me avisas nena'),
+        ]],
+        ['«hola mile» después de charla con la escuela', [
+            eco(600, 'Hola, cómo estás'), eco(500, 'Siii claro que sí'), eco(499, 'Mañana te hago eso'),
+            entra(200, 'dale mile'), askEmail(199), entra(120, 'hola mile'),
+        ]],
+    ];
+    for (const [nombre, filas] of casos) {
+        it(`${nombre} → nada`, async () => {
+            base({ filas });
+            await revisarRetomas(Date.now());
+            expect(borradores()).toHaveLength(0);
+        });
+    }
+
+    it('familia sin cuenta con charla de la escuela y «Graciasss mile» → nada', async () => {
+        base({ filas: [
+            entra(600, 'Mensualidad mile'),
+            { wa_message_id: 'bot-x', direction: 'outbound', type: 'text', text_body: 'Recibí tu comprobante…', payload: { step: 'familia_sin_cuenta' }, ai_generated: true, created_at: hace(590) },
+            entra(100, 'Hola mile'), eco(98, 'Hola mi querida'), eco(96, 'Sii soy'), entra(90, 'Jajaja'), eco(88, 'uyy no'),
+            entra(60, 'Graciasss mile'),
+        ] });
+        h.debeAtender.mockResolvedValue({ atender: true, tipo: 'familia_sin_cuenta', botEncendido: true, tomada: false });
+        await revisarRetomas(Date.now());
+        expect(borradores()).toHaveLength(0);
+    });
+
+    it('contacto personal → nada, aunque pregunte el horario', async () => {
+        base({ filas: [askEmail(90), entra(60, '¿Cuál es el horario de entrenamiento?')] });
+        h.debeAtender.mockResolvedValue({ atender: false, tipo: 'personal', botEncendido: true, tomada: false });
+        await revisarRetomas(Date.now());
+        expect(borradores()).toHaveLength(0);
+    });
+});
+
+describe('retomaPermitida (pura)', () => {
+    const f = (direction: 'inbound' | 'outbound', text_body: string, ai_generated = false): any => ({ direction, text_body, ai_generated, created_at: hace(10) });
+    it('pregunta escolar de un desconocido que ya habló de la escuela → sí, y solo los pedidos', () => {
+        const pendientes = [f('inbound', 'hola'), f('inbound', '¿Cuánto vale la mensualidad?')];
+        const r = retomaPermitida({ tipo: 'desconocido', pendientes, historia: pendientes });
+        expect(r.permitida).toBe(true);
+        expect(r.pedidos).toEqual(['¿Cuánto vale la mensualidad?']);
+    });
+    it('último pendiente «gracias» → no', () => {
+        const pendientes = [f('inbound', '¿Cuánto vale la mensualidad?'), f('inbound', 'gracias')];
+        expect(retomaPermitida({ tipo: 'familia', pendientes, historia: pendientes }).permitida).toBe(false);
+    });
+    it('staff / personal → no', () => {
+        const pendientes = [f('inbound', '¿Cuánto vale la mensualidad?')];
+        expect(retomaPermitida({ tipo: 'staff', pendientes, historia: pendientes }).permitida).toBe(false);
+        expect(retomaPermitida({ tipo: 'personal', pendientes, historia: pendientes }).permitida).toBe(false);
     });
 });
