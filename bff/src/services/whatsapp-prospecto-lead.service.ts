@@ -22,6 +22,7 @@
  * (lleva `canal: 'whatsapp'` y queda con el cupo).
  */
 import { supabase } from '../config/supabase';
+import { celular10 } from './factura-pagador.service';
 import {
     interesesDeProspecto, buscaParaAdulto, edadMencionada, type InteresDeProspecto,
 } from './whatsapp-atencion.service';
@@ -33,18 +34,22 @@ export type EstadoLeadWa = 'nuevo' | 'respondido' | 'agendado' | 'convertido' | 
 const A_STATUS: Record<'nuevo' | 'respondido', 'new' | 'contacted'> = { nuevo: 'new', respondido: 'contacted' };
 const RANGO: Record<string, number> = { new: 0, contacted: 1, converted: 2, discarded: 2 };
 
-/** Mismo formato que la reserva (whatsapp-clase-cortesia `telefonoDelLead`). */
+/**
+ * Mismo formato que la reserva (whatsapp-clase-cortesia `telefonoDelLead`).
+ * Solo un celular COLOMBIANO se recorta a 10 dígitos (`celular10`): los
+ * últimos 10 de un +1 310… también arrancan en 3 y cruzaban con el prospecto
+ * colombiano de ese número (auditoría de privacidad 2026-10-08).
+ */
 export function telefonoDeLeadWa(waId: string): string {
     const d = String(waId ?? '').replace(/\D/g, '');
-    const t10 = d.slice(-10);
-    return /^3\d{9}$/.test(t10) ? t10 : `+${d}`;
+    return celular10(d) ?? `+${d}`;
 }
 
 export function variantesTelefonoLead(waId: string): string[] {
     const d = String(waId ?? '').replace(/\D/g, '');
     if (!d) return [];
-    const t10 = d.slice(-10);
-    return [...new Set([t10, `57${t10}`, `+57${t10}`, d, `+${d}`])];
+    const t10 = celular10(d);
+    return t10 ? [...new Set([t10, `57${t10}`, `+57${t10}`, d, `+${d}`])] : [d, `+${d}`];
 }
 
 export interface ResumenProspecto {

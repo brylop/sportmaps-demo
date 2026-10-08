@@ -54,6 +54,7 @@ import { supabase } from '../config/supabase';
 import type { BotonInteractivo } from './whatsapp.service';
 import { esSinLimite } from './franjas-cortesia.service';
 import { liberarLeadParaReserva } from './whatsapp-prospecto-lead.service';
+import { celular10 } from './factura-pagador.service';
 import {
     rangosDeEscuela, elegirGrupo, textoGrupoParaEdad, textoDesdeQueEdad, preguntaGrupoPorEdad,
     type RangoGrupo, type FuenteEdad, type Genero,
@@ -1768,27 +1769,26 @@ export async function franjasDeSupabase(schoolId: string): Promise<FranjaCortesi
     }
 }
 
-function ultimos10(waId: string): string {
-    return String(waId ?? '').replace(/\D/g, '').slice(-10);
-}
-
 /**
  * El teléfono con que se guarda el prospecto: el celular colombiano de 10
  * dígitos, igual que lo escribe la gente en el formulario. Así el dedupe de
- * 24 h de `submit_school_lead` y la búsqueda de la escuela cruzan.
+ * 24 h de `submit_school_lead` y la búsqueda de la escuela cruzan. Un número
+ * extranjero va completo (`+<dígitos>`): sus últimos 10 pueden ser el celular
+ * de otra persona (auditoría de privacidad 2026-10-08).
  */
 function telefonoDelLead(waId: string): string {
     const d = String(waId ?? '').replace(/\D/g, '');
-    const t10 = d.slice(-10);
-    return /^3\d{9}$/.test(t10) ? t10 : `+${d}`;
+    return celular10(d) ?? `+${d}`;
 }
 
 export async function reservaVigenteDeSupabase(schoolId: string, contactWaId: string): Promise<ReservaVigente | null> {
     try {
-        const t10 = ultimos10(contactWaId);
-        if (t10.length < 10) return null;
-        const digitos = String(contactWaId).replace(/\D/g, '');
-        const variantes = [...new Set([t10, `57${t10}`, `+57${t10}`, digitos, `+${digitos}`])];
+        const digitos = String(contactWaId ?? '').replace(/\D/g, '');
+        if (digitos.length < 10) return null;
+        const t10 = celular10(digitos);
+        const variantes = t10
+            ? [...new Set([t10, `57${t10}`, `+57${t10}`, digitos, `+${digitos}`])]
+            : [digitos, `+${digitos}`];
         const { data, error } = await supabase.from('school_signup_leads')
             .select('id, full_name, created_at, school_trial_slots(id, label, slot_date, start_time, end_time, location)')
             .eq('school_id', schoolId)

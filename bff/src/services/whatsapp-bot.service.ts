@@ -1141,6 +1141,24 @@ async function revisarVinculoPorTelefono(
     const estado = (data as any)?.estado;
     const porTelefono = (data as any)?.parent_id as string | undefined;
 
+    // El número se volvió ambiguo (dos cuentas, o es también el número de
+    // alguien del equipo: auditoría de privacidad 2026-10-08). Si la RPC
+    // deshizo el vínculo —solo lo hace cuando NO lo respalda un OTP del correo
+    // de ese acudiente—, este turno no puede seguir con el parent_id que se
+    // leyó antes: sería contestarle con los pagos de otra familia.
+    if (estado === 'ambiguo') {
+        const { data: ahora } = await supabase
+            .from('whatsapp_conversations')
+            .select('identified')
+            .eq('id', conversationId)
+            .maybeSingle();
+        if (ahora && !(ahora as any).identified) {
+            await identificarPorTelefono(integration, conversationId, contactWaId);
+            return 'corto';
+        }
+        return 'sin_cambio';
+    }
+
     // El telefono confirma lo que ya teniamos, o no sabe: nada que hacer.
     if (estado !== 'identificado' || !porTelefono) return 'sin_cambio';
     if (porTelefono === parentActual) return 'sin_cambio';
@@ -1818,7 +1836,7 @@ async function arrancarOtp(
     correo: string,
 ): Promise<void> {
     const email = correo.toLowerCase();
-    const code = String(Math.floor(100000 + Math.random() * 900000)); // 6 dígitos
+    const code = String(crypto.randomInt(100000, 1000000)); // 6 dígitos, CSPRNG (no Math.random)
     const otpHash = hashOtp(code);
     const expiresAt = new Date(Date.now() + OTP_TTL_MIN * 60_000).toISOString();
 
