@@ -24,6 +24,7 @@ import { runAccountDeletionCycle } from './account-deletion.job';
 import { runPostTrainingReminders } from './post-training-reminders.job';
 import { runWhatsAppQueue } from './whatsapp-queue.job';
 import { runWhatsAppPaymentOutcome } from './whatsapp-payment-outcome.job';
+import { runReceiptReviewAlerts } from './receipt-review-alerts.job';
 import { runWhatsAppMantenimiento } from './whatsapp-mantenimiento.job';
 import { vencerComprobantesColgados } from './whatsapp-cola-vencimiento.job';
 import { runWhatsAppPlantillasSync } from './whatsapp-plantillas-sync.job';
@@ -520,6 +521,28 @@ export function initMaintenanceJobs() {
     });
 
     console.log('[CRON] Aviso de desenlace de comprobantes registrado (cada minuto).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Comprobantes por validar → dueño y admins de la escuela — cada 5 min.
+    //
+    // p50 3,7 h y p90 49 h de la foto a la aprobación (Dynasty, 2026-10-08):
+    // nadie le avisaba a la escuela que había algo esperando. In-app + push:
+    // «comprobante nuevo» agrupado y recordatorio de >2 h (máx. 1 cada 2 h),
+    // nada entre 22:00 y 07:00. Idempotente entre los 3 BFF por versión en
+    // school_receipt_review_alerts. NO aprueba nada.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('*/5 * * * *', async () => {
+        if (process.env.DISABLE_RECEIPT_REVIEW_ALERTS === 'true') return;
+        try {
+            const r = await runReceiptReviewAlerts();
+            if (r.avisos > 0) console.log(`[CRON] Comprobantes por validar: ${r.avisos} aviso(s) a escuelas.`);
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error avisando comprobantes por validar:', err?.message || err);
+        }
+    });
+
+    console.log('[CRON] Avisos de comprobantes por validar registrados (cada 5 min).');
 
     // ────────────────────────────────────────────────────────────────────────
     // Plazo de la promesa del acuse (P1, análisis 2026-10-06) — cada 2 min.

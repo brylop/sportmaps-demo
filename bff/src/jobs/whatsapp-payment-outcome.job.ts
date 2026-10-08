@@ -63,6 +63,35 @@ const cop = (n: number) =>
 /** Estados que son un DESENLACE: hay algo que contarle al acudiente. */
 const RESUELTOS = ['paid', 'rejected', 'glosado'];
 
+/** Estados en que queda un cobro cuyo comprobante se rechazó (la deuda sigue). */
+const VIVOS_TRAS_RECHAZO = ['pending', 'overdue', 'partial'];
+
+export type Desenlace = 'paid' | 'rejected' | 'glosado';
+
+/**
+ * Qué hay que contarle al acudiente sobre el comprobante de ESTA fila, o null si
+ * sigue en revisión. Pura.
+ *
+ * Desde 2026-10-08 rechazar un comprobante NO pone el cobro en 'rejected' (eso
+ * borraba la deuda): `reject_payment_receipt` lo devuelve a pending/overdue y
+ * estampa `receipt_rejected_at`. El rechazo se reconoce por esa marca, y solo si
+ * es POSTERIOR a la llegada de la fila: un rechazo viejo no es el desenlace de
+ * un comprobante nuevo. 'rejected' sigue valiendo para los rechazos de antes.
+ */
+export function desenlaceDelPago(
+    pago: { status: string; receipt_rejected_at?: string | null },
+    filaCreadaEn: string | null | undefined,
+): Desenlace | null {
+    if (RESUELTOS.includes(pago.status)) return pago.status as Desenlace;
+    if (!VIVOS_TRAS_RECHAZO.includes(pago.status) || !pago.receipt_rejected_at) return null;
+    const rechazo = Date.parse(pago.receipt_rejected_at);
+    const llegada = Date.parse(String(filaCreadaEn ?? ''));
+    // Sin fecha de la fila no se puede afirmar que el rechazo sea de este
+    // comprobante: mejor callar que contar un rechazo ajeno.
+    if (!Number.isFinite(rechazo) || !Number.isFinite(llegada)) return null;
+    return rechazo >= llegada ? 'rejected' : null;
+}
+
 // ─── Estado del aviso (puro) ────────────────────────────────────────────────
 
 const SEPARADOR = ' | ';
@@ -214,18 +243,50 @@ export async function registrarAvisoDePagoPorLink(
     }
 }
 
+/**
+ * El aviso de comprobante rechazado, con el motivo que escribió la escuela.
+ * Sin motivo (rechazos viejos) igual dice que el cobro sigue pendiente. Pura.
+ */
+export function textoComprobanteRechazado(monto: string, concepto: string | null, motivo: string | null | undefined): string {
+    const m = String(motivo ?? '').trim();
+    return `La escuela revisó tu comprobante de *${monto}* por *${concepto ?? 'tu cobro'}* y no lo pudo aprobar.` +
+        (m ? `\n\n*Motivo:* ${m}` : '') +
+        '\n\nEl cobro sigue pendiente. Si tienes el comprobante correcto, mándalo por acá y lo reviso enseguida.';
+}
+
 // ─── Envíos ─────────────────────────────────────────────────────────────────
 
 interface PagoDesenlace {
     id: string; status: string; amount: number | string; concept: string | null; rejection_reason: string | null;
     school_id: string; parent_id: string | null; child_id: string | null; unregistered_athlete_id: string | null;
+    receipt_rejected_at?: string | null;
 }
 
 const COLUMNAS_PAGO = 'id, status, amount, concept, rejection_reason, school_id, parent_id, child_id, unregistered_athlete_id';
+/** Con la migración 20261008165728: la marca del rechazo del comprobante. */
+const COLUMNAS_PAGO_CON_RECHAZO = `${COLUMNAS_PAGO}, receipt_rejected_at`;
+let sinMarcaDeRechazo = false;
+
+/**
+ * Lee el pago con la marca de rechazo; sin la migración (42703, columna
+ * inexistente) cae a las columnas de siempre y no lo vuelve a intentar. Sin
+ * esto, un SELECT con una columna que no existe dejaba al job sin avisar nada,
+ * tampoco los pagos confirmados.
+ */
+async function leerPago(id: string): Promise<PagoDesenlace | null> {
+    if (!sinMarcaDeRechazo) {
+        const { data, error } = await supabase.from('payments').select(COLUMNAS_PAGO_CON_RECHAZO).eq('id', id).maybeSingle();
+        if (!error) return (data as PagoDesenlace | null) ?? null;
+        if ((error as { code?: string }).code !== '42703') return null;
+        sinMarcaDeRechazo = true;
+    }
+    const { data } = await supabase.from('payments').select(COLUMNAS_PAGO).eq('id', id).maybeSingle();
+    return (data as PagoDesenlace | null) ?? null;
+}
 
 /** Manda el desenlace por plantilla. Devuelve el estado final del aviso. */
-async function avisarPorPlantilla(pago: PagoDesenlace, telefono: string): Promise<EstadoAviso> {
-    const cual = plantillaDelDesenlace(pago.status, pago.concept);
+async function avisarPorPlantilla(pago: PagoDesenlace, telefono: string, desenlace: Desenlace): Promise<EstadoAviso> {
+    const cual = plantillaDelDesenlace(desenlace, pago.concept);
     if ('motivo' in cual) return { tipo: 'no_entregado', motivo: `ventana cerrada; ${cual.motivo}` };
 
     const [perfil, hijo, sinRegistrar, escuela] = await Promise.all([
@@ -315,11 +376,7 @@ export async function runWhatsAppPaymentOutcome(log?: Logger): Promise<{ avisado
         if (previo.aviso.tipo === 'reintento' && previo.aviso.proximo > ahora) continue;
         const intentosPrevios = previo.aviso.tipo === 'reintento' ? previo.aviso.intentos : 0;
 
-        const { data: pago } = await supabase
-            .from('payments')
-            .select(COLUMNAS_PAGO)
-            .eq('id', fila.result_ref_id as string)
-            .maybeSingle();
+        const pago = await leerPago(fila.result_ref_id as string);
 
         const porLink = (fila as any).message_type === MESSAGE_TYPE_LINK;
         // Link de pago: solo el pago confirmado es desenlace (un intento
@@ -341,7 +398,8 @@ export async function runWhatsAppPaymentOutcome(log?: Logger): Promise<{ avisado
 
         // Todavía en revisión: no hay nada que contar. Se vuelve a mirar en la
         // siguiente vuelta.
-        if (!pago || !RESUELTOS.includes(pago.status as string)) continue;
+        const desenlace = pago ? desenlaceDelPago(pago, (fila as any).created_at) : null;
+        if (!pago || !desenlace) continue;
 
         const { data: integration } = await supabase
             .from('school_whatsapp_integrations')
@@ -363,19 +421,14 @@ export async function runWhatsAppPaymentOutcome(log?: Logger): Promise<{ avisado
 
         const monto = cop(Number(pago.amount));
         let texto: string;
-        if (pago.status === 'paid' && porLink) {
+        if (desenlace === 'paid' && porLink) {
             texto = `¡Listo! ✅ Recibimos tu pago en línea de *${monto}* por *${pago.concept}*. Queda al día.`;
-        } else if (pago.status === 'paid') {
+        } else if (desenlace === 'paid') {
             texto = `¡Listo! ✅ La escuela confirmó tu pago de *${monto}* por *${pago.concept}*. Queda al día.`;
-        } else if (pago.status === 'rejected') {
+        } else if (desenlace === 'rejected') {
             // El motivo importa: un rechazo sin explicación deja al acudiente sin
             // saber qué corregir, que es justo el caso que originó todo esto.
-            const motivo = pago.rejection_reason
-                ? `\n\n${pago.rejection_reason}`
-                : '';
-            texto =
-                `La escuela revisó tu comprobante de *${monto}* por *${pago.concept}* y no lo pudo validar.${motivo}` +
-                '\n\nSi tienes el comprobante correcto, mándalo por acá y lo valido enseguida.';
+            texto = textoComprobanteRechazado(monto, pago.concept, pago.rejection_reason);
         } else {
             texto =
                 `La escuela necesita una aclaración sobre tu pago de *${monto}* por *${pago.concept}*. ` +
@@ -414,7 +467,7 @@ export async function runWhatsAppPaymentOutcome(log?: Logger): Promise<{ avisado
         // Fuera de la ventana de 24 h el texto libre no llega (131047): directo
         // a la plantilla, sin gastar un intento que Meta va a rechazar.
         if (!ventanaAbierta((conv as any)?.last_inbound_at ?? null, ahora)) {
-            const final = await avisarPorPlantilla(pago as PagoDesenlace, fila.wa_phone_number as string);
+            const final = await avisarPorPlantilla(pago, fila.wa_phone_number as string, desenlace);
             await guardarAviso(idsReservados, previo.base, final);
             if (final.tipo === 'por_plantilla') avisados++;
             log?.info?.({ queueId: fila.id, paymentId: pago.id, aviso: final }, '[wa-outcome] ventana cerrada');
@@ -427,7 +480,7 @@ export async function runWhatsAppPaymentOutcome(log?: Logger): Promise<{ avisado
         // sirve. Va al pie del mismo mensaje (no como uno aparte), con las
         // mismas reglas que en el bot (con cuenta, sin opt-in, sin baja, sin
         // haber dicho que no, una vez cada DIAS_PARA_REPREGUNTAR).
-        const consentimiento = (pago.status === 'paid' && !dadoDeBaja && conv?.id)
+        const consentimiento = (desenlace === 'paid' && !dadoDeBaja && conv?.id)
             ? await anexoDeConsentimientoAlPie(integration as WhatsAppIntegration, conv.id as string,
                 fila.wa_phone_number as string, (pago as any).parent_id ?? null)
             : null;
@@ -453,7 +506,7 @@ export async function runWhatsAppPaymentOutcome(log?: Logger): Promise<{ avisado
             // Ventana cerrada en el acto (el último entrante estaba al borde):
             // la plantilla, una vez.
             if (esErrorDeVentana(enviado.error)) {
-                const r = await avisarPorPlantilla(pago as PagoDesenlace, fila.wa_phone_number as string);
+                const r = await avisarPorPlantilla(pago, fila.wa_phone_number as string, desenlace);
                 await guardarAviso(idsReservados, previo.base, r);
                 if (r.tipo === 'por_plantilla') avisados++;
                 log?.info?.({ queueId: fila.id, paymentId: pago.id, aviso: r }, '[wa-outcome] texto rechazado por ventana');
@@ -483,7 +536,7 @@ export async function runWhatsAppPaymentOutcome(log?: Logger): Promise<{ avisado
                 p_type: tipo,
                 p_text_body: final,
                 p_payload: {
-                    step: `resultado_${pago.status}`, queue_id: fila.id, payment_id: pago.id,
+                    step: `resultado_${desenlace}`, queue_id: fila.id, payment_id: pago.id,
                     // `pregunta` es lo que miran preguntaAbierta y yaSePreguntoConsentimiento.
                     ...(consentimiento ? { pregunta: 'ask_consent' } : {}),
                     ...(tipo === 'interactive' ? { botones: consentimiento?.botones } : {}),
@@ -496,7 +549,7 @@ export async function runWhatsAppPaymentOutcome(log?: Logger): Promise<{ avisado
         if (previo.aviso.tipo !== 'nuevo') await guardarAviso(idsReservados, previo.base, { tipo: 'nuevo' });
 
         avisados++;
-        log?.info?.({ queueId: fila.id, paymentId: pago.id, estado: pago.status }, '[wa-outcome] avisado');
+        log?.info?.({ queueId: fila.id, paymentId: pago.id, estado: pago.status, desenlace }, '[wa-outcome] avisado');
     }
 
     return { avisados };
@@ -530,7 +583,7 @@ export async function reintentarAvisosFueraDeVentana(log?: Logger, ahora = Date.
     let mandados = 0;
     for (const [paymentId, queueId] of porPago) {
         const { data: fila } = await supabase.from('whatsapp_inbound_queue')
-            .select('id, wa_phone_number, error_message')
+            .select('id, wa_phone_number, error_message, created_at')
             .eq('id', queueId).maybeSingle();
         if (!fila) continue;
         const previo = separarAviso((fila as any).error_message);
@@ -544,9 +597,10 @@ export async function reintentarAvisosFueraDeVentana(log?: Logger, ahora = Date.
         const { data: tomadas } = await toma.select('id');
         if (!tomadas?.length) continue;
 
-        const { data: pago } = await supabase.from('payments').select(COLUMNAS_PAGO).eq('id', paymentId).maybeSingle();
-        const final: EstadoAviso = pago && RESUELTOS.includes((pago as any).status)
-            ? await avisarPorPlantilla(pago as PagoDesenlace, (fila as any).wa_phone_number)
+        const pago = await leerPago(paymentId);
+        const desenlace = pago ? desenlaceDelPago(pago, (fila as any).created_at) : null;
+        const final: EstadoAviso = pago && desenlace
+            ? await avisarPorPlantilla(pago, (fila as any).wa_phone_number, desenlace)
             : { tipo: 'no_entregado', motivo: 'ventana cerrada; el pago ya no está resuelto' };
         await guardarAviso([queueId], previo.base, final);
         if (final.tipo === 'por_plantilla') mandados++;
