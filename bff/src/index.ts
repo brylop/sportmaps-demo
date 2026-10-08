@@ -43,7 +43,6 @@ import adminSupportRouter from './routes/admin-support.routes';
 import supportRouter from './routes/support.routes';
 import platformInvoicingRouter from './routes/platform-invoicing.routes';
 import paymentTokensRouter from './routes/payment-tokens.routes';
-import recurringRouter from './routes/recurring.routes';
 import { vendorPayoutsRouter, adminPayoutsRouter } from './routes/vendor-payouts.routes';
 import vendorBankAccountsRouter from './routes/vendor-bank-accounts.routes';
 import shippingRouter, { shippingWebhookRouter, vendorShippingRouter } from './routes/shipping.routes';
@@ -115,6 +114,8 @@ import devicesRouter from './routes/devices.routes';
 import pwaRouter from './routes/pwa.routes';
 import mobileRouter from './routes/mobile.routes';
 import internalNotificationsRouter from './routes/internal-notifications.routes';
+import internalAutopayRouter from './routes/internal-autopay.routes';
+import autopayRouter from './routes/autopay.routes';
 import { requireStoreEnabled } from './services/store-flag.service';
 
 const app = express();
@@ -359,6 +360,7 @@ app.use('/api/v1/mobile', pwaLimiter, mobileRouter);
 // DB). Sin JWT: se valida por header secreto (fail-closed). Sin generalLimiter:
 // el disparo es 1 por notificación y el claim es idempotente por lease.
 app.use('/internal/notifications', internalNotificationsRouter);
+app.use('/internal/autopay', internalAutopayRouter);
 app.use('/api/v1/offerings', generalLimiter, offeringsRouter);
 app.use('/api/v1/sessions', generalLimiter, sessionBookingsRouter);
 app.use('/api/v1/session-bookings', generalLimiter, sessionBookingsRouter);
@@ -379,7 +381,15 @@ app.use('/api/v1/payments', paymentLimiter, paymentsRouter);
 app.use('/api/v1/admin/payments', generalLimiter, adminPaymentsRouter);
 // payment-tokens y recurring: state-changing → CSRF header + cap especifico
 app.use('/api/v1/payment-tokens', cardAlterLimiter, requireCsrfHeader, paymentTokensRouter);
-app.use('/api/v1/recurring', paymentLimiter, requireCsrfHeader, recurringRouter);
+// /recurring (motor viejo, B11 del spec de débito): retirado en F2. Sus queries
+// apuntan al esquema de 2026-05 que nunca se aplicó y la tabla ahora es la del
+// débito nuevo (mig 20261005133733). El débito vive en autopay.service +
+// /internal/autopay; la API de familias llega en F3.
+// Débito automático F3: familia (/mine, alta, cambios, «ya pagué») y escuela (/school/:id/*).
+app.use('/api/v1/autopay', paymentLimiter, requireCsrfHeader, autopayRouter);
+app.use('/api/v1/recurring', paymentLimiter, (_req, res) => {
+  res.status(410).json({ error: 'Este servicio fue reemplazado.', code: 'recurring_v1_retired' });
+});
 app.use('/api/v1/vendor', generalLimiter, vendorPayoutsRouter);
 app.use('/api/v1/vendor/bank-accounts', generalLimiter, vendorBankAccountsRouter);
 // Shipping publico: /api/v1/shipping/{quote,carriers,tracking/:n}

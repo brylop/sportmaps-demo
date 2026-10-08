@@ -40,6 +40,7 @@ import { isGatewayPayment } from '@/lib/paymentOrigin';
 import { PaymentAccountsEditor } from '@/components/payment/PaymentAccountsEditor';
 import { SellableCatalogCard } from '@/components/settings/SellableCatalogCard';
 import { MonthCloseTab } from '@/components/finances/MonthCloseTab';
+import { DebitoAutomaticoPanel } from '@/components/autopay/DebitoAutomaticoPanel';
 import {
   resolvePaymentAccounts,
   serializePaymentAccounts,
@@ -450,7 +451,7 @@ export default function PaymentsAutomationPage() {
   // acá a abrir el mes — sin esto, quien llega desde ese link caía siempre en
   // "Cobros" y el botón de abrir mes, que vive en "Config", quedaba invisible.
   const [searchParams, setSearchParams] = useSearchParams();
-  const PAYMENTS_TABS = ['recurrent', 'teams', 'glosas', 'conciliacion', 'history', 'cierre', 'config'] as const;
+  const PAYMENTS_TABS = ['recurrent', 'teams', 'glosas', 'conciliacion', 'history', 'cierre', 'debito', 'config'] as const;
   const tabParam = searchParams.get('tab');
   const activeTab = (PAYMENTS_TABS as readonly string[]).includes(tabParam || '') ? tabParam! : 'recurrent';
   // Se incrementa al conectar/quitar una pasarela: remonta SportMaps Pay para
@@ -1463,6 +1464,7 @@ export default function PaymentsAutomationPage() {
             <TabsTrigger value="conciliacion" className="text-xs sm:text-sm">Conciliación</TabsTrigger>
             <TabsTrigger value="history" className="text-xs sm:text-sm">Historial</TabsTrigger>
             <TabsTrigger value="cierre" className="text-xs sm:text-sm">Cierre</TabsTrigger>
+            <TabsTrigger value="debito" className="text-xs sm:text-sm">Débito automático</TabsTrigger>
             <TabsTrigger value="config" className="text-xs sm:text-sm">Config</TabsTrigger>
           </TabsList>
         </div>
@@ -2260,6 +2262,15 @@ export default function PaymentsAutomationPage() {
         </TabsContent>
 
         {/* ── Tab: Configuración (sin cambios de lógica, solo responsive) ── */}
+        {/* ── Tab: Débito automático (F3) ──────────────────────────────── */}
+        <TabsContent value="debito">
+          {schoolId ? (
+            <DebitoAutomaticoPanel schoolId={schoolId} />
+          ) : (
+            <p className="text-sm text-muted-foreground">Selecciona una escuela para ver el débito automático.</p>
+          )}
+        </TabsContent>
+
         <TabsContent value="config" className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
