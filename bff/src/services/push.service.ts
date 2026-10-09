@@ -10,6 +10,7 @@
 import type { SendResponse } from 'firebase-admin/messaging';
 import { getMessaging } from '../config/firebase';
 import { supabase } from '../config/supabase';
+import { enCortafuegos } from '../config/cortafuegos-simulacion';
 
 export interface PushPayload {
     title: string;
@@ -38,6 +39,8 @@ const DEAD_TOKEN_CODES = new Set([
  * No-op seguro si push no esta configurado (devuelve enabled:false).
  */
 export async function sendToUser(userId: string, payload: PushPayload): Promise<PushResult> {
+    // Turno simulado del modo pruebas (canal de plataforma): no se avisa a nadie.
+    if (enCortafuegos()) return { enabled: false, sent: 0, failed: 0, revoked: 0, reason: 'simulacion' };
     const messaging = getMessaging();
     if (!messaging) {
         return { enabled: false, sent: 0, failed: 0, revoked: 0, reason: 'push_not_configured' };

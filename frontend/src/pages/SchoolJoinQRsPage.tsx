@@ -262,7 +262,7 @@ export default function SchoolJoinQRsPage() {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       if (!token) throw new Error('No session');
-      const url = (import.meta.env.VITE_BFF_URL || 'https://sportmaps-bff.onrender.com') + `/api/v1/join-qr/${qr.slug}/poster.pdf`;
+      const url = (import.meta.env.VITE_BFF_URL || 'https://sportmaps-bff-prod.onrender.com') + `/api/v1/join-qr/${qr.slug}/poster.pdf`;
       const r = await fetch(url, {
         headers: { Authorization: `Bearer ${token}`, 'x-school-id': schoolId || '' },
       });

@@ -21,7 +21,7 @@ import { supabase } from '@/integrations/supabase/client';
  * Mapea según hostname:
  *   - localhost/127.0.0.1 → http://localhost:3000
  *   - dev.sportmaps.co → sportmaps-bff-dev.onrender.com
- *   - resto → sportmaps-bff.onrender.com (prod)
+ *   - resto → sportmaps-bff-prod.onrender.com (prod)
  * VITE_BFF_URL override esta logica.
  */
 function resolveBffUrl(): string {
@@ -37,7 +37,7 @@ function resolveBffUrl(): string {
     if (hostname === 'dev.sportmaps.co' || hostname.startsWith('dev.') || hostname.includes('preview') || hostname.includes('vercel.app')) {
         return 'https://sportmaps-bff-dev.onrender.com';
     }
-    return 'https://sportmaps-bff.onrender.com';
+    return 'https://sportmaps-bff-prod.onrender.com';
 }
 export const BFF_URL = resolveBffUrl();
 

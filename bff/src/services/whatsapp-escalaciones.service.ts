@@ -26,6 +26,7 @@
 
 import { supabase } from '../config/supabase';
 import { sendToUser } from './push.service';
+import { avisarCasoPorPlataforma } from './plataforma-wa-avisos.service';
 import { uuidDeClave, etiquetaDeContacto } from './avisos-correo.service';
 import { esSoloAdjunto, esHumanoDeLaEscuela, type FilaReciente } from './whatsapp-reglas-turno';
 
@@ -331,6 +332,12 @@ export async function avisarEscalacionAlEquipo(a: AvisoDeEscalacion): Promise<nu
         const quien = etiquetaDeContacto(a.contactName, a.contactWaId);
         const urgente = a.urgencia === 'urgente';
         const { titulo, cuerpo } = textoDelAvisoAlEquipo(a, quien);
+        // Canal de plataforma: al WhatsApp personal de la dueña/admin con opt-in.
+        // Idempotente por su propia reserva (misma ancla/etapa). Flag apagado = nada.
+        avisarCasoPorPlataforma({
+            schoolId: a.schoolId, conversationId: a.conversationId, ancla: a.ancla, etapa: a.etapa,
+            urgente, retiro: a.tema === 'retiro', titulo, cuerpo,
+        });
         let nuevas = 0;
         await Promise.allSettled(ids.map(async (uid) => {
             const { error } = await supabase.from('notifications').insert({
