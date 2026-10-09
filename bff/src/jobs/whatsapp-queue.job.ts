@@ -1268,7 +1268,14 @@ async function escalarALaEscuela(
     let consulta = esConsultaSobreCobro(await textosCercanos(fila));
     if (!consulta) {
         try {
-            consulta = !pareceComprobanteDePago(await extractReceipt(bajada.base64, bajada.mime));
+            const ocr = await extractReceipt(bajada.base64, bajada.mime);
+            // Ni comprobante ni consulta ni nada que hable de pagar (la foto del
+            // entrenamiento): sin responder, el archivo ya quedó en el buzón.
+            if (ocr.isReceipt === false && !(await hayContextoDePago(fila, conversationId, ocr))) {
+                await cerrarNoEsComprobanteSinContexto(fila, log);
+                return;
+            }
+            consulta = !pareceComprobanteDePago(ocr);
         } catch (err: any) {
             // Sin lectura no hay veredicto: sigue como antes —lo mira una persona igual—.
             log?.warn?.({ queueId: fila.id, err: err?.message ?? err }, '[wa-queue] OCR no disponible al escalar');
@@ -1368,8 +1375,10 @@ export function textosHablanDePago(textos: (string | null | undefined)[]): boole
     });
 }
 
-/** El pie del archivo y lo que el contacto escribió 15 min antes / 5 min después. */
-async function textosDelContacto(fila: FilaCola, conversationId: string | null): Promise<(string | null | undefined)[]> {
+/** El pie del archivo y lo que el contacto escribió `antesMin` antes / `despuesMin` después (15/5 por defecto). */
+async function textosDelContacto(
+    fila: FilaCola, conversationId: string | null, antesMin = 15, despuesMin = 5,
+): Promise<(string | null | undefined)[]> {
     const textos: (string | null | undefined)[] = [fila.media_caption];
     if (!conversationId) return textos;
     try {
@@ -1378,12 +1387,74 @@ async function textosDelContacto(fila: FilaCola, conversationId: string | null):
             .select('text_body')
             .eq('conversation_id', conversationId)
             .eq('direction', 'inbound')
-            .gte('created_at', new Date(base - 15 * 60_000).toISOString())
-            .lte('created_at', new Date(base + 5 * 60_000).toISOString())
+            .gte('created_at', new Date(base - antesMin * 60_000).toISOString())
+            .lte('created_at', new Date(base + despuesMin * 60_000).toISOString())
             .limit(30);
         for (const m of (Array.isArray(data) ? data : []) as any[]) textos.push(m?.text_body);
     } catch { /* solo el pie */ }
     return textos;
+}
+
+// ─── «No es un comprobante» solo con contexto de pago (2026-10-09) ──────────
+//
+// Decisión: el bot responde a una imagen o un documento SOLO si es un pago. En
+// 7 días «Revisé el archivo… *no es un comprobante de pago*» salió 11 veces y
+// ninguna venía con texto de pago: eran fotos del entrenamiento y similares.
+// Ahora ese aviso sale solo si (a) el pie o un texto de la misma persona en
+// ±10 min habla de un pago, o (b) la lectura que YA se hizo muestra una
+// pantalla bancaria, un QR o una llave de pago (sin llamadas extra). Si no,
+// la fila se cierra en silencio y queda en el buzón.
+
+/** Lo que alguien escribe cuando lo que manda tiene que ver con pagar. Sobre texto normalizado. */
+const PISTA_DE_CONTEXTO_DE_PAGO = new RegExp(
+    '\\b(pag(o|os|ue|ar|ado|ada|ando|amos|aste|aron)|comprobantes?|soportes?|transferencias?|transferi(do)?|transfiero'
+    + '|consigne|consigno|consignacion|consignado|mensualidad(es)?|cuotas?|abono|recibo'
+    + '|nequi|daviplata|bancolombia|davivienda|bre ?b|llaves?|qr)\\b'
+    + '|\\bmes (de )?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\\b');
+
+/** Lo que se ve escrito en una pantalla bancaria, un QR o una llave para pagar. */
+const PISTA_DE_PANTALLA_DE_PAGO = new RegExp(
+    '\\b(llaves?|bre ?b|codigo qr|qr|escanea|nequi|daviplata|bancolombia|davivienda|transferencias?|transferir'
+    + '|cuenta de ahorros|cuenta corriente|numero de cuenta|pagar|pago)\\b');
+
+/** Pura: ¿el pie o los textos cercanos de la persona hablan de un pago? */
+export function textosConContextoDePago(textos: (string | null | undefined)[]): boolean {
+    return textos.some((t) => {
+        const n = normalizarFrase(t);
+        return !!n && PISTA_DE_CONTEXTO_DE_PAGO.test(n);
+    });
+}
+
+/**
+ * Pura: ¿la lectura (la misma que ya se hizo) muestra una pantalla bancaria,
+ * un QR o una llave de pago? Banco reconocido, destino (cuenta/celular/llave)
+ * o texto visible de pago. Una foto del entrenamiento no trae nada de eso.
+ */
+export function lecturaSugierePantallaDePago(
+    ocr: Partial<Awaited<ReturnType<typeof extractReceipt>>> | null | undefined,
+): boolean {
+    if (!ocr) return false;
+    if (ocr.bank && ocr.bank !== 'Otro') return true;
+    if (ocr.destination && String(ocr.destination).trim()) return true;
+    const n = normalizarFrase(ocr.rawText);
+    return !!n && PISTA_DE_PANTALLA_DE_PAGO.test(n);
+}
+
+/** ¿Hay contexto de pago para decirle «no es un comprobante»? Nunca lanza. */
+async function hayContextoDePago(
+    fila: FilaCola, conversationId: string | null,
+    ocr: Partial<Awaited<ReturnType<typeof extractReceipt>>> | null | undefined,
+): Promise<boolean> {
+    if (lecturaSugierePantallaDePago(ocr)) return true;
+    return textosConContextoDePago(await textosDelContacto(fila, conversationId, 10, 10));
+}
+
+export const MOTIVO_NO_ES_COMPROBANTE_SIN_CONTEXTO = 'no_es_comprobante_sin_contexto';
+
+/** El archivo no es un pago y nada habla de pagar: sin responder, queda en el buzón. */
+async function cerrarNoEsComprobanteSinContexto(fila: FilaCola, log?: Logger): Promise<void> {
+    await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: MOTIVO_NO_ES_COMPROBANTE_SIN_CONTEXTO });
+    log?.info?.({ queueId: fila.id }, '[wa-queue] no es comprobante y no habla de pago: sin respuesta');
 }
 
 /**
@@ -1477,6 +1548,10 @@ async function comprobanteDeFamiliaSinCuenta(
     }
     if (!pareceComprobanteDePago(ocr)) {
         if (ocr.isReceipt === false && !esConsultaSobreCobro(await textosCercanos(fila))) {
+            if (!(await hayContextoDePago(fila, conversationId, ocr))) {
+                await cerrarNoEsComprobanteSinContexto(fila, log);
+                return;
+            }
             await responder(M.noEsComprobante, 'no_es_comprobante');
             await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'no es un comprobante' });
             return;
@@ -1911,7 +1986,14 @@ async function procesarFilaInterna(
 
     // 5. ¿Es siquiera un comprobante? Este es el caso del papá que sube el QR de
     //    pago en vez de la transferencia — el error más probable del flujo.
+    //    Solo con contexto de pago (pie/texto de ±10 min, o la lectura muestra
+    //    una pantalla bancaria/QR/llave): a una foto del entrenamiento no se le
+    //    contesta (2026-10-09).
     if (ocr.isReceipt === false) {
+        if (!(await hayContextoDePago(fila, conversationId, ocr))) {
+            await cerrarNoEsComprobanteSinContexto(fila, log);
+            return;
+        }
         await responder(M.noEsComprobante, 'no_es_comprobante');
         await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'no es un comprobante' });
         return;

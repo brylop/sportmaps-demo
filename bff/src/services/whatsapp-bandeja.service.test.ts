@@ -32,6 +32,7 @@ describe('motivoDeFila / clasificarFila', () => {
         ['bot_apagado', 'bot_apagado', 'revisar'],
         ['recuperado: no_es_comprobante — el archivo no es un comprobante', 'no_es_comprobante', 'informativo'],
         ['no es un comprobante', 'no_es_comprobante', 'informativo'],
+        ['no_es_comprobante_sin_contexto', 'no_es_comprobante', 'informativo'],
         ['consulta_no_comprobante:texto', 'no_es_comprobante', 'informativo'],
         ['recuperado: ya_registrado — ya hay un pago paid de 180000', 'ya_registrado', 'informativo'],
         ['referencia ya usada: M123', 'ya_registrado', 'informativo'],
