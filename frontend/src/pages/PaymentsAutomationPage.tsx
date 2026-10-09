@@ -201,19 +201,55 @@ function OcrMatchBadge({ payment }: { payment: { amount: number; ocr_amount?: nu
 
 // Badge read-only del veredicto de reglas (modo sombra, Fase 2). Informativo:
 // NO cambia la decisión de aprobar/rechazar — sirve para calibrar antes de activar.
-function VerdictBadge({ verdict }: { verdict?: string | null }) {
+// Motivo corto por código de regla, para que la fila diga POR QUÉ es amarillo
+// sin abrir el comprobante. El texto completo queda en el title.
+const VERDICT_REASON_SHORT: Record<string, string> = {
+  MONTO_DIFIERE: 'Monto distinto',
+  CAMPOS_ILEGIBLES: 'Datos ilegibles',
+  DESTINO_AUSENTE: 'Sin cuenta destino',
+  DESTINO_NO_COINCIDE: 'Otra cuenta destino',
+  FECHA_FUERA_VENTANA: 'Fecha vieja',
+  FECHA_FUTURA: 'Fecha futura',
+  FORMATO_REFERENCIA: 'Referencia rara',
+  IMAGEN_DUPLICADA: 'Imagen repetida',
+  REFERENCIA_DUPLICADA: 'Referencia repetida',
+  IS_TRANSACTION_LIST: 'Lista de movimientos',
+  NOT_A_RECEIPT: 'No es comprobante',
+  POSIBLE_MANIPULACION: 'Posible edición',
+};
+
+function VerdictBadge({ verdict, reasons }: { verdict?: string | null; reasons?: unknown[] | null }) {
   if (!verdict) return null;
-  const cfg: Record<string, { label: string; className: string }> = {
-    verde: { label: 'Veredicto: verde', className: 'bg-green-50 text-green-700 border-green-300' },
-    amarillo: { label: 'Veredicto: amarillo', className: 'bg-amber-50 text-amber-700 border-amber-300' },
-    rojo: { label: 'Veredicto: rojo', className: 'bg-red-50 text-red-700 border-red-300' },
+  const cfg: Record<string, { label: string; className: string; dot: string; text: string }> = {
+    verde: { label: 'Verde', className: 'bg-green-50 text-green-700 border-green-300', dot: 'bg-green-500', text: 'text-green-700' },
+    amarillo: { label: 'Amarillo', className: 'bg-amber-50 text-amber-700 border-amber-300', dot: 'bg-amber-500', text: 'text-amber-700' },
+    rojo: { label: 'Rojo', className: 'bg-red-50 text-red-700 border-red-300', dot: 'bg-red-500', text: 'text-red-700' },
   };
   const c = cfg[verdict];
   if (!c) return null;
+  const list = (Array.isArray(reasons) ? reasons : []) as Array<{ code?: string; message?: string }>;
+  const short = list.map((r) => (r.code && VERDICT_REASON_SHORT[r.code]) || null).filter(Boolean) as string[];
+  const title = ['Veredicto automático de reglas (informativo, no decide)', ...list.map((r) => r.message).filter(Boolean)].join('\n');
   return (
-    <Badge variant="outline" title="Veredicto automático de reglas (informativo, no decide)" className={`text-[10px] py-0 h-5 ${c.className}`}>
-      {c.label}
-    </Badge>
+    <div className="flex flex-col items-start gap-0.5" title={title}>
+      <Badge variant="outline" className={`text-[10px] py-0 h-5 whitespace-nowrap gap-1 ${c.className}`}>
+        <span className={`h-1.5 w-1.5 rounded-full ${c.dot}`} aria-hidden />
+        {c.label}
+      </Badge>
+      {short.length > 0 && (
+        <span className={`text-[10px] leading-tight ${c.text}`}>{short.join(' · ')}</span>
+      )}
+    </div>
+  );
+}
+
+/** Pie de foto que mandó la familia por WhatsApp, citado tal cual. */
+function FamilyNote({ note }: { note?: { pie: string } | null }) {
+  if (!note?.pie) return null;
+  return (
+    <p className="mt-1 max-w-[260px] text-[11px] leading-snug text-slate-600 italic border-l-2 border-emerald-300 pl-2" title="Mensaje de la familia con el comprobante (WhatsApp)">
+      «{note.pie}»
+    </p>
   );
 }
 
@@ -470,6 +506,10 @@ export default function PaymentsAutomationPage() {
   const esPlatformAdmin = profile?.role === 'admin' || profile?.role === 'super_admin';
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState<PaymentTransaction[]>([]);
+  // Lo que la familia escribió con la foto por WhatsApp («envío saldo sept 15 -
+  // oct 15»), por cobro. Vive en la cola del bot, no en `payments`: sin esto la
+  // escuela aprobaba sin ver la explicación (Dynasty 2026-10-09).
+  const [familyNotes, setFamilyNotes] = useState<Record<string, { pie: string; recibido_at: string | null }>>({});
   const [historyTruncated, setHistoryTruncated] = useState(false);
   // KPIs agregados en DB (school_payment_kpis). NO se derivan de `payments`:
   // esa lista está paginada a 100 filas y calcular las tarjetas sobre ella
@@ -873,6 +913,20 @@ export default function PaymentsAutomationPage() {
         team: p.team,
         plan: p.plan,
       })));
+
+      // Pies de foto del bot. Informativo: si el BFF falla o aún no tiene la
+      // ruta, la cola se ve igual que antes.
+      const noteIds = ((data as any[]) || [])
+        .filter((p) => p.receipt_url && (p.status === 'awaiting_approval' || p.status === 'partial'))
+        .map((p) => p.id as string)
+        .slice(0, 100);
+      if (noteIds.length) {
+        bffClient.get<{ notas: Record<string, { pie: string; recibido_at: string | null }> }>(
+          `/api/v1/whatsapp/${schoolId}/notas-de-comprobantes?payment_ids=${noteIds.join(',')}`,
+        ).then((r) => setFamilyNotes(r?.notas ?? {}), () => setFamilyNotes({}));
+      } else {
+        setFamilyNotes({});
+      }
     } catch (error: unknown) {
       toast({ title: 'Error al cargar pagos', description: getUserFriendlyError(error), variant: 'destructive' });
     } finally {
@@ -1547,6 +1601,7 @@ export default function PaymentsAutomationPage() {
                               </div>
                             )}
                             <p className="text-xs text-muted-foreground">{(payment as any).parent_responsible || '—'}</p>
+                            <FamilyNote note={familyNotes[payment.id]} />
                           </div>
                           <div className="text-right shrink-0">
                             <p className="font-bold text-primary text-sm">{formatCurrency(payment.amount)}</p>
@@ -1558,7 +1613,7 @@ export default function PaymentsAutomationPage() {
                               ) : (
                                 <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200">Inscripción QR</Badge>
                               )}
-                              <VerdictBadge verdict={payment.receipt_verdict} />
+                              <VerdictBadge verdict={payment.receipt_verdict} reasons={payment.receipt_verdict_reasons} />
                             </div>
                           </div>
                         </div>
@@ -1635,6 +1690,7 @@ export default function PaymentsAutomationPage() {
                                     <AlertTriangle className="h-3 w-3" /> Este mes ya fue pagado y aprobado
                                   </div>
                                 )}
+                                <FamilyNote note={familyNotes[payment.id]} />
                               </div>
                             </TableCell>
                             <TableCell><span className="text-sm">{(payment as any).parent_responsible || <span className="text-muted-foreground text-xs">—</span>}</span></TableCell>
@@ -1666,7 +1722,7 @@ export default function PaymentsAutomationPage() {
                                   <Button variant="outline" size="sm" className="h-8 gap-1 text-blue-600 border-blue-200 bg-blue-50" onClick={() => handleShowProof(payment)}>
                                     <Eye className="h-3 w-3" /> Ver
                                   </Button>
-                                  <VerdictBadge verdict={payment.receipt_verdict} />
+                                  <VerdictBadge verdict={payment.receipt_verdict} reasons={payment.receipt_verdict_reasons} />
                                 </div>
                               ) : (
                                 <span className="text-xs text-muted-foreground">—</span>
@@ -2901,6 +2957,7 @@ export default function PaymentsAutomationPage() {
         open={!!paymentToApprove}
         onOpenChange={(open) => !open && setPaymentToApprove(null)}
         payment={paymentToApprove}
+        familyNote={paymentToApprove ? familyNotes[paymentToApprove.id]?.pie ?? null : null}
         onSuccess={() => {
           setPaymentToApprove(null);
           fetchPayments();

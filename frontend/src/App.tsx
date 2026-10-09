@@ -660,7 +660,9 @@ const App = () => (
                           le muestra únicamente el botón y el BFF es el gate real). */}
                       <Route path="school/enrollment-intake" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
-                          <EnrollmentIntakeInboxPage />
+                          <ModuleGate moduleKey="deportistas_matriculas_por_revisar">
+                            <EnrollmentIntakeInboxPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       {/* El plan lo ve SOLO quien lo paga. Estar asociado a una entidad no
