@@ -105,6 +105,12 @@ export async function conEnlacesDePago<T extends PagoConEnlace>(
 ): Promise<T[]> {
     const lista = Array.isArray(pagos) ? pagos : [];
     if (!parentId || !lista.some((p) => p?.debe_pagarse === true)) return lista;
+    // Un comprobante de este chat en camino (en la cola, o esperando que la
+    // familia diga a cuál cobro va): no se ofrece ni se registra un link de
+    // pago. Dynasty 2026-10-09: el modelo listó los pendientes con link 30 s
+    // después de la foto y quedó un `payment_link` sobre el MISMO cobro que
+    // el comprobante terminó pagando.
+    if (aviso && await comprobanteEnCamino(aviso.integrationId, aviso.waPhone)) return lista;
     try {
         const base = appPublica();
         const { data, error } = await supabase
@@ -145,6 +151,41 @@ export async function conEnlacesDePago<T extends PagoConEnlace>(
     } catch (e: any) {
         console.warn('[whatsapp-enlaces-de-pago] sin enlaces', { error: e?.message });
         return lista;
+    }
+}
+
+/** Cuánto hacia atrás cuenta un comprobante de la cola como «en camino». */
+export const VENTANA_COMPROBANTE_EN_CAMINO_MIN = 30;
+
+/**
+ * ¿Alguna fila de comprobante de este número sigue abierta (pendiente, en
+ * proceso o esperando la respuesta de la familia) desde hace menos de 30 min?
+ * Pura.
+ */
+export function hayComprobanteEnCamino(
+    filas: { status?: string | null; message_type?: string | null; created_at?: string | null }[],
+    ahora = Date.now(),
+): boolean {
+    const desde = ahora - VENTANA_COMPROBANTE_EN_CAMINO_MIN * 60_000;
+    return (Array.isArray(filas) ? filas : []).some((f) =>
+        ['pending', 'processing', 'waiting_user'].includes(String(f?.status ?? ''))
+        && f?.message_type !== 'payment_link'
+        && Date.parse(String(f?.created_at ?? '')) >= desde);
+}
+
+/** Lee la cola del número y aplica `hayComprobanteEnCamino`. Ante un error, no bloquea. */
+async function comprobanteEnCamino(integrationId: string, waPhone: string): Promise<boolean> {
+    try {
+        const { data } = await supabase.from('whatsapp_inbound_queue')
+            .select('status, message_type, created_at')
+            .eq('integration_id', integrationId)
+            .eq('wa_phone_number', waPhone)
+            .in('status', ['pending', 'processing', 'waiting_user'])
+            .gte('created_at', new Date(Date.now() - VENTANA_COMPROBANTE_EN_CAMINO_MIN * 60_000).toISOString())
+            .limit(5);
+        return hayComprobanteEnCamino(Array.isArray(data) ? data as any[] : []);
+    } catch {
+        return false;
     }
 }
 

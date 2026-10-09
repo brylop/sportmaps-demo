@@ -251,13 +251,25 @@ const VALOR_MAL_RE = /\b(valor|precio|tarifa|monto) (esta mal|no es|es otro|no c
 
 /** Un monto en pesos escrito por la familia («$150.000», «150000», «150 mil»). null si no hay. Pura. */
 export function montoEscrito(crudo: string): number | null {
-    const mil = plano(crudo).match(/\b(\d{2,3}) mil\b/);
-    if (mil) return Number(mil[1]) * 1000;
-    // 5+ cifras sueltas: «2026» (el año de «09/2026») no es un monto.
+    // Primero la cifra escrita entera: «$80.000 mil» es 80.000 (el «mil» sobra),
+    // no «000 mil». 5+ cifras sueltas: «2026» (el año de «09/2026») no es un monto.
     const m = crudo.match(/(?<![\d/.,])(\d{1,3}(?:[.,]\d{3})+|\d{5,7})(?![\d/])/);
-    if (!m) return null;
-    const n = Number(m[1].replace(/[.,]/g, ''));
-    return n >= 1000 ? n : null;
+    if (m) {
+        const n = Number(m[1].replace(/[.,]/g, ''));
+        if (n >= 1000) return n;
+    }
+    const mil = plano(crudo).match(/(?:^|\s)(\d{2,3}) mil\b/);
+    return mil ? Number(mil[1]) * 1000 : null;
+}
+
+/**
+ * Los meses que el texto señala como el del pago (no los descartados):
+ * «envío saldo sept 15 - oct 15» → [9, 10]; «Mensualidad 10/2026» → [10].
+ * `opciones`: para no leer como mes el nombre de un deportista («Abril»). Pura.
+ */
+export function mesesDelTexto(texto: string, opciones: PagoPendiente[] = []): number[] {
+    const nombres = new Set(opciones.flatMap((p) => plano(String(p.atleta ?? '')).split(' ').filter(Boolean)));
+    return leerMeses(conMesesEscritos(texto), nombres).positivos;
 }
 
 /** «… porque solo está tomando 2 clases» → «solo está tomando 2 clases». */

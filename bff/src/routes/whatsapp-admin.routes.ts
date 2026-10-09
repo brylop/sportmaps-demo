@@ -360,6 +360,56 @@ router.post('/:schoolId/ponerse-al-dia', requireAuth, async (req: AuthenticatedR
     return res.status(202).json({ ok: true, en_curso: true, borradores_huerfanos: pendientes });
 });
 
+// ── Lo que la familia escribió con el comprobante ───────────────────────────
+//
+// GET /api/v1/whatsapp/:schoolId/notas-de-comprobantes?payment_ids=a,b
+//
+// El pie de la foto («envío saldo sept 15 - oct 15 $80.000») vive en la cola
+// (`whatsapp_inbound_queue.media_caption`), no en `payments`: la hoja de
+// aprobación no lo veía y la escuela aprobó como abono algo que la familia
+// había explicado (Dynasty 2026-10-09). Esto lo expone por cobro, para que la
+// pantalla de Pagos lo pueda mostrar sin leer la cola.
+
+const MAX_IDS_NOTAS = 100;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export interface NotaDeComprobante { pie: string; recibido_at: string | null }
+
+/** El pie más reciente de cada cobro (filas de la cola que lo estamparon). Pura. */
+export function notasPorCobro(
+    filas: { result_ref_id?: string | null; media_caption?: string | null; created_at?: string | null }[],
+): Record<string, NotaDeComprobante> {
+    const out: Record<string, NotaDeComprobante> = {};
+    for (const f of Array.isArray(filas) ? filas : []) {
+        const id = f?.result_ref_id;
+        const pie = String(f?.media_caption ?? '').trim();
+        if (!id || !pie) continue;
+        const previa = out[id];
+        if (previa && String(previa.recibido_at ?? '') >= String(f.created_at ?? '')) continue;
+        out[id] = { pie, recibido_at: f.created_at ?? null };
+    }
+    return out;
+}
+
+router.get('/:schoolId/notas-de-comprobantes', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId } = req.params as { schoolId: string };
+    if (!(await administraEstaEscuela(req.user.id, schoolId))) {
+        return res.status(403).json({ error: 'forbidden' });
+    }
+    const ids = [...new Set(String(req.query.payment_ids ?? '').split(',').map((x) => x.trim()).filter((x) => UUID_RE.test(x)))]
+        .slice(0, MAX_IDS_NOTAS);
+    if (!ids.length) return res.json({ notas: {} });
+    const { data, error } = await supabase.from('whatsapp_inbound_queue')
+        .select('result_ref_id, media_caption, created_at')
+        .eq('school_id', schoolId)
+        .eq('result_type', 'payment_receipt')
+        .in('result_ref_id', ids)
+        .not('media_caption', 'is', null)
+        .limit(MAX_IDS_NOTAS * 3);
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ notas: notasPorCobro((data ?? []) as any[]) });
+});
+
 // ── Bandeja de comprobantes ─────────────────────────────────────────────────
 // Ver whatsapp-bandeja.service: grupos accion/revisar/informativo, cierre por
 // la escuela (prefijo en error_message, sin migración) y barrido de lo que ya

@@ -14,7 +14,7 @@ const h = vi.hoisted(() => ({
 
 vi.mock('../config/supabase', () => {
     const builder: any = {};
-    for (const m of ['select', 'eq', 'in', 'order', 'limit']) {
+    for (const m of ['select', 'eq', 'in', 'order', 'limit', 'gte']) {
         builder[m] = (...a: any[]) => { h.ops.push([m, a]); return builder; };
     }
     builder.then = (res: any, rej: any) => Promise.resolve({ data: h.filas, error: h.error }).then(res, rej);
@@ -23,7 +23,7 @@ vi.mock('../config/supabase', () => {
 vi.mock('./cobro-enlace-publico.service', () => ({ emitirTokenCobro: h.emitir }));
 
 import {
-    emparejarIds, conEnlacesDePago, botonPagarUnico, lineaPagar, MAX_ENLACES_POR_MENSAJE,
+    emparejarIds, conEnlacesDePago, botonPagarUnico, lineaPagar, MAX_ENLACES_POR_MENSAJE, hayComprobanteEnCamino,
 } from './whatsapp-enlaces-de-pago.service';
 import { payloadDeCtaUrl } from './whatsapp.service';
 import { textoYaPague } from './whatsapp-reglas-turno';
@@ -150,5 +150,31 @@ describe('botón URL y línea «Pagar»', () => {
         const { texto } = textoYaPague([{ ...pago('Mensualidad Octubre', '2026-10-10'), enlace_pago: URL }], []);
         expect(texto).toContain('• Mensualidad Octubre: $170.000');
         expect(texto).toContain(`Pagar: ${URL}`);
+    });
+});
+
+// Dynasty 2026-10-09 (inventado): foto del comprobante y, 30 s después, el
+// estado de pagos con link. Quedó un `payment_link` sobre el mismo cobro que
+// el comprobante pagó.
+describe('comprobante en camino: sin link de pago', () => {
+    const hace = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+
+    it('hayComprobanteEnCamino: pendiente, en proceso o esperando respuesta, de los últimos 30 min', () => {
+        expect(hayComprobanteEnCamino([{ status: 'processing', message_type: 'image', created_at: hace(1) }])).toBe(true);
+        expect(hayComprobanteEnCamino([{ status: 'waiting_user', message_type: 'image', created_at: hace(10) }])).toBe(true);
+        expect(hayComprobanteEnCamino([{ status: 'done', message_type: 'image', created_at: hace(1) }])).toBe(false);
+        expect(hayComprobanteEnCamino([{ status: 'pending', message_type: 'image', created_at: hace(45) }])).toBe(false);
+        expect(hayComprobanteEnCamino([{ status: 'pending', message_type: 'payment_link', created_at: hace(1) }])).toBe(false);
+    });
+
+    it('con un comprobante en la cola de ese chat no se emite ni se registra ningún link', async () => {
+        h.filas = [
+            { id: 'p7', concept: 'Mensualidad Octubre', amount: 170000, due_date: '2026-10-10', status: 'processing',
+                message_type: 'image', created_at: hace(0.5) },
+        ];
+        const pagos = [pago('Mensualidad Octubre', '2026-10-10')];
+        const out = await conEnlacesDePago(pagos as any[], 'parent-1', 'school-1', { integrationId: 'int-1', waPhone: '573000000000' });
+        expect(out[0]).not.toHaveProperty('enlace_pago');
+        expect(h.emitir).not.toHaveBeenCalled();
     });
 });
