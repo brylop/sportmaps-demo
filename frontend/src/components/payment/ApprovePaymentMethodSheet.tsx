@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { todayColombia } from '@/lib/dateUtils';
-import { supabase } from '@/integrations/supabase/client';
+import { approvePayment } from '@/lib/approvePayment';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -93,73 +92,28 @@ export function ApprovePaymentMethodSheet({ payment, open, onOpenChange, onSucce
 
     setLoading(true);
     try {
-      // Conserva el método si ya viene (no se re-pregunta); default transfer.
-      const method = (payment.payment_method as string) || 'transfer';
-      // amount_paid ACUMULA los abonos previos; en pago completo se salda todo.
-      const newAmountPaid = isAbono ? newTotalPaid : expected;
-
-      const { error: updateError } = await supabase.from('payments').update({
-        // Abono → 'partial' (queda saldo); pago completo → 'paid'.
-        status: isAbono ? 'partial' : 'paid',
-        payment_method: method,
-        payment_channel: method === 'cash' ? 'cash' : 'transfer',
-        payment_date: todayColombia(),
-        approved_by: user.id,
-        approved_at: new Date().toISOString(),
-        amount_paid: newAmountPaid,
-        // Aprobar CIERRA la revisión que dejó la pasarela tras un rechazo: el
-        // admin ya vio el comprobante. Antes esto bloqueaba la aprobación y
-        // remitía a una pantalla «Negocio › Pagos» que nunca existió, así que
-        // el cobro quedaba muerto. last_failure_* se conserva como auditoría.
-        requires_review: false,
-        unblocked_at: new Date().toISOString(),
-        unblocked_by: user.id,
-      } as any).eq('id', payment.id);
-
-      if (updateError) throw updateError;
-
-      // Activar la inscripción SOLO cuando el pago quedó completo. En abono se
-      // mantiene pendiente hasta cubrir el saldo. enrollments.status es text:
-      // los pendientes reales son 'pending' (NO 'pending_payment').
-      if (!isAbono) {
-        let enrollQuery = supabase
-          .from('enrollments')
-          .update({ status: 'active' })
-          .eq('school_id', schoolId)
-          .eq('status', 'pending');
-
-        if (payment.child_id) {
-          enrollQuery = enrollQuery.eq('child_id', payment.child_id);
-        } else if (payment.unregistered_athlete_id) {
-          enrollQuery = (enrollQuery as any).eq('unregistered_athlete_id', payment.unregistered_athlete_id);
-        } else if (payment.user_id) {
-          enrollQuery = (enrollQuery as any).eq('user_id', payment.user_id).is('child_id', null);
-        }
-        if (payment.team_id) {
-          enrollQuery = enrollQuery.eq('team_id', payment.team_id);
-        }
-
-        await enrollQuery;
-      }
-
-      // Notificar al padre / responsable si tiene cuenta
-      const recipientId = payment.parent_id || payment.user_id;
-      if (recipientId) {
-        await supabase.rpc('notify_user', {
-          p_user_id: recipientId,
-          p_title: isAbono ? '💰 Abono registrado' : '✅ Pago confirmado',
-          p_message: isAbono
-            ? `${schoolName || 'La escuela'} registró un abono de ${formatCurrency(abonoNum)} por ${payment.concept}. Saldo pendiente: ${formatCurrency(saldoPendiente)}.`
-            : `${schoolName || 'La escuela'} confirmó tu pago de ${formatCurrency(expected)} por ${payment.concept}.`,
-          p_type: isAbono ? 'payment' : 'success',
-          p_link: '/my-payments',
+      // Mismo camino que «Aprobar todos los verdes» (lib/approvePayment): un
+      // solo lugar para approved_by, amount_paid, inscripción y aviso.
+      const r = await approvePayment(payment, {
+        userId: user.id,
+        schoolId,
+        schoolName,
+        abonoAmount: mode === 'abono' ? abonoNum : undefined,
+      });
+      if ('reason' in r) {
+        toast({
+          title: r.reason === 'already_handled' ? 'No se aprobó' : 'Error al aprobar',
+          description: r.reason === 'already_handled' ? `${r.message} Actualiza la lista.` : r.message,
+          variant: 'destructive',
         });
+        if (r.reason === 'already_handled') { onSuccess(); onOpenChange(false); }
+        return;
       }
 
       toast({
-        title: isAbono ? 'Abono registrado' : 'Cobro aprobado',
-        description: isAbono
-          ? `Se acreditó ${formatCurrency(abonoNum)}. Saldo pendiente: ${formatCurrency(saldoPendiente)}.`
+        title: r.isAbono ? 'Abono registrado' : 'Cobro aprobado',
+        description: r.isAbono
+          ? `Se acreditó ${formatCurrency(r.abono)}. Saldo pendiente: ${formatCurrency(r.saldoPendiente)}.`
           : 'El pago quedó confirmado y la inscripción activa.',
       });
 

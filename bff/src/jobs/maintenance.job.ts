@@ -24,15 +24,18 @@ import { runAccountDeletionCycle } from './account-deletion.job';
 import { runPostTrainingReminders } from './post-training-reminders.job';
 import { runWhatsAppQueue } from './whatsapp-queue.job';
 import { runWhatsAppPaymentOutcome } from './whatsapp-payment-outcome.job';
+import { runReceiptReviewAlerts } from './receipt-review-alerts.job';
 import { runWhatsAppMantenimiento } from './whatsapp-mantenimiento.job';
 import { vencerComprobantesColgados } from './whatsapp-cola-vencimiento.job';
 import { runWhatsAppPlantillasSync } from './whatsapp-plantillas-sync.job';
 import { runWhatsAppResumenDiario } from './whatsapp-resumen-diario.job';
 import { runBotResumenSemanal } from './bot-resumen-semanal.job';
+import { runInformeCalidadBotSemanal } from '../services/informe-calidad-bot.service';
 import { runInformeCarteraSemanal } from '../services/informe-cartera.service';
 import { runFranjasCortesia } from '../services/franjas-cortesia.service';
 import { anularCobrosSueltosVencidos } from '../services/ventas-servicios.service';
 import { runRecordatorioCortesia } from '../services/recordatorio-cortesia.service';
+import { runSeguimientoNocheCortesia, detectarInscripcionesDeLeads } from '../services/prospecto-ciclo-clase.service';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -521,6 +524,28 @@ export function initMaintenanceJobs() {
     console.log('[CRON] Aviso de desenlace de comprobantes registrado (cada minuto).');
 
     // ────────────────────────────────────────────────────────────────────────
+    // Comprobantes por validar → dueño y admins de la escuela — cada 5 min.
+    //
+    // p50 3,7 h y p90 49 h de la foto a la aprobación (Dynasty, 2026-10-08):
+    // nadie le avisaba a la escuela que había algo esperando. In-app + push:
+    // «comprobante nuevo» agrupado y recordatorio de >2 h (máx. 1 cada 2 h),
+    // nada entre 22:00 y 07:00. Idempotente entre los 3 BFF por versión en
+    // school_receipt_review_alerts. NO aprueba nada.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('*/5 * * * *', async () => {
+        if (process.env.DISABLE_RECEIPT_REVIEW_ALERTS === 'true') return;
+        try {
+            const r = await runReceiptReviewAlerts();
+            if (r.avisos > 0) console.log(`[CRON] Comprobantes por validar: ${r.avisos} aviso(s) a escuelas.`);
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error avisando comprobantes por validar:', err?.message || err);
+        }
+    });
+
+    console.log('[CRON] Avisos de comprobantes por validar registrados (cada 5 min).');
+
+    // ────────────────────────────────────────────────────────────────────────
     // Plazo de la promesa del acuse (P1, análisis 2026-10-06) — cada 2 min.
     //
     // El 06-oct, 15 adjuntos de familias quedaron `pending` una hora sin que
@@ -631,6 +656,27 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Resumen semanal de los bots registrado para los lunes 07:05 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Informe de CALIDAD Y COSTO del bot a SportMaps — lunes 08:00 COT, con
+    // ticks hasta las 11:00 para recoger un BFF dormido o reiniciado. Por
+    // escuela con WhatsApp: resolución bot/escuela/sin respuesta, escalaciones,
+    // errores, comprobantes, cortesías, opt-ins y costo (llm_usage). Uno por
+    // semana entre los tres BFF (email_sends, clave por lunes). Destino:
+    // BOT_REPORT_EMAIL o SUPPORT_ALERT_EMAIL. Kill-switch: DISABLE_INFORME_CALIDAD_BOT.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('0 8-11 * * 1', async () => {
+        if (process.env.DISABLE_INFORME_CALIDAD_BOT === 'true') return;
+        try {
+            const r = await runInformeCalidadBotSemanal();
+            if (r !== 'duplicado') console.log(`[CRON] Informe de calidad del bot: ${r}.`);
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en el informe de calidad del bot:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Informe de calidad del bot registrado para los lunes 08:00 COT.');
 
     // ────────────────────────────────────────────────────────────────────────
     // Informe de CARTERA semanal a owner + admins — lunes 07:10 COT, con ticks
@@ -874,4 +920,41 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Recordatorio de cortesía registrado (víspera 18:00 COT; mismo día cada 15 min 7:00-19:45 COT).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Ciclo de la clase de cortesía (prospecto-ciclo-clase.service, embudo
+    // 2026-10-08):
+    //  · 20:00-21:45 COT cada 15 min: «¿Cómo le fue?» + enlace de inscripción
+    //    a las reservas de HOY ya terminadas, SOLO con la ventana de 24 h
+    //    abierta. Uno por reserva entre los 3 BFF (UPDATE condicional sobre
+    //    source_detail.seguimiento_clase_at).
+    //  · 21:30 COT: leads de WhatsApp con inscripción nueva (mismo teléfono o
+    //    correo) → «inscrito» (status converted). Idempotente.
+    // Kill-switch: DISABLE_SEGUIMIENTO_CLASE_CORTESIA=true.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('*/15 20-21 * * *', async () => {
+        if (process.env.DISABLE_SEGUIMIENTO_CLASE_CORTESIA === 'true') return;
+        try {
+            const r = await runSeguimientoNocheCortesia();
+            if (r.enviados > 0 || r.fallidos > 0) {
+                console.log(`[CRON] Seguimiento de la clase de cortesía: ${r.enviados} enviado(s), ${r.fallidos} fallido(s), ${r.omitidos} omitido(s).`);
+            }
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en el seguimiento de la clase de cortesía:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    cron.schedule('30 21 * * *', async () => {
+        if (process.env.DISABLE_SEGUIMIENTO_CLASE_CORTESIA === 'true') return;
+        try {
+            const n = await detectarInscripcionesDeLeads();
+            if (n > 0) console.log(`[CRON] Leads de WhatsApp inscritos: ${n}.`);
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en el cruce de leads con inscripciones:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Ciclo de la clase de cortesía registrado (seguimiento 20:00-21:45 COT; cruce de inscripciones 21:30 COT).');
 }

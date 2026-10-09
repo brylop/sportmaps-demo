@@ -38,7 +38,7 @@ async function openBoard(page: Page) {
     const entry = page.getByRole('button', { name: /Tablero táctico/ }).first();
     await expect(entry).toBeVisible({ timeout: 15_000 });
     await entry.click();
-    await page.getByRole('button', { name: /^Pizarra/ }).click();
+    await page.getByRole('button', { name: /^Dibujar( \(\d+\))?$/ }).click();
     await expect(page.getByRole('button', { name: 'Lápiz' })).toBeVisible();
 }
 
@@ -180,8 +180,8 @@ test.describe('en celular (iPhone 14)', () => {
         await openBoard(page);
         const vp = page.viewportSize()!;
 
-        // "Pizarra" quedó tocable dentro de la pantalla.
-        const pizarraBtn = page.getByRole('button', { name: /^Pizarra/ });
+        // "Dibujar" quedó tocable dentro de la pantalla.
+        const pizarraBtn = page.getByRole('button', { name: /^Dibujar( \(\d+\))?$/ });
         const b = (await pizarraBtn.boundingBox())!;
         expect(b.y).toBeGreaterThanOrEqual(0);
         expect(b.x + b.width).toBeLessThanOrEqual(vp.width);
@@ -240,8 +240,8 @@ test.describe('en celular (iPhone 14)', () => {
         await expect(page.getByRole('tab', { name: 'Objeto' })).toHaveAttribute('aria-selected', 'true');
         await page.screenshot({ path: 'e2e/screenshots/pizarra-iphone-03-ajustes.png' });
 
-        // Abrir Plantilla cierra la Pizarra (una sola hoja a la vez).
-        await page.getByRole('button', { name: /^Plantilla \(/ }).click();
+        // Abrir Jugadores cierra el panel de Dibujar (una sola hoja a la vez).
+        await page.getByRole('button', { name: /^Jugadores \(/ }).click();
         await expect(page.getByRole('button', { name: 'Lápiz' })).toHaveCount(0);
     });
 });

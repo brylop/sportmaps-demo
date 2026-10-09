@@ -9,6 +9,8 @@ import { useToast } from '@/hooks/use-toast';
 import { CalendarRange, ClipboardList } from 'lucide-react';
 import { SessionFormDialog } from './SessionFormDialog';
 import { dayToLocalDate } from '@/lib/dateUtils';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { isTrainingReadOnlyRole } from '@/lib/school/trainingRoles';
 
 const DAY_TYPE_LABEL: Record<string, string> = {
   descanso: 'Descanso',
@@ -31,7 +33,11 @@ interface StandaloneMicrocyclesPanelProps {
   schoolId: string;
   sessions: any[];
   isFootball?: boolean;
+  /** Abre la sesión: el padre decide si es para editar o para ver. */
   onEditSession: (session: any) => void;
+  /** Dueño/administración: sin «Crear sesión». Sin la prop, sale del rol
+   *  (misma regla que MesocycleSection). */
+  readOnly?: boolean;
 }
 
 /** Cubre el hueco de D10 (docs/specs/periodizacion-microciclos-y-carga.md §8.8):
@@ -39,8 +45,10 @@ interface StandaloneMicrocyclesPanelProps {
  *  puede tener semanas sueltas, sin haber creado nunca el mesociclo (el mes)
  *  que las contenga. MesocycleSection solo agrupa las semanas que SÍ cuelgan
  *  de un mesociclo; este panel es la vista para las que no. */
-export function StandaloneMicrocyclesPanel({ teamId, schoolId, sessions, isFootball, onEditSession }: StandaloneMicrocyclesPanelProps) {
+export function StandaloneMicrocyclesPanel({ teamId, schoolId, sessions, isFootball, onEditSession, readOnly: readOnlyProp }: StandaloneMicrocyclesPanelProps) {
   const { toast } = useToast();
+  const { currentUserRole } = useSchoolContext();
+  const readOnly = readOnlyProp ?? isTrainingReadOnlyRole(currentUserRole);
   const queryClient = useQueryClient();
   const [sessionDialogDay, setSessionDialogDay] = useState<any | null>(null);
 
@@ -171,7 +179,7 @@ export function StandaloneMicrocyclesPanel({ teamId, schoolId, sessions, isFootb
                           {day.planned_rpe != null && (
                             <span className="text-xs text-muted-foreground">RPE {day.planned_rpe}</span>
                           )}
-                          {day.day_type !== 'descanso' && (
+                          {day.day_type !== 'descanso' && !readOnly && (
                             <Button
                               variant="ghost"
                               size="sm"
@@ -206,7 +214,7 @@ export function StandaloneMicrocyclesPanel({ teamId, schoolId, sessions, isFootb
         })}
       </Accordion>
 
-      {sessionDialogDay && (
+      {sessionDialogDay && !readOnly && (
         <SessionFormDialog
           open={!!sessionDialogDay}
           onOpenChange={(open) => { if (!open) setSessionDialogDay(null); }}

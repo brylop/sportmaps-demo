@@ -23,6 +23,7 @@ vi.mock('../services/cobro-enlace-publico.service', () => ({ emitirTokenCobro: (
 import {
     separarAviso, conAviso, siguienteTrasFallo, plantillaDelDesenlace, nombreCorto, textoDelConcepto,
     registrarAvisoDePagoPorLink, idDeFilaLink, MAX_INTENTOS, FILTRO_FILAS_CON_DESENLACE,
+    desenlaceDelPago, textoComprobanteRechazado,
 } from './whatsapp-payment-outcome.job';
 import { ventanaAbierta, esErrorDeVentana } from '../services/whatsapp-plantillas.service';
 
@@ -128,5 +129,42 @@ describe('registrarAvisoDePagoPorLink', () => {
     it('otro error: no lanza, lo devuelve', async () => {
         respuestasInsert = [{ error: { code: 'XX', message: 'boom' } }];
         expect(await registrarAvisoDePagoPorLink(A)).toEqual({ ok: false, error: 'boom' });
+    });
+});
+
+describe('desenlace del comprobante (rechazo que no borra la deuda, 2026-10-08)', () => {
+    const LLEGO = '2026-10-07T23:36:00Z';
+
+    it('pagado, glosado y el rejected viejo siguen siendo desenlace', () => {
+        expect(desenlaceDelPago({ status: 'paid' }, LLEGO)).toBe('paid');
+        expect(desenlaceDelPago({ status: 'glosado' }, LLEGO)).toBe('glosado');
+        expect(desenlaceDelPago({ status: 'rejected' }, LLEGO)).toBe('rejected');
+    });
+
+    it('cobro de vuelta en pending/overdue con rechazo POSTERIOR a la fila → rechazado', () => {
+        expect(desenlaceDelPago({ status: 'pending', receipt_rejected_at: '2026-10-08T20:16:00Z' }, LLEGO)).toBe('rejected');
+        expect(desenlaceDelPago({ status: 'overdue', receipt_rejected_at: '2026-10-08T20:16:00Z' }, LLEGO)).toBe('rejected');
+        expect(desenlaceDelPago({ status: 'partial', receipt_rejected_at: '2026-10-08T20:16:00Z' }, LLEGO)).toBe('rejected');
+    });
+
+    it('un rechazo ANTERIOR a la fila es de otro comprobante: no se cuenta', () => {
+        expect(desenlaceDelPago({ status: 'pending', receipt_rejected_at: '2026-10-06T10:00:00Z' }, LLEGO)).toBeNull();
+    });
+
+    it('en revisión o sin marca: nada que contar', () => {
+        expect(desenlaceDelPago({ status: 'awaiting_approval', receipt_rejected_at: '2026-10-08T20:16:00Z' }, LLEGO)).toBeNull();
+        expect(desenlaceDelPago({ status: 'pending' }, LLEGO)).toBeNull();
+        expect(desenlaceDelPago({ status: 'pending', receipt_rejected_at: null }, LLEGO)).toBeNull();
+    });
+
+    it('sin fecha de la fila no afirma nada', () => {
+        expect(desenlaceDelPago({ status: 'pending', receipt_rejected_at: '2026-10-08T20:16:00Z' }, null)).toBeNull();
+    });
+
+    it('el texto lleva el motivo y dice que el cobro sigue pendiente', () => {
+        const t = textoComprobanteRechazado('$ 180.000', 'Mensualidad 10/2026', 'La cuenta de destino no es de la escuela.');
+        expect(t).toContain('*Motivo:* La cuenta de destino no es de la escuela.');
+        expect(t).toContain('El cobro sigue pendiente');
+        expect(textoComprobanteRechazado('$ 1', null, null)).not.toContain('Motivo');
     });
 });

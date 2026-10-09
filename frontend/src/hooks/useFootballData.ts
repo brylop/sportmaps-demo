@@ -22,6 +22,7 @@ import {
   type TacticalPresetSlot,
   type TacticalArrow,
 } from '@/lib/school/footballQueries';
+import type { TacticalFrame } from '@/lib/school/tacticalFrames';
 
 export function useFootballLineups(params: { team_id?: string; source_type?: LineupSourceType; source_id?: string }) {
   return useQuery({
@@ -49,6 +50,7 @@ export function useSaveFootballLineup() {
       formation?: string | null;
       players: LineupPlayerInput[];
       arrows?: TacticalArrow[];
+      frames?: TacticalFrame[] | null;
     }) => saveFootballLineup(payload),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['football-lineups'] });
@@ -120,7 +122,7 @@ export function useTacticalPresets(params: { team_id?: string; situation?: Tacti
 export function useCreateTacticalPreset() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { team_id: string; name: string; situation: TacticalSituation; slots: TacticalPresetSlot[]; arrows?: TacticalArrow[] }) =>
+    mutationFn: (payload: { team_id: string; name: string; situation: TacticalSituation; slots: TacticalPresetSlot[]; arrows?: TacticalArrow[]; frames?: TacticalFrame[] | null }) =>
       createTacticalPreset(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tactical-presets'] });
@@ -133,7 +135,7 @@ export function useCreateTacticalPreset() {
 export function useUpdateTacticalPreset() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...payload }: { id: string; name?: string; situation?: TacticalSituation; slots?: TacticalPresetSlot[]; arrows?: TacticalArrow[] }) =>
+    mutationFn: ({ id, ...payload }: { id: string; name?: string; situation?: TacticalSituation; slots?: TacticalPresetSlot[]; arrows?: TacticalArrow[]; frames?: TacticalFrame[] | null }) =>
       updateTacticalPreset(id, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tactical-presets'] });

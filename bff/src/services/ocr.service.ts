@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { registrarUsoLlm, tokensDeRespuesta } from './llm-usage.service';
 
 /**
  * ocr.service — Extraccion estructurada de comprobantes de pago colombianos.
@@ -145,6 +146,7 @@ async function extractWithGroq(base64Image: string, mimeType: string): Promise<O
     }
 
     const json: any = await res.json();
+    registrarUsoLlm({ feature: 'ocr', provider: 'groq', model: json?.model || process.env.GROQ_OCR_MODEL || 'groq-vision', tokens: tokensDeRespuesta(json) });
     const content: string = json.choices?.[0]?.message?.content ?? '';
     return parseLlmJson(content, 'groq');
 }
@@ -191,6 +193,7 @@ async function extractOpenAIPdf(apiKey: string, base64Pdf: string): Promise<OcrR
     }
 
     const json: any = await res.json();
+    registrarUsoLlm({ feature: 'ocr', provider: 'openai', model: json?.model || 'gpt-4o-mini', tokens: tokensDeRespuesta(json) });
     // `output_text` es el atajo del SDK; por HTTP crudo puede no venir, así que
     // se arma desde `output[].content[].text`.
     const content: string =
@@ -243,6 +246,7 @@ async function extractWithOpenAI(base64Image: string, mimeType: string): Promise
     }
 
     const json: any = await res.json();
+    registrarUsoLlm({ feature: 'ocr', provider: 'openai', model: json?.model || 'gpt-4o-mini', tokens: tokensDeRespuesta(json) });
     const content: string = json.choices?.[0]?.message?.content ?? '';
     return parseLlmJson(content, 'openai');
 }
@@ -297,6 +301,7 @@ async function extractWithClaude(base64Image: string, mimeType: string): Promise
 
     if (res.stop_reason === 'refusal') throw new Error('Claude rechazó leer el comprobante');
     const texto = (res.content as any[]).map((b) => (b.type === 'text' ? b.text : '')).join('').trim();
+    registrarUsoLlm({ feature: 'ocr', provider: 'claude', model: (res as any).model || modeloClaude(process.env.CLAUDE_OCR_MODEL), tokens: tokensDeRespuesta(res) });
     return parseLlmJson(texto, 'claude');
 }
 
@@ -351,6 +356,7 @@ async function extractWithGemini(base64Image: string, mimeType: string): Promise
     }
 
     const json: any = await res.json();
+    registrarUsoLlm({ feature: 'ocr', provider: 'gemini', model: json?.modelVersion || model, tokens: tokensDeRespuesta(json) });
     const content: string = json.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
     return parseLlmJson(content, 'gemini');
 }

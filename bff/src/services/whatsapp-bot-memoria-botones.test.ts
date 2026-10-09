@@ -86,7 +86,11 @@ vi.mock('./whatsapp-horario.service', () => ({
     mensajeDeEscalamiento: vi.fn(() => 'En breve te contactan.'),
 }));
 vi.mock('./push.service', () => ({ sendToUser: h.sendToUser }));
-vi.mock('./whatsapp-medios-de-pago.service', () => ({ mediosDePago: h.mediosDePago }));
+vi.mock('./whatsapp-medios-de-pago.service', () => ({
+    mediosDePago: h.mediosDePago,
+    // Con los cobros de la familia (enlace /p/:token de cada uno); acá sin cobros.
+    mediosDePagoDeFamilia: async (schoolId: string) => ({ ...(await h.mediosDePago(schoolId)), cobros_pendientes: [] }),
+}));
 vi.mock('./whatsapp-info-escuela.service', () => ({ infoDeEscuela: vi.fn(), fallbackInfoEscuela: vi.fn() }));
 vi.mock('./whatsapp-respuesta-de-cobro.service', () => ({ resolverRespuestaDeCobro: vi.fn(async () => false) }));
 vi.mock('../utils/emailClient', () => ({ emailClient: { send: vi.fn() } }));

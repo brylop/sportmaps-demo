@@ -102,8 +102,10 @@ import athleteBiomechRouter from './routes/athlete/biomech';
 import schoolPerformanceRouter from './routes/school/performance';
 import schoolCompetitionResultsRouter from './routes/school/competition-results';
 import schoolFootballRouter from './routes/school/football';
+import schoolExercisesRouter from './routes/school/exercises';
 import schoolRoutinesRouter from './routes/school/routines';
 import schoolReportsRouter from './routes/school/reports';
+import schoolCoachActivityRouter from './routes/school/coach-activity';
 import athletePerformanceRouter from './routes/athlete/performance';
 import bulkUploadRouter from './routes/athletes/bulkUpload';
 import meRouter from './routes/me.routes';
@@ -117,6 +119,7 @@ import internalNotificationsRouter from './routes/internal-notifications.routes'
 import internalAutopayRouter from './routes/internal-autopay.routes';
 import autopayRouter from './routes/autopay.routes';
 import { requireStoreEnabled } from './services/store-flag.service';
+import { storeRateLimit } from './middlewares/storeRateLimit';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -407,8 +410,10 @@ app.use('/api/v1/school/delegations', generalLimiter, schoolDelegationsRouter);
 app.use('/api/v1/school', generalLimiter, schoolPerformanceRouter);
 app.use('/api/v1/school', generalLimiter, schoolCompetitionResultsRouter);
 app.use('/api/v1/school', generalLimiter, schoolFootballRouter);
+app.use('/api/v1/school', generalLimiter, schoolExercisesRouter);
 app.use('/api/v1/school', generalLimiter, requireAuth, schoolRoutinesRouter);
 app.use('/api/v1/school', generalLimiter, schoolReportsRouter);
+app.use('/api/v1/school', generalLimiter, schoolCoachActivityRouter);
 app.use('/api/v1/templates', generalLimiter, templatesRouter);
 app.use('/api/v1/polls', generalLimiter, pollsRouter);
 
@@ -418,13 +423,14 @@ app.use('/api/v1/marketplace', generalLimiter, marketplaceCatalogRouter);
 app.use('/api/v1/admin', generalLimiter, marketplaceAdminRouter);
 // Reviews + Q&A: rutas publicas y autenticadas mezcladas — el router las separa internamente
 app.use('/api/v1', generalLimiter, reviewsRouter);
-app.use('/api/v1/marketplace', paymentLimiter, marketplaceCheckoutRouter);
+// Tienda: lecturas y escrituras con cupos separados, por IP real (middlewares/storeRateLimit.ts).
+app.use('/api/v1/marketplace', storeRateLimit, marketplaceCheckoutRouter);
 app.use('/api/v1/vendor', generalLimiter, vendorRouter);
 app.use('/api/v1/vendor/products', generalLimiter, requireStoreEnabled, vendorProductsRouter);
 app.use('/api/v1/vendor/services', generalLimiter, vendorServicesRouter);
-app.use('/api/v1/marketplace/orders', paymentLimiter, requireStoreEnabled, marketplaceOrdersRouter);
+app.use('/api/v1/marketplace/orders', storeRateLimit, requireStoreEnabled, marketplaceOrdersRouter);
 // Tienda v2 F0: comprobante, aprobación, efectivo, transiciones y medios del vendedor (RPC con actor).
-app.use('/api/v1/store', paymentLimiter, storeOrdersRouter);
+app.use('/api/v1/store', storeRateLimit, storeOrdersRouter);
 app.use('/api/v1/certificates', generalLimiter, certificatesRouter);
 app.use('/api/v1/athlete-reports', generalLimiter, athleteReportsPdfRouter);
 app.use('/api/v1/join-qr', generalLimiter, joinQrRouter);

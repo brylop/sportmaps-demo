@@ -22,8 +22,6 @@ import {
     AVISO_LINK_DE_PAGO, TEXTO_BOTON_LINK_DE_PAGO, cuentaAplicaA, linkDePago, parseCuentasDePago, type CategoriaCobro,
 } from './payment-accounts';
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://app.sportmaps.co';
-
 const TIPO_LEGIBLE: Record<string, string> = {
     breb: 'Bre-B',
     nequi: 'Nequi',
@@ -50,12 +48,17 @@ export function nombreDeCuenta(tipo: string, etiqueta: string | null | undefined
 
 export interface MediosDePago {
     cuentas: { tipo: string; titular: string | null; numero: string }[];
-    /** El link de pago de la escuela si tiene uno; si no, la sección de pagos de la app. */
-    enlace_para_pagar: string;
+    /**
+     * El link de pago de la escuela, o null. NUNCA /my-payments: pide iniciar
+     * sesión y una familia por WhatsApp no la tiene abierta (Dynasty 28-sep →
+     * 08-oct: 3 de 4 respuestas de medios de pago mandaron ahí). Para pagar un
+     * cobro concreto va su /p/:token (`mediosDePagoDeFamilia`).
+     */
+    enlace_para_pagar: string | null;
     /**
      * Link de pago genérico de la escuela (payment_accounts type 'payment_link'),
      * o null. Se separa de `enlace_para_pagar` para que la página pública y el
-     * correo lo muestren como botón propio sin confundirlo con /my-payments.
+     * correo lo muestren como botón propio.
      */
     link_de_pago: string | null;
     /** Solo si hay link: qué hacer con él (va al modelo del bot tal cual). */
@@ -136,13 +139,56 @@ export async function mediosDePago(
         agregar('Bre-B', c.breb_key);
     }
 
-    // Con link de pago, ese es el enlace para pagar en línea (Dynasty: el bot
-    // mandaba a /my-payments, que pide login, teniendo un link de Wompi que no).
+    // Con link de pago, ese es el enlace para pagar en línea. Sin link, null:
+    // nunca una ruta de la app que pide iniciar sesión.
     return {
         cuentas,
-        enlace_para_pagar: link ?? `${FRONTEND_URL}/my-payments`,
+        enlace_para_pagar: link,
         link_de_pago: link,
         instrucciones_del_enlace: link ? `${TEXTO_BOTON_LINK_DE_PAGO}. ${AVISO_LINK_DE_PAGO}.` : null,
         puede_enviar_comprobante_por_whatsapp: true,
     };
+}
+
+/** Un cobro pendiente con su enlace público para pagarlo (/p/:token o Wompi con monto). */
+export interface CobroParaPagar {
+    concepto: string | null;
+    monto: number | null;
+    vence: string | null;
+    enlace_pago: string | null;
+    enlace_instrucciones?: string | null;
+}
+
+/**
+ * Los medios de pago + los cobros pendientes de la familia con el enlace de
+ * cada uno (`conEnlacesDePago`: el link de Wompi con el monto si la escuela lo
+ * tiene, si no /p/:token, que no pide sesión). Para la familia identificada;
+ * sin `parentId` son solo los medios. Nunca lanza por los cobros.
+ */
+export async function mediosDePagoDeFamilia(
+    schoolId: string,
+    parentId: string | null | undefined,
+    aviso?: { integrationId: string; waPhone: string },
+): Promise<MediosDePago & { cobros_pendientes: CobroParaPagar[] }> {
+    const medios = await mediosDePago(schoolId);
+    if (!parentId) return { ...medios, cobros_pendientes: [] };
+    try {
+        const { data, error } = await supabase.rpc('wa_get_payment_status', { p_parent_id: parentId, p_school_id: schoolId });
+        if (error || !Array.isArray(data)) return { ...medios, cobros_pendientes: [] };
+        // Import diferido: cobro-enlace-publico (que usan los enlaces) importa este módulo.
+        const { conEnlacesDePago } = await import('./whatsapp-enlaces-de-pago.service');
+        const conEnlace = await conEnlacesDePago(data as any[], parentId, schoolId, aviso);
+        const cobros_pendientes = conEnlace
+            .filter((p: any) => p?.debe_pagarse === true && p?.enlace_pago)
+            .map((p: any) => ({
+                concepto: p.concept ?? null,
+                monto: p.amount == null ? null : Number(p.amount),
+                vence: p.due_date ?? null,
+                enlace_pago: p.enlace_pago,
+                ...(p.enlace_instrucciones ? { enlace_instrucciones: p.enlace_instrucciones } : {}),
+            }));
+        return { ...medios, cobros_pendientes };
+    } catch {
+        return { ...medios, cobros_pendientes: [] };
+    }
 }

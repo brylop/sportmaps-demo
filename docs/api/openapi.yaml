@@ -2836,8 +2836,9 @@ paths:
       parameters:
         - { in: path, name: schoolId, required: true, schema: { type: string, format: uuid } }
       responses:
-        '200': { description: Slug, published y display_name }
+        '200': { description: 'Slug, published, display_name, selling (store_seller_allowed: la tienda vende hoy) y has_orders (con sesion: el usuario ya tiene pedidos). Lo usa useMySchoolStore para mostrar Tienda/Mis compras al padre/atleta.' }
         '404': { description: Escuela no encontrada }
+        '503': { description: Tienda apagada a nivel plataforma (store_enabled = false) }
   /api/v1/marketplace/categories:
     get:
       tags: [marketplace]
@@ -3593,6 +3594,7 @@ paths:
     get:
       tags: [vendor-products]
       summary: Mis productos con variantes
+      description: Cada producto trae stock_total (con variantes = suma de las activas), available_total, min_stock_alert, stock_level (ok|low|out) y su categoría.
       security: [{ bearerAuth: [] }]
       parameters:
         - { in: query, name: status, schema: { type: string } }
@@ -3633,6 +3635,16 @@ paths:
         '201': { description: Producto creado }
         '400': { description: name y price requeridos }
         '403': { description: Capability invalida }
+  /api/v1/vendor/products/insights:
+    get:
+      tags: [vendor-products]
+      summary: Métricas de la tienda (ingresos, pedidos, ticket promedio, más vendidos)
+      description: Solo pedidos pagados en adelante (paid, preparing, ready_for_pickup, shipped, delivered) de las tiendas que el usuario gestiona, creados en el periodo.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: days, schema: { type: integer, enum: [7, 30, 90, 365], default: 30 } }
+      responses:
+        '200': { description: 'revenue, orders, avg_ticket, units, top_products[{product_id,name,units,revenue}], days, since' }
   /api/v1/vendor/products/{id}:
     patch:
       tags: [vendor-products]
@@ -3740,7 +3752,12 @@ paths:
   /api/v1/vendor/products/{id}/variants/bulk:
     post:
       tags: [vendor-products]
-      summary: Crear matriz de variantes (producto cartesiano)
+      summary: Crear variantes con su stock inicial (lista o matriz)
+      description: >
+        Preferido `variants` (cada combinación con SU stock). `matrix` + `defaults` se
+        conserva (mismo stock para todas). Omite combinaciones que el producto ya tiene.
+        Las variantes nacen en 0 y el stock inicial entra por inventory_adjust
+        (`manual_restock`, nota "Stock inicial"), con kardex.
       security: [{ bearerAuth: [] }]
       parameters:
         - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
@@ -3750,8 +3767,16 @@ paths:
           application/json:
             schema:
               type: object
-              required: [matrix]
               properties:
+                variants:
+                  type: array
+                  items:
+                    type: object
+                    required: [attributes]
+                    properties:
+                      attributes: { type: object, additionalProperties: { type: string } }
+                      stock: { type: integer, minimum: 0, default: 0 }
+                      price_override: { type: number, nullable: true }
                 matrix:
                   type: object
                   additionalProperties: { type: array, items: { type: string } }
@@ -3761,9 +3786,44 @@ paths:
                     stock: { type: integer }
                     price_override: { type: number }
       responses:
-        '201': { description: Variantes creadas }
-        '400': { description: matrix invalido o mas de 200 variantes }
+        '200': { description: Todas las combinaciones ya existían (skipped) }
+        '201': { description: Variantes creadas con su stock }
+        '207': { description: Variantes creadas; falló el stock inicial de algunas (stock_errors) }
+        '400': { description: Body inválido, stock negativo, combinaciones repetidas o más de 200 }
         '404': { description: Producto no encontrado }
+  /api/v1/vendor/products/{id}/inventory:
+    get:
+      tags: [vendor-products]
+      summary: Kardex del producto (movimientos de stock, más reciente primero)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+        - { in: query, name: limit, schema: { type: integer, default: 100, maximum: 500 } }
+      responses:
+        '200': { description: 'Movimientos: delta, stock_before, stock_after, reason, note, variant_name, actor_name, order_id' }
+        '404': { description: Producto no encontrado }
+    post:
+      tags: [vendor-products]
+      summary: Ajustar stock de una variante (o del producto sin variantes) con motivo
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [new_stock]
+              properties:
+                variant_id: { type: string, format: uuid }
+                new_stock: { type: integer, minimum: 0 }
+                reason_code: { type: string, enum: [manual_adjust, manual_restock], default: manual_adjust }
+                note: { type: string, maxLength: 500 }
+      responses:
+        '200': { description: 'Ajuste aplicado (stock_before, stock_after, delta) o noop' }
+        '400': { description: 'INVALID_QTY, reason_code inválido o BELOW_RESERVED' }
+        '404': { description: Producto o variante no encontrada }
   /api/v1/vendor/products/{id}/quality:
     get:
       tags: [vendor-products]
@@ -6021,6 +6081,151 @@ paths:
         '200': { description: OK }
         '403': { description: No school associated }
         '404': { description: Delegation not found }
+  /api/v1/school/coach-activity:
+    get:
+      tags: [school-performance]
+      summary: Seguimiento deportivo — actividad semanal por entrenador (dueño/admin, solo lectura)
+      description: >
+        Por cada school_staff activo: equipos (titular/adicional), última actividad,
+        sesiones planificadas de la semana (training_sessions de sus equipos o creadas
+        por él), listas de asistencia tomadas y días con lista, evaluaciones
+        (performance_entries.recorded_by y training_mesocycle_evaluations.created_by),
+        mesociclo vigente por equipo con adherencia, semáforo verde/ambar/rojo y la
+        serie de las últimas 8 semanas. Roles owner, school_admin, admin, super_admin.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: week, in: query, required: false, schema: { type: string, format: date }, description: "Cualquier día de la semana (se normaliza al lunes). Por defecto, la semana actual en Colombia." }
+      responses:
+        '200': { description: OK }
+        '400': { description: week inválida }
+        '403': { description: Rol no permitido o sin escuela }
+  /api/v1/school/exercises:
+    get:
+      tags: [school-performance]
+      summary: Biblioteca de ejercicios (pizarra T3) — lista de la escuela + plantillas SportMaps
+      description: >
+        Ejercicios activos de la escuela activa y plantillas del sistema (school_id NULL,
+        is_template). Orden: primero los de la escuela, luego por veces usado. Roles de staff
+        (owner, admin, school_admin, coach, staff, super_admin).
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: q, in: query, required: false, schema: { type: string }, description: "Busca en nombre y objetivo (máx. 60 caracteres)." }
+        - { name: sport, in: query, required: false, schema: { type: string, enum: [futbol, futbol7, futbol5, futsal, voleibol, baloncesto, balonmano, generico] } }
+        - { name: tag, in: query, required: false, schema: { type: string } }
+        - { name: mine, in: query, required: false, schema: { type: boolean }, description: "Solo los creados por el usuario." }
+        - { name: templates, in: query, required: false, schema: { type: boolean }, description: "true = solo plantillas SportMaps; false = solo de la escuela; ausente = ambas." }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
+      responses:
+        '200': { description: OK }
+        '400': { description: sport inválido }
+        '403': { description: Rol no permitido }
+    post:
+      tags: [school-performance]
+      summary: Guardar un ejercicio en la biblioteca de la escuela
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 120 }
+                objective: { type: string, maxLength: 1000, nullable: true }
+                minutes: { type: integer, minimum: 1, maximum: 240, nullable: true }
+                age_group: { type: string, maxLength: 60, nullable: true }
+                materials: { type: string, maxLength: 500, nullable: true }
+                tags: { type: array, maxItems: 20, items: { type: string, maxLength: 40 } }
+                sport: { type: string, enum: [futbol, futbol7, futbol5, futsal, voleibol, baloncesto, balonmano, generico], default: futbol }
+                description: { type: string, maxLength: 4000, nullable: true }
+                board:
+                  type: object
+                  description: >
+                    Jugada. players = puestos {key, slot_label, x, y, jersey_number?} (máx. 40);
+                    arrows = figuras de la pizarra (misma validación que match_lineups.arrows, máx. 300);
+                    frames = cuadros {id, duration_ms 200-10000, players [{key,x,y}], ball {x,y}|null, arrows} (máx. 30).
+                  properties:
+                    players: { type: array, items: { type: object } }
+                    arrows: { type: array, items: { type: object } }
+                    frames: { type: array, items: { type: object } }
+      responses:
+        '201': { description: Creado }
+        '422': { description: Ejercicio o jugada inválidos (details) }
+  /api/v1/school/exercises/{id}:
+    get:
+      tags: [school-performance]
+      summary: Detalle de un ejercicio (de la escuela o plantilla)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: OK }
+        '404': { description: No existe, inactivo o de otra escuela }
+    put:
+      tags: [school-performance]
+      summary: Editar un ejercicio (autor o admin de la escuela; plantillas no)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, description: "Mismos campos del POST, todos opcionales." }
+      responses:
+        '200': { description: OK }
+        '400': { description: Nada para actualizar }
+        '403': { description: Plantilla SportMaps, o no es autor ni admin }
+        '404': { description: No encontrado }
+        '422': { description: Ejercicio inválido }
+    delete:
+      tags: [school-performance]
+      summary: Baja lógica (is_active=false) — autor o admin de la escuela; plantillas no
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Dado de baja }
+        '403': { description: Plantilla SportMaps, o no es autor ni admin }
+        '404': { description: No encontrado }
+  /api/v1/school/exercises/{id}/insert-into-session:
+    post:
+      tags: [school-performance]
+      summary: Usar un ejercicio en un bloque de sesión (RPC insert_exercise_into_session_block)
+      description: >
+        En una transacción completa el bloque en training_sessions.session_blocks (solo los
+        campos vacíos; guarda exercise_id), crea o reemplaza el match_lineups del bloque
+        (source_type training_session, source_id = block_id) con arrows + frames, borra los
+        match_lineup_players previos del bloque y suma times_used. Sin session_id (sesión aún
+        sin guardar) exige team_id y solo arma la jugada del bloque. Roles owner, coach,
+        super_admin (y admin por privilegio).
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [block_id]
+              properties:
+                block_id: { type: string, format: uuid }
+                session_id: { type: string, format: uuid, nullable: true }
+                team_id: { type: string, format: uuid, nullable: true }
+      responses:
+        '200': { description: "{ lineup_id, session_id, block_id, exercise_id, block }" }
+        '400': { description: Ids inválidos o falta team_id }
+        '403': { description: Sesión/equipo de otra escuela o sin permiso }
+        '404': { description: Ejercicio o sesión no encontrados }
   /api/v1/school/performance/metrics:
     get:
       tags: [school-performance]

@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { useVendorProfile } from '@/hooks/useVendorProfile';
+import { useSchoolStore } from '@/hooks/useSchoolStore';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { SCHOOL_STORE_SETTINGS_PATH } from '@/lib/store/schoolStore';
 import { Loader2, AlertTriangle, PauseCircle, Upload } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -17,65 +20,35 @@ type VendorGate =
 // Autorizacion por vendor_profile (no por role).
 // Cualquier user con vendor_profile activo accede al panel "Mi Tienda".
 // coach, school, parent, athlete pueden activar via /vendor/onboarding.
+//
+// Bug N0: la tienda de la ESCUELA se resuelve por escuela (useVendorProfile →
+// useSchoolStore), no por user_id. Un school_admin que no es dueño entra a la
+// tienda del club en vez de caer en bucle al alta de vendedor externo. Sin
+// tienda abierta, la administración de la escuela va a «Tu tienda → Ajustes»
+// (activación con el adicional), nunca a /vendor/onboarding.
 export function VendorGuard() {
   const { user, loading: authLoading } = useAuth();
   const location = useLocation();
-  const [gate, setGate] = useState<VendorGate>({ state: 'loading' });
   const [uploadOpen, setUploadOpen] = useState(false);
+  const { loading: schoolLoading } = useSchoolContext();
+  const { isSchoolAdmin } = useSchoolStore();
+  const { data, isLoading, error, isSchoolStore, refetch } = useVendorProfile();
 
-  useEffect(() => {
-    let isMounted = true;
-
-    async function checkVendorProfile() {
-      if (!user?.id) {
-        if (isMounted) setGate({ state: 'loading' });
-        return;
-      }
-
-      try {
-        const { data, error } = await supabase
-          .from('vendor_profiles')
-          .select('id, is_active, verification_status, verification_doc_url')
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-        if (!isMounted) return;
-
-        if (error) {
-          console.error('Error fetching vendor profile:', error);
-          setGate({ state: 'error' });
-          return;
-        }
-
-        if (!data) {
-          setGate({ state: 'no_profile' });
-          return;
-        }
-
-        if (!data.is_active) {
-          setGate({ state: 'inactive' });
-          return;
-        }
-
-        setGate({
-          state: 'active',
-          verification: (data.verification_status ?? 'pending') as 'pending' | 'verified' | 'rejected',
-          docUrl: (data as any).verification_doc_url ?? null,
-        });
-      } catch (err) {
-        console.error('Check vendor profile error:', err);
-        if (isMounted) setGate({ state: 'error' });
-      }
-    }
-
-    if (!authLoading) {
-      checkVendorProfile();
-    }
-
-    return () => {
-      isMounted = false;
+  const gate: VendorGate = (() => {
+    if (!user?.id || isLoading || schoolLoading) return { state: 'loading' };
+    if (error) return { state: 'error' };
+    if (!data) return { state: 'no_profile' };
+    if (!data.is_active) return { state: 'inactive' };
+    return {
+      state: 'active',
+      verification: (data.verification_status ?? 'pending') as 'pending' | 'verified' | 'rejected',
+      docUrl: data.verification_doc_url ?? null,
     };
-  }, [user, authLoading]);
+  })();
+
+  if (!authLoading && !user) {
+    return <Navigate to="/login" replace state={{ from: location }} />;
+  }
 
   if (authLoading || gate.state === 'loading') {
     return (
@@ -90,6 +63,15 @@ export function VendorGuard() {
   }
 
   const isOnboardingRoute = location.pathname.includes('/vendor/onboarding');
+
+  // Administración de una escuela sin tienda abierta → activar la tienda del
+  // club (con el adicional), no el alta de vendedor externo.
+  if (isSchoolAdmin && (gate.state === 'no_profile' || isSchoolStore) && isOnboardingRoute) {
+    return <Navigate to={SCHOOL_STORE_SETTINGS_PATH} replace />;
+  }
+  if (isSchoolAdmin && (gate.state === 'no_profile' || (gate.state === 'inactive' && isSchoolStore))) {
+    return <Navigate to={SCHOOL_STORE_SETTINGS_PATH} replace />;
+  }
 
   // Sin perfil de vendedor → mandar a activar tienda (onboarding)
   if (gate.state === 'no_profile' && !isOnboardingRoute) {
@@ -106,7 +88,8 @@ export function VendorGuard() {
     return <Navigate to="/vendor/dashboard" replace />;
   }
 
-  const showActiveBanners = gate.state === 'active' && !isOnboardingRoute;
+  // La tienda escolar no pasa por verificación de vendedor (D-4): sin banners.
+  const showActiveBanners = gate.state === 'active' && !isOnboardingRoute && data?.vendor_type !== 'school';
   const showUploadCta = showActiveBanners && (gate.verification === 'pending' || gate.verification === 'rejected');
 
   return (
@@ -178,7 +161,7 @@ export function VendorGuard() {
           currentDocUrl={gate.docUrl}
           onUploaded={() => {
             // Refrescar el gate para que muestre el nuevo doc.
-            setGate(prev => prev.state === 'active' ? { ...prev } : prev);
+            void refetch();
           }}
         />
       )}

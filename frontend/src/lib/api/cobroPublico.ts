@@ -32,6 +32,12 @@ export interface VistaCobroPublico {
          */
         linkDePago?: string | null;
     };
+    /**
+     * wa.me con «… ACTIVAR AVISOS» prellenado para dar el consentimiento desde
+     * WhatsApp. null si ya lo dio o la escuela no tiene WhatsApp. Opcional: un
+     * BFF anterior no lo manda.
+     */
+    whatsappAvisos?: string | null;
     /** Otros cobros por pagar del mismo pagador, cada uno con su enlace. */
     otrosPendientes?: {
         token: string;

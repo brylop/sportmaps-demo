@@ -47,6 +47,9 @@ interface MesocycleRubricTableProps {
   schoolId: string;
   evaluationMode: 'team' | 'individual';
   roster: RosterMember[];
+  /** Dueño/administración (spec rediseño §3, "Dueño = MIRAR"): se ven los
+   *  valores, sin campos para editarlos. */
+  readOnly?: boolean;
 }
 
 function subjectTypeFor(member: RosterMember): 'profile' | 'child' | 'unregistered' {
@@ -55,7 +58,16 @@ function subjectTypeFor(member: RosterMember): 'profile' | 'child' | 'unregister
   return 'unregistered';
 }
 
-export function MesocycleRubricTable({ mesocycleId, schoolId, evaluationMode, roster }: MesocycleRubricTableProps) {
+/** Celda de solo lectura: el valor guardado o un guion. */
+function ScoreValue({ value }: { value: number | undefined }) {
+  return (
+    <span className={`inline-flex h-8 w-16 items-center justify-center rounded-md tabular-nums ${value != null ? 'font-semibold' : 'text-muted-foreground'}`}>
+      {value ?? '—'}
+    </span>
+  );
+}
+
+export function MesocycleRubricTable({ mesocycleId, schoolId, evaluationMode, roster, readOnly = false }: MesocycleRubricTableProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -215,7 +227,7 @@ export function MesocycleRubricTable({ mesocycleId, schoolId, evaluationMode, ro
                     const key = `${ind.key}__${cp.key}`;
                     return (
                       <td key={cp.key} className="p-1.5 text-center">
-                        <Input
+                        {readOnly ? <ScoreValue value={teamScoreMap.get(key)} /> : <Input
                           type="number"
                           min={1}
                           max={10}
@@ -227,7 +239,7 @@ export function MesocycleRubricTable({ mesocycleId, schoolId, evaluationMode, ro
                               saveTeamScore.mutate({ indicator: ind.key, checkpoint: cp.key, score: val });
                             }
                           }}
-                        />
+                        />}
                       </td>
                     );
                   })}
@@ -263,7 +275,7 @@ export function MesocycleRubricTable({ mesocycleId, schoolId, evaluationMode, ro
                       const current = individualScoreMap.get(`${metricKey}__${cp.key}`);
                       return (
                         <td key={cp.key} className="p-1.5 text-center">
-                          <Input
+                          {readOnly ? <ScoreValue value={current?.value} /> : <Input
                             type="number"
                             min={1}
                             max={10}
@@ -275,7 +287,7 @@ export function MesocycleRubricTable({ mesocycleId, schoolId, evaluationMode, ro
                                 saveIndividualScore.mutate({ indicator: ind.key, checkpoint: cp.key, score: val });
                               }
                             }}
-                          />
+                          />}
                         </td>
                       );
                     })}

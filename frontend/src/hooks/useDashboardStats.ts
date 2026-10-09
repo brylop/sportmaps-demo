@@ -30,6 +30,8 @@ export interface DashboardStats {
   appointmentsToday?: number;
   pendingRequests?: number;
   openEpisodes?: number;
+  /** Solo store_owner: ticket promedio de los pedidos pagados (30 días). */
+  storeAvgTicket?: number;
 }
 
 export function useDashboardStats(role?: UserRole) {
@@ -130,14 +132,28 @@ export function useDashboardStats(role?: UserRole) {
       if (effectiveRole === 'store_owner') {
         const { count: prodCount } = await supabase
           .from('products')
-          .select('id', { count: 'exact' })
-          .eq('vendor_id', user.id);
+          .select('id', { count: 'exact', head: true })
+          .eq('vendor_id', user.id)
+          .eq('status', 'active');
         stats.products = prodCount || 0;
 
-        const { count: orderCount } = await supabase
-          .from('orders')
-          .select('id', { count: 'exact' });
-        stats.orders = orderCount || 0;
+        // Ventas reales (pedidos pagados en adelante de su tienda, 30 días) desde el BFF.
+        // Antes: "Ventas del Mes" = "$0" fijo y "Pedidos" contaba toda orden visible.
+        try {
+          const { data: sess } = await supabase.auth.getSession();
+          const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+          const res = await fetch(`${apiUrl}/api/v1/vendor/products/insights?days=30`, {
+            headers: { Authorization: `Bearer ${sess.session?.access_token ?? ''}` },
+          });
+          const json = await res.json().catch(() => null);
+          if (res.ok && json?.ok) {
+            stats.totalRevenue = Number(json.data?.revenue ?? 0);
+            stats.orders = Number(json.data?.orders ?? 0);
+            stats.storeAvgTicket = Number(json.data?.avg_ticket ?? 0);
+          }
+        } catch {
+          // sin tienda prendida o BFF caído: quedan en 0
+        }
       }
 
       if (effectiveRole === 'wellness_professional') {

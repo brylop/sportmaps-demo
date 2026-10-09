@@ -29,6 +29,9 @@ import { SportMapsPaySettings } from '@/components/settings/SportMapsPaySettings
 import { PaymentProvidersAdmin } from '@/components/admin/PaymentProvidersAdmin';
 import { RegisterCashPaymentModal } from '@/components/payment/RegisterCashPaymentModal';
 import { ApprovePaymentMethodSheet } from '@/components/payment/ApprovePaymentMethodSheet';
+import { RejectReceiptDialog } from '@/components/payment/RejectReceiptDialog';
+import { BulkApproveGreensDialog } from '@/components/payment/BulkApproveGreensDialog';
+import { sortReviewQueue, waitingLabel, waitingSince, bulkGreenSelection } from '@/lib/receiptReview';
 import { bffClient } from '@/lib/api/bffClient';
 import { GlosaConciliationDialog } from '@/components/payment/GlosaConciliationDialog';
 import { ReconciliationTab } from '@/components/payment/ReconciliationTab';
@@ -343,6 +346,11 @@ interface PaymentTransaction {
   ocr_destination?: string | null;
   receipt_verdict_reasons?: unknown[] | null;
   reconciliation_status?: string | null;
+  /** Cuándo entró el comprobante (receipt_submitted_at; si falta, receipt_verdict_at). */
+  submitted_at?: string | null;
+  requires_review?: boolean | null;
+  last_failure_reason?: string | null;
+  period_already_settled?: boolean | null;
   // Señales para distinguir un pago gestionado por pasarela de uno manual.
   // OJO: payment_provider NO sirve solo — tiene DEFAULT 'wompi' en la columna
   // (mig 20260504000001), así que efectivo y transferencias también lo traen.
@@ -444,9 +452,9 @@ const CHARGE_PRIORITY: Record<string, number> = {
 };
 
 export default function PaymentsAutomationPage() {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const { toast } = useToast();
-  const { schoolId, activeBranchId, currentUserRole } = useSchoolContext();
+  const { schoolId, schoolName, activeBranchId, currentUserRole } = useSchoolContext();
   // Deep-link a un tab puntual (ej. "Próximo Cierre de Mes" en Finanzas manda
   // acá a abrir el mes — sin esto, quien llega desde ese link caía siempre en
   // "Cobros" y el botón de abrir mes, que vive en "Config", quedaba invisible.
@@ -471,7 +479,15 @@ export default function PaymentsAutomationPage() {
   const [viewingProof, setViewingProof] = useState<{ open: boolean; url: string; student: string; amount: number }>({
     open: false, url: '', student: '', amount: 0,
   });
-  const [processingId, setProcessingId] = useState<string | null>(null);
+  // Rechazo de comprobante (con motivo) y aprobación en lote de los verdes.
+  const [rejectingPayment, setRejectingPayment] = useState<PaymentTransaction | null>(null);
+  const [bulkGreensOpen, setBulkGreensOpen] = useState(false);
+  // Reloj de la cola: refresca el «esperando hace…» cada minuto.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
   // Glosas (aclaraciones) de la escuela.
   const [glosas, setGlosas] = useState<Glosa[]>([]);
   const [conciliatingGlosa, setConciliatingGlosa] = useState<Glosa | null>(null);
@@ -691,6 +707,7 @@ export default function PaymentsAutomationPage() {
           provider_transaction_id, qr_id,
           ocr_amount, ocr_currency, ocr_date, ocr_bank, ocr_reference, ocr_provider,
           receipt_verdict, ocr_destination, receipt_verdict_reasons, reconciliation_status,
+          receipt_verdict_at,
           requires_review, last_failure_at, last_failure_reason,
           parent:profiles!payments_parent_id_fkey(full_name, email),
           user:profiles!payments_user_id_fkey(full_name, email),
@@ -789,6 +806,21 @@ export default function PaymentsAutomationPage() {
           ? `${['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][m - 1]} ${y}`
           : null;
 
+      // Cuándo entró cada comprobante por validar. `receipt_submitted_at` llega
+      // con la migración 20261008165728; va en una consulta aparte para que, sin
+      // ella, la pantalla siga cargando (con `receipt_verdict_at` de respaldo).
+      const awaitingIds = ((data as any[]) || [])
+        .filter((p) => p.status === 'awaiting_approval')
+        .map((p) => p.id as string);
+      const submittedAt = new Map<string, string>();
+      for (let i = 0; i < awaitingIds.length; i += 150) {
+        const { data: sub, error: subErr } = await (supabase.from('payments') as any)
+          .select('id, receipt_submitted_at')
+          .in('id', awaitingIds.slice(i, i + 150));
+        if (subErr) break;
+        for (const r of (sub as any[]) ?? []) if (r.receipt_submitted_at) submittedAt.set(r.id, r.receipt_submitted_at);
+      }
+
       setPayments(((data as any[]) || []).map((p) => ({
         id: p.id, amount: p.amount, amount_paid: p.amount_paid, status: p.status, created_at: p.created_at,
         // `payment_date` se pedía al servidor pero se caía acá: la columna Fecha
@@ -815,6 +847,9 @@ export default function PaymentsAutomationPage() {
         ocr_destination: p.ocr_destination ?? null,
         receipt_verdict_reasons: p.receipt_verdict_reasons ?? null,
         reconciliation_status: p.reconciliation_status ?? null,
+        submitted_at: submittedAt.get(p.id) ?? p.receipt_verdict_at ?? null,
+        requires_review: p.requires_review ?? null,
+        last_failure_reason: p.last_failure_reason ?? null,
         period_year:  p.period_year ?? null,
         period_month: p.period_month ?? null,
         period_label: monthLabel(p.period_year, p.period_month),
@@ -1028,57 +1063,9 @@ export default function PaymentsAutomationPage() {
   );
   if (!isAuthorized) return <Navigate to="/dashboard" replace />;
 
-  // Solo rechazo: aprobar (completo o abono) SIEMPRE pasa por
-  // ApprovePaymentMethodSheet, que sí chequea abono/discrepancia y acumula
-  // amount_paid. Esta función tenía una rama 'approve' que marcaba 'paid'
-  // completo sin ese chequeo — muerta en runtime (ningún botón la llamaba con
-  // 'approve'), pero una trampa si alguien la reconectaba. Se retiró.
-  const handleManualAction = async (paymentId: string) => {
-    setProcessingId(paymentId);
-    const payment = payments.find(p => p.id === paymentId);
-
-    try {
-      // Contabilidad v2 F0 (plan §4 F7): rechazar es para comprobantes EN
-      // REVISIÓN. Un cobro ya pagado no se "rechaza" (si tiene factura
-      // electrónica, la base lo frena con PAYMENT_INVOICED y pide nota crédito).
-      const { data: updated, error: updateError } = await supabase
-        .from('payments')
-        .update({ status: 'rejected' })
-        .eq('id', paymentId)
-        .in('status', ['awaiting_approval', 'pending'])
-        .select('id');
-      if (updateError) throw updateError;
-      if (!updated || updated.length === 0) {
-        toast({
-          title: 'No se rechazó',
-          description: 'Este cobro ya no está en revisión (pudo aprobarse o cambiar mientras tanto). Actualiza la lista.',
-          variant: 'destructive',
-        });
-        await fetchPayments();
-        return;
-      }
-
-      if (payment?.parent_id) {
-        await supabase.rpc('notify_user', {
-          p_user_id: payment.parent_id,
-          p_title: '❌ Pago Rechazado',
-          p_message: `Tu comprobante de ${formatCurrency(payment.amount)} no pudo ser validado. Contáctanos para más información.`,
-          p_type: 'error',
-          p_link: '/my-payments',
-        });
-      }
-      toast({
-        title: 'Pago Rechazado',
-        description: 'La transacción ha sido rechazada correctamente.',
-        variant: 'destructive',
-      });
-      await fetchPayments();
-    } catch (error: unknown) {
-      toast({ title: 'Error', description: `No se pudo procesar la acción: ${getUserFriendlyError(error)}`, variant: 'destructive' });
-    } finally {
-      setProcessingId(null);
-    }
-  };
+  // Rechazar = rechazar el COMPROBANTE con motivo (RejectReceiptDialog →
+  // reject_payment_receipt). Antes `handleManualAction` ponía el propio cobro en
+  // 'rejected' sin motivo y la deuda dejaba de figurar (bug 2026-10-08).
 
   const handleExportCSV = () => {
     if (payments.length === 0) { toast({ title: 'No hay datos', description: 'No hay transacciones para exportar.' }); return; }
@@ -1185,7 +1172,9 @@ export default function PaymentsAutomationPage() {
       (p.status === 'pending' && !!p.receipt_url)
     );
   });
-  const pendingPayments = rawPendingPayments.filter(p => {
+  // Orden de la cola: verde primero (se aprueba en un clic), luego amarillo,
+  // sin veredicto y rojo; dentro de cada grupo, el que más lleva esperando.
+  const pendingPayments = sortReviewQueue(rawPendingPayments.filter(p => {
     if (!pendingSearch) return true;
     const term = pendingSearch.toLowerCase();
     return p.child?.full_name?.toLowerCase().includes(term) ||
@@ -1193,7 +1182,23 @@ export default function PaymentsAutomationPage() {
       p.concept?.toLowerCase().includes(term) ||
       p.program?.name?.toLowerCase().includes(term) ||
       p.team?.name?.toLowerCase().includes(term);
-  });
+  }));
+  // «Aprobar todos los verdes» trabaja sobre TODA la cola, no sobre la búsqueda.
+  const greenSelection = bulkGreenSelection(rawPendingPayments);
+  const WAIT_TONE_CLASS = {
+    ok: 'bg-slate-50 text-slate-600 border-slate-200',
+    warn: 'bg-amber-50 text-amber-700 border-amber-300',
+    late: 'bg-red-50 text-red-700 border-red-300',
+  } as const;
+  const renderWaitingChip = (payment: PaymentTransaction) => {
+    if (payment.status !== 'awaiting_approval') return null;
+    const w = waitingLabel(waitingSince(payment), nowTick);
+    return (
+      <Badge variant="outline" title="Tiempo desde que entró el comprobante" className={`text-[10px] py-0 h-5 whitespace-nowrap ${WAIT_TONE_CLASS[w.tone]}`}>
+        <Clock className="h-2.5 w-2.5 mr-1" /> Espera {w.label}
+      </Badge>
+    );
+  };
 
   // Historial = plata que entró o un desenlace real, nada más:
   //  - paid / partial / rejected → movimiento con plata o con veredicto final
@@ -1478,9 +1483,19 @@ export default function PaymentsAutomationPage() {
                   <Clock className="h-5 w-5 text-amber-600 shrink-0" />
                   Cobros por Aprobar
                 </CardTitle>
-                <CardDescription>Confirma los cobros con pago reportado (comprobantes y abonos). Los cobros emitidos que nadie ha pagado están en la cartera, en Finanzas.</CardDescription>
+                <CardDescription>Confirma los cobros con pago reportado (comprobantes y abonos). Los cobros emitidos que nadie ha pagado están en la cartera, en Finanzas. Primero los verdes, y dentro de cada color el que más lleva esperando.</CardDescription>
               </div>
-              <div className="w-full sm:w-auto">
+              <div className="w-full sm:w-auto flex flex-col sm:flex-row gap-2">
+                {greenSelection.eligible.length > 0 && (
+                  <Button
+                    size="sm"
+                    className="h-9 bg-emerald-600 hover:bg-emerald-700 whitespace-nowrap"
+                    onClick={() => setBulkGreensOpen(true)}
+                  >
+                    <CheckCircle2 className="h-4 w-4 mr-1" />
+                    Aprobar todos los verdes ({greenSelection.eligible.length})
+                  </Button>
+                )}
                 <Input
                   placeholder="Buscar alumno, padre o equipo..."
                   value={pendingSearch}
@@ -1537,6 +1552,7 @@ export default function PaymentsAutomationPage() {
                             <p className="font-bold text-primary text-sm">{formatCurrency(payment.amount)}</p>
                             <p className="text-xs text-muted-foreground">{reportedDate(payment)}</p>
                             <div className="mt-1 flex flex-wrap gap-1 justify-end">
+                              {renderWaitingChip(payment)}
                               {(payment.receipt_url || payment.status === 'awaiting_approval') ? (
                                 <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">Transferencia</Badge>
                               ) : (
@@ -1556,7 +1572,7 @@ export default function PaymentsAutomationPage() {
                             <CheckCircle2 className="h-3 w-3 mr-1" />
                             Aprobar
                           </Button>
-                          <Button size="sm" variant="outline" className="h-8 text-red-600 border-red-200 hover:bg-red-50" disabled={processingId === payment.id} onClick={() => handleManualAction(payment.id)}>
+                          <Button size="sm" variant="outline" className="h-8 text-red-600 border-red-200 hover:bg-red-50" disabled={!(payment.status === 'awaiting_approval' || ((payment.status === 'pending' || payment.status === 'overdue') && !!payment.receipt_url))} onClick={() => setRejectingPayment(payment)}>
                             <XCircle className="h-3 w-3 mr-1" />
                             Rechazar
                           </Button>
@@ -1585,7 +1601,12 @@ export default function PaymentsAutomationPage() {
                       <TableBody>
                         {pendingPayments.map((payment) => (
                           <TableRow key={payment.id}>
-                            <TableCell className="font-mono text-xs">{reportedDate(payment)}</TableCell>
+                            <TableCell className="font-mono text-xs align-top">
+                              <div className="flex flex-col gap-1 items-start">
+                                <span>{reportedDate(payment)}</span>
+                                {renderWaitingChip(payment)}
+                              </div>
+                            </TableCell>
                             <TableCell>
                               <div className="flex flex-col">
                                 <span className="font-bold">{(payment as any).athlete_name || 'Sin nombre'}</span>
@@ -1641,9 +1662,12 @@ export default function PaymentsAutomationPage() {
                             </TableCell>
                             <TableCell>
                               {payment.receipt_url ? (
-                                <Button variant="outline" size="sm" className="h-8 gap-1 text-blue-600 border-blue-200 bg-blue-50" onClick={() => handleShowProof(payment)}>
-                                  <Eye className="h-3 w-3" /> Ver
-                                </Button>
+                                <div className="flex flex-col gap-1 items-start">
+                                  <Button variant="outline" size="sm" className="h-8 gap-1 text-blue-600 border-blue-200 bg-blue-50" onClick={() => handleShowProof(payment)}>
+                                    <Eye className="h-3 w-3" /> Ver
+                                  </Button>
+                                  <VerdictBadge verdict={payment.receipt_verdict} />
+                                </div>
                               ) : (
                                 <span className="text-xs text-muted-foreground">—</span>
                               )}
@@ -1654,7 +1678,7 @@ export default function PaymentsAutomationPage() {
                                   <CheckCircle2 className="h-3 w-3 mr-1" />
                                   Aprobar
                                 </Button>
-                                <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" disabled={processingId === payment.id} onClick={() => handleManualAction(payment.id)}>
+                                <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" disabled={!(payment.status === 'awaiting_approval' || ((payment.status === 'pending' || payment.status === 'overdue') && !!payment.receipt_url))} onClick={() => setRejectingPayment(payment)}>
                                   <XCircle className="h-3 w-3 mr-1" /> Rechazar
                                 </Button>
                                 <Button size="sm" variant="outline" className="text-orange-600 border-orange-200 hover:bg-orange-50" onClick={() => setCreatingGlosaPayment(payment)}>
@@ -2881,6 +2905,21 @@ export default function PaymentsAutomationPage() {
           setPaymentToApprove(null);
           fetchPayments();
         }}
+      />
+      <RejectReceiptDialog
+        payment={rejectingPayment}
+        open={!!rejectingPayment}
+        onOpenChange={(o) => { if (!o) setRejectingPayment(null); }}
+        onSuccess={() => { setRejectingPayment(null); fetchPayments(); }}
+      />
+      <BulkApproveGreensDialog
+        items={rawPendingPayments}
+        open={bulkGreensOpen}
+        onOpenChange={setBulkGreensOpen}
+        onDone={fetchPayments}
+        userId={user?.id}
+        schoolId={schoolId}
+        schoolName={schoolName}
       />
       <CreateGlosaDialog
         payment={creatingGlosaPayment}

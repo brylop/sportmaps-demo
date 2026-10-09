@@ -11,6 +11,7 @@ import { PrivacySection } from '@/components/settings/PrivacySection';
 import { ServicesSection } from '@/components/settings/ServicesSection';
 import { BrandingSettingsForm } from '@/components/settings/BrandingSettingsForm';
 import { SchoolInfoSection } from '@/components/settings/SchoolInfoSection';
+import { SchoolMetricsSettings } from '@/components/settings/SchoolMetricsSettings';
 import { Skeleton } from '@/components/ui/skeleton';
 import { 
   User, 
@@ -22,7 +23,8 @@ import {
   Building2,
   Settings as SettingsIcon,
   ChevronRight,
-  Sparkles
+  Sparkles,
+  ClipboardCheck
 } from 'lucide-react';
 
 
@@ -163,6 +165,15 @@ export default function SettingsPage() {
                     <span>Marca</span>
                     <ChevronRight className={`ml-auto h-4 w-4 transition-transform ${activeTab === 'branding' ? 'rotate-90' : ''}`} />
                   </TabsTrigger>
+
+                  <TabsTrigger
+                    value="evaluation-metrics"
+                    className="justify-start gap-3 h-12 px-4 rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-md data-[state=active]:text-primary transition-all duration-200"
+                  >
+                    <ClipboardCheck className="h-4 w-4" />
+                    <span>Métricas de evaluación</span>
+                    <ChevronRight className={`ml-auto h-4 w-4 transition-transform ${activeTab === 'evaluation-metrics' ? 'rotate-90' : ''}`} />
+                  </TabsTrigger>
                 </>
               )}
 
@@ -245,6 +256,11 @@ export default function SettingsPage() {
                     editor o el upsell segun el addon pwa_branding. */}
                 <TabsContent value="branding" className="mt-0">
                     <BrandingSettingsForm />
+                </TabsContent>
+
+                {/* F5 rediseño seguimiento deportivo: cada escuela elige sus métricas. */}
+                <TabsContent value="evaluation-metrics" className="mt-0">
+                  <SchoolMetricsSettings />
                 </TabsContent>
               </>
             )}

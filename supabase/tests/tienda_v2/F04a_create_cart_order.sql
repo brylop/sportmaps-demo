@@ -20,8 +20,11 @@ select set_config('qa.school_a', (select school_id::text from qa_twin.actores wh
 
 insert into public.vendor_bank_accounts (vendor_profile_id, bank_name, account_type, account_number, account_holder, document_type, document_number, is_default, is_active)
 values (current_setting('qa.vp_ok')::uuid, 'Banco QA', 'ahorros', '000-QA-111', 'QA Deportes', 'NIT', '900000001', true, true);
+-- Idempotente: otra corrida (o la preparación del E2E) puede haber dejado la fila.
 insert into public.store_payment_settings (vendor_profile_id, accept_transfer, accept_cash_pickup)
-values (current_setting('qa.vp_ok')::uuid, true, true);
+values (current_setting('qa.vp_ok')::uuid, true, true)
+on conflict (vendor_profile_id) do update set accept_transfer = true, accept_cash_pickup = true,
+       accept_wompi = false, accept_mercadopago = false;
 
 -- Tienda de la escuela A (enable_school_store como owner) y la camiseta school_only en ella.
 select set_config('request.jwt.claims', json_build_object('sub', (select user_id from qa_twin.actores where alias = 'owner.a'), 'role', 'authenticated')::text, true);
@@ -35,7 +38,15 @@ values (current_setting('qa.school_a')::uuid,
         '[{"id":"qa1","type":"nequi","label":"Nequi","value":"3000000000","active":true}]'::jsonb)
 on conflict (school_id) do update set payment_accounts = excluded.payment_accounts;
 insert into public.store_payment_settings (vendor_profile_id, accept_transfer, accept_cash_pickup)
-values (current_setting('qa.vp_a')::uuid, true, true);
+values (current_setting('qa.vp_a')::uuid, true, true)
+on conflict (vendor_profile_id) do update set accept_transfer = true, accept_cash_pickup = true,
+       accept_wompi = false, accept_mercadopago = false;
+
+-- Línea base de reservas del balón: otras corridas pueden haber dejado holds
+-- activos (commiteados por el E2E); el caso mide lo que ESTA corrida reserva.
+select set_config('qa.res0', (select reserved::text from public.products where id = '00000000-0000-4000-d000-000000000002'), true);
+select set_config('qa.holds0', (select coalesce(sum(quantity),0)::text from public.stock_holds
+   where product_id = '00000000-0000-4000-d000-000000000002' and status = 'active'), true);
 
 -- ── Comprador padre.a ────────────────────────────────────────────────────────
 select set_config('request.jwt.claims', json_build_object('sub', current_setting('qa.u_padre'), 'role', 'authenticated')::text, true);
@@ -265,8 +276,10 @@ begin
   select reserved, stock into v_res, v_stock from public.products where id = '00000000-0000-4000-d000-000000000002';
   select coalesce(sum(quantity),0) into v_holds from public.stock_holds
    where product_id = '00000000-0000-4000-d000-000000000002' and status = 'active';
+  v_res := v_res - current_setting('qa.res0')::int;
+  v_holds := v_holds - current_setting('qa.holds0')::int;
   if v_stock <> 20 or v_res <> v_holds or v_res <> 4 then
-    raise exception 'FALLO: stock=% reserved=% holds=% (esperado 20/4/4)', v_stock, v_res, v_holds;
+    raise exception 'FALLO: stock=% Δreserved=% Δholds=% (esperado 20/4/4)', v_stock, v_res, v_holds;
   end if;
   raise notice 'OK: stock intacto (20), reserved = Σ holds activos = 4 (C10)';
 end $$;

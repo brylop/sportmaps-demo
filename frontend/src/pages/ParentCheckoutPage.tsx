@@ -483,18 +483,18 @@ export default function ParentCheckoutPage() {
     const periodSuffix = periodLabel ? ` — ${periodLabel}` : '';
     const traceMsg = `Pago de ${formatPrice(chargeAmount)} por ${studentName}${teamName ? ` (${teamName})` : ''} en ${schoolName}${periodSuffix}`;
 
-    if (ownerId) {
+    // El comprobante por validar (flujo manual) ya NO se avisa desde acá: lo
+    // avisa el job receipt-review-alerts del BFF al dueño Y a los admins, para
+    // todos los caminos de entrada (app, bot de WhatsApp, importador), agrupado
+    // y con recordatorio si pasa 2 h sin revisar. Avisarlo también acá lo
+    // duplicaba. El pago en línea sí se avisa (va a Finanzas).
+    if (ownerId && paymentFlow !== 'manual') {
       await supabase.rpc('notify_user', {
         p_user_id: ownerId,
-        p_title: paymentFlow === 'manual'
-          ? `Comprobante por validar${periodSuffix}`
-          : `Pago Recibido${periodSuffix}`,
+        p_title: `Pago Recibido${periodSuffix}`,
         p_message: traceMsg,
         p_type: 'payment',
-        // El comprobante por validar queda en `awaiting_approval`, estado que la
-        // tabla de Finanzas filtra: hay que mandar a Gestión de Pagos, que es
-        // donde está la cola "Por Validar". El pago en línea sí llega a Finanzas.
-        p_link: paymentFlow === 'manual' ? '/payments-automation' : '/finances',
+        p_link: '/finances',
       });
     }
 

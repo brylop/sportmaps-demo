@@ -14,7 +14,7 @@ import {
     intencionDeProspecto, puertaDeProspecto, soloSaludoOCortesia, buscaParaAdulto,
     interesesDeProspecto, edadMencionada,
 } from './whatsapp-atencion.service';
-import { resumirProspecto, telefonoDeLeadWa } from './whatsapp-prospecto-lead.service';
+import { resumirProspecto, telefonoDeLeadWa, variantesTelefonoLead } from './whatsapp-prospecto-lead.service';
 
 describe('intención clara de prospecto → abre la puerta', () => {
     it.each([
@@ -155,4 +155,8 @@ describe('¿busca para un adulto?', () => {
 describe('teléfono del lead (mismo formato que la reserva de cortesía)', () => {
     it('celular colombiano → 10 dígitos', () => expect(telefonoDeLeadWa('573001234567')).toBe('3001234567'));
     it('extranjero → +código', () => expect(telefonoDeLeadWa('5491123456789')).toBe('+5491123456789'));
+    it('extranjero cuyos últimos 10 arrancan en 3 → +código, no el celular de otro', () => {
+        expect(telefonoDeLeadWa('13101234567')).toBe('+13101234567');
+        expect(variantesTelefonoLead('13101234567')).toEqual(['13101234567', '+13101234567']);
+    });
 });

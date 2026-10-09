@@ -96,3 +96,42 @@ export function profileCanSellProducts(vp: Pick<ManagedVendorProfile, 'is_active
     const cap = vp.capabilities?.['can_sell_products'];
     return vp.is_active === true && (cap === true || cap === 'true');
 }
+
+export interface SchoolStoreSummary {
+    id: string;
+    user_id: string | null;
+    school_id: string;
+    vendor_type: string | null;
+    display_name: string | null;
+    slug: string | null;
+    is_active: boolean | null;
+    verification_status: string | null;
+    capabilities: Record<string, unknown> | null;
+}
+
+/**
+ * La tienda (vendor_profile) de una escuela: vendor_profiles.school_id. Bug N0:
+ * buscarla por user_id deja afuera al school_admin que no es dueño. Quién puede
+ * gestionarla lo decide canManageStoreAs.
+ */
+export async function findSchoolStore(schoolId: string): Promise<SchoolStoreSummary | null> {
+    const { data, error } = await supabase
+        .from('vendor_profiles')
+        .select('id, user_id, school_id, vendor_type, display_name, slug, is_active, verification_status, capabilities')
+        .eq('school_id', schoolId)
+        .maybeSingle();
+    if (error || !data) return null;
+    return data as unknown as SchoolStoreSummary;
+}
+
+/**
+ * Perfil "principal" que gestiona el usuario: el propio (user_id) y, si no
+ * tiene, el de una escuela que administra. Para rutas que asumían un perfil
+ * por usuario (envíos).
+ */
+export async function resolvePrimaryVendorProfileId(userId: string): Promise<string | null> {
+    const { data: own } = await supabase.from('vendor_profiles').select('id').eq('user_id', userId).maybeSingle();
+    if ((own as { id?: string } | null)?.id) return (own as { id: string }).id;
+    const managed = await resolveManagedVendorProfiles(userId);
+    return managed.find(vp => !!vp.school_id)?.id ?? managed[0]?.id ?? null;
+}

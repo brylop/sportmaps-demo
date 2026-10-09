@@ -120,7 +120,7 @@ export default function TiendaProductoPage() {
                 : <Package className="h-16 w-16 text-muted-foreground/40" />}
               {product.visibility === 'school_only' && (
                 <span className="absolute top-3 left-3 rounded-full bg-background/90 text-xs font-medium px-2.5 py-1 flex items-center gap-1 shadow-sm">
-                  <Lock className="h-3 w-3" /> Solo tu escuela
+                  <Lock className="h-3 w-3" /> Solo para miembros
                 </span>
               )}
             </div>

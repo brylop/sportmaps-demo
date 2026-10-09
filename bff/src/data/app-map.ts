@@ -409,7 +409,7 @@ export const APP_MAP: Record<string, AppMapRole> = {
             'Ve a sus hijos, paga mensualidades, sube comprobantes y recibe informes. Si la escuela no cobra por SportMaps, "Pagos" no aparece.',
         menu: [
             'Principal: Dashboard · Mis Hijos · Calendario Familiar',
-            'Seguimiento: Progreso Deportivo · Asistencias · Pagos · Tienda · Mis compras (Tienda y Mis compras solo si la tienda está activa)',
+            'Seguimiento: Progreso Deportivo · Asistencias · Pagos · Tienda · Mis compras (Tienda solo si la escuela del usuario tiene su tienda abierta; Mis compras también si ya compró antes)',
             'Mi Actividad: Mensajes · Mis Inscripciones · Mis Eventos · Mis Citas · Carnets de mis hijos · Mis Constancias · Configuración',
         ].join('\n'),
         tareas: [
@@ -494,7 +494,7 @@ export const APP_MAP: Record<string, AppMapRole> = {
             'Mi Rendimiento: Estadísticas · Objetivos · Entrenamientos',
             'Actividad Deportiva: Mis Inscripciones · Mis Eventos',
             'Bienestar: Explorar Bienestar · Mis Citas',
-            'Tienda: Catálogo (solo si la tienda está activa)',
+            'Tienda: Tienda · Mis compras (Tienda solo si la escuela del usuario tiene su tienda abierta; Mis compras también si ya compró antes)',
             'Documentos: Mis Carnets',
             'Cuenta: Configuración',
         ].join('\n'),

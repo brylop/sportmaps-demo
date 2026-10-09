@@ -5,13 +5,16 @@
 
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight, Loader2, Package, ShoppingBag } from 'lucide-react';
+import { ChevronRight, KeyRound, Loader2, Package, ShoppingBag } from 'lucide-react';
 import { OrderStatusBadge } from '@/components/store/OrderStatusBadge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { fetchMyOrders, type StoreOrder } from '@/lib/api/storeApi';
+import { fetchMyOrders, recallPickupCode, type StoreOrder } from '@/lib/api/storeApi';
 import { formatCurrency } from '@/lib/utils';
 import { buyerCanUploadReceipt, normalizeOrderStatus, orderShortRef } from '@/lib/store/orderStatus';
+import { buyerCanRegeneratePickupCode } from '@/lib/store/buyerCopy';
+import { orderLoadError } from '@/lib/store/storeErrors';
+import { useMySchoolStore } from '@/hooks/useMySchoolStore';
 
 function itemsSummary(o: StoreOrder): string {
   const names = (o.order_items ?? []).map((i) => `${i.quantity} × ${i.products?.name ?? 'Producto'}`);
@@ -20,10 +23,13 @@ function itemsSummary(o: StoreOrder): string {
 
 export default function MisComprasPage() {
   const { user } = useAuth();
-  const { data: orders = [], isLoading, isError, refetch } = useQuery({
+  // «Ir a la tienda» solo si la tienda de la escuela activa vende hoy.
+  const { showStore } = useMySchoolStore();
+  const { data: orders = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['store', 'my-orders', user?.id],
     queryFn: fetchMyOrders,
     enabled: !!user,
+    retry: (count, err) => orderLoadError(err) !== 'rate_limited' && count < 2,
   });
 
   return (
@@ -33,27 +39,33 @@ export default function MisComprasPage() {
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Mis compras</h1>
           <p className="text-muted-foreground text-sm">Tus pedidos en la tienda y en qué van.</p>
         </div>
-        <Button asChild variant="outline" size="sm"><Link to="/mi-tienda">Ir a la tienda</Link></Button>
+        {showStore && (
+          <Button asChild variant="outline" size="sm"><Link to="/mi-tienda">Ir a la tienda</Link></Button>
+        )}
       </div>
 
       {isLoading ? (
         <div className="py-16 grid place-items-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
       ) : isError ? (
         <div className="rounded-xl border p-6 text-center space-y-2">
-          <p className="font-medium">No pudimos cargar tus compras.</p>
+          <p className="font-medium">{orderLoadError(error) === 'rate_limited' ? 'Demasiadas solicitudes, intenta en un minuto.' : 'No pudimos cargar tus compras.'}</p>
           <Button size="sm" variant="outline" onClick={() => refetch()}>Reintentar</Button>
         </div>
       ) : orders.length === 0 ? (
         <div className="rounded-xl border bg-card py-14 text-center space-y-2">
           <ShoppingBag className="h-10 w-10 mx-auto text-muted-foreground/40" />
           <p className="font-medium">Todavía no tienes compras</p>
-          <p className="text-sm text-muted-foreground">Cuando compres en la tienda de tu escuela, tus pedidos aparecen aquí.</p>
+          <p className="text-sm text-muted-foreground">Cuando compres en la tienda, tus pedidos aparecen aquí.</p>
         </div>
       ) : (
         <ul className="space-y-3" data-testid="my-orders">
           {orders.map((o) => {
             const needsReceipt = buyerCanUploadReceipt(o);
             const status = normalizeOrderStatus(o.status);
+            // Código de retiro desde CUALQUIER dispositivo: si está en este, se ve; si
+            // no, se genera uno nuevo en el detalle (pedido pagado y sin entregar).
+            const canCode = buyerCanRegeneratePickupCode(o);
+            const hasLocalCode = canCode && !!user && !!recallPickupCode(user.id, o.id);
             return (
               <li key={o.id}>
                 <Link to={`/mis-compras/${o.id}`} className="block rounded-xl border bg-card p-4 hover:border-primary/50 transition-colors" data-testid="my-order-row">
@@ -75,6 +87,13 @@ export default function MisComprasPage() {
                     </div>
                   </div>
                 </Link>
+                {canCode && (
+                  <Button asChild variant="outline" size="sm" className="mt-1.5 gap-1.5" data-testid="my-order-pickup-code">
+                    <Link to={`/mis-compras/${o.id}#codigo`}>
+                      <KeyRound className="h-4 w-4" /> {hasLocalCode ? 'Ver código de retiro' : 'Generar código de retiro'}
+                    </Link>
+                  </Button>
+                )}
               </li>
             );
           })}

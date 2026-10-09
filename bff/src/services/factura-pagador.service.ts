@@ -98,12 +98,20 @@ export function enmascararCorreo(c: string | null | undefined): string | null {
 }
 
 /**
- * Últimos 10 dígitos SOLO si es un celular colombiano (arranca en 3). Un fijo
+ * Los 10 dígitos SOLO si es un celular colombiano (arranca en 3). Un fijo
  * no se cruza: sus 10 dígitos podrían chocar con el celular de otra familia
- * (misma regla que wa_identify_by_phone).
+ * (misma regla que wa_identify_by_phone / wa_normalize_phone10_co).
+ *
+ * Y solo con 10 dígitos pelados o con el indicativo 57 (12 dígitos): los
+ * últimos 10 de un número extranjero también pueden arrancar en 3 — un
+ * +1 310 123 4567 de EE. UU. terminaba en «3101234567», el celular de una
+ * familia colombiana (auditoría de privacidad del bot, 2026-10-08).
  */
 export function celular10(raw: string | null | undefined): string | null {
-    const d = String(raw ?? '').replace(/\D/g, '').slice(-10);
+    const todos = String(raw ?? '').replace(/\D/g, '');
+    const d = todos.length === 10 ? todos
+        : todos.length === 12 && todos.startsWith('57') ? todos.slice(2)
+        : '';
     return /^3\d{9}$/.test(d) ? d : null;
 }
 

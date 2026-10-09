@@ -376,6 +376,30 @@ export default function CobroPublicoPage() {
 
                 <BloqueFacturaPublica token={token} />
 
+                {/* Consentimiento para avisos por WhatsApp: el enlace abre WhatsApp con
+                    «… ACTIVAR AVISOS» prellenado y la familia lo envía desde su número
+                    (esa es la prueba del consentimiento; aquí no se registra nada). */}
+                {v.whatsappAvisos && (
+                    <section className="rounded-2xl bg-white p-5 shadow-sm">
+                        <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                            <MessageCircle className="h-4 w-4" /> Avisos por WhatsApp
+                        </h2>
+                        <p className="mt-2 text-sm text-gray-600">
+                            ¿Quieres que {v.escuela.nombre} te envíe por WhatsApp los recordatorios de pago,
+                            la confirmación de tus pagos y los avisos de tu deportista?
+                        </p>
+                        <Button asChild variant="outline" className="mt-3 h-12 w-full">
+                            <a href={v.whatsappAvisos} target="_blank" rel="noopener noreferrer">
+                                <MessageCircle className="mr-2 h-5 w-5" /> Quiero recibir avisos por WhatsApp
+                            </a>
+                        </Button>
+                        <p className="mt-2 text-xs text-gray-500">
+                            Se abre WhatsApp con el mensaje listo: solo tienes que enviarlo. Puedes darte de baja
+                            cuando quieras escribiendo BAJA.
+                        </p>
+                    </section>
+                )}
+
                 {pagable && (
                     <section className="rounded-2xl bg-white p-5 text-center shadow-sm">
                         <h2 className="flex items-center justify-center gap-2 text-sm font-semibold text-gray-900">

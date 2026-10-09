@@ -7,6 +7,7 @@
  */
 import { bffClient } from '@/lib/api/bffClient';
 import type { RosterSubject } from './performanceQueries';
+import type { TacticalFrame } from './tacticalFrames';
 
 // Separados (P0, tablero táctico): un entrenamiento tiene alineación pero
 // nunca eventos de partido (goles/tarjetas), así que solo el primero acepta
@@ -47,6 +48,10 @@ export interface Lineup {
   /** Modo pizarra (P2d) de ESTE partido/entrenamiento puntual -- distinto de
    *  team_tactical_presets.arrows, que vive en una plantilla con nombre. */
   arrows: TacticalArrow[];
+  /** Jugada animada por cuadros (T1, migración 20261008155454). null/ausente =
+   *  un solo cuadro armado con players + arrows. Con cuadros, el cuadro 1 se
+   *  replica igual en players/arrows. */
+  frames?: TacticalFrame[] | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -79,6 +84,9 @@ export async function saveFootballLineup(payload: {
   formation?: string | null;
   players: LineupPlayerInput[];
   arrows?: TacticalArrow[];
+  /** null = la jugada es un solo cuadro (borra la animación guardada);
+   *  ausente = no toca la columna (LineupModal clásico). */
+  frames?: TacticalFrame[] | null;
 }): Promise<LineupDetail> {
   return bffClient.post<LineupDetail>('/api/v1/school/football/lineups', payload);
 }
@@ -244,6 +252,9 @@ export interface TacticalPreset {
   situation: TacticalSituation;
   slots: TacticalPresetSlot[];
   arrows: TacticalArrow[];
+  /** Mis jugadas animadas: mismo formato que Lineup.frames, con key =
+   *  presetSlotKey(i) (índice del slot en `slots`), no un jugador. */
+  frames?: TacticalFrame[] | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -262,6 +273,7 @@ export async function createTacticalPreset(payload: {
   situation: TacticalSituation;
   slots: TacticalPresetSlot[];
   arrows?: TacticalArrow[];
+  frames?: TacticalFrame[] | null;
 }): Promise<TacticalPreset> {
   return bffClient.post<TacticalPreset>('/api/v1/school/football/tactical-presets', payload);
 }
@@ -276,7 +288,7 @@ export async function deleteTacticalPreset(id: string): Promise<void> {
  *  cambios sobre la misma. */
 export async function updateTacticalPreset(
   id: string,
-  payload: { name?: string; situation?: TacticalSituation; slots?: TacticalPresetSlot[]; arrows?: TacticalArrow[] },
+  payload: { name?: string; situation?: TacticalSituation; slots?: TacticalPresetSlot[]; arrows?: TacticalArrow[]; frames?: TacticalFrame[] | null },
 ): Promise<TacticalPreset> {
   return bffClient.put<TacticalPreset>(`/api/v1/school/football/tactical-presets/${id}`, payload);
 }

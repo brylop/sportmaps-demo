@@ -256,10 +256,10 @@ describe('link de pago (payment_link)', () => {
         expect(m.cuentas.map((c) => c.numero)).not.toContain(LINK);
     });
 
-    it('sin link (o apagado) sigue /my-payments', async () => {
+    it('sin link (o apagado) no hay enlace general: nunca /my-payments (pide sesión)', async () => {
         conLink({ active: false });
         const m = await mediosDePago(ESCUELA);
-        expect(m.enlace_para_pagar).toMatch(/\/my-payments$/);
+        expect(m.enlace_para_pagar).toBeNull();
         expect(m.link_de_pago).toBeNull();
         expect(m.instrucciones_del_enlace).toBeNull();
     });

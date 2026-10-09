@@ -2,7 +2,7 @@
  * TiendaPublicaPage — vitrina del vendedor (/tienda/:slug), tienda v2 §2.1.
  *
  * La ve cualquiera (link compartible). Un miembro de la escuela ve también los
- * productos `school_only` con el chip "Solo tu escuela" (B4). La disponibilidad
+ * productos `school_only` con el chip "Solo para miembros" (B4). La disponibilidad
  * sale por variante: "Agotado" solo si TODAS las variantes están en 0 (B3).
  * Tocar la tarjeta abre la ficha (/tienda/:slug/p/:productId) con talla y color.
  * El carrito persiste también para invitados; pagar pide sesión.
@@ -120,7 +120,7 @@ export default function TiendaPublicaPage() {
   return (
     <div className="min-h-screen bg-muted/20 pb-28">
       {/* Portada */}
-      <div className="h-32 sm:h-48 w-full bg-gradient-to-br from-primary to-indigo-600 relative">
+      <div className="h-32 sm:h-48 w-full bg-gradient-to-br from-primary to-indigo-600 relative" data-testid="store-cover">
         {vendor.cover_image_url && <img src={vendor.cover_image_url} alt="" className="h-full w-full object-cover" />}
         <div className="absolute top-3 right-3 flex gap-2">
           {user && (
@@ -132,17 +132,20 @@ export default function TiendaPublicaPage() {
       </div>
 
       <div className="container mx-auto px-4 max-w-5xl">
-        {/* Identidad */}
-        <div className="flex items-end gap-4 -mt-10 mb-4">
+        {/* Identidad. La portada es `relative` (se pinta encima de lo que no está
+            posicionado): la fila va `relative z-10` para que el logo quede sobre la
+            portada, y el bloque del nombre baja más que el traslape (-mt-10 = 40 px)
+            para no quedar nunca debajo de ella, aunque el nombre ocupe dos líneas. */}
+        <div className="relative z-10 flex items-start gap-3 sm:gap-4 -mt-10 mb-4" data-testid="store-identity">
           <div className="h-20 w-20 rounded-2xl border-4 border-background shadow-md bg-primary text-primary-foreground grid place-items-center overflow-hidden shrink-0">
             {vendor.logo_url ? <img src={vendor.logo_url} alt="" className="h-full w-full object-cover" /> : <span className="text-2xl font-bold">{initials}</span>}
           </div>
-          <div className="pb-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-xl sm:text-2xl font-bold tracking-tight truncate">{vendor.display_name}</h1>
+          <div className="pt-11 min-w-0 flex-1">
+            <div className="flex items-center gap-x-2 gap-y-1 flex-wrap">
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight break-words min-w-0" data-testid="store-name">{vendor.display_name}</h1>
               {(vendor.verification_status === 'verified' || isSchoolStore) && (
                 <Badge className="bg-primary/10 text-primary gap-1 hover:bg-primary/10">
-                  <CheckCircle2 className="h-3.5 w-3.5" /> {isSchoolStore ? 'Tienda de la escuela' : 'Verificado'}
+                  <CheckCircle2 className="h-3.5 w-3.5" /> {isSchoolStore ? 'Tienda oficial' : 'Verificado'}
                 </Badge>
               )}
             </div>
@@ -156,7 +159,7 @@ export default function TiendaPublicaPage() {
         {isSchoolStore && (
           <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-900 px-4 py-3 text-sm flex items-center gap-2">
             <School className="h-4 w-4 shrink-0" />
-            <span><strong>Retiro gratis en la sede.</strong> Pides aquí y lo recoges en la escuela.</span>
+            <span><strong>Retiro gratis en la sede.</strong> Pides aquí y lo recoges en la sede.</span>
           </div>
         )}
 
@@ -197,7 +200,7 @@ export default function TiendaPublicaPage() {
                     </div>
                     {p.visibility === 'school_only' && (
                       <span className="absolute top-2 left-2 rounded-full bg-background/90 text-[11px] font-medium px-2 py-0.5 flex items-center gap-1 shadow-sm">
-                        <Lock className="h-3 w-3" /> Solo tu escuela
+                        <Lock className="h-3 w-3" /> Solo para miembros
                       </span>
                     )}
                     {soldOut && <span className="absolute inset-0 bg-background/50" aria-hidden />}

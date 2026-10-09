@@ -37,12 +37,14 @@ import {
   History,
   TrendingUp,
   ShieldAlert,
-  Clock
+  Clock,
+  ClipboardCheck
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
 import { SHOW_EXPLORE } from '@/lib/feature-flags';
 import type { AddonKey } from '@/config/saas-plans';
 import type { ModuleKey } from '@/config/module-catalog';
+import { BUYER_STORE_HIDDEN, type BuyerStoreVisibility } from '@/lib/store/buyerStoreVisibility';
 
 export interface NavItem {
   title: string;
@@ -74,6 +76,14 @@ export interface NavItem {
    * Spec: docs/specs/blindaje-dinero-pagos-tienda-nomina.md §1.3.
    */
   requiresStore?: boolean;
+  /**
+   * Entrada del COMPRADOR (padre / atleta) a la tienda de SU escuela. No basta
+   * el flag global: con el piloto (allowlist) prendido, solo la escuela cuya
+   * tienda vende ve «Tienda». 'store' = la escuela vende; 'purchases' = la
+   * escuela vende o el usuario ya tiene pedidos. Ver
+   * lib/store/buyerStoreVisibility.ts y hooks/useMySchoolStore.ts.
+   */
+  buyerStore?: 'store' | 'purchases';
 }
 
 export interface NavGroup {
@@ -92,7 +102,27 @@ export function getVendorNavGroup(opts: {
   verificationStatus: 'pending' | 'verified' | 'rejected' | null;
   /** Flag global de la tienda. Default false (fail-closed). */
   storeEnabled?: boolean;
+  /**
+   * Tienda de la ESCUELA (owner / school_admin): «Tu tienda», sin términos de
+   * vendedor ni marketplace, sin Liquidaciones ni Verificación (la escuela
+   * cobra con sus cuentas, D-5, y no se verifica, D-4). `storeOpen=false` =
+   * todavía sin activar: solo el acceso a Ajustes, donde se activa.
+   */
+  isSchool?: boolean;
+  storeOpen?: boolean;
 }): NavGroup {
+  if (opts.isSchool) {
+    const schoolItems: NavItem[] = opts.storeOpen
+      ? [
+          { title: 'Pedidos',            href: '/orders',                 icon: FileText, requiresStore: true },
+          { title: 'Productos',          href: '/vendor/products',        icon: ShoppingBag, requiresStore: true },
+          { title: 'Inventario',         href: '/inventory',              icon: ClipboardList, requiresStore: true },
+          { title: 'Cobros y entrega',   href: '/tienda-escuela/ajustes', icon: DollarSign, requiresStore: true },
+        ]
+      : [{ title: 'Activar tienda', href: '/tienda-escuela/ajustes', icon: ShoppingBag, requiresStore: true }];
+    return { title: 'Tu tienda', items: filterByStore(schoolItems, opts.storeEnabled ?? false) };
+  }
+
   const items: NavItem[] = [
     { title: 'Panel Tienda', href: '/vendor/dashboard', icon: ShoppingBag },
   ];
@@ -137,6 +167,9 @@ export function getVendorNavGroup(opts: {
 // módulo (`MOD-7` en el roadmap — inscripción + bracket + motor de puntaje,
 // con rutas propias /school/tournaments, /new, /:id), no un simple listado.
 const GESTION_DEPORTIVA_ESCUELA: NavItem[] = [
+  // Primero: la pregunta del dueño es "¿mis entrenadores están trabajando?"
+  // (spec rediseno-seguimiento-deportivo F4). Solo lectura.
+  { title: 'Seguimiento deportivo', href: '/seguimiento-deportivo', icon: ClipboardCheck },
   {
     title: 'Equipos y Planes',
     icon: Users,
@@ -214,6 +247,19 @@ function filterByStore(items: NavItem[], storeEnabled: boolean): NavItem[] {
 }
 
 /**
+ * Entradas del comprador (`buyerStore`): se ocultan salvo que la escuela activa
+ * del usuario venda (o, para «Mis compras», que ya tenga pedidos).
+ */
+function filterByBuyerStore(items: NavItem[], buyer: BuyerStoreVisibility): NavItem[] {
+  return items
+    .filter(item =>
+      !item.buyerStore
+      || (item.buyerStore === 'store' ? buyer.showStore : buyer.showMyPurchases))
+    .map(item => item.submenu ? { ...item, submenu: filterByBuyerStore(item.submenu, buyer) } : item)
+    .filter(item => !item.submenu || item.submenu.length > 0);
+}
+
+/**
  * Returns navigation structure based on user role. `hasAddon` es opcional
  * (default: todo visible) para no romper si algún caller no lo pasa —
  * `AppSidebar.tsx` sí lo pasa siempre, con el `hasAddon` de `useEntitlements()`.
@@ -224,6 +270,8 @@ export function getNavigationByRole(
   isModuleEnabled: (key: ModuleKey) => boolean = () => true,
   /** Flag global de la tienda. Default false: fail-closed, como el hook. */
   storeEnabled: boolean = false,
+  /** Tienda de la escuela activa para el comprador. Default: oculta (fail-closed). */
+  buyerStore: BuyerStoreVisibility = BUYER_STORE_HIDDEN,
 ): NavGroup[] {
   const baseNav: NavGroup = {
     title: 'Principal',
@@ -269,9 +317,13 @@ export function getNavigationByRole(
         ]
       },
       {
+        // Antes «Catálogo» → /shop (catálogo global de la plataforma, solo con
+        // el flag): con el piloto prendido lo veían atletas de todas las
+        // escuelas. Ahora, igual que el padre: la tienda de SU escuela.
         title: 'Tienda',
         items: [
-          { title: 'Catálogo', href: '/shop', icon: ShoppingBag, requiresStore: true },
+          { title: 'Tienda', href: '/mi-tienda', icon: ShoppingBag, requiresStore: true, buyerStore: 'store' },
+          { title: 'Mis compras', href: '/mis-compras', icon: ClipboardList, requiresStore: true, buyerStore: 'purchases' },
         ]
       },
       {
@@ -312,8 +364,8 @@ export function getNavigationByRole(
           { title: 'Progreso Deportivo', href: '/academic-progress', icon: BookOpen },
           { title: 'Asistencias', href: '/parent-attendance', icon: BarChart3 },
           { title: 'Pagos', href: '/my-payments', icon: DollarSign },
-          { title: 'Tienda', href: '/mi-tienda', icon: ShoppingBag, requiresStore: true },
-          { title: 'Mis compras', href: '/mis-compras', icon: ClipboardList, requiresStore: true }
+          { title: 'Tienda', href: '/mi-tienda', icon: ShoppingBag, requiresStore: true, buyerStore: 'store' },
+          { title: 'Mis compras', href: '/mis-compras', icon: ClipboardList, requiresStore: true, buyerStore: 'purchases' }
         ]
       },
       {
@@ -853,7 +905,10 @@ export function getNavigationByRole(
   return groups
     .map(group => ({
       ...group,
-      items: filterByStore(filterByModuleOverride(filterByAddon(group.items, hasAddon), isModuleEnabled), storeEnabled),
+      items: filterByBuyerStore(
+        filterByStore(filterByModuleOverride(filterByAddon(group.items, hasAddon), isModuleEnabled), storeEnabled),
+        buyerStore,
+      ),
     }))
     .filter(group => group.items.length > 0);
 }

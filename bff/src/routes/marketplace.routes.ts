@@ -208,13 +208,33 @@ router.get('/vendor/:slug', requireStoreEnabled, optionalAuth, async (req: Reque
 
         // Tienda escolar: no pasa por la verificación de vendedor externo
         // (store_seller_allowed la gatea por addon + escuela operativa).
-        const { data: vendor, error } = await supabase
+        let { data: vendor, error } = await supabase
             .from('vendor_profiles')
             .select(VENDOR_PUBLIC_COLUMNS)
             .eq('slug', slug)
             .eq('is_active', true)
             .or('verification_status.eq.verified,vendor_type.eq.school')
             .maybeSingle();
+
+        // Slug anterior (p.ej. /tienda/robinson-mendoza → hoy gym-rm, migración
+        // 20261008163336): los enlaces ya compartidos siguen abriendo la tienda.
+        // La respuesta trae vendor.slug con el slug vigente.
+        if (!error && !vendor) {
+            const { data: alias } = await supabase
+                .from('store_slug_aliases')
+                .select('vendor_profile_id')
+                .eq('slug', slug)
+                .maybeSingle();
+            if (alias?.vendor_profile_id) {
+                ({ data: vendor, error } = await supabase
+                    .from('vendor_profiles')
+                    .select(VENDOR_PUBLIC_COLUMNS)
+                    .eq('id', alias.vendor_profile_id)
+                    .eq('is_active', true)
+                    .or('verification_status.eq.verified,vendor_type.eq.school')
+                    .maybeSingle());
+            }
+        }
 
         if (error || !vendor) {
             return res.status(404).json({ ok: false, error: 'Vendedor no encontrado.' });
@@ -279,6 +299,13 @@ router.get('/vendor/:slug', requireStoreEnabled, optionalAuth, async (req: Reque
 // es el vendor_profile con school_id = la escuela (tienda v2 M-F0-1). Fallback
 // legacy: el perfil 'school' del dueño, solo si no está atado a OTRA escuela
 // (un dueño con dos escuelas no debe mostrar la misma tienda en las dos).
+//
+// `selling` = store_seller_allowed(tienda): flag + allowlist + adicional +
+// escuela operativa. Es lo que decide si al padre/atleta se le muestra
+// «Tienda» en el menú (useMySchoolStore): con el flag prendido solo para el
+// piloto, las demás escuelas NO deben ver la entrada. `has_orders` (solo con
+// sesión): el usuario ya compró alguna vez → «Mis compras» sigue visible
+// aunque su escuela hoy no venda.
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/school-store/:schoolId', requireStoreEnabled, optionalAuth, async (req: Request, res: Response) => {
     try {
@@ -295,7 +322,7 @@ router.get('/school-store/:schoolId', requireStoreEnabled, optionalAuth, async (
 
         const { data: bySchool } = await supabase
             .from('vendor_profiles')
-            .select('slug, display_name, is_active, school_id')
+            .select('id, slug, display_name, is_active, school_id')
             .eq('school_id', schoolId)
             .maybeSingle();
 
@@ -303,19 +330,33 @@ router.get('/school-store/:schoolId', requireStoreEnabled, optionalAuth, async (
         if (!vp) {
             const { data: byOwner } = await supabase
                 .from('vendor_profiles')
-                .select('slug, display_name, is_active, school_id')
+                .select('id, slug, display_name, is_active, school_id')
                 .eq('user_id', school.owner_id)
                 .eq('vendor_type', 'school')
                 .maybeSingle();
             vp = byOwner && (!byOwner.school_id || byOwner.school_id === schoolId) ? byOwner : null;
         }
 
+        const published = !!(vp && vp.slug && vp.is_active);
+        const [sellingRes, ordersRes] = await Promise.all([
+            published && vp?.id
+                ? supabase.rpc('store_seller_allowed', { p_vendor_profile_id: vp.id })
+                : Promise.resolve({ data: false }),
+            req.user?.id
+                ? supabase.from('orders').select('id', { count: 'exact', head: true }).eq('user_id', req.user.id)
+                : Promise.resolve({ count: 0 }),
+        ]);
+
         return res.json({
             ok: true,
             data: {
                 slug: vp?.slug ?? null,
-                published: !!(vp && vp.slug && vp.is_active),
+                published,
                 display_name: vp?.display_name ?? school.name,
+                /** La tienda vende hoy (store_seller_allowed). Fail-closed: error → false. */
+                selling: (sellingRes as { data?: unknown }).data === true,
+                /** El usuario con sesión ya tiene pedidos (en cualquier tienda). */
+                has_orders: ((ordersRes as { count?: number | null }).count ?? 0) > 0,
             },
         });
     } catch (err) {

@@ -241,3 +241,6 @@ docs/manuales/_src/**/video-raw/
 supabase/qa-twin/dump/
 supabase/qa-twin/supabase/.temp/
 supabase/qa-twin/supabase/.branches/
+
+# Reporte HTML de Playwright contra el gemelo (generado)
+frontend/playwright-report-gemelo/

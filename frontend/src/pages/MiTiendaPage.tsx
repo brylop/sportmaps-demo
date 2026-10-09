@@ -1,50 +1,31 @@
 /**
  * MiTiendaPage — entrada del padre/atleta a la tienda de SU escuela.
  *
- * Resuelve el slug de la tienda de la escuela activa (BFF
+ * Resuelve la tienda de la escuela activa (useMySchoolStore → BFF
  * /marketplace/school-store/:schoolId) y redirige a la vitrina pública
- * /tienda/:slug. Si la escuela no tiene tienda publicada, muestra un aviso.
+ * /tienda/:slug SOLO si esa tienda vende hoy (`selling` =
+ * store_seller_allowed: flag + allowlist + adicional + escuela operativa).
+ * Si no vende (o la escuela no tiene tienda), un aviso claro — nunca una
+ * vitrina vacía. Llega acá quien tenga el enlace /mi-tienda aunque el menú
+ * no se lo muestre.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useSchoolContext } from '@/hooks/useSchoolContext';
-import { bffClient } from '@/lib/api/bffClient';
+import { useMySchoolStore } from '@/hooks/useMySchoolStore';
 import { Button } from '@/components/ui/button';
 import { Loader2, Store } from 'lucide-react';
 
-interface StoreResolve {
-  ok: boolean;
-  data?: { slug: string | null; published: boolean; display_name: string | null };
-}
-
 export default function MiTiendaPage() {
-  const { schoolId } = useSchoolContext();
   const navigate = useNavigate();
-  const [status, setStatus] = useState<'loading' | 'unavailable'>('loading');
-  const [schoolName, setSchoolName] = useState<string>('tu escuela');
+  const { store, isLoading } = useMySchoolStore();
+  const target = store?.selling && store.published && store.slug ? `/tienda/${store.slug}` : null;
 
   useEffect(() => {
-    let active = true;
-    (async () => {
-      if (!schoolId) return;
-      try {
-        const r = await bffClient.get<StoreResolve>(`/api/v1/marketplace/school-store/${schoolId}`);
-        if (!active) return;
-        if (r.data?.display_name) setSchoolName(r.data.display_name);
-        if (r.ok && r.data?.slug && r.data.published) {
-          navigate(`/tienda/${r.data.slug}`, { replace: true });
-        } else {
-          setStatus('unavailable');
-        }
-      } catch {
-        if (active) setStatus('unavailable');
-      }
-    })();
-    return () => { active = false; };
-  }, [schoolId, navigate]);
+    if (target) navigate(target, { replace: true });
+  }, [target, navigate]);
 
-  if (status === 'loading') {
+  if (isLoading || target) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -52,14 +33,15 @@ export default function MiTiendaPage() {
     );
   }
 
+  const schoolName = store?.display_name || 'Tu escuela';
   return (
-    <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3 p-6 text-center">
+    <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3 p-6 text-center" data-testid="mi-tienda-unavailable">
       <Store className="h-12 w-12 text-muted-foreground/40" />
       <h1 className="text-xl font-bold">La tienda aún no está disponible</h1>
       <p className="text-muted-foreground max-w-sm">
-        {schoolName} todavía no ha publicado su tienda de productos. Te avisaremos cuando esté lista.
+        {schoolName} todavía no tiene su tienda abierta. Cuando esté lista, la verás en el menú.
       </p>
-      <Button variant="outline" onClick={() => navigate('/marketplace')}>Explorar el marketplace</Button>
+      <Button variant="outline" onClick={() => navigate('/dashboard')}>Volver al inicio</Button>
     </div>
   );
 }
