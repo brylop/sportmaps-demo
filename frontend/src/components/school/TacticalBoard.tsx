@@ -35,8 +35,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Square, X, Bookmark, Trash2, Eye, EyeOff, ChevronUp, ChevronDown, PenLine, Undo2, Eraser, Ruler, Sparkles, Plus, Play, User, Maximize2, Minimize2, Copy, RotateCw, Pencil, Type } from 'lucide-react';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel,
+  DropdownMenuSeparator, DropdownMenuCheckboxItem, DropdownMenuSub, DropdownMenuSubTrigger,
+  DropdownMenuSubContent, DropdownMenuRadioGroup, DropdownMenuRadioItem,
+} from '@/components/ui/dropdown-menu';
+import { Loader2, Square, X, Bookmark, Redo2, Trash2, ChevronDown, PenLine, Undo2, Eraser, Ruler, Sparkles, Plus, Play, Copy, RotateCw, Pencil, Type, Users, MoreHorizontal, Package, LayoutGrid } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useTeamPerformanceRoster } from '@/hooks/usePerformanceData';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
@@ -70,10 +74,20 @@ import {
 import { BallGlyph, SilhouetteGlyph, ObjectIcon } from './tacticalGlyphs';
 import {
   MAX_STARTERS, repositionedCenterPx, pitchPctFromPx,
-  buildPresetSlots, applyPresetSlots, nearestEmptySlot, splitKnownKeys,
+  buildPresetSlots, applyPresetSlots, nearestEmptySlot, splitKnownKeys, greedyNearestMatch,
   type PlacedSlot, type EmptySlot,
 } from '@/lib/school/tacticalBoardLogic';
 import type { RosterSubject } from '@/lib/school/performanceQueries';
+import {
+  FORMATIONS, defaultFormationFor, placeInFormation, sortRosterForFormation, formationAsPresetSlots,
+  type Formation, type FormationKey,
+} from '@/lib/school/tacticalFormations';
+import { DEFAULT_FRAME_MS, MAX_FRAMES, presetSlotIndex, presetSlotKey, type TacticalFrame } from '@/lib/school/tacticalFrames';
+import {
+  advancePlayback, createPlaybackClock, duplicateFrameAt, ghostTrail, hydrateFrames, moveFrame, newFrameId,
+  removeFrameAt, serializeFrames, setFrameDuration, totalDurationMs, type InterpolatedPlayer,
+} from '@/lib/school/tacticalAnimation';
+import { TacticalTimeline, TacticalFramePlayback, type PlayState, type PlaybackSpeed } from './TacticalTimeline';
 
 const SITUATION_LABEL: Record<TacticalSituation, string> = {
   ataque: 'Ataque',
@@ -96,6 +110,11 @@ interface TacticalBoardProps {
   sourceId: string;
   /** "vs Rival — 20 ago" o "Entrenamiento — 20 ago", según el contexto. */
   contextLabel: string;
+  /** 'edit' (por defecto): el editor completo. 'view': solo la cancha con
+   *  jugadores y dibujos, Reproducir y Cerrar; quien puede editar
+   *  (TACTICAL_EDIT_ROLES) ve además un botón Editar que pasa a 'edit' ahí
+   *  mismo. Un rol de solo lectura siempre ve el tablero como 'view'. */
+  mode?: 'edit' | 'view';
 }
 
 const subjectKey = (t: string, id: string) => `${t}:${id}`;
@@ -277,6 +296,11 @@ const MOBILE_TABS: { key: MobileTab; label: string }[] = [
 /** Alto de la hoja inferior (Pizarra / Plantilla) en celular, en vh. */
 const SHEET_VH = 42;
 
+/** Botones del toolbar: palabra + ícono, alto táctil de 32px. */
+const TB_BTN = 'h-8 gap-1 text-[11px] px-2';
+const TB_IDLE = 'text-white/80 hover:text-white hover:bg-white/10';
+const TB_ON = 'bg-emerald-600 hover:bg-emerald-500 text-white hover:text-white';
+
 /** Radio del borrador en % de cancha. */
 const ERASER_RADIUS = 2.6;
 /** Tamaño base del texto en unidades del viewBox (se multiplica por size). */
@@ -306,7 +330,7 @@ interface GhostBall { x: number; y: number; scale: number }
 function ArrowLayer({
   shapes, drawMode, drawShapeType, drawColor, ballKind, newObjSize, newObjRot,
   measureMode, pitchLengthMeters, view, pinStyle, selectedIndex, ghostBalls, hiddenIndexes,
-  onCreateShape, onUpdateShape, onDeleteShape, onSelectShape, onEraseShapes,
+  onCreateShape, onUpdateShape, onDeleteShape, onSelectShape, onEraseShapes, readOnly = false,
 }: {
   shapes: TacticalArrow[];
   drawMode: boolean;
@@ -328,6 +352,9 @@ function ArrowLayer({
   onSelectShape: (index: number | null) => void;
   /** Borrador: quita de una vez todas las figuras que tocó el gesto. */
   onEraseShapes: (indexes: number[]) => void;
+  /** Modo ver / solo lectura: ninguna figura captura el puntero y no se
+   *  dibujan los puntos de agarre (solo estorban a quien no puede editar). */
+  readOnly?: boolean;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const textInputRef = useRef<HTMLInputElement>(null);
@@ -347,6 +374,7 @@ function ArrowLayer({
   // tocar encima de un cono o una zona pone la nota ahí, no selecciona el cono.
   // Los jugadores ya quedan debajo: la capa de dibujo (z-40) los tapa.
   const peFor = (t: TacticalShapeType) => {
+    if (readOnly) return 'pointer-events-none';
     if (!drawMode) return 'pointer-events-auto';
     if (drawShapeType === 'freehand' || drawShapeType === 'eraser') return 'pointer-events-none';
     if (drawShapeType === 'text' && t !== 'text') return 'pointer-events-none';
@@ -606,6 +634,7 @@ function ArrowLayer({
   /** Handles de una figura de 2 puntos (flecha/curva/recorrido): siempre
    *  interactivos, muevan o no drawMode/measureMode. */
   function renderEndHandles(i: number, p1: ArrowPoint, p2: ArrowPoint, color: string) {
+    if (readOnly) return null;
     const pe = peFor(shapes[i]?.type ?? 'arrow');
     return (
       <>
@@ -1102,18 +1131,132 @@ function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events, 
     </div>
   );
 }
+// ─── Animación por cuadros (T1, docs/specs/pizarra-nivel-tacticalpad.md) ────
+
+/** Cuadro vacío: el cuadro que se está editando se arma en vivo con
+ *  `placed` + `arrows` (ver liveFrames), así que solo aporta id y duración. */
+const blankFrame = (): TacticalFrame => ({ id: newFrameId(), duration_ms: DEFAULT_FRAME_MS, players: [], ball: null, arrows: [] });
+
+/** Posiciones de un cuadro → `placed`, con etiqueta/dorsal del jugador sacados
+ *  de la primera fuente que lo conozca (la etiqueta es del jugador, no del
+ *  cuadro: no se recalcula al cambiar de cuadro). */
+function placedFromFrame(frame: TacticalFrame, ...metaSources: Record<string, PlacedSlot>[]): Record<string, PlacedSlot> {
+  const next: Record<string, PlacedSlot> = {};
+  for (const p of frame.players) {
+    const meta = metaSources.map((m) => m[p.key]).find(Boolean);
+    next[p.key] = {
+      x: p.x, y: p.y,
+      slot_label: meta?.slot_label ?? suggestLabel(p.y),
+      labelIsCustom: meta?.labelIsCustom ?? false,
+      jersey_number: meta?.jersey_number ?? '',
+    };
+  }
+  return next;
+}
+
+/** Cuadros de una jugada de Mis jugadas (claves = índice de slot) → claves de
+ *  los jugadores que la cargaron. Se empareja igual que applyPresetSlots
+ *  (mismo greedyNearestMatch sobre los mismos puntos) para que el jugador que
+ *  ocupa el slot i en el cuadro 1 sea el que se mueve en los demás. Los que no
+ *  ocuparon ningún slot se quedan quietos donde estaban. */
+function mapPresetFrames(
+  presetFrames: TacticalFrame[],
+  before: Record<string, PlacedSlot>,
+  after: Record<string, PlacedSlot>,
+  slots: { x: number | string; y: number | string }[],
+): TacticalFrame[] {
+  const entries = Object.entries(before).map(([key, s]) => ({ key, x: s.x, y: s.y }));
+  const indexed = slots.map((s, i) => ({ i, x: Number(s.x), y: Number(s.y) }));
+  const slotToKey = new Map<number, string>();
+  if (entries.length > 0) for (const m of greedyNearestMatch(entries, indexed)) slotToKey.set(m.to.i, m.from.key);
+  const mapped = new Set(slotToKey.values());
+  const extras = Object.entries(after).filter(([k]) => !mapped.has(k)).map(([key, s]) => ({ key, x: s.x, y: s.y }));
+  return presetFrames.map((f) => ({
+    ...f,
+    players: [
+      ...f.players.flatMap((p) => {
+        const idx = presetSlotIndex(p.key);
+        const key = idx === null ? undefined : slotToKey.get(idx);
+        return key ? [{ key, x: p.x, y: p.y }] : [];
+      }),
+      ...extras,
+    ],
+  }));
+}
+
+/** Foto del tablero para deshacer/rehacer: todos los cuadros (el actual ya
+ *  armado en vivo), cuál está abierto y las etiquetas/dorsales de la cancha. */
+interface BoardSnapshot { frames: TacticalFrame[]; frameIndex: number; placed: Record<string, PlacedSlot> }
+const HISTORY_CAP = 50;
+/** Un arrastre manda decenas de cambios: se agrupan en un solo paso de
+ *  deshacer cuando la cancha queda quieta este tiempo. */
+const HISTORY_SETTLE_MS = 350;
+const snapshotKey = (s: BoardSnapshot) => JSON.stringify([s.frames, s.frameIndex, s.placed]);
+
+const NO_INDEXES: ReadonlySet<number> = new Set();
+const noop = () => {};
+
+/** Ficha liviana de la reproducción por cuadros: el mismo aspecto que
+ *  PitchPin, sin drag ni edición (se re-renderiza a 60 fps). */
+function PlaybackPin({ subject, meta, x, top, opacity, pinStyle, showPhotos }: {
+  subject: RosterSubject;
+  meta: PlacedSlot | undefined;
+  x: number;
+  top: number;
+  opacity: number;
+  pinStyle: PinStyle;
+  showPhotos: boolean;
+}) {
+  const number = meta && meta.jersey_number !== '' ? String(meta.jersey_number) : null;
+  const label = meta?.slot_label ?? '';
+  const photo = showPhotos && pinStyle === 'disc' ? subject.avatar_url : null;
+  return (
+    <div
+      style={{ position: 'absolute', left: `${x}%`, top: `${top}%`, transform: 'translate(-50%, -50%)', opacity, zIndex: 10 }}
+      className="flex flex-col items-center gap-1"
+    >
+      {pinStyle === 'silhouette' ? (
+        <div className="relative h-12 w-11 drop-shadow-[0_3px_8px_rgba(0,0,0,0.65)]">
+          <svg viewBox="0 0 40 44" className="h-full w-full overflow-visible" aria-hidden="true">
+            <SilhouetteGlyph jersey={isGoalkeeperLabel(label) ? '#facc15' : '#10b981'} accent="#0f172a" number={number ?? initialsOf(subject.full_name)} />
+          </svg>
+        </div>
+      ) : (
+        <div className={`relative h-11 w-11 rounded-full overflow-hidden flex items-center justify-center font-black text-sm text-white ring-2 ring-white/80 shadow-[0_3px_12px_rgba(0,0,0,0.55)] ${photo ? 'bg-zinc-800' : 'bg-gradient-to-br from-emerald-400 via-emerald-500 to-emerald-700'}`}>
+          {photo ? <img src={photo} alt="" className="absolute inset-0 h-full w-full object-cover" /> : (number ?? initialsOf(subject.full_name))}
+        </div>
+      )}
+      {label && (
+        <span className="text-[10px] font-bold text-white bg-black/55 rounded-full px-2 py-0.5 leading-tight max-w-[84px] truncate shadow">
+          {label}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** Roles que pueden MODIFICAR el tablero: espejo de TACTICAL_EDIT_ROLES del BFF
  *  y de user_tactical_edit_school_ids() en la base. Admin/staff pueden verlo,
  *  pero guardar les devolvía 403 después de armar todo -- ahora entran en modo
  *  lectura y se enteran desde el principio. */
 const TACTICAL_EDIT_ROLES = ['owner', 'coach', 'super_admin'];
 
-export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sourceId, contextLabel }: TacticalBoardProps) {
+export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sourceId, contextLabel, mode = 'edit' }: TacticalBoardProps) {
   const { toast } = useToast();
   const { currentUserRole } = useSchoolContext();
-  const canEdit = TACTICAL_EDIT_ROLES.includes(currentUserRole || '');
+  /** El ROL puede modificar el tablero (espejo del BFF). */
+  const roleCanEdit = TACTICAL_EDIT_ROLES.includes(currentUserRole || '');
+  // Modo ver/editar: arranca en el que pida quien abre y se reinicia cada vez
+  // que el tablero se abre; 'Editar' lo pasa a edición sin cerrar.
+  const [boardMode, setBoardMode] = useState<'edit' | 'view'>(mode);
+  useEffect(() => { if (open) setBoardMode(mode); }, [open, mode]);
+  /** Se puede editar AHORA: rol con permiso y tablero en modo edición. Todas
+   *  las guardas de edición de abajo usan esto, así el modo ver no necesita
+   *  un camino aparte. */
+  const canEdit = roleCanEdit && boardMode === 'edit';
+  const viewing = !canEdit;
   const { data: roster, isLoading: loadingRoster } = useTeamPerformanceRoster({ team_id: teamId });
-  const { data: existingList } = useFootballLineups({ source_type: sourceType, source_id: sourceId });
+  const { data: existingList, isLoading: loadingList } = useFootballLineups({ source_type: sourceType, source_id: sourceId });
   const existingLineupId = existingList?.[0]?.id;
   const { data: existingLineup, isLoading: loadingLineup } = useFootballLineup(existingLineupId);
   const saveLineup = useSaveFootballLineup();
@@ -1194,6 +1337,53 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   const [drawMode, setDrawMode] = useState(false);
   const [drawShapeType, setDrawShapeType] = useState<DrawTool>('arrow');
   const [arrows, setArrows] = useState<TacticalArrow[]>([]);
+
+  // ── Animación por cuadros (T1) ──────────────────────────────────────────
+  // `frames` guarda todos los cuadros; el que se está editando (frameIndex)
+  // vive en `placed` + `arrows` como siempre — así arrastrar, dibujar,
+  // formaciones y "Reproducir jugada" no cambian —, y `liveFrames` lo arma en
+  // vivo. Cambiar de cuadro primero guarda el actual en `frames`.
+  const [frames, setFrames] = useState<TacticalFrame[]>(() => [blankFrame()]);
+  const [frameIndex, setFrameIndex] = useState(0);
+  // Etiqueta/dorsal más reciente de cada jugador que pasó por la cancha (un
+  // jugador puede no estar en el cuadro abierto y volver en otro).
+  const metaRef = useRef<Record<string, PlacedSlot>>({});
+  useEffect(() => { Object.assign(metaRef.current, placed); }, [placed]);
+  const liveFrames = useMemo(() => {
+    const cur = frames[frameIndex] ?? frames[0];
+    const live: TacticalFrame = {
+      ...cur,
+      players: Object.entries(placed).map(([key, s]) => ({ key, x: s.x, y: s.y })),
+      arrows,
+    };
+    return frames.map((f, i) => (i === frameIndex ? live : f));
+  }, [frames, frameIndex, placed, arrows]);
+
+  // Reproducción por cuadros: el tiempo vive en un reloj observable (solo se
+  // re-renderizan la capa de reproducción y la barra, no el tablero) y los
+  // cuadros se congelan al darle play. Mientras se reproduce o está en pausa,
+  // la capa de reproducción reemplaza a los pines y a los dibujos: no se edita.
+  const clock = useMemo(() => createPlaybackClock(), []);
+  const [playState, setPlayState] = useState<PlayState>('stopped');
+  const [playbackFrames, setPlaybackFrames] = useState<TacticalFrame[] | null>(null);
+  const [playSpeed, setPlaySpeed] = useState<PlaybackSpeed>(1);
+  const [loopPlayback, setLoopPlayback] = useState(false);
+  const framePlaybackActive = playState !== 'stopped' && !!playbackFrames;
+  useEffect(() => {
+    if (playState !== 'playing' || !playbackFrames) return;
+    const total = totalDurationMs(playbackFrames);
+    let raf = 0;
+    let last = performance.now();
+    const step = (now: number) => {
+      const r = advancePlayback(clock.get(), now - last, playSpeed, total, loopPlayback);
+      last = now;
+      clock.set(r.t);
+      if (r.ended) { setPlayState('paused'); return; }
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [playState, playbackFrames, playSpeed, loopPlayback, clock]);
   const [drawColor, setDrawColor] = useState<TacticalArrowColor>('white');
   // Recorridos de balón (pase/remate/penal) y material con tamaño y giro.
   const [ballKind, setBallKind] = useState<BallPathKind>('pase');
@@ -1327,6 +1517,18 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     // migración `existingLineup.arrows` no existía (undefined): el `?? []`
     // deja el tablero vacío en vez de romper con alineaciones ya guardadas.
     setArrows((existingLineup.arrows ?? []).map(hydrateShape));
+    // Jugada animada (T1): con `frames` las posiciones salen de los cuadros;
+    // sin `frames` (jugadas de siempre) es un solo cuadro con lo de arriba.
+    metaRef.current = { ...nextPlaced };
+    const savedFrames = hydrateFrames(existingLineup.frames, { ballAsObject: true });
+    if (savedFrames) {
+      setFrames(savedFrames);
+      setPlaced(placedFromFrame(savedFrames[0], nextPlaced));
+      setArrows(savedFrames[0].arrows);
+    } else {
+      setFrames([blankFrame()]);
+    }
+    setFrameIndex(0);
     setInitialized(true);
   }
 
@@ -1479,6 +1681,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
    *  dibujos se REEMPLAZAN por los de la plantilla (no tiene sentido "sumar"
    *  flechas de dos tácticas distintas). */
   function applyPreset(preset: TacticalPreset) {
+    exitFramePlayback();
     const result = applyPresetSlots(placed, preset.id, preset.slots);
     if (result.placed !== placed) {
       setPlaced(result.placed);
@@ -1486,7 +1689,19 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       setTimeout(() => setAnimatingMove(false), ANIMATE_MS);
     }
     setEmptySlots(result.emptySlots);
-    setArrows((preset.arrows ?? []).map(hydrateShape));
+    // Una jugada guardada con cuadros trae su animación; sin cuadros, la
+    // cancha queda en un solo cuadro (la animación anterior se reemplaza,
+    // igual que los dibujos).
+    const presetFrames = hydrateFrames(preset.frames, { ballAsObject: true });
+    if (presetFrames && presetFrames.length > 1) {
+      const mapped = mapPresetFrames(presetFrames, placed, result.placed, preset.slots);
+      setFrames(mapped);
+      setArrows(mapped[0].arrows);
+    } else {
+      setFrames([blankFrame()]);
+      setArrows((preset.arrows ?? []).map(hydrateShape));
+    }
+    setFrameIndex(0);
     setSelectedShape(null);
     setLoadedPresetId(preset.id);
   }
@@ -1500,17 +1715,19 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
 
     const willMovePlayers = Object.keys(placed).length > 0 && preset.slots.length > 0;
     const willReplaceDrawings = arrows.length > 0;
-    if (!willMovePlayers && !willReplaceDrawings) {
+    const willReplaceAnimation = liveFrames.length > 1;
+    if (!willMovePlayers && !willReplaceDrawings && !willReplaceAnimation) {
       applyPreset(preset);
       return;
     }
     const efectos: string[] = [];
-    if (willMovePlayers) efectos.push(`los ${Object.keys(placed).length} jugadores en cancha se mueven a las posiciones de la plantilla`);
-    if (willReplaceDrawings) efectos.push(`los ${arrows.length} dibujos actuales se reemplazan por los de la plantilla`);
+    if (willMovePlayers) efectos.push(`los ${Object.keys(placed).length} jugadores en cancha se mueven a las posiciones de la jugada guardada`);
+    if (willReplaceDrawings) efectos.push(`los ${arrows.length} dibujos actuales se reemplazan por los de la jugada guardada`);
+    if (willReplaceAnimation) efectos.push(`los ${liveFrames.length} cuadros de la animación se reemplazan`);
     setConfirmAction({
       title: `¿Cargar «${preset.name}»?`,
-      description: `Al cargarla, ${efectos.join(' y ')}. Esto no se puede deshacer.`,
-      confirmLabel: 'Cargar plantilla',
+      description: `Al cargarla, ${efectos.join(' y ')}. Si te arrepientes, usa Deshacer.`,
+      confirmLabel: 'Cargar jugada',
       onConfirm: () => applyPreset(preset),
     });
   }
@@ -1520,20 +1737,20 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     if (!name || !canEdit) return;
     // Jugadores puestos + marcadores que todavía no adoptó nadie (una
     // plantilla es layout: un marcador sin jugador sigue siendo una posición).
-    const slots = buildPresetSlots(placed, emptySlots);
+    const { slots, arrows: presetArrows, frames: presetFrames } = buildPresetPayload();
     if (slots.length === 0) {
       toast({ title: 'Nada que guardar', description: 'Ubica al menos un jugador en la cancha primero.', variant: 'destructive' });
       return;
     }
     try {
-      const created = await createPreset.mutateAsync({ team_id: teamId, name, situation, slots, arrows });
-      toast({ title: 'Plantilla guardada', description: `"${name}" para ${SITUATION_LABEL[situation]}.` });
+      const created = await createPreset.mutateAsync({ team_id: teamId, name, situation, slots, arrows: presetArrows, frames: presetFrames });
+      toast({ title: 'Guardada en Mis jugadas', description: `"${name}" para ${SITUATION_LABEL[situation]}.` });
       setSavingName(null);
       // Queda "cargada" la que se acaba de crear -- así un ajuste siguiente
       // usa Actualizar en vez de crear otra copia sin querer.
       setLoadedPresetId(created.id);
     } catch (err: any) {
-      toast({ title: 'No se pudo guardar la plantilla', description: err?.message, variant: 'destructive' });
+      toast({ title: 'No se pudo guardar en Mis jugadas', description: err?.message, variant: 'destructive' });
     }
   }
 
@@ -1545,16 +1762,16 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
    *  intacta y el coach no entendía por qué "no editaba bien". */
   async function handleUpdatePreset() {
     if (!loadedPresetId || !canEdit) return;
-    const slots = buildPresetSlots(placed, emptySlots);
+    const { slots, arrows: presetArrows, frames: presetFrames } = buildPresetPayload();
     if (slots.length === 0) {
       toast({ title: 'Nada que guardar', description: 'Ubica al menos un jugador en la cancha primero.', variant: 'destructive' });
       return;
     }
     try {
-      await updatePreset.mutateAsync({ id: loadedPresetId, slots, arrows });
-      toast({ title: 'Plantilla actualizada' });
+      await updatePreset.mutateAsync({ id: loadedPresetId, slots, arrows: presetArrows, frames: presetFrames });
+      toast({ title: 'Jugada actualizada en Mis jugadas' });
     } catch (err: any) {
-      toast({ title: 'No se pudo actualizar la plantilla', description: err?.message, variant: 'destructive' });
+      toast({ title: 'No se pudo actualizar la jugada', description: err?.message, variant: 'destructive' });
     }
   }
 
@@ -1564,9 +1781,9 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     if (arrows.length === 0 || !canEdit) return;
     setConfirmAction({
       title: '¿Borrar todos los dibujos?',
-      description: `Se quitan las ${arrows.length} figuras de la pizarra (flechas, material y anotaciones). Los jugadores no se tocan. Esto no se puede deshacer.`,
+      description: `Se quitan las ${arrows.length} figuras de la pizarra (flechas, material y anotaciones). Los jugadores no se tocan.${liveFrames.length > 1 ? ' Solo en este cuadro.' : ''} Si te arrepientes, usa Deshacer.`,
       confirmLabel: 'Borrar todo',
-      onConfirm: () => { setArrows([]); setSelectedShape(null); },
+      onConfirm: () => { exitFramePlayback(); setArrows([]); setSelectedShape(null); },
     });
   }
 
@@ -1588,7 +1805,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     }
     setConfirmAction({
       title: `¿Cambiar a ${SITUATION_LABEL[next]}?`,
-      description: 'Al cambiar de situación se quitan los dibujos y los marcadores de la plantilla cargada. Los jugadores en cancha se mantienen.',
+      description: 'Al cambiar de situación se quitan los dibujos y los marcadores de la jugada cargada. Los jugadores en cancha se mantienen.',
       confirmLabel: 'Cambiar situación',
       onConfirm: apply,
     });
@@ -1602,17 +1819,17 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     const preset = presets?.find((p) => p.id === loadedPresetId);
     const id = loadedPresetId;
     setConfirmAction({
-      title: `¿Eliminar la plantilla${preset ? ` «${preset.name}»` : ''}?`,
+      title: `¿Eliminar de Mis jugadas${preset ? ` «${preset.name}»` : ''}?`,
       description: 'Se elimina para todo el cuerpo técnico del equipo. Lo que hay en la cancha ahora no cambia.',
-      confirmLabel: 'Eliminar plantilla',
+      confirmLabel: 'Eliminar jugada',
       onConfirm: async () => {
         try {
           await deletePreset.mutateAsync(id);
           setEmptySlots([]);
           setLoadedPresetId(null);
-          toast({ title: 'Plantilla eliminada' });
+          toast({ title: 'Jugada eliminada de Mis jugadas' });
         } catch (err: any) {
-          toast({ title: 'No se pudo eliminar la plantilla', description: err?.message, variant: 'destructive' });
+          toast({ title: 'No se pudo eliminar la jugada', description: err?.message, variant: 'destructive' });
         }
       },
     });
@@ -1672,6 +1889,81 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       description: 'Formación genérica (no conoce la posición real de cada jugador) -- reacomoda a mano lo que haga falta.',
     });
   }
+
+  // ── Formaciones fijas (F2): la cancha arranca llena sin depender de
+  // estadísticas de partidos (a diferencia de "Sugerir XI").
+  const [formationKey, setFormationKey] = useState<FormationKey | null>(null);
+  // "Empieza aquí" se cierra solo cuando hay algo en la cancha; "Dibujar un
+  // ejercicio" o "Prefiero arrastrarlos yo" lo cierran a mano (la cancha
+  // sigue vacía y el aviso taparía el ejercicio).
+  const [emptyHintDismissed, setEmptyHintDismissed] = useState(false);
+  useEffect(() => { if (open) setEmptyHintDismissed(false); }, [open]);
+  const defaultFormation = defaultFormationFor(subjects.length);
+  const loadedPresetName = loadedPresetId ? (presets?.find((p) => p.id === loadedPresetId)?.name ?? null) : null;
+  const pitchIsEmpty = Object.keys(placed).length === 0 && arrows.length === 0 && emptySlots.length === 0 && frames.length === 1;
+
+  /** Aplica una formación. Cancha sin jugadores: reparte el roster disponible
+   *  (orden alfabético, el roster no trae dorsal) en sus posiciones; los
+   *  huecos quedan como marcadores. Con jugadores ya puestos: los reubica en
+   *  la posición más cercana de la formación (misma lógica que cargar una
+   *  jugada guardada) y las posiciones sin jugador quedan como marcadores. */
+  function applyFormation(formation: Formation) {
+    if (!canEdit) return;
+    if (playingSequence) stopPlayback();
+    exitFramePlayback();
+    setFormationKey(formation.key);
+    if (Object.keys(placed).length === 0) {
+      const keys = sortRosterForFormation(availableSubjects)
+        .map((s) => subjectKey(s.subject_type, s.subject_id));
+      const result = placeInFormation(keys, formation);
+      setPlaced(result.placed);
+      setEmptySlots(result.emptySlots);
+      setLoadedPresetId(null);
+      const n = Object.keys(result.placed).length;
+      toast({
+        title: `${n} ${n === 1 ? 'jugador' : 'jugadores'} en ${formation.label}`,
+        description: result.emptySlots.length > 0
+          ? `Faltan ${result.emptySlots.length} para completar la formación: arrástralos desde Jugadores a los círculos punteados.`
+          : 'Arrastra a cualquiera para cambiarlo de posición, o abre Jugadores para hacer cambios.',
+      });
+      return;
+    }
+    const result = applyPresetSlots(placed, `formation:${formation.key}`, formationAsPresetSlots(formation));
+    setPlaced(result.placed);
+    setEmptySlots(result.emptySlots);
+    setLoadedPresetId(null);
+    setAnimatingMove(true);
+    setTimeout(() => setAnimatingMove(false), ANIMATE_MS);
+  }
+
+  /** "Dibujar" abre/cierra el panel de dibujo; "Material" lo abre directo en
+   *  la sección de material (pestaña en celular; en pantalla ancha se lleva
+   *  la sección a la vista). */
+  const materialSectionRef = useRef<HTMLDivElement>(null);
+  function openMaterial() {
+    if (tacticsOpen && mobileTab === 'material') {
+      setTacticsOpen(false);
+      return;
+    }
+    setTacticsOpen(true);
+    setMobileTab('material');
+    if (isMobile) setRosterOpen(false);
+    requestAnimationFrame(() => materialSectionRef.current?.scrollIntoView({ block: 'nearest' }));
+  }
+  function openDrawingFromHint() {
+    setEmptyHintDismissed(true);
+    setTacticsOpen(true);
+    setMobileTab('escribir');
+    if (isMobile) setRosterOpen(false);
+  }
+
+  /** Hay algo que "Reproducir" en modo ver: líneas de movimiento o recorridos
+   *  de balón (una flecha suelta que no sale de nadie igual se intenta; si no
+   *  hay nada que mover, handlePlayMovement avisa). */
+  const hasAnimation = arrows.some((a) => {
+    const t = a.type ?? 'arrow';
+    return t === 'arrow' || t === 'curve' || t === 'ball_path';
+  });
 
   /** Distancia (en % de cancha) dentro de la cual una flecha "sale de" un
    *  jugador -- si el inicio de la flecha no está cerca de nadie, no se
@@ -1739,6 +2031,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
 
   function handlePlayMovement() {
     if (playingSequence) { stopPlayback(); return; }
+    exitFramePlayback();
 
     const candidateArrows = arrows.filter((a) => (a.type ?? 'arrow') === 'arrow' || a.type === 'curve');
     const ballPaths = arrows.filter((a) => a.type === 'ball_path');
@@ -1905,7 +2198,17 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     // Un jugador de una alineación guardada puede ya no estar en el roster
     // (dado de baja, cambiado de equipo): no se puede guardar y no cuenta para
     // el máximo. Antes `subjectByKey.get(key)!` reventaba el guardado entero.
-    const starterKeys = splitKnownKeys(Object.keys(placed), subjectByKey);
+    // Con cuadros, lo que va a las columnas de siempre (jugadores + figuras) es
+    // el CUADRO 1, esté abierto el que esté: el PDF, la miniatura y los
+    // clientes viejos ven la posición inicial.
+    const allFrames = liveFrames.map((f) => ({ ...f, players: f.players.filter((p) => subjectByKey.has(p.key)) }));
+    const crowded = allFrames.findIndex((f) => f.players.length > MAX_STARTERS);
+    if (allFrames.length > 1 && crowded >= 0) {
+      toast({ title: 'Máximo 11 en cancha', description: `El cuadro ${crowded + 1} tiene ${allFrames[crowded].players.length} jugadores.`, variant: 'destructive' });
+      return;
+    }
+    const firstPlaced = frameIndex === 0 ? placed : placedFromFrame(allFrames[0], placed, metaRef.current);
+    const starterKeys = splitKnownKeys(Object.keys(firstPlaced), subjectByKey);
     const benchSplit = splitKnownKeys(Array.from(benchKeys), subjectByKey);
     const missingCount = starterKeys.missing.length + benchSplit.missing.length;
 
@@ -1917,7 +2220,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     const players: LineupPlayerInput[] = [
       ...starterKeys.valid.map((key) => {
         const subject = subjectByKey.get(key)!;
-        const slot = placed[key];
+        const slot = firstPlaced[key];
         return {
           subject_type: subject.subject_type,
           subject_id: subject.subject_id,
@@ -1939,11 +2242,16 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     ];
 
     try {
-      await saveLineup.mutateAsync({ team_id: teamId, source_type: sourceType, source_id: sourceId, players, arrows });
+      await saveLineup.mutateAsync({
+        team_id: teamId, source_type: sourceType, source_id: sourceId, players,
+        arrows: allFrames[0].arrows,
+        // null = un solo cuadro: la fila no carga una animación de 1 cuadro.
+        frames: serializeFrames(allFrames),
+      });
       toast({
-        title: 'Alineación guardada',
+        title: 'Jugada guardada',
         description: missingCount > 0
-          ? `${missingCount} ${missingCount === 1 ? 'jugador ya no está' : 'jugadores ya no están'} en la plantilla del equipo y no se guardó.`
+          ? `${missingCount} ${missingCount === 1 ? 'jugador ya no está' : 'jugadores ya no están'} en el equipo y no se guardó.`
           : undefined,
       });
       onClose();
@@ -1952,7 +2260,307 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     }
   }
 
-  const loading = loadingRoster || (!!existingLineupId && loadingLineup);
+  // ── Cuadros: seleccionar, agregar, quitar, reordenar, duración (T1) ─────
+  /** Posiciones reales de la cancha: durante "Reproducir jugada" (un solo
+   *  cuadro) `placed` está a mitad de camino y la foto previa es la verdadera. */
+  function realPlaced(): Record<string, PlacedSlot> {
+    return playSnapshot.current ?? placed;
+  }
+  /** Todos los cuadros, con el abierto armado desde la cancha real. */
+  function committedFrames(): TacticalFrame[] {
+    if (!playSnapshot.current) return liveFrames;
+    const real = playSnapshot.current;
+    return liveFrames.map((f, i) => (
+      i === frameIndex ? { ...f, players: Object.entries(real).map(([key, s]) => ({ key, x: s.x, y: s.y })) } : f
+    ));
+  }
+  /** Deja `list` como cuadros y abre el `index` en la cancha. */
+  function loadFrame(list: TacticalFrame[], index: number, meta: Record<string, PlacedSlot>) {
+    const target = list[index];
+    if (!target) return;
+    setFrames(list);
+    setFrameIndex(index);
+    setPlaced(placedFromFrame(target, meta, metaRef.current));
+    setArrows(target.arrows);
+    setSelectedShape(null);
+  }
+  function selectFrame(index: number) {
+    exitFramePlayback();
+    if (index === frameIndex) return;
+    const list = committedFrames();
+    const meta = realPlaced();
+    if (playingSequence) stopPlayback();
+    loadFrame(list, index, meta);
+  }
+  /** «+ Cuadro»: copia el cuadro abierto justo después y lo abre — desde ahí
+   *  se mueven los jugadores a donde van en ese momento de la jugada. */
+  function addFrame() {
+    if (!canEdit) return;
+    exitFramePlayback();
+    const list = committedFrames();
+    const meta = realPlaced();
+    if (list.length >= MAX_FRAMES) {
+      toast({ title: `Máximo ${MAX_FRAMES} cuadros`, description: 'Quita un cuadro para agregar otro.', variant: 'destructive' });
+      return;
+    }
+    if (playingSequence) stopPlayback();
+    const r = duplicateFrameAt(list, frameIndex);
+    loadFrame(r.frames, r.index, meta);
+  }
+  function deleteFrame(index: number) {
+    if (!canEdit) return;
+    exitFramePlayback();
+    const list = committedFrames();
+    if (list.length <= 1) return;
+    const meta = realPlaced();
+    if (playingSequence) stopPlayback();
+    const r = removeFrameAt(list, index);
+    // Quitar un cuadro que no es el abierto deja abierto el mismo.
+    const openId = list[frameIndex]?.id;
+    const nextIndex = index === frameIndex ? r.index : r.frames.findIndex((f) => f.id === openId);
+    loadFrame(r.frames, Math.max(0, nextIndex), meta);
+  }
+  function moveFrameTo(from: number, to: number) {
+    if (!canEdit) return;
+    exitFramePlayback();
+    const list = committedFrames();
+    const next = moveFrame(list, from, to);
+    if (next === list) return;
+    if (playingSequence) stopPlayback();
+    const openId = list[frameIndex]?.id;
+    setFrames(next);
+    setFrameIndex(Math.max(0, next.findIndex((f) => f.id === openId)));
+  }
+  function changeFrameDuration(index: number, ms: number) {
+    if (!canEdit) return;
+    setFrames(setFrameDuration(committedFrames(), index, ms));
+  }
+
+  // ── Reproducción por cuadros ────────────────────────────────────────────
+  /** Sale de la reproducción (o de la pausa) y vuelve al cuadro abierto. */
+  function exitFramePlayback() {
+    if (playState === 'stopped' && !playbackFrames) return;
+    setPlayState('stopped');
+    setPlaybackFrames(null);
+    clock.set(0);
+  }
+  function toggleFramePlayback() {
+    if (playState === 'playing') { setPlayState('paused'); return; }
+    const list = playbackFrames ?? committedFrames();
+    if (list.length < 2) return;
+    if (playingSequence) stopPlayback();
+    setSelectedShape(null);
+    if (!playbackFrames) {
+      setPlaybackFrames(list);
+      clock.set(0);
+    } else if (clock.get() >= totalDurationMs(list)) {
+      clock.set(0); // terminó: ▶ vuelve a empezar
+    }
+    setPlayState('playing');
+  }
+  /** Tocar la barra de progreso: salta a ese momento (en pausa si no corría). */
+  function seekPlayback(tMs: number) {
+    if (!playbackFrames) {
+      const list = committedFrames();
+      if (list.length < 2) return;
+      if (playingSequence) stopPlayback();
+      setPlaybackFrames(list);
+      setPlayState('paused');
+    }
+    clock.set(tMs);
+  }
+  useEffect(() => {
+    if (open) return;
+    setPlayState('stopped');
+    setPlaybackFrames(null);
+    clock.set(0);
+  }, [open, clock]);
+
+  /** Mis jugadas: slots = cuadro 1 (+ marcadores sin jugador); con varios
+   *  cuadros, las claves pasan de jugador a índice de slot (una jugada
+   *  guardada es layout, no personas). */
+  function buildPresetPayload(): { slots: { slot_label: string; x: number; y: number }[]; arrows: TacticalArrow[]; frames: TacticalFrame[] | null } {
+    const list = committedFrames();
+    const first = list[0];
+    const firstPlaced = frameIndex === 0 ? realPlaced() : placedFromFrame(first, realPlaced(), metaRef.current);
+    const slots = buildPresetSlots(firstPlaced, emptySlots);
+    if (list.length <= 1) return { slots, arrows: first.arrows, frames: null };
+    const slotKeyOf = new Map(Object.keys(firstPlaced).map((k, i) => [k, presetSlotKey(i)]));
+    const frames = serializeFrames(list.map((f) => ({
+      ...f,
+      players: f.players.flatMap((p) => {
+        const key = slotKeyOf.get(p.key);
+        return key ? [{ key, x: p.x, y: p.y }] : [];
+      }),
+    })));
+    return { slots, arrows: first.arrows, frames };
+  }
+
+  // loadingList: sin esperar la lista, el aviso "Empieza aquí" aparecía un
+  // instante sobre una sesión que SÍ tenía jugada, y la hidratación pisaba lo
+  // que el coach alcanzara a poner.
+  const loading = loadingRoster || loadingList || (!!existingLineupId && loadingLineup);
+
+  // ── Deshacer / rehacer (T1) ─────────────────────────────────────────────
+  // Historial del tablero entero (todos los cuadros + el abierto + etiquetas),
+  // no de cada acción: cualquier cambio queda registrado sin que cada función
+  // tenga que acordarse. Un arrastre (decenas de cambios) es UN paso: se anota
+  // cuando la cancha queda quieta HISTORY_SETTLE_MS.
+  const historyRef = useRef<{ undo: BoardSnapshot[]; redo: BoardSnapshot[]; base: BoardSnapshot | null; baseKey: string }>(
+    { undo: [], redo: [], base: null, baseKey: '' },
+  );
+  const restoringRef = useRef(false);
+  const [, setHistoryTick] = useState(0);
+  // Al abrir o terminar de cargar, el historial arranca de cero (la carga no
+  // es un paso que se pueda deshacer).
+  useEffect(() => {
+    historyRef.current = { undo: [], redo: [], base: null, baseKey: '' };
+    setHistoryTick((v) => v + 1);
+  }, [open, initialized, loading]);
+
+  function commitHistory(snap: BoardSnapshot): boolean {
+    const h = historyRef.current;
+    if (!h.base) return false;
+    const key = snapshotKey(snap);
+    if (key === h.baseKey) return false;
+    h.undo.push(h.base);
+    if (h.undo.length > HISTORY_CAP) h.undo.shift();
+    h.redo = [];
+    h.base = snap;
+    h.baseKey = key;
+    setHistoryTick((v) => v + 1);
+    return true;
+  }
+  useEffect(() => {
+    // "Reproducir jugada" mueve `placed` de verdad: no son cambios del coach.
+    if (!open || loading || playingSequence) return;
+    const h = historyRef.current;
+    const snap: BoardSnapshot = { frames: liveFrames, frameIndex, placed };
+    if (restoringRef.current || !h.base) {
+      restoringRef.current = false;
+      h.base = snap;
+      h.baseKey = snapshotKey(snap);
+      return;
+    }
+    const timer = window.setTimeout(() => commitHistory(snap), HISTORY_SETTLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [open, loading, playingSequence, liveFrames, frameIndex, placed]);
+
+  function applySnapshot(s: BoardSnapshot) {
+    restoringRef.current = true;
+    exitFramePlayback();
+    setFrames(s.frames);
+    setFrameIndex(s.frameIndex);
+    setPlaced(s.placed);
+    setArrows(s.frames[s.frameIndex]?.arrows ?? []);
+    setSelectedShape(null);
+    setHistoryTick((v) => v + 1);
+  }
+  function undo() {
+    if (!canEdit || playingSequence) return;
+    const h = historyRef.current;
+    // Lo que todavía no se anotó (menos de HISTORY_SETTLE_MS) cuenta como paso.
+    commitHistory({ frames: liveFrames, frameIndex, placed });
+    const prev = h.undo.pop();
+    if (!prev || !h.base) return;
+    h.redo.push(h.base);
+    h.base = prev;
+    h.baseKey = snapshotKey(prev);
+    applySnapshot(prev);
+  }
+  function redo() {
+    if (!canEdit || playingSequence) return;
+    const h = historyRef.current;
+    commitHistory({ frames: liveFrames, frameIndex, placed }); // un cambio nuevo anula el rehacer
+    const next = h.redo.pop();
+    if (!next || !h.base) return;
+    h.undo.push(h.base);
+    h.base = next;
+    h.baseKey = snapshotKey(next);
+    applySnapshot(next);
+  }
+  const canUndo = historyRef.current.undo.length > 0;
+  const canRedo = historyRef.current.redo.length > 0;
+  // Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y (⌘ en Mac). No mientras se escribe en un campo.
+  const undoRef = useRef(undo);
+  undoRef.current = undo;
+  const redoRef = useRef(redo);
+  redoRef.current = redo;
+  useEffect(() => {
+    if (!open || !canEdit) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))) return;
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); undoRef.current(); }
+      else if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); redoRef.current(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, canEdit]);
+
+  // Rastro fantasma: desde el cuadro 2, una línea punteada desde donde estaba
+  // cada jugador en el cuadro anterior hasta donde está ahora.
+  const trail = canEdit && !framePlaybackActive && frameIndex > 0
+    ? ghostTrail(frames[frameIndex - 1], liveFrames[frameIndex])
+    : [];
+
+  const timelineFrames = playbackFrames ?? liveFrames;
+  const renderPlaybackPlayer = (p: InterpolatedPlayer, top: number) => {
+    const subject = subjectByKey.get(p.key);
+    if (!subject) return null;
+    return (
+      <PlaybackPin key={p.key} subject={subject} meta={metaRef.current[p.key] ?? placed[p.key]}
+        x={p.x} top={top} opacity={p.opacity} pinStyle={pinStyle} showPhotos={showPhotos} />
+    );
+  };
+  const renderPlaybackShapes = (shapes: TacticalArrow[], _opacity: number, layerKey: string) => (
+    <ArrowLayer
+      key={layerKey}
+      shapes={shapes}
+      readOnly
+      drawMode={false}
+      drawShapeType="arrow"
+      drawColor="white"
+      ballKind="pase"
+      newObjSize={1}
+      newObjRot={0}
+      measureMode={false}
+      pitchLengthMeters={pitchLengthMeters}
+      view={view}
+      pinStyle={pinStyle}
+      selectedIndex={null}
+      ghostBalls={null}
+      hiddenIndexes={NO_INDEXES}
+      onCreateShape={noop}
+      onUpdateShape={noop}
+      onDeleteShape={noop}
+      onSelectShape={noop}
+      onEraseShapes={noop}
+    />
+  );
+  const timeline = !loading && (canEdit || liveFrames.length > 1) ? (
+    <TacticalTimeline
+      mode={canEdit ? 'edit' : 'view'}
+      frames={timelineFrames}
+      currentIndex={frameIndex}
+      playState={playState}
+      clock={clock}
+      totalMs={totalDurationMs(timelineFrames)}
+      speed={playSpeed}
+      loop={loopPlayback}
+      onPlayPause={toggleFramePlayback}
+      onSeek={seekPlayback}
+      onSpeedChange={setPlaySpeed}
+      onLoopChange={setLoopPlayback}
+      onSelect={selectFrame}
+      onAdd={addFrame}
+      onDelete={deleteFrame}
+      onMove={moveFrameTo}
+      onDurationChange={changeFrameDuration}
+    />
+  ) : null;
 
   return (
     <>
@@ -1987,12 +2595,17 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
           <DialogDescription>{contextLabel} · arrastra jugadores a la cancha, toca la etiqueta para renombrarla</DialogDescription>
         </DialogHeader>
 
-        {/* Un solo toolbar compacto -- reemplaza lo que antes eran 2 barras
-            (encabezado + controles) más el footer de guardar/cancelar. */}
+        {/* Toolbar con PALABRAS y una sola acción principal (F2 de
+            docs/specs/rediseno-seguimiento-deportivo.md): Formación ·
+            Jugadores · Dibujar · Material · Más · Guardar jugada. Antes eran
+            íconos sueltos (marcador, ojo, persona, expandir) que nadie sabía
+            leer, y "Plantilla" significaba dos cosas: el roster y las
+            formaciones guardadas (ahora "Jugadores" y "Mis jugadas").
+            En modo ver: solo Reproducir, Editar (si el rol puede) y Cerrar. */}
         {/* paddingTop con safe-area: en iPhone el diálogo ocupa la pantalla
-            entera y sin esto la primera fila queda debajo del reloj/notch
-            (no se podía tocar "Pizarra"). pr-12 en celular: la X del Dialog
-            (absolute, también bajo safe-area) cae sobre la primera fila. */}
+            entera y sin esto la primera fila queda debajo del reloj/notch.
+            pr-12 en celular: la X del Dialog (absolute, también bajo
+            safe-area) cae sobre la primera fila. */}
         <div
           className="pl-3 pr-12 md:px-4 pb-1.5 flex flex-wrap items-center gap-1.5 border-b border-white/10 bg-black/30 shrink-0"
           style={{ paddingTop: 'max(0.375rem, env(safe-area-inset-top))' }}
@@ -2001,195 +2614,240 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
             {teamName}
           </span>
 
-          {!loading && (
+          {!loading && viewing && (
             <>
-              <Select value={situation} onValueChange={(v) => handleChangeSituation(v as TacticalSituation)}>
-                <SelectTrigger className="h-7 w-[110px] text-[11px] bg-white/5 border-white/15 text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SITUATIONS.map((s) => (
-                    <SelectItem key={s} value={s} className="text-xs">{SITUATION_LABEL[s]}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              {presets && presets.length > 0 && (
-                <>
-                  <Select value={loadedPresetId ?? ''} onValueChange={handleLoadPreset}>
-                    <SelectTrigger className="h-7 w-[120px] text-[11px] bg-white/5 border-white/15 text-white">
-                      <SelectValue placeholder="Plantilla…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {presets.map((p) => (
-                        <SelectItem key={p.id} value={p.id} className="text-xs">{p.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {loadedPresetId && canEdit && (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 w-7 p-0 text-white/50 hover:text-white hover:bg-white/10"
-                        title="Volver a cargar la plantilla guardada (descarta los cambios)"
-                        aria-label="Volver a cargar la plantilla guardada"
-                        onClick={() => handleLoadPreset(loadedPresetId)}
-                      >
-                        <RotateCw className="h-3 w-3" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 w-7 p-0 text-white/50 hover:text-red-400 hover:bg-white/10"
-                        title="Eliminar la plantilla cargada"
-                        aria-label="Eliminar la plantilla cargada"
-                        onClick={requestDeletePreset}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </>
-                  )}
-                </>
-              )}
-
-              {!canEdit ? (
+              <span className="hidden sm:inline text-[11px] text-white/60 truncate max-w-[220px]" title={contextLabel}>
+                {contextLabel}
+              </span>
+              {!roleCanEdit && (
                 <Badge variant="outline" className="h-6 text-[10px] border-amber-400/50 text-amber-300" title="Tu rol puede ver el tablero pero no modificarlo">
                   Solo lectura
                 </Badge>
-              ) : savingName !== null ? (
-                <div className="flex items-center gap-1">
+              )}
+            </>
+          )}
+
+          {!loading && !viewing && (
+            <>
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="ghost" className={`${TB_BTN} ${TB_IDLE}`} title="Poner o reacomodar a los jugadores en una formación">
+                    <LayoutGrid className="h-3.5 w-3.5" />
+                    {formationKey ? FORMATIONS.find((f) => f.key === formationKey)?.label : 'Formación'}
+                    <ChevronDown className="h-3 w-3 opacity-70" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-60">
+                  <DropdownMenuLabel>Formación</DropdownMenuLabel>
+                  {FORMATIONS.map((f) => (
+                    <DropdownMenuItem key={f.key} onSelect={() => applyFormation(f)}>
+                      <span className="font-semibold">{f.label}</span>
+                      <span className="ml-auto text-xs text-muted-foreground">{f.players} jugadores</span>
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <p className="px-2 py-1 text-[11px] leading-snug text-muted-foreground">
+                    Con la cancha vacía pone a los jugadores; si ya hay jugadores, los reacomoda en la formación.
+                  </p>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <Button
+                size="sm"
+                variant="ghost"
+                className={`${TB_BTN} ${rosterOpen ? TB_ON : TB_IDLE}`}
+                onClick={toggleRoster}
+                aria-pressed={rosterOpen}
+                title="Jugadores del equipo: arrástralos a la cancha o pásalos a la banca"
+              >
+                <Users className="h-3.5 w-3.5" />
+                Jugadores ({availableSubjects.length + benchKeys.size})
+              </Button>
+
+              <Button
+                size="sm"
+                variant="ghost"
+                className={`${TB_BTN} ${tacticsOpen ? TB_ON : TB_IDLE}`}
+                onClick={toggleTactics}
+                aria-pressed={tacticsOpen}
+                title="Dibujar: flechas, recorridos de balón, lápiz, texto y material"
+              >
+                <PenLine className="h-3.5 w-3.5" />
+                Dibujar{arrows.length > 0 ? ` (${arrows.length})` : ''}
+              </Button>
+
+              <Button
+                size="sm"
+                variant="ghost"
+                className={`${TB_BTN} ${tacticsOpen && mobileTab === 'material' ? TB_ON : TB_IDLE}`}
+                onClick={openMaterial}
+                title="Material de entrenamiento: conos, balones, vallas, arcos, aros…"
+              >
+                <Package className="h-3.5 w-3.5" />
+                Material
+              </Button>
+
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="ghost" className={`${TB_BTN} ${TB_IDLE}`} aria-label="Más opciones" title="Más opciones">
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                    Más
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className="w-64 max-h-[70vh] overflow-y-auto"
+                  // Que cerrar el menú no le robe el foco al campo de nombre de
+                  // "Guardar en Mis jugadas…" ni a los diálogos de confirmación.
+                  onCloseAutoFocus={(e) => e.preventDefault()}
+                >
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      Situación: <span className="ml-1 font-semibold">{SITUATION_LABEL[situation]}</span>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuRadioGroup value={situation} onValueChange={(v) => handleChangeSituation(v as TacticalSituation)}>
+                        {SITUATIONS.map((s) => (
+                          <DropdownMenuRadioItem key={s} value={s}>{SITUATION_LABEL[s]}</DropdownMenuRadioItem>
+                        ))}
+                      </DropdownMenuRadioGroup>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>Mis jugadas · {SITUATION_LABEL[situation]}</DropdownMenuLabel>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger disabled={!presets || presets.length === 0}>
+                      {presets && presets.length > 0 ? `Abrir una jugada (${presets.length})` : 'Todavía no hay jugadas guardadas'}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="max-h-[60vh] overflow-y-auto">
+                      {(presets ?? []).map((p) => (
+                        <DropdownMenuItem key={p.id} onSelect={() => handleLoadPreset(p.id)}>
+                          <span className={p.id === loadedPresetId ? 'font-semibold' : ''}>{p.name}</span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  {loadedPresetId && (
+                    <>
+                      <DropdownMenuItem onSelect={handleUpdatePreset} disabled={updatePreset.isPending}>
+                        <Bookmark className="h-4 w-4 mr-2" /> Actualizar «{loadedPresetName}»
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => handleLoadPreset(loadedPresetId)}>
+                        <RotateCw className="h-4 w-4 mr-2" /> Volver a cargar «{loadedPresetName}»
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={requestDeletePreset} className="text-red-600 focus:text-red-600">
+                        <Trash2 className="h-4 w-4 mr-2" /> Eliminar «{loadedPresetName}»
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                  <DropdownMenuItem onSelect={() => setSavingName('')}>
+                    <Plus className="h-4 w-4 mr-2" /> {loadedPresetId ? 'Guardar como jugada nueva…' : 'Guardar en Mis jugadas…'}
+                  </DropdownMenuItem>
+
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>Vista</DropdownMenuLabel>
+                  {/* preventDefault: prender/apagar no cierra el menú (se
+                      pueden ajustar varias cosas de una). */}
+                  <DropdownMenuCheckboxItem checked={showZones} onSelect={(e) => e.preventDefault()} onCheckedChange={() => setShowZones((v) => !v)}>
+                    Zonas de la cancha
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem checked={pinStyle === 'silhouette'} onSelect={(e) => e.preventDefault()} onCheckedChange={togglePinStyle}>
+                    Jugadores como siluetas
+                  </DropdownMenuCheckboxItem>
+                  {pinStyle === 'disc' && (
+                    <DropdownMenuCheckboxItem checked={showPhotos} onSelect={(e) => e.preventDefault()} onCheckedChange={togglePinPhotos}>
+                      <span className="flex flex-col">
+                        <span>Fotos de los jugadores</span>
+                        <span className="text-[10px] text-muted-foreground leading-tight">Solo si los padres autorizaron el uso de la imagen</span>
+                      </span>
+                    </DropdownMenuCheckboxItem>
+                  )}
+                  <DropdownMenuCheckboxItem checked={gkZoom} onSelect={(e) => e.preventDefault()} onCheckedChange={() => setGkZoom((v) => !v)}>
+                    Zoom al área (arqueros)
+                  </DropdownMenuCheckboxItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {loadedPresetName && (
+                <span className="hidden md:inline text-[10px] text-white/60 truncate max-w-[160px]" title="Jugada de Mis jugadas cargada en la cancha">
+                  Mis jugadas: <span className="text-white/85 font-semibold">{loadedPresetName}</span>
+                </span>
+              )}
+
+              {savingName !== null && (
+                <div className="flex items-center gap-1 basis-full sm:basis-auto">
                   <Input
                     autoFocus
                     value={savingName}
                     onChange={(e) => setSavingName(e.target.value)}
-                    placeholder="Nombre"
-                    className="h-7 w-[110px] text-[11px] bg-white/5 border-white/15 text-white placeholder:text-white/70"
+                    placeholder="Nombre de la jugada"
+                    aria-label="Nombre de la jugada para Mis jugadas"
+                    className="h-8 flex-1 sm:flex-none sm:w-[160px] text-[11px] bg-white/5 border-white/15 text-white placeholder:text-white/70"
                     onKeyDown={(e) => { if (e.key === 'Enter') handleSaveAsPreset(); if (e.key === 'Escape') setSavingName(null); }}
                   />
-                  <Button size="sm" className="h-7 text-[11px] px-2 bg-emerald-600 hover:bg-emerald-500 text-white" disabled={createPreset.isPending} onClick={handleSaveAsPreset}>
-                    OK
+                  <Button size="sm" className="h-8 text-[11px] px-2 bg-emerald-600 hover:bg-emerald-500 text-white" disabled={createPreset.isPending} onClick={handleSaveAsPreset}>
+                    Guardar
                   </Button>
-                  <Button size="sm" variant="ghost" className="h-7 text-[11px] px-2 text-white/60 hover:text-white hover:bg-white/10" onClick={() => setSavingName(null)}>✕</Button>
+                  <Button size="sm" variant="ghost" aria-label="Cancelar" className="h-8 text-[11px] px-2 text-white/60 hover:text-white hover:bg-white/10" onClick={() => setSavingName(null)}>✕</Button>
                 </div>
-              ) : loadedPresetId ? (
-                // Con una plantilla cargada, "Actualizar" guarda los cambios
-                // SOBRE ESA MISMA fila (PUT) -- antes esto no existía, y la
-                // única opción (crear nueva) dejaba la original intacta y
-                // duplicaba una plantilla por cada ajuste.
-                <div className="flex items-center gap-1">
-                  <Button
-                    size="sm"
-                    className="h-7 gap-1 text-[11px] px-2 bg-emerald-600 hover:bg-emerald-500 text-white"
-                    disabled={updatePreset.isPending}
-                    onClick={handleUpdatePreset}
-                    title="Guarda los cambios sobre la plantilla cargada"
-                  >
-                    {updatePreset.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Bookmark className="h-3.5 w-3.5" />}
-                    Actualizar
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 w-7 p-0 text-white/60 hover:text-white hover:bg-white/10"
-                    title="Guardar como plantilla NUEVA (no toca la que está cargada)"
-                    onClick={() => setSavingName('')}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              ) : (
-                <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-white/60 hover:text-white hover:bg-white/10" title="Guardar como plantilla" onClick={() => setSavingName('')}>
-                  <Bookmark className="h-3.5 w-3.5" />
-                </Button>
               )}
-
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 w-7 p-0 text-white/60 hover:text-white hover:bg-white/10"
-                onClick={() => setShowZones((v) => !v)}
-                title={showZones ? 'Ocultar zonas de la cancha' : 'Mostrar zonas de la cancha'}
-              >
-                {showZones ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-              </Button>
-
-              <Button
-                size="sm"
-                variant="ghost"
-                className={`h-7 w-7 p-0 hover:bg-white/10 ${pinStyle === 'silhouette' ? 'text-emerald-400 hover:text-emerald-300' : 'text-white/60 hover:text-white'}`}
-                onClick={togglePinStyle}
-                title={pinStyle === 'silhouette' ? 'Ver jugadores como discos' : 'Ver jugadores como siluetas (arquero en amarillo)'}
-              >
-                <User className="h-3.5 w-3.5" />
-              </Button>
-              {pinStyle === 'disc' && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className={`h-7 px-1.5 text-[10px] hover:bg-white/10 ${showPhotos ? 'text-emerald-400 hover:text-emerald-300' : 'text-white/60 hover:text-white'}`}
-                  onClick={togglePinPhotos}
-                  aria-pressed={showPhotos}
-                  title={showPhotos
-                    ? 'Ocultar la foto de los jugadores'
-                    : 'Mostrar la foto de los jugadores (solo si los padres autorizaron el uso de la imagen)'}
-                >
-                  Fotos
-                </Button>
-              )}
-
-              <Button
-                size="sm"
-                variant="ghost"
-                className={`h-7 w-7 p-0 hover:bg-white/10 ${gkZoom ? 'text-emerald-400 hover:text-emerald-300' : 'text-white/60 hover:text-white'}`}
-                onClick={() => setGkZoom((v) => !v)}
-                title={gkZoom ? 'Ver la cancha completa' : 'Zoom al área (modo arqueros)'}
-              >
-                {gkZoom ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-              </Button>
-
-              <Button
-                size="sm"
-                variant={tacticsOpen ? 'default' : 'ghost'}
-                className={`h-7 gap-1 text-[11px] px-2 ${tacticsOpen ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'text-white/60 hover:text-white hover:bg-white/10'}`}
-                onClick={toggleTactics}
-                title="Pizarra táctica: dibujar flechas de movimiento"
-              >
-                <PenLine className="h-3.5 w-3.5" />
-                Pizarra{arrows.length > 0 ? ` (${arrows.length})` : ''}
-              </Button>
             </>
           )}
 
           {/* pr-8: la X nativa del Dialog (absolute right-4 top-4) queda
               encima del último botón si el toolbar llega hasta el borde. */}
           <div className="ml-auto flex items-center gap-1.5 pr-8">
-            {!loading && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 gap-1 text-[11px] px-2 bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
-                onClick={toggleRoster}
-              >
-                {rosterOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
-                Plantilla ({availableSubjects.length + benchKeys.size})
-              </Button>
+            {viewing ? (
+              <>
+                {/* Con cuadros, Reproducir vive en la línea de tiempo de abajo. */}
+                {!loading && hasAnimation && liveFrames.length < 2 && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className={`${TB_BTN} ${playingSequence ? TB_ON : TB_IDLE}`}
+                    onClick={handlePlayMovement}
+                    aria-pressed={playingSequence}
+                  >
+                    {playingSequence ? <Square className="h-3.5 w-3.5 fill-current" /> : <Play className="h-3.5 w-3.5" />}
+                    {playingSequence ? 'Detener' : 'Reproducir'}
+                  </Button>
+                )}
+                {!loading && roleCanEdit && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 gap-1 text-[11px] px-2 bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
+                    onClick={() => { if (playingSequence) stopPlayback(); setBoardMode('edit'); }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" /> Editar
+                  </Button>
+                )}
+                <Button size="sm" className="h-8 text-[11px] px-3 bg-white/10 hover:bg-white/20 text-white" onClick={onClose}>
+                  Cerrar
+                </Button>
+              </>
+            ) : (
+              <>
+                {/* En celular la X del diálogo ya cierra: Cancelar solo ocupaba
+                    lugar en el toolbar. */}
+                <Button size="sm" variant="ghost" className="hidden sm:inline-flex h-8 text-[11px] px-2 text-white/60 hover:text-white hover:bg-white/10" onClick={onClose}>
+                  Cancelar
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-8 text-[11px] px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
+                  onClick={handleSave}
+                  // Durante "Reproducir jugada" los pines están a mitad de camino:
+                  // guardar ahora persistiría posiciones intermedias.
+                  disabled={saveLineup.isPending || loading || playingSequence}
+                  title={playingSequence ? 'Espera a que termine la reproducción o presiona Detener' : 'Guarda los jugadores y los dibujos de esta sesión'}
+                >
+                  {saveLineup.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : null}
+                  Guardar jugada
+                </Button>
+              </>
             )}
-            <Button size="sm" variant="ghost" className="h-7 text-[11px] px-2 text-white/60 hover:text-white hover:bg-white/10" onClick={onClose}>
-              Cancelar
-            </Button>
-            <Button
-              size="sm"
-              className="h-7 text-[11px] px-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
-              onClick={handleSave}
-              // Durante "Reproducir jugada" los pines están a mitad de camino:
-              // guardar ahora persistiría posiciones intermedias.
-              disabled={saveLineup.isPending || loading || playingSequence || !canEdit}
-              title={!canEdit ? 'Solo lectura: tu rol no puede modificar el tablero' : playingSequence ? 'Espera a que termine la reproducción o presiona Detener' : undefined}
-            >
-              {saveLineup.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : null}
-              Guardar
-            </Button>
           </div>
         </div>
 
@@ -2200,7 +2858,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
         ) : (
           <DndContext
             sensors={sensors}
-            onDragStart={() => { if (playingSequence) stopPlayback(); }}
+            onDragStart={() => { if (playingSequence) stopPlayback(); exitFramePlayback(); }}
             onDragMove={handleDragMove}
             onDragEnd={handleDragEnd}
             onDragCancel={() => setAlignGuides({ x: [], y: [] })}
@@ -2211,6 +2869,8 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                 propósito (futuro panel de tácticas), sin agregar nada ahí
                 todavía para no saturar la pantalla. */}
             <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
+              {/* Columna: cancha + línea de tiempo de los cuadros debajo. */}
+              <div className="flex-1 min-h-0 min-w-0 flex flex-col">
               <div ref={pitchAreaRef} className="relative flex-1 min-h-0 flex items-center justify-center px-3 sm:px-6 py-3 overflow-hidden">
                 {/* Ancho = alto de pantalla menos el toolbar (~90px) convertido
                     a ancho según la proporción de la cancha (300/340), topado
@@ -2245,7 +2905,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                 >
                   <FootballPitchBackground viewBox={viewBoxOf(view)} />
                   {showZones && <ZoneOverlay view={view} />}
-                  {emptySlots.map((es) => (
+                  {!viewing && !framePlaybackActive && emptySlots.map((es) => (
                     <EmptySlotMarker
                       key={es.id}
                       slot={es}
@@ -2253,7 +2913,18 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                       onRemove={() => setEmptySlots((prev) => prev.filter((s) => s.id !== es.id))}
                     />
                   ))}
-                  {Object.entries(placed).map(([key, slot]) => {
+                  {trail.length > 0 && (
+                    <svg viewBox={viewBoxOf(view)} preserveAspectRatio="none" className="absolute inset-0 w-full h-full z-[6] pointer-events-none" aria-hidden="true">
+                      {trail.map((m) => (
+                        <g key={m.key}>
+                          <circle cx={m.from.x * 3} cy={m.from.y * 3.4} r={4.5} fill="#ffffff" fillOpacity={0.12} stroke="#ffffff" strokeOpacity={0.45} strokeWidth={0.8} strokeDasharray="2 2" />
+                          <line x1={m.from.x * 3} y1={m.from.y * 3.4} x2={m.to.x * 3} y2={m.to.y * 3.4}
+                            stroke="#ffffff" strokeOpacity={0.5} strokeWidth={1.2} strokeDasharray="3 3" strokeLinecap="round" />
+                        </g>
+                      ))}
+                    </svg>
+                  )}
+                  {!framePlaybackActive && Object.entries(placed).map(([key, slot]) => {
                     const subject = subjectByKey.get(key);
                     if (!subject) return null;
                     return (
@@ -2279,15 +2950,25 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                       pointer-events-none y los pines se arrastran normal --
                       salvo los handles de cada figura, que son siempre
                       interactivos (ver comentario dentro de ArrowLayer). */}
+                  {framePlaybackActive && playbackFrames ? (
+                    <TacticalFramePlayback
+                      frames={playbackFrames}
+                      clock={clock}
+                      view={view}
+                      renderPlayer={renderPlaybackPlayer}
+                      renderShapes={renderPlaybackShapes}
+                    />
+                  ) : (
                   <ArrowLayer
                     shapes={arrows}
-                    drawMode={drawMode}
+                    drawMode={drawMode && !viewing}
                     drawShapeType={drawShapeType}
                     drawColor={drawColor}
                     ballKind={ballKind}
                     newObjSize={newObjSize}
                     newObjRot={newObjRot}
-                    measureMode={measureMode}
+                    measureMode={measureMode && !viewing}
+                    readOnly={viewing}
                     pitchLengthMeters={pitchLengthMeters}
                     view={view}
                     pinStyle={pinStyle}
@@ -2300,6 +2981,56 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     onSelectShape={setSelectedShape}
                     onEraseShapes={handleEraseShapes}
                   />
+                  )}
+                  {/* "Empieza aquí": la cancha vacía con los paneles cerrados
+                      no decía qué hacer (la instrucción estaba en sr-only).
+                      Se va sola apenas hay algo en la cancha, y se esconde con
+                      un panel abierto (Dibujar/Material/Jugadores): ahí el
+                      coach ya eligió qué hacer y el aviso taparía la cancha. */}
+                  {canEdit && pitchIsEmpty && !emptyHintDismissed && !tacticsOpen && !rosterOpen && subjects.length > 0 && (
+                    <div className="absolute inset-0 z-[45] flex items-center justify-center p-3 pointer-events-none">
+                      <div
+                        role="region"
+                        aria-label="Empieza aquí"
+                        className="pointer-events-auto w-full max-w-[290px] rounded-2xl bg-zinc-950/85 backdrop-blur-sm ring-1 ring-white/15 shadow-2xl p-4 text-center space-y-2.5"
+                      >
+                        <p className="text-base font-bold text-white">Empieza aquí</p>
+                        <p className="text-xs text-white/75 leading-snug">
+                          Pon a tus jugadores en la cancha o dibuja un ejercicio. Todo se puede mover después.
+                        </p>
+                        <Button
+                          className="w-full h-11 gap-2 text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white"
+                          onClick={() => applyFormation(defaultFormation)}
+                        >
+                          <LayoutGrid className="h-4 w-4" />
+                          Poner jugadores ({defaultFormation.key === 'f7-2-3-1' ? 'F7 2-3-1' : defaultFormation.label})
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="w-full h-11 gap-2 text-sm font-semibold bg-transparent border-white/25 text-white hover:bg-white/10 hover:text-white"
+                          onClick={openDrawingFromHint}
+                        >
+                          <PenLine className="h-4 w-4" />
+                          Dibujar un ejercicio
+                        </Button>
+                        <button
+                          type="button"
+                          className="text-[11px] text-white/65 underline underline-offset-2 hover:text-white"
+                          onClick={() => { setEmptyHintDismissed(true); setRosterOpen(true); if (isMobile) setTacticsOpen(false); }}
+                        >
+                          Prefiero arrastrarlos yo
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {viewing && pitchIsEmpty && (
+                    <div className="absolute inset-0 z-[45] flex items-center justify-center p-3 pointer-events-none">
+                      <p className="rounded-xl bg-zinc-950/80 ring-1 ring-white/10 px-4 py-3 text-xs text-white/80 text-center max-w-[260px]">
+                        Todavía no hay una jugada guardada para esta sesión.
+                        {roleCanEdit ? ' Toca Editar para armarla.' : ''}
+                      </p>
+                    </div>
+                  )}
                   {/* Guías de alineación mientras se arrastra un jugador ya
                       puesto -- puramente visuales, encima de todo (z-50). */}
                   {(alignGuides.x.length > 0 || alignGuides.y.length > 0) && (
@@ -2314,12 +3045,14 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                   )}
                 </div>
               </div>
+              {timeline}
+              </div>
 
               {/* Panel de pizarra táctica -- a la izquierda, en el margen que
-                  antes quedaba vacío. Se abre con el botón "Pizarra" del
+                  antes quedaba vacío. Se abre con "Dibujar" o "Material" del
                   toolbar. Todo pasa dentro del mismo modal del tablero, sin
                   vistas aparte. */}
-              {tacticsOpen && (
+              {tacticsOpen && !viewing && (
                 <div
                   className="w-full md:w-[220px] shrink-0 border-t md:border-t-0 md:border-r border-white/10 bg-black/30 backdrop-blur-sm overflow-y-auto overscroll-contain px-3 py-3 space-y-3 order-last md:order-first"
                   style={isMobile ? { height: `${SHEET_VH}vh`, paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' } : undefined}
@@ -2334,7 +3067,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                           className={`h-9 flex-1 gap-1 text-[11px] px-2 ${drawMode ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-white/5 hover:bg-white/10 text-white border border-white/15'}`}
                           onClick={() => { setDrawMode((v) => !v); setMeasureMode(false); }}
                         >
-                          <PenLine className="h-3.5 w-3.5" /> {drawMode ? 'Dibujando' : 'Dibujar'}
+                          <PenLine className="h-3.5 w-3.5" /> {drawMode ? 'Dibujando' : 'Activar dibujo'}
                         </Button>
                         <Button size="sm" variant="outline" aria-label={playingSequence ? 'Detener reproducción' : 'Reproducir jugada'}
                           aria-pressed={playingSequence}
@@ -2345,8 +3078,13 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                         </Button>
                         <Button size="sm" variant="outline" aria-label="Deshacer" title="Deshacer"
                           className="h-9 w-10 p-0 bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-30"
-                          disabled={arrows.length === 0} onClick={() => { setArrows((prev) => prev.slice(0, -1)); setSelectedShape(null); }}>
+                          disabled={!canUndo} onClick={undo}>
                           <Undo2 className="h-4 w-4" />
+                        </Button>
+                        <Button size="sm" variant="outline" aria-label="Rehacer" title="Rehacer"
+                          className="h-9 w-10 p-0 bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-30"
+                          disabled={!canRedo} onClick={redo}>
+                          <Redo2 className="h-4 w-4" />
                         </Button>
                         <Button size="sm" variant="outline" aria-label="Borrar todo" title="Borrar todo"
                           className="h-9 w-10 p-0 bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-red-400 disabled:opacity-30"
@@ -2479,7 +3217,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     </p>
                   </div>
 
-                  <div className={tabCls('material')}>
+                  <div ref={materialSectionRef} className={tabCls('material')}>
                     <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">Material</p>
                     <div className="grid grid-cols-3 md:grid-cols-2 gap-1.5">
                       {OBJECT_TYPES.map((type) => (
@@ -2607,10 +3345,22 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                       size="sm"
                       variant="outline"
                       className="flex-1 h-7 gap-1 text-[11px] bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-30"
-                      disabled={arrows.length === 0}
-                      onClick={() => { setArrows((prev) => prev.slice(0, -1)); setSelectedShape(null); }}
+                      disabled={!canUndo}
+                      onClick={undo}
+                      title="Deshacer (Ctrl+Z)"
                     >
                       <Undo2 className="h-3.5 w-3.5" /> Deshacer
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      aria-label="Rehacer"
+                      title="Rehacer (Ctrl+Shift+Z)"
+                      className="h-7 w-7 shrink-0 p-0 bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-30"
+                      disabled={!canRedo}
+                      onClick={redo}
+                    >
+                      <Redo2 className="h-3.5 w-3.5" />
                     </Button>
                     <Button
                       size="sm"
@@ -2623,7 +3373,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     </Button>
                   </div>
                   <p className="text-[10px] text-white/70">
-                    {arrows.length} {arrows.length === 1 ? 'figura' : 'figuras'} · se guardan junto con la plantilla.
+                    {arrows.length} {arrows.length === 1 ? 'figura' : 'figuras'} · se guardan con la jugada.
                   </p>
 
                   <div className={`pt-2 border-t border-white/10 ${tabCls('medir')}`}>
@@ -2656,9 +3406,9 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
 
               {/* Panel de plantilla/banca -- ahora es un panel lateral real
                   (no flotante encima de la cancha). Se abre y cierra con el
-                  botón "Plantilla" del toolbar; el usuario decide si lo deja
+                  botón "Jugadores" del toolbar; el usuario decide si lo deja
                   visible todo el tiempo o lo oculta. */}
-              {rosterOpen && (
+              {rosterOpen && !viewing && (
                 <div
                   className="w-full md:w-[260px] shrink-0 border-t md:border-t-0 md:border-l border-white/10 bg-black/30 backdrop-blur-sm overflow-y-auto overscroll-contain px-3 py-3 space-y-3"
                   style={isMobile ? { height: `${SHEET_VH}vh`, paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' } : undefined}
@@ -2687,7 +3437,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
 
                   <div>
                     <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">
-                      Plantilla disponible ({availableSubjects.length})
+                      Disponibles ({availableSubjects.length})
                     </p>
                     {availableSubjects.length === 0 ? (
                       <p className="text-xs text-white/70 italic">Todos los jugadores ya están ubicados.</p>

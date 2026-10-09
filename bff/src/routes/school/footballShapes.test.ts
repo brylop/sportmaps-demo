@@ -27,6 +27,16 @@ import {
   SHAPE_SIZE_MAX,
   FREEHAND_MAX_POINTS,
   TEXT_MAX_LENGTH,
+  validateFrames,
+  sanitizeFrames,
+  isMissingFramesColumn,
+  MAX_FRAMES,
+  FRAME_MS_MIN,
+  FRAME_MS_MAX,
+  MAX_FRAME_PLAYERS,
+  MAX_FRAME_KEY,
+  MAX_FRAME_ID,
+  MAX_FRAMES_BYTES,
 } from './footballShapes';
 
 /** Flecha vieja mínima (sin type ni color): la forma que hay guardada desde
@@ -330,5 +340,156 @@ describe('sanitizeSlots', () => {
   it('deja solo slot_label (recortado) + x + y: nada de subject_id ni extras (D8)', () => {
     expect(sanitizeSlots([{ slot_label: '  Medio ', x: 1, y: 2, subject_id: 'abc', jersey_number: 9 }]))
       .toEqual([{ slot_label: 'Medio', x: 1, y: 2 }]);
+  });
+});
+
+// ─── Jugada animada por cuadros (T1) ─────────────────────────────────────────
+
+const frame = (over: Record<string, unknown> = {}) => ({
+  id: 'f1',
+  duration_ms: 1200,
+  players: [{ key: 'athlete:abc', x: 10, y: 20 }, { key: 'slot#1', x: 50, y: 50 }],
+  ball: null,
+  arrows: [base],
+  ...over,
+});
+
+describe('validateFrames — forma', () => {
+  it('null es válido (jugada de un solo cuadro)', () => {
+    expect(validateFrames(null)).toEqual([]);
+  });
+
+  it('una lista de cuadros bien formada es válida', () => {
+    expect(validateFrames([frame(), frame({ id: 'f2', ball: { x: 40, y: 60 } })])).toEqual([]);
+  });
+
+  it('rechaza algo que no es lista ni null', () => {
+    expect(validateFrames({})).toHaveLength(1);
+    expect(validateFrames('[]')).toHaveLength(1);
+  });
+
+  it('rechaza la lista vacía (para un cuadro se manda null)', () => {
+    expect(validateFrames([])[0]).toMatch(/null/);
+  });
+
+  it(`acepta ${MAX_FRAMES} cuadros y rechaza ${MAX_FRAMES + 1}`, () => {
+    const many = (n: number) => Array.from({ length: n }, (_, i) => frame({ id: `f${i}` }));
+    expect(validateFrames(many(MAX_FRAMES))).toEqual([]);
+    expect(validateFrames(many(MAX_FRAMES + 1))[0]).toMatch(/demasiados cuadros/);
+  });
+
+  it('un cuadro que no es objeto da un error con su número', () => {
+    expect(validateFrames([frame(), null])).toEqual(['cuadro 2: debe ser un objeto.']);
+  });
+});
+
+describe('validateFrames — campos del cuadro', () => {
+  it.each([undefined, '', 'x'.repeat(MAX_FRAME_ID + 1), 7])('id inválido: %s', (id) => {
+    expect(validateFrames([frame({ id })]).join(' ')).toMatch(/id inválido/);
+  });
+
+  it.each([FRAME_MS_MIN - 1, FRAME_MS_MAX + 1, NaN, '1000', undefined])('duration_ms fuera de rango: %s', (duration_ms) => {
+    expect(validateFrames([frame({ duration_ms })]).join(' ')).toMatch(/duration_ms/);
+  });
+
+  it(`acepta los bordes ${FRAME_MS_MIN} y ${FRAME_MS_MAX}`, () => {
+    expect(validateFrames([frame({ duration_ms: FRAME_MS_MIN }), frame({ id: 'f2', duration_ms: FRAME_MS_MAX })])).toEqual([]);
+  });
+
+  it('players debe ser lista y tiene tope', () => {
+    expect(validateFrames([frame({ players: {} })]).join(' ')).toMatch(/players debe ser una lista/);
+    const crowd = Array.from({ length: MAX_FRAME_PLAYERS + 1 }, (_, i) => ({ key: `k${i}`, x: 1, y: 1 }));
+    expect(validateFrames([frame({ players: crowd })]).join(' ')).toMatch(/demasiados jugadores/);
+  });
+
+  it.each([
+    [{ key: '', x: 1, y: 1 }, /key de jugador/],
+    [{ key: 'k'.repeat(MAX_FRAME_KEY + 1), x: 1, y: 1 }, /key de jugador/],
+    [{ key: 5, x: 1, y: 1 }, /key de jugador/],
+    [{ key: 'a', x: -1, y: 1 }, /x\/y/],
+    [{ key: 'a', x: 1, y: 101 }, /x\/y/],
+    [{ key: 'a', x: Infinity, y: 1 }, /x\/y/],
+    [{ key: 'a', x: '10', y: 1 }, /x\/y/],
+    ['jugador', /jugador inválido/],
+  ])('jugador inválido %j', (p, re) => {
+    expect(validateFrames([frame({ players: [p] })]).join(' ')).toMatch(re);
+  });
+
+  it('rechaza un jugador repetido en el mismo cuadro', () => {
+    const p = { key: 'athlete:abc', x: 1, y: 1 };
+    expect(validateFrames([frame({ players: [p, p] })]).join(' ')).toMatch(/repetido/);
+  });
+
+  it.each([{ x: 1 }, { x: 1, y: 200 }, 'balón', [1, 2]])('ball inválido %j', (ball) => {
+    expect(validateFrames([frame({ ball })]).join(' ')).toMatch(/ball/);
+  });
+
+  it('ball ausente equivale a null', () => {
+    const f = frame();
+    delete (f as Record<string, unknown>).ball;
+    expect(validateFrames([f])).toEqual([]);
+  });
+
+  it('las figuras pasan por validateArrows y el error dice el cuadro', () => {
+    const errs = validateFrames([frame(), frame({ id: 'f2', arrows: [{ ...base, type: 'triangulo' }] })]);
+    expect(errs).toHaveLength(1);
+    expect(errs[0]).toMatch(/^cuadro 2: type de figura inválido/);
+  });
+
+  it(`arrows: tope de ${MAX_SHAPES} figuras por cuadro`, () => {
+    const lots = Array.from({ length: MAX_SHAPES + 1 }, () => base);
+    expect(validateFrames([frame({ arrows: lots })]).join(' ')).toMatch(/demasiadas figuras/);
+    expect(validateFrames([frame({ arrows: 'nada' })]).join(' ')).toMatch(/arrows debe ser una lista/);
+  });
+});
+
+describe('validateFrames — tamaño total', () => {
+  it(`rechaza una jugada de más de ${MAX_FRAMES_BYTES / 1024} KB`, () => {
+    // 30 cuadros × 300 trazos de lápiz de 20 puntos ≈ 3 MB.
+    const stroke = { ...base, type: 'freehand', points: Array.from({ length: 40 }, (_, i) => (i % 100) + 0.123456) };
+    const heavy = Array.from({ length: MAX_FRAMES }, (_, i) => frame({ id: `f${i}`, arrows: Array.from({ length: MAX_SHAPES }, () => stroke) }));
+    const errs = validateFrames(heavy);
+    expect(errs).toHaveLength(1);
+    expect(errs[0]).toMatch(/demasiado grande/);
+  });
+});
+
+describe('sanitizeFrames', () => {
+  it('deja solo los campos conocidos (cuadro, jugador, balón y figura)', () => {
+    const dirty = [{
+      ...frame({ ball: { x: 1, y: 2, z: 9 } }),
+      extra: 'basura',
+      duration_ms: 1200.7,
+      players: [{ key: 'a', x: 1, y: 2, nombre: 'Juan' }],
+      arrows: [{ ...base, inventado: 'x' }],
+    }];
+    expect(validateFrames(dirty)).toEqual([]);
+    expect(sanitizeFrames(dirty)).toEqual([{
+      id: 'f1',
+      duration_ms: 1201,
+      players: [{ key: 'a', x: 1, y: 2 }],
+      ball: { x: 1, y: 2 },
+      arrows: [{ x1: 10, y1: 20, x2: 30, y2: 40 }],
+    }]);
+  });
+
+  it('ball ausente queda null', () => {
+    const f = frame();
+    delete (f as Record<string, unknown>).ball;
+    expect(sanitizeFrames([f])[0].ball).toBeNull();
+  });
+});
+
+describe('isMissingFramesColumn (migración sin aplicar)', () => {
+  it('reconoce 42703 y PGRST204 que nombran frames', () => {
+    expect(isMissingFramesColumn({ code: '42703', message: 'column match_lineups.frames does not exist' })).toBe(true);
+    expect(isMissingFramesColumn({ code: 'PGRST204', message: "Could not find the 'frames' column of 'match_lineups' in the schema cache" })).toBe(true);
+  });
+
+  it('no confunde otros errores', () => {
+    expect(isMissingFramesColumn({ code: '42703', message: 'column arrows does not exist' })).toBe(false);
+    expect(isMissingFramesColumn({ code: '23505', message: 'frames' })).toBe(false);
+    expect(isMissingFramesColumn(null)).toBe(false);
+    expect(isMissingFramesColumn('frames')).toBe(false);
   });
 });

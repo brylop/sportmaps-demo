@@ -4,6 +4,11 @@
  * La pantalla de Supervisión sirve para pasar lista HOY; esta responde las dos
  * preguntas del mes: quién viene y quién no (por atleta), y cómo estuvo cada día.
  * Todo sale de un solo GET /api/v1/attendance/history?month=YYYY-MM.
+ *
+ * También acepta un rango (`fromMonth`/`toMonth`) o `month=all`: Carmel pidió
+ * ver todos los meses juntos. En rango se agrega la pestaña "Por mes" y se
+ * ocultan las vistas que solo tienen sentido dentro de un mes (matriz día por
+ * día, plan vs consumo y facturar: el tope del plan es mensual).
  */
 import { useMemo, useState, type ElementType } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -23,13 +28,19 @@ import {
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import {
   ChevronLeft, ChevronRight, Download, AlertCircle, Users, CalendarDays,
-  Percent, CheckCircle2, XCircle, Clock, FileText, Search, RefreshCw,
+  Percent, CheckCircle2, XCircle, Clock, FileText, Search, RefreshCw, BarChart3,
 } from 'lucide-react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
 import { cn } from '@/lib/utils';
+import {
+  AttendanceRateByMonthChart, AthletesByMonthChart,
+} from '@/components/attendance/AttendanceByMonthChart';
+import {
+  proseMonthLabel, shortMonthLabel, type MonthPoint,
+} from '@/components/attendance/attendanceMonths';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
 type Status = 'present' | 'absent' | 'late' | 'excused';
@@ -48,7 +59,9 @@ interface AthleteRow {
   total: number;
   rate: number;
   by_day: Record<string, Status>;
-  /** Cruce con el plan contratado. Ver "Plan vs consumo" en el BFF. */
+  /** Solo lo trae el BFF nuevo; en un mes suelto tiene una sola llave. */
+  by_month?: Record<string, MonthCounts>;
+  /** Cruce con el plan contratado. Ver "Plan vs consumo" en el BFF. En rango no viene. */
   plan?: {
     nombre: string | null;
     tope: number | null;
@@ -82,17 +95,31 @@ interface DayRow {
   rate: number;
 }
 
+interface MonthCounts {
+  present: number; absent: number; late: number; excused: number; total: number;
+}
+
+interface MonthRow extends MonthCounts {
+  month: string;
+  athletes: number;
+  days: number;
+  rate: number;
+}
+
 interface HistoryResponse {
   month: string;
   from: string;
   to: string;
+  range?: { from: string; to: string; is_range: boolean };
+  months?: MonthRow[];
   days: DayRow[];
   athletes: AthleteRow[];
+  /** null en rango: el tope del plan es mensual y no se puede sumar entre meses. */
   desfases?: {
     excedidos: number; con_vencido: number; sin_plan: number;
     clases_de_mas: number; clases_vencidas: number;
     valor_excedente: number; valor_vencidas: number; valor_total: number;
-  };
+  } | null;
   totals: {
     records: number; present: number; absent: number; late: number;
     excused: number; rate: number; athletes: number; days: number;
@@ -168,6 +195,24 @@ function monthLabel(month: string): string {
   return `${MONTH_NAMES[m - 1]} ${y}`;
 }
 
+/** Meses entre `from` y `to` inclusive, en orden. */
+function monthsBetween(from: string, to: string): string[] {
+  const out: string[] = [];
+  for (let m = from; m <= to && out.length < 120; m = shiftMonth(m, 1)) out.push(m);
+  return out;
+}
+
+const pct = (c: MonthCounts) => (c.total > 0 ? Math.round(((c.present + c.late) / c.total) * 100) : 0);
+
+/** Un mes, o "de agosto 2026 a octubre 2026", para frases y vacíos. */
+function periodText(from: string, to: string): string {
+  return from === to ? proseMonthLabel(from) : `de ${proseMonthLabel(from)} a ${proseMonthLabel(to)}`;
+}
+
+type PeriodMode = 'month' | 'range' | 'all';
+
+const MODE_LABEL: Record<PeriodMode, string> = { month: 'Un mes', range: 'Varios meses', all: 'Todo' };
+
 function dayLabel(date: string): string {
   return new Date(`${date}T12:00:00`).toLocaleDateString('es-CO', {
     weekday: 'short', day: 'numeric', month: 'short',
@@ -202,6 +247,12 @@ function downloadCsv(name: string, rows: (string | number)[][]) {
 export default function AttendanceHistoryPage() {
   const { schoolId, schoolName } = useSchoolContext();
   const [month, setMonth] = useState(currentMonth);
+  const [mode, setMode] = useState<PeriodMode>('month');
+  const [rangeFrom, setRangeFrom] = useState(() => shiftMonth(currentMonth(), -2));
+  const [rangeTo, setRangeTo] = useState(currentMonth);
+  // Controlada: al pasar a rango la pestaña por defecto cambia a "Por mes", y
+  // si estaba en una que en rango no existe (matriz, plan) no puede quedar colgada.
+  const [tab, setTab] = useState('atleta');
   const [contextFilter, setContextFilter] = useState<string>('all'); // `team:<id>` | `offering:<id>`
   const [coachFilter, setCoachFilter] = useState<string>('all');     // school_staff.id
   const [search, setSearch] = useState('');
@@ -247,18 +298,38 @@ export default function AttendanceHistoryPage() {
     enabled: !!schoolId,
   });
 
+  const isRangeMode = mode !== 'month';
+  // Los <input type="month"> pueden quedar al revés; el BFF los invierte igual,
+  // pero se ordenan acá para que llave, títulos y CSV digan lo mismo.
+  const [qFrom, qTo] = rangeFrom <= rangeTo ? [rangeFrom, rangeTo] : [rangeTo, rangeFrom];
+  const rangeTooLong = mode === 'range' && monthsBetween(qFrom, qTo).length > 24;
+
+  const changeMode = (next: PeriodMode) => {
+    setMode(next);
+    setTab(next === 'month' ? 'atleta' : 'mes');
+  };
+
   const {
     data, isLoading, isError, error, isFetching, refetch,
   } = useQuery<HistoryResponse>({
-    queryKey: ['attendance-history', schoolId, month, contextFilter, coachFilter],
+    // Llave distinta por modo: un mes suelto y un rango que lo contiene no
+    // pueden pisarse en la caché.
+    queryKey: [
+      'attendance-history', schoolId,
+      mode === 'month' ? month : mode === 'range' ? `${qFrom}_${qTo}` : 'all',
+      mode, contextFilter, coachFilter,
+    ],
     queryFn: async () => {
-      const params = new URLSearchParams({ month });
+      const params = new URLSearchParams();
+      if (mode === 'month') params.set('month', month);
+      else if (mode === 'all') params.set('month', 'all');
+      else { params.set('fromMonth', qFrom); params.set('toMonth', qTo); }
       if (contextFilter.startsWith('team:')) params.set('teamId', contextFilter.slice(5));
       if (contextFilter.startsWith('offering:')) params.set('offeringId', contextFilter.slice(9));
       if (coachFilter !== 'all') params.set('coachId', coachFilter);
       return bffClient.get<HistoryResponse>(`/api/v1/attendance/history?${params}`);
     },
-    enabled: !!schoolId,
+    enabled: !!schoolId && !rangeTooLong,
   });
 
   const { toast } = useToast();
@@ -321,19 +392,68 @@ export default function AttendanceHistoryPage() {
   const totals = data?.totals;
   const isCurrentMonth = month === currentMonth();
 
+  // Periodo efectivo. En "Todo" el inicio lo decide el BFF (primera lista de
+  // la escuela), así que hasta que responda no se sabe.
+  const period = mode === 'month'
+    ? { from: month, to: month }
+    : data?.range
+      ? { from: data.range.from, to: data.range.to }
+      : mode === 'range' ? { from: qFrom, to: qTo } : null;
+  const enPeriodo = !period
+    ? 'en todo el historial'
+    : period.from === period.to ? `en ${periodText(period.from, period.to)}` : periodText(period.from, period.to);
+  const fileTag = !period ? 'todo' : period.from === period.to ? period.from : `${period.from}_a_${period.to}`;
+
+  // Todos los meses del periodo, también los que no tuvieron lista: el BFF solo
+  // manda los que tienen registros y un hueco en la gráfica también informa.
+  const monthRows = useMemo(() => data?.months ?? [], [data]);
+  const periodFrom = period?.from;
+  const periodTo = period?.to;
+  const rangeMonths = useMemo(
+    () => (periodFrom && periodTo ? monthsBetween(periodFrom, periodTo) : monthRows.map(m => m.month)),
+    [periodFrom, periodTo, monthRows],
+  );
+  const monthPoints: MonthPoint[] = useMemo(() => {
+    const byKey = new Map(monthRows.map(m => [m.month, m]));
+    return rangeMonths.map(m => {
+      const r = byKey.get(m);
+      return { month: m, rate: r && r.total > 0 ? r.rate : null, athletes: r?.athletes ?? 0 };
+    });
+  }, [monthRows, rangeMonths]);
+
   // ── Exportes ─────────────────────────────────────────────────────────────
   const exportByAthlete = () => {
-    downloadCsv(`asistencia-${month}-por-atleta.csv`, [
-      ['Atleta', 'Otros nombres', 'Equipos / Planes', 'Presentes', 'Tarde', 'Excusadas', 'Ausentes', 'Registros', '% Asistencia'],
+    const porMes = isRangeMode ? rangeMonths : [];
+    downloadCsv(`asistencia-${fileTag}-por-atleta.csv`, [
+      ['Atleta', 'Otros nombres', 'Equipos / Planes',
+        ...porMes.map(m => `% ${shortMonthLabel(m)}`),
+        'Presentes', 'Tarde', 'Excusadas', 'Ausentes', 'Registros', '% Asistencia'],
       ...athletes.map(a => [
         a.full_name, (a.aliases ?? []).join(' · '), a.contexts.join(' · '),
+        ...porMes.map(m => {
+          const c = a.by_month?.[m];
+          return c && c.total > 0 ? `${pct(c)}%` : '';
+        }),
         a.present, a.late, a.excused, a.absent, a.total, `${a.rate}%`,
       ]),
     ]);
   };
 
+  const exportByMonth = () => {
+    const byKey = new Map(monthRows.map(m => [m.month, m]));
+    downloadCsv(`asistencia-${fileTag}-por-mes.csv`, [
+      ['Mes', 'Días con lista', 'Deportistas', 'Presentes', 'Tarde', 'Excusadas', 'Ausentes', 'Registros', '% Asistencia'],
+      ...rangeMonths.map(m => {
+        const r = byKey.get(m);
+        return r
+          ? [m, r.days, r.athletes, r.present, r.late, r.excused, r.absent, r.total, `${r.rate}%`]
+          : [m, 0, 0, 0, 0, 0, 0, 0, ''];
+      }),
+    ]);
+  };
+
   const exportByDay = () => {
-    downloadCsv(`asistencia-${month}-por-dia.csv`, [
+    downloadCsv(`asistencia-${fileTag}-por-dia.csv`, [
       ['Fecha', 'Atletas', 'Presentes', 'Tarde', 'Excusadas', 'Ausentes', 'Registros', '% Asistencia'],
       ...days.map(d => [
         d.date, d.athletes, d.present, d.late, d.excused, d.absent, d.total, `${d.rate}%`,
@@ -342,7 +462,7 @@ export default function AttendanceHistoryPage() {
   };
 
   const exportMatrix = () => {
-    downloadCsv(`asistencia-${month}-matriz.csv`, [
+    downloadCsv(`asistencia-${fileTag}-matriz.csv`, [
       ['Atleta', ...days.map(d => d.date), '% Asistencia'],
       ...athletes.map(a => [
         a.full_name,
@@ -362,13 +482,61 @@ export default function AttendanceHistoryPage() {
             Histórico de asistencia
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {schoolName ? `${schoolName} · ` : ''}Consolidado del mes por atleta y por día.
+            {schoolName ? `${schoolName} · ` : ''}
+            {isRangeMode
+              ? `Consolidado ${enPeriodo} por mes, por atleta y por día.`
+              : 'Consolidado del mes por atleta y por día.'}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Selector de periodo: tres modos y nada más. */}
+          <div role="radiogroup" aria-label="Periodo" className="flex items-center gap-0.5 border rounded-lg p-1 bg-card">
+            {(Object.keys(MODE_LABEL) as PeriodMode[]).map(m => (
+              <button
+                key={m}
+                type="button"
+                role="radio"
+                aria-checked={mode === m}
+                onClick={() => changeMode(m)}
+                className={cn(
+                  'h-8 px-3 rounded-md text-sm font-semibold transition-colors',
+                  mode === m
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted',
+                )}
+              >
+                {MODE_LABEL[m]}
+              </button>
+            ))}
+          </div>
+
+          {mode === 'range' && (
+            <div className="flex items-center gap-1.5 border rounded-lg p-1 pl-2 bg-card text-sm">
+              <span className="text-muted-foreground">Desde</span>
+              <input
+                type="month"
+                value={rangeFrom}
+                max={currentMonth()}
+                onChange={e => { if (e.target.value) setRangeFrom(e.target.value); }}
+                aria-label="Mes inicial"
+                className="h-8 w-[140px] bg-transparent font-bold text-center border-0 outline-none focus-visible:ring-2 focus-visible:ring-ring rounded cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
+              />
+              <span className="text-muted-foreground">hasta</span>
+              <input
+                type="month"
+                value={rangeTo}
+                max={currentMonth()}
+                onChange={e => { if (e.target.value) setRangeTo(e.target.value); }}
+                aria-label="Mes final"
+                className="h-8 w-[140px] bg-transparent font-bold text-center border-0 outline-none focus-visible:ring-2 focus-visible:ring-ring rounded cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
+              />
+            </div>
+          )}
+
           {/* El mes es el filtro principal: además de las flechas hay que poder
               saltar a cualquier mes, y la flecha bloqueada tiene que decir por qué. */}
+          {mode === 'month' && (<>
           <div className="flex items-center gap-1 border rounded-lg p-1 bg-card">
             <Button variant="ghost" size="icon" className="h-8 w-8"
               onClick={() => setMonth(m => shiftMonth(m, -1))} aria-label="Mes anterior">
@@ -404,6 +572,7 @@ export default function AttendanceHistoryPage() {
               Mes actual
             </Button>
           )}
+          </>)}
 
           <Select value={contextFilter} onValueChange={setContextFilter}>
             <SelectTrigger className="w-[220px] h-9">
@@ -454,6 +623,16 @@ export default function AttendanceHistoryPage() {
         </Alert>
       )}
 
+      {rangeTooLong && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>El rango es demasiado largo</AlertTitle>
+          <AlertDescription>
+            Se pueden ver hasta 24 meses a la vez. Acorte el rango o use «Todo».
+          </AlertDescription>
+        </Alert>
+      )}
+
       {isLoading && <div className="py-20"><LoadingSpinner text="Cargando histórico..." /></div>}
 
       {!isLoading && !isError && totals && (
@@ -473,38 +652,111 @@ export default function AttendanceHistoryPage() {
             <Card>
               <CardContent className="py-16 text-center text-muted-foreground">
                 <FileText className="w-10 h-10 mx-auto mb-3 opacity-20" />
-                <p className="font-semibold">Sin asistencias registradas en {monthLabel(month)}</p>
+                <p className="font-semibold">Sin asistencias registradas {enPeriodo}</p>
                 <p className="text-sm mt-1">
                   Las listas se pasan en Asistencias → Supervisión; lo que se marque ahí aparece acá.
                 </p>
               </CardContent>
             </Card>
           ) : (
-            <Tabs defaultValue="atleta">
-              <TabsList>
+            <Tabs value={tab} onValueChange={setTab}>
+              <TabsList className="flex-wrap h-auto">
+                {isRangeMode && (
+                  <TabsTrigger value="mes" className="gap-2">
+                    <BarChart3 className="w-4 h-4" /> Por mes
+                  </TabsTrigger>
+                )}
                 <TabsTrigger value="atleta" className="gap-2">
                   <Users className="w-4 h-4" /> Por atleta
                 </TabsTrigger>
                 <TabsTrigger value="dia" className="gap-2">
                   <CalendarDays className="w-4 h-4" /> Por día
                 </TabsTrigger>
-                <TabsTrigger value="matriz" className="gap-2">
-                  <FileText className="w-4 h-4" /> Día por día
-                </TabsTrigger>
-                <TabsTrigger value="plan" className="gap-2">
-                  <Percent className="w-4 h-4" /> Plan vs consumo
-                  {desfases > 0 && (
-                    <Badge variant="destructive" className="ml-1 h-4 px-1.5 text-[10px]">{desfases}</Badge>
-                  )}
-                </TabsTrigger>
+                {!isRangeMode && (
+                  <TabsTrigger value="matriz" className="gap-2">
+                    <FileText className="w-4 h-4" /> Día por día
+                  </TabsTrigger>
+                )}
+                {!isRangeMode && (
+                  <TabsTrigger value="plan" className="gap-2">
+                    <Percent className="w-4 h-4" /> Plan vs consumo
+                    {desfases > 0 && (
+                      <Badge variant="destructive" className="ml-1 h-4 px-1.5 text-[10px]">{desfases}</Badge>
+                    )}
+                  </TabsTrigger>
+                )}
               </TabsList>
+
+              {/* ── Por mes (solo en rango): primero la gráfica, después la tabla ── */}
+              {isRangeMode && (
+                <TabsContent value="mes" className="space-y-4">
+                  <AttendanceRateByMonthChart points={monthPoints} />
+                  <AthletesByMonthChart points={monthPoints} />
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between gap-3">
+                      <div>
+                        <CardTitle className="text-base">Detalle por mes</CardTitle>
+                        <CardDescription>
+                          {rangeMonths.length} mes{rangeMonths.length === 1 ? '' : 'es'} · % = (presentes + tarde) / registros
+                        </CardDescription>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={exportByMonth}>
+                        <Download className="w-4 h-4 mr-1.5" /> CSV
+                      </Button>
+                    </CardHeader>
+                    <CardContent className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Mes</TableHead>
+                            <TableHead className="text-right">Días con lista</TableHead>
+                            <TableHead className="text-right">Deportistas</TableHead>
+                            <TableHead className="text-right">Presentes</TableHead>
+                            <TableHead className="text-right">Tarde</TableHead>
+                            <TableHead className="text-right">Ausentes</TableHead>
+                            <TableHead className="text-right">%</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {rangeMonths.map(m => {
+                            const r = monthRows.find(x => x.month === m);
+                            if (!r || r.total === 0) {
+                              return (
+                                <TableRow key={m} className="text-muted-foreground">
+                                  <TableCell className="font-semibold capitalize">{proseMonthLabel(m)}</TableCell>
+                                  <TableCell colSpan={6} className="text-right text-xs">Sin lista ese mes</TableCell>
+                                </TableRow>
+                              );
+                            }
+                            return (
+                              <TableRow key={m}>
+                                <TableCell className="font-semibold capitalize">{proseMonthLabel(m)}</TableCell>
+                                <TableCell className="text-right">{r.days}</TableCell>
+                                <TableCell className="text-right">{r.athletes}</TableCell>
+                                <TableCell className="text-right text-green-600 font-medium">{r.present}</TableCell>
+                                <TableCell className="text-right text-amber-600">{r.late}</TableCell>
+                                <TableCell className="text-right text-red-600 font-medium">{r.absent}</TableCell>
+                                <TableCell className={cn('text-right font-black', rateColor(r.rate))}>
+                                  {r.rate}%
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              )}
 
               {/* ── Por atleta ─────────────────────────────────────────── */}
               <TabsContent value="atleta">
                 <Card>
                   <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
-                      <CardTitle className="text-base">Asistencia del mes por atleta</CardTitle>
+                      <CardTitle className="text-base">
+                        {isRangeMode ? 'Asistencia por atleta, mes a mes' : 'Asistencia del mes por atleta'}
+                      </CardTitle>
                       <CardDescription>
                         {athletes.length} atleta{athletes.length === 1 ? '' : 's'} · % = (presentes + tarde) / registros
                       </CardDescription>
@@ -526,18 +778,25 @@ export default function AttendanceHistoryPage() {
                         <TableRow>
                           <TableHead>Atleta</TableHead>
                           <TableHead>Equipos / Planes</TableHead>
-                          <TableHead className="text-right">Presentes</TableHead>
-                          <TableHead className="text-right">Tarde</TableHead>
-                          <TableHead className="text-right">Excusadas</TableHead>
-                          <TableHead className="text-right">Ausentes</TableHead>
+                          {isRangeMode ? (
+                            rangeMonths.map(m => (
+                              <TableHead key={m} className="text-right whitespace-nowrap">{shortMonthLabel(m)}</TableHead>
+                            ))
+                          ) : (<>
+                            <TableHead className="text-right">Presentes</TableHead>
+                            <TableHead className="text-right">Tarde</TableHead>
+                            <TableHead className="text-right">Excusadas</TableHead>
+                            <TableHead className="text-right">Ausentes</TableHead>
+                          </>)}
                           <TableHead className="text-right">Registros</TableHead>
-                          <TableHead className="text-right">%</TableHead>
+                          <TableHead className="text-right">{isRangeMode ? 'Total' : '%'}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {athletes.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={8} className="text-center text-muted-foreground py-10">
+                            <TableCell colSpan={isRangeMode ? rangeMonths.length + 4 : 8}
+                              className="text-center text-muted-foreground py-10">
                               Ningún atleta coincide con “{search}”.
                             </TableCell>
                           </TableRow>
@@ -558,10 +817,27 @@ export default function AttendanceHistoryPage() {
                             <TableCell className="text-xs text-muted-foreground max-w-[260px] truncate">
                               {a.contexts.join(' · ') || '—'}
                             </TableCell>
-                            <TableCell className="text-right text-green-600 font-medium">{a.present}</TableCell>
-                            <TableCell className="text-right text-amber-600">{a.late}</TableCell>
-                            <TableCell className="text-right text-blue-600">{a.excused}</TableCell>
-                            <TableCell className="text-right text-red-600 font-medium">{a.absent}</TableCell>
+                            {isRangeMode ? (
+                              rangeMonths.map(m => {
+                                const c = a.by_month?.[m];
+                                if (!c || c.total === 0) {
+                                  return <TableCell key={m} className="text-right text-muted-foreground/40">—</TableCell>;
+                                }
+                                const r = pct(c);
+                                return (
+                                  <TableCell key={m}
+                                    className={cn('text-right font-semibold', rateColor(r))}
+                                    title={`${proseMonthLabel(m)}: ${c.present} presentes, ${c.late} tarde, ${c.excused} excusadas, ${c.absent} ausentes`}>
+                                    {r}%
+                                  </TableCell>
+                                );
+                              })
+                            ) : (<>
+                              <TableCell className="text-right text-green-600 font-medium">{a.present}</TableCell>
+                              <TableCell className="text-right text-amber-600">{a.late}</TableCell>
+                              <TableCell className="text-right text-blue-600">{a.excused}</TableCell>
+                              <TableCell className="text-right text-red-600 font-medium">{a.absent}</TableCell>
+                            </>)}
                             <TableCell className="text-right text-muted-foreground">{a.total}</TableCell>
                             <TableCell className={cn('text-right font-black', rateColor(a.rate))}>
                               {a.rate}%
@@ -581,7 +857,7 @@ export default function AttendanceHistoryPage() {
                     <div>
                       <CardTitle className="text-base">Asistencia día por día</CardTitle>
                       <CardDescription>
-                        Solo los días en que se pasó lista ({days.length} de {monthLabel(month)}).
+                        Solo los días en que se pasó lista ({isRangeMode ? `${days.length} en total, ${enPeriodo}` : `${days.length} de ${monthLabel(month)}`}).
                       </CardDescription>
                     </div>
                     <Button variant="outline" size="sm" onClick={exportByDay}>
@@ -624,6 +900,8 @@ export default function AttendanceHistoryPage() {
               </TabsContent>
 
               {/* ── Matriz atleta × día ────────────────────────────────── */}
+              {/* Matriz y plan solo dentro de un mes: el tope del plan es mensual. */}
+              {!isRangeMode && (<>
               <TabsContent value="matriz">
                 <Card>
                   <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -821,6 +1099,7 @@ export default function AttendanceHistoryPage() {
                   )}
                 </Card>
               </TabsContent>
+              </>)}
             </Tabs>
           )}
         </>

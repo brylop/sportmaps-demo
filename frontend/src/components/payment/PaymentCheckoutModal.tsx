@@ -216,8 +216,6 @@ export function PaymentCheckoutModal({
   // 'invoicing' + facturador activo). Sin saberlo todavía se piden, como antes.
   const { active: schoolInvoicingActive } = useSchoolInvoicingActive(open ? schoolId : null);
   const dianDataOk = !mustAskBillingData(hasCompleteDianData, schoolInvoicingActive);
-  /** Respaldo para rotular la notificación al colegio cuando paga un atleta adulto. */
-  const [payerName, setPayerName] = useState<string | null>(null);
   const [bankDetails, setBankDetails] = useState<any>(null);
   const [showFullQr, setShowFullQr] = useState(false);
 
@@ -525,7 +523,6 @@ export function PaymentCheckoutModal({
         const { data } = await supabase.from('profiles')
           .select('full_name, document_type, document_number, billing_address, billing_city_dane')
           .eq('id', user.id).single();
-        setPayerName(data?.full_name ?? null);
         setHasCompleteDianData(!!(data?.document_type && data?.document_number && data?.billing_address && data?.billing_city_dane));
         setCheckingDian(false);
       };
@@ -887,46 +884,10 @@ export function PaymentCheckoutModal({
         if (glosaPaymentId && (ocrResult?.verdict === 'verde' || ocrResult?.verdict === 'amarillo')) {
           autoEvaluateGlosa(glosaPaymentId).catch(() => { /* dormant/no-op tolerado */ });
         }
-        // Notificar al owner de la escuela con el mes especifico
-        // (fire-and-forget; un fallo aqui no debe romper el flujo del padre).
-        if (schoolId) {
-          void (async () => {
-            try {
-              const { data: schoolRow } = await supabase
-                .from('schools')
-                .select('owner_id')
-                .eq('id', schoolId)
-                .maybeSingle();
-              const ownerId = schoolRow?.owner_id;
-              if (!ownerId) return;
-              const periodLabel = effectivePeriod?.label;
-              // El colegio necesita saber DE QUIÉN es el comprobante para poder
-              // buscarlo. 'Deportista' es el relleno que traen las listas del padre
-              // cuando el cobro no cuelga de un menor (atleta adulto que se paga
-              // solo): ahí el nombre útil es el del pagador.
-              const studentLabel =
-                (childName && childName !== 'Deportista') ? childName
-                  : payerName ?? 'un deportista';
-              await supabase.rpc('notify_user', {
-                p_user_id: ownerId,
-                p_title: periodLabel
-                  ? `Comprobante por validar — ${periodLabel}`
-                  : 'Comprobante por validar',
-                p_message: periodLabel
-                  ? `${studentLabel} envió comprobante de ${formatCurrency(chargeAmount)} para ${periodLabel}.`
-                  : `${studentLabel} envió un comprobante de ${formatCurrency(chargeAmount)}.`,
-                p_type: 'payment',
-                // Gestión de Pagos, no Finanzas: el comprobante recién subido queda
-                // en `awaiting_approval`, y la tabla de Finanzas filtra ese estado
-                // (USED_STATUSES). El enlace llevaba a una pantalla donde el
-                // comprobante que se pide validar no aparece.
-                p_link: '/payments-automation',
-              });
-            } catch {
-              /* silencio: notificacion no debe interrumpir flujo */
-            }
-          })();
-        }
+        // El comprobante por validar ya NO se avisa desde acá: lo avisa el job
+        // receipt-review-alerts del BFF al dueño Y a los admins, para todos los
+        // caminos de entrada (app, bot de WhatsApp, importador), agrupado y con
+        // recordatorio si pasa 2 h sin revisar. Avisarlo también acá lo duplicaba.
 
         setPaymentStatus('awaiting_approval');
         toast({

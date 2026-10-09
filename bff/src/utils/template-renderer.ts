@@ -139,8 +139,18 @@ export async function renderTemplate(ctx: RenderContext): Promise<RenderedMessag
         day: 'numeric', month: 'long', year: 'numeric',
     });
 
-    // Default payment link
-    const paymentLink = settings?.payment_link || `https://app.sportmaps.co/my-payments`;
+    // Link de pago: el de la escuela, o la página pública de ESTE cobro
+    // (/p/:token, sin sesión). Nunca /my-payments: pide iniciar sesión y la
+    // familia que lee la plantilla en WhatsApp no la tiene abierta.
+    let paymentLink: string = settings?.payment_link || '';
+    if (!paymentLink) {
+        try {
+            const { emitirTokenCobro } = await import('../services/cobro-enlace-publico.service');
+            const { appPublica, enlaceDeCobro } = await import('./url-publica-familias');
+            const token = await emitirTokenCobro(payment.id);
+            if (token) paymentLink = enlaceDeCobro(appPublica(), token);
+        } catch { /* sin enlace: la plantilla sale sin él */ }
+    }
 
     // 3. Build the variable map
     const vars: Record<string, string> = {

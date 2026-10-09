@@ -7,6 +7,7 @@ import { useCartQuote } from '@/hooks/useCartQuote';
 import { groupByStore, type StoreGroup } from '@/lib/store/cart';
 import { formatCurrency } from '@/lib/utils';
 import { QtyStepper } from './QtyStepper';
+import { useMySchoolStore } from '@/hooks/useMySchoolStore';
 
 interface Props {
   /** Se llama antes de navegar (el drawer se cierra). */
@@ -23,14 +24,20 @@ export function CartContents({ onNavigate }: Props) {
   const products = items.filter((i) => i.type === 'product');
   const others = items.filter((i) => i.type !== 'product');
   const groups = groupByStore(products);
+  // «Ir a la tienda» solo si la tienda de la escuela activa vende hoy.
+  const { showStore } = useMySchoolStore({ enabled: items.length === 0 });
 
   if (items.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
         <ShoppingCart className="h-14 w-14 text-muted-foreground/50 mb-4" />
         <h3 className="font-semibold text-lg mb-1">Tu carrito está vacío</h3>
-        <p className="text-muted-foreground text-sm mb-6">Entra a la tienda de tu escuela y agrega lo que necesites.</p>
-        <Button onClick={() => { onNavigate?.(); navigate('/mi-tienda'); }}>Ir a la tienda</Button>
+        {showStore && (
+          <>
+            <p className="text-muted-foreground text-sm mb-6">Entra a la tienda y agrega lo que necesites.</p>
+            <Button onClick={() => { onNavigate?.(); navigate('/mi-tienda'); }}>Ir a la tienda</Button>
+          </>
+        )}
       </div>
     );
   }

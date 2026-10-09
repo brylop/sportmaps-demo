@@ -85,52 +85,38 @@ export function redRejectionMessage(reasons: ReasonLike[]): string | null {
 }
 
 /**
- * Rechaza el pago por veredicto ROJO, dejando el motivo en `rejection_reason` y
- * avisando al acudiente. El UPDATE exige que el pago siga en `awaiting_approval`:
- * si el admin ya lo aprobó o rechazó a mano, no se pisa su decisión.
+ * Rechaza el COMPROBANTE por veredicto ROJO con `reject_payment_receipt`: el
+ * cobro vuelve a pending/overdue (la deuda sigue), el motivo queda en
+ * `rejection_reason` y la RPC le avisa al acudiente in-app. La RPC exige que el
+ * comprobante siga en revisión: si el admin ya lo aprobó o rechazó a mano, no
+ * se pisa su decisión.
  *
- * El rechazo libera el comprobante para reintento: el índice único de dedup por
- * hash excluye los pagos rechazados, así que el acudiente puede subir el correcto.
+ * Antes era `status='rejected'` sobre el propio cobro, que lo sacaba de la
+ * cartera y del motor de mora (bug del 2026-10-08). Sin la migración
+ * 20261008165728 la RPC no existe y el comprobante queda para revisión manual:
+ * nunca se vuelve a borrar la deuda.
  *
- * Devuelve null si no había motivo rojo o si el UPDATE no alcanzó ninguna fila.
+ * Devuelve null si no había motivo rojo o si la RPC no rechazó nada.
  */
 async function autoRejectRed(p: PaymentRow, reasons: ReasonLike[], log?: Logger): Promise<EvaluateResult | null> {
     const message = redRejectionMessage(reasons);
     if (!message) return null;
 
-    const { data, error } = await supabase
-        .from('payments')
-        .update({ status: 'rejected', rejection_reason: message })
-        .eq('id', p.id)
-        .eq('status', 'awaiting_approval')
-        .select('id');
+    const { error } = await supabase.rpc('reject_payment_receipt', {
+        p_payment_id: p.id,
+        p_reason_code: 'AUTOMATICO',
+        p_reason_text: `${message} Revisa los datos de pago de la escuela y vuelve a enviarlo.`,
+    });
 
-    if (error || !data || data.length === 0) {
+    if (error) {
         (log ?? console).warn?.(
-            { paymentId: p.id, code: (error as { code?: string } | null)?.code },
-            '[auto-reject] no se aplicó (el admin ya actuó o falló el update) → queda manual',
+            { paymentId: p.id, code: (error as { code?: string } | null)?.code, err: error.message },
+            '[auto-reject] no se aplicó (el admin ya actuó, falta la migración o falló la RPC) → queda manual',
         );
         return null;
     }
 
-    if (p.parent_id) {
-        // Insert directo, NO el RPC notify_user: ese exige auth.uid() y lanza
-        // "No autenticado" con el cliente service-role del BFF. Mismo patrón que
-        // glosa-notifications.job. La columna es `message`, no `body`.
-        const { error: notifyErr } = await supabase.from('notifications').insert({
-            user_id: p.parent_id,
-            school_id: p.school_id,
-            type: 'error',
-            title: '❌ Comprobante rechazado',
-            message: `${message} Revisa los datos de pago de la escuela y vuelve a intentarlo.`,
-            link: '/my-payments',
-        });
-        if (notifyErr) {
-            (log ?? console).warn?.({ paymentId: p.id, code: notifyErr.code }, '[auto-reject] notificación falló');
-        }
-    }
-
-    (log ?? console).info?.({ paymentId: p.id, reason: message }, '[auto-reject] rechazado por veredicto rojo');
+    (log ?? console).info?.({ paymentId: p.id, reason: message }, '[auto-reject] comprobante rechazado por veredicto rojo; el cobro sigue pendiente');
     return { action: 'rejected', reason: message };
 }
 

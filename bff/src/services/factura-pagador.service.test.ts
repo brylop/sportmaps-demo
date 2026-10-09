@@ -82,6 +82,12 @@ describe('celular de 10 dígitos', () => {
         expect(celular10('+571024534030')).toBeNull();
         expect(celular10('6011234567')).toBeNull();
     });
+    it('un número extranjero NO cruza aunque sus últimos 10 dígitos arranquen en 3', () => {
+        expect(celular10('13101234567')).toBeNull();      // EE. UU., área 310
+        expect(celular10('+1 305 123 4567')).toBeNull();  // EE. UU., área 305
+        expect(celular10('5213312345678')).toBeNull();    // México, Guadalajara
+        expect(celular10('0573001234567')).toBeNull();    // basura con prefijo
+    });
 });
 
 describe('errorDeDatos (antes de ir a la base)', () => {

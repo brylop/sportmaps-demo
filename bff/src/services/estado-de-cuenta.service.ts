@@ -74,6 +74,7 @@ import { mediosDePago, type MediosDePago } from './whatsapp-medios-de-pago.servi
 import { AVISO_LINK_DE_PAGO, TEXTO_BOTON_LINK_DE_PAGO } from './payment-accounts';
 import { COLUMNAS_CONTACTO_FICHA, COLUMNAS_CONTACTO_HIJO, contactoDeFicha, contactoDeHijoSinCuenta, type FichaContacto } from './contacto-acudiente';
 import { escuelaFacturaElectronicamente } from './factura-pagador.service';
+import { enlaceActivarAvisos } from './whatsapp-activar-avisos';
 
 export const TIPO_ESTADO = 'estado_de_cuenta';
 export const TIPO_CORRIDA = 'estado_de_cuenta_corrida';
@@ -361,6 +362,12 @@ export interface ContenidoCorreo {
     nota?: string | null;
     /** La escuela emite factura electrónica: se ofrece completar los datos (lleva a /p/<token>#factura). */
     ofrecerFactura?: boolean;
+    /**
+     * wa.me con «… ACTIVAR AVISOS» prellenado (whatsapp-activar-avisos): la
+     * familia que recibe esto por correo porque no dio el consentimiento lo da
+     * desde su WhatsApp con un toque. null/ausente = no se ofrece.
+     */
+    whatsappAvisos?: string | null;
 }
 
 /**
@@ -419,6 +426,9 @@ export function cuerpoCorreoEstado(c: ContenidoCorreo): string {
             : '<p>Después de pagar, envía el comprobante a la escuela.</p>'}
         ${c.ofrecerFactura && tokenQr
             ? `<p style="margin-top:16px;font-size:13px;color:#444;">¿Necesitas <strong>factura electrónica</strong> a tu nombre? <a href="${escaparHtml(`${enlaceDeCobro(c.appBase, tokenQr)}#factura`)}">Completa tus datos aquí</a>; quedan guardados para los próximos pagos.</p>`
+            : ''}
+        ${c.whatsappAvisos
+            ? `<p style="margin-top:16px;font-size:13px;color:#444;">¿Prefieres recibir estos avisos por <strong>WhatsApp</strong>? <a href="${escaparHtml(c.whatsappAvisos)}">Actívalos aquí</a>: se abre WhatsApp con el mensaje listo, solo tienes que enviarlo. Puedes darte de baja cuando quieras escribiendo BAJA.</p>`
             : ''}`;
 }
 
@@ -662,6 +672,7 @@ export async function enviarEstadoDeCuenta(schoolId: string, o: OpcionesEnvio): 
     // Solo se ofrece la factura si la escuela la emite (facturador activo).
     const ofrecerFactura = await escuelaFacturaElectronicamente(schoolId);
     const whatsappComprobante = enlaceWhatsApp(waEscuela, `Hola, envío el comprobante de pago de ${escuela}.`);
+    const whatsappAvisos = enlaceActivarAvisos(waEscuela, escuela);
 
     const r: ResumenEnvio = {
         modo: o.aplicar ? `APLICADO (${o.modo})` : `SIMULACION (${o.modo})`,
@@ -698,6 +709,8 @@ export async function enviarEstadoDeCuenta(schoolId: string, o: OpcionesEnvio): 
             for (const fila of f.filas) fila.token = await emitirTokenCobro(fila.paymentId);
 
             let salioPorWa = false;
+            /** Se ofrece activar WhatsApp si no se intentó o si faltó el consentimiento (no por otros fallos). */
+            let ofrecerWa = true;
             if (canal === 'whatsapp' || canal === 'whatsapp_o_correo') {
                 const d = datosWhatsAppDeFamilia(f, escuela, mes);
                 const tokenBoton = f.filas.find((x) => x.paymentId === d.paymentIdBoton)?.token ?? null;
@@ -712,6 +725,7 @@ export async function enviarEstadoDeCuenta(schoolId: string, o: OpcionesEnvio): 
                     await supabase.from('email_sends').update({ provider: 'whatsapp' }).eq('id', reserva.id);
                 } else {
                     r.motivos_whatsapp[wa.motivo] = (r.motivos_whatsapp[wa.motivo] || 0) + 1;
+                    ofrecerWa = wa.motivo === 'sin_optin' || wa.motivo === 'telefono_invalido';
                 }
             }
 
@@ -732,6 +746,7 @@ export async function enviarEstadoDeCuenta(schoolId: string, o: OpcionesEnvio): 
                         linkDePago: medios.link_de_pago ?? null,
                         nota: o.notaSoloPara && !o.notaSoloPara.has(f.email.toLowerCase()) ? null : o.nota,
                         ofrecerFactura,
+                        whatsappAvisos: ofrecerWa ? whatsappAvisos : null,
                     }),
                     cta: { label: 'Ver y pagar', url: f.filas.find((x) => x.token) ? enlaceDeCobro(appBase, f.filas.find((x) => x.token)!.token!) : `${appBase}/my-payments` },
                     closingHtml: 'Si ya pagaste, ignora este mensaje: la escuela lo está revisando.',

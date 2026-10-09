@@ -127,6 +127,7 @@ const StaffPage = lazy(() => import("./pages/StaffPage"));
 const ProgramsManagementPage = lazy(() => import("./pages/ProgramsManagementPage"));
 const AttendanceSupervisionPage = lazy(() => import("./pages/AttendanceSupervisionPage"));
 const AttendanceHistoryPage = lazy(() => import("./pages/AttendanceHistoryPage"));
+const CoachActivityPage = lazy(() => import("./pages/CoachActivityPage"));
 const ResultsOverviewPage = lazy(() => import("./pages/ResultsOverviewPage"));
 const FinancesPage = lazy(() => import("./pages/FinancesPage"));
 const AccountingPage = lazy(() => import("./pages/AccountingPage"));
@@ -225,6 +226,8 @@ const VendorInboxPage = lazy(() => import("./pages/vendor/VendorInboxPage"));
 const VendorPayoutsPage = lazy(() => import("./pages/vendor/VendorPayoutsPage"));
 const VendorSubscribersPage = lazy(() => import("./pages/vendor/VendorSubscribersPage"));
 const VendorShippingSettingsPage = lazy(() => import("./pages/vendor/VendorShippingSettingsPage"));
+// Tu tienda (escuela): cobros, entrega y compartir. Resuelve la tienda por escuela (bug N0).
+const SchoolStoreSettingsPage = lazy(() => import("./pages/school/SchoolStoreSettingsPage"));
 
 const OrganizerGuard = lazy(() => import("@/components/organizer/OrganizerGuard").then(module => ({ default: module.OrganizerGuard })));
 const OrganizerOnboardingPage = lazy(() => import("./pages/organizer/OrganizerOnboardingPage"));
@@ -697,6 +700,12 @@ const App = () => (
                           <AttendanceHistoryPage />
                         </ProtectedRoute>
                       } />
+                      {/* Seguimiento deportivo (F4): actividad semanal por entrenador, solo lectura */}
+                      <Route path="seguimiento-deportivo" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <CoachActivityPage />
+                        </ProtectedRoute>
+                      } />
                       <Route path="results-overview" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <ResultsOverviewPage />
@@ -994,6 +1003,15 @@ const App = () => (
                       <Route path="store-reports" element={
                         <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
                           <StoreGate><ReportsPage /></StoreGate>
+                        </ProtectedRoute>
+                      } />
+
+                      {/* Tu tienda (escuela / gimnasio): ajustes de cobros y entrega.
+                          Fuera de VendorGuard: la tienda es de la ESCUELA, no del usuario. */}
+                      <Route path="tienda-escuela" element={<Navigate to="/tienda-escuela/ajustes" replace />} />
+                      <Route path="tienda-escuela/ajustes" element={
+                        <ProtectedRoute allowedRoles={['school', 'school_admin', 'admin', 'super_admin']}>
+                          <SchoolStoreSettingsPage />
                         </ProtectedRoute>
                       } />
 

@@ -11,10 +11,13 @@ import { Calendar as CalendarPicker } from '@/components/ui/calendar';
 import { z } from 'zod';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { ClipboardList, Plus, Trash2, Star, Calendar, Goal } from 'lucide-react';
+import { ClipboardList, Plus, Trash2, Star, Calendar, Goal, BookOpen } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { TacticalBoard } from '@/components/school/TacticalBoard';
+import { ExerciseLibraryPanel } from '@/components/school/ExerciseLibraryPanel';
+import { insertExerciseIntoSession, type TrainingExercise } from '@/lib/school/exerciseLibrary';
+import { useToast } from '@/hooks/use-toast';
 
 const sessionSchema = z.object({
   session_date: z.string().min(1, 'Fecha es requerida'),
@@ -57,6 +60,9 @@ interface SessionBlock {
   objective: string;
   description: string;
   component?: BlockComponent | '';
+  /** Ejercicio de la biblioteca (pizarra T3) del que salió el bloque. Solo
+   *  trazabilidad: la jugada ya quedó copiada en match_lineups del bloque. */
+  exercise_id?: string;
 }
 
 const BLOCK_COMPONENT_OPTIONS: { value: BlockComponent; label: string }[] = [
@@ -132,6 +138,14 @@ export function SessionFormDialog({
   // Índice del bloque cuyo tablero táctico está abierto (no el id -- el id
   // puede no existir todavía, ver ensureBlockId más abajo).
   const [tacticalBlockIndex, setTacticalBlockIndex] = useState<number | null>(null);
+  // Índice del bloque para el que está abierta la biblioteca de ejercicios.
+  const [libraryBlockIndex, setLibraryBlockIndex] = useState<number | null>(null);
+  const [applyingExercise, setApplyingExercise] = useState(false);
+  const { toast } = useToast();
+  // Con la pizarra o la biblioteca abiertas, el Dialog de la sesión se oculta
+  // (ver el comentario del <Dialog> de abajo: dos Dialogs de Radix abiertos a
+  // la vez se cierran solos).
+  const childDialogOpen = tacticalBlockIndex !== null || libraryBlockIndex !== null;
 
   const form = useForm<SessionFormData>({
     resolver: zodResolver(sessionSchema),
@@ -208,6 +222,63 @@ export function SessionFormDialog({
     setTimeout(() => setTacticalBlockIndex(index), 0);
   };
 
+  /** «Desde la biblioteca»: igual que el tablero, el bloque necesita su id
+   *  ANTES (la jugada del ejercicio se cuelga de él) y el panel se abre
+   *  diferido un tick para que el click no lo cierre en el mismo gesto. */
+  const openBlockLibrary = (index: number) => {
+    setBlocks((prev) => (prev[index]?.id ? prev : prev.map((b, i) => (i === index ? { ...b, id: crypto.randomUUID() } : b))));
+    setTimeout(() => setLibraryBlockIndex(index), 0);
+  };
+
+  /** Aplica el ejercicio elegido al bloque:
+   *  1. En el formulario completa SOLO los campos vacíos (nunca pisa lo que el
+   *     coach escribió) y guarda exercise_id en el bloque.
+   *  2. En la base, por la RPC transaccional insert_exercise_into_session_block:
+   *     · sesión YA guardada (session.id): completa el bloque en
+   *       session_blocks y arma la jugada del bloque (match_lineups) en una
+   *       sola transacción;
+   *     · sesión NUEVA (todavía sin id): no hay sesión que actualizar, así que
+   *       se manda team_id y la RPC arma solo la jugada del bloque, colgada del
+   *       id del bloque — exactamente lo que ya hace el tablero táctico cuando
+   *       se abre sobre un bloque de una sesión sin guardar. Los textos del
+   *       bloque viajan con «Crear Sesión» (handleSubmit manda session_blocks
+   *       completo, exercise_id incluido). Así no hace falta un paso "después
+   *       de guardar": onSubmit no devuelve el id de la sesión creada (lo crean
+   *       TrainingPlansPage / MesocycleSection). */
+  const applyExercise = async (exercise: TrainingExercise) => {
+    const index = libraryBlockIndex;
+    const blockId = index !== null ? blocks[index]?.id : undefined;
+    if (index === null || !blockId) return;
+    setApplyingExercise(true);
+    try {
+      await insertExerciseIntoSession(exercise.id, {
+        block_id: blockId,
+        session_id: session?.id ?? null,
+        team_id: teamId,
+      });
+      const fill = (current: string | undefined, value: string | null | undefined) =>
+        current && current.trim() !== '' ? current : (value ?? '');
+      setBlocks((prev) => prev.map((b, i) => (i !== index ? b : {
+        ...b,
+        name: fill(b.name, exercise.name),
+        activity: fill(b.activity, exercise.name),
+        minutes: fill(b.minutes, exercise.minutes != null ? String(exercise.minutes) : ''),
+        objective: fill(b.objective, exercise.objective),
+        description: fill(b.description, exercise.description),
+        exercise_id: exercise.id,
+      })));
+      setLibraryBlockIndex(null);
+      toast({
+        title: 'Ejercicio agregado al bloque',
+        description: `"${exercise.name}" con su jugada. Ábrela con el botón de la pizarra para asignar jugadores.`,
+      });
+    } catch (err: unknown) {
+      toast({ title: 'No se pudo usar el ejercicio', description: err instanceof Error ? err.message : undefined, variant: 'destructive' });
+    } finally {
+      setApplyingExercise(false);
+    }
+  };
+
   const resetLocalState = () => {
     setDrills([{ name: '', focus: '', duration: '' }]);
     setBlocks(FOOTBALL_BLOCK_TEMPLATE);
@@ -243,7 +314,7 @@ export function SessionFormDialog({
 
   return (
     <>
-    <Dialog open={open && tacticalBlockIndex === null} onOpenChange={onOpenChange}>
+    <Dialog open={open && !childDialogOpen} onOpenChange={onOpenChange}>
       {/* Mientras el tablero táctico está abierto, este Dialog se oculta (open=false)
        *  en vez de quedar montado y abierto AL MISMO TIEMPO que el Dialog del tablero.
        *  Dos Dialogs de Radix abiertos a la vez compiten por el mismo FocusScope/
@@ -266,9 +337,9 @@ export function SessionFormDialog({
         // desmontados a la fuerza en el mismo tick no se libera bien). Con el
         // tablero abierto no hay ninguna razón legítima para que ESTE diálogo
         // se autocierre por foco/click/Escape afuera, así que se ignora.
-        onPointerDownOutside={(e) => { if (tacticalBlockIndex !== null) e.preventDefault(); }}
-        onInteractOutside={(e) => { if (tacticalBlockIndex !== null) e.preventDefault(); }}
-        onEscapeKeyDown={(e) => { if (tacticalBlockIndex !== null) e.preventDefault(); }}
+        onPointerDownOutside={(e) => { if (childDialogOpen) e.preventDefault(); }}
+        onInteractOutside={(e) => { if (childDialogOpen) e.preventDefault(); }}
+        onEscapeKeyDown={(e) => { if (childDialogOpen) e.preventDefault(); }}
       >
         <DialogHeader>
           <div className="flex items-center gap-3">
@@ -442,6 +513,22 @@ export function SessionFormDialog({
                           ))}
                         </SelectContent>
                       </Select>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="min-h-11 gap-1.5"
+                        onClick={() => openBlockLibrary(index)}
+                        title="Elegir un ejercicio de la biblioteca para este bloque"
+                      >
+                        <BookOpen className="h-4 w-4" />
+                        Desde la biblioteca
+                      </Button>
+                      {block.exercise_id && (
+                        <span className="text-xs text-muted-foreground">Ejercicio de la biblioteca</span>
+                      )}
                     </div>
                     <Input
                       placeholder="Objetivo específico"
@@ -632,6 +719,18 @@ export function SessionFormDialog({
         sourceType="training_session"
         sourceId={blocks[tacticalBlockIndex]!.id!}
         contextLabel={`Entrenamiento — ${blocks[tacticalBlockIndex]?.name || 'Bloque'}`}
+      />
+    )}
+
+    {/* Biblioteca de ejercicios (pizarra T3): mismo patrón que el tablero --
+        el Dialog de la sesión se oculta mientras el panel está abierto. */}
+    {libraryBlockIndex !== null && blocks[libraryBlockIndex]?.id && (
+      <ExerciseLibraryPanel
+        open
+        onOpenChange={(o) => { if (!o) setLibraryBlockIndex(null); }}
+        onPick={applyExercise}
+        pickLabel="Usar en esta sesión"
+        picking={applyingExercise}
       />
     )}
     </>

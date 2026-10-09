@@ -19,6 +19,10 @@ import { supabase } from '@/integrations/supabase/client';
 import { DynamicAttributeField } from './DynamicAttributeField';
 import { VariantMatrixBuilder } from './VariantMatrixBuilder';
 import { ProductGalleryUploader } from './ProductGalleryUploader';
+import {
+    buildVariantRows, legacyMissingRequired, planVariantSave, productStatusLabel, type VendorVariant,
+} from '@/lib/store/inventory';
+import { adjustStock, createVariants, setVariantActive } from '@/lib/store/vendorProductsApi';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -40,8 +44,18 @@ interface WizardState {
     product_attrs:      Record<string, unknown>;
     has_variants:       boolean;
     variant_matrix:     Record<string, string[]>;
-    variant_defaults:   { stock: number; price_override?: number };
+    /** Stock por combinación (clave = comboKey). */
+    variant_stocks:     Record<string, number>;
+    /** Activa/inactiva por combinación (solo lo que el usuario cambió). */
+    variant_active:     Record<string, boolean>;
+    variant_price_override?: number;
     base_stock:         number;
+    /** Al editar: variantes que ya existen y estado actual del producto. */
+    existing_variants:  VendorVariant[];
+    current_status?:    string;
+    /** Al editar: atributos y categoría con los que se cargó el producto. */
+    loaded_attrs:       Record<string, unknown> | null;
+    loaded_category_id?: string;
 }
 
 const INITIAL: WizardState = {
@@ -55,8 +69,11 @@ const INITIAL: WizardState = {
     product_attrs:    {},
     has_variants:     false,
     variant_matrix:   {},
-    variant_defaults: { stock: 0 },
+    variant_stocks:   {},
+    variant_active:   {},
     base_stock:       0,
+    existing_variants: [],
+    loaded_attrs:     null,
 };
 
 export function ProductWizard() {
@@ -94,7 +111,8 @@ export function ProductWizard() {
 
             const categorySlug = (data.product_categories as any)?.slug;
             const attrs = (data.attributes as any) || {};
-            const variants: any[] = data.product_variants || [];
+            const variants: any[] = [...(data.product_variants || [])]
+                .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 
             // Rebuild variant_matrix from existing variants
             const matrix: Record<string, string[]> = {};
@@ -125,8 +143,17 @@ export function ProductWizard() {
                 product_attrs:    attrs,
                 has_variants:     variants.length > 0,
                 variant_matrix:   matrix,
-                variant_defaults: { stock: 0 },
+                variant_stocks:   {},
+                variant_active:   {},
                 base_stock:       data.stock || 0,
+                existing_variants: variants.map((v: any) => ({
+                    id: v.id, sku: v.sku ?? null, name: v.name, attributes: v.attributes || {},
+                    price_override: v.price_override ?? null, stock: Number(v.stock ?? 0),
+                    reserved: Number(v.reserved ?? 0), is_active: v.is_active, sort_order: v.sort_order,
+                })),
+                current_status:   data.status,
+                loaded_attrs:     attrs,
+                loaded_category_id: data.category_id || undefined,
             });
         })();
     }, [isEdit, editId, toast]);
@@ -134,18 +161,65 @@ export function ProductWizard() {
     const productSchema  = category?.attribute_schema ? productAttributes(category.attribute_schema) : [];
     const variantSchema  = category?.attribute_schema ? variantAttributes(category.attribute_schema) : [];
 
+    // Producto creado antes de que un atributo fuera obligatorio (ej. "Género"):
+    // al editar, ese faltante avisa pero no traba el paso 2 ni el guardado.
+    // Se deriva de los atributos con los que se CARGÓ el producto, solo mientras
+    // siga en su categoría original.
+    const legacyMissing = useMemo(
+        () => (isEdit && category && state.loaded_attrs && category.id === state.loaded_category_id
+            ? legacyMissingRequired(category.attribute_schema || [], state.loaded_attrs)
+            : []),
+        [isEdit, category, state.loaded_attrs, state.loaded_category_id],
+    );
+    const legacyLabels = useMemo(
+        () => productSchema.filter(f => legacyMissing.includes(f.key)
+            && validateProductAttributes([f], state.product_attrs).length > 0).map(f => f.label),
+        [productSchema, legacyMissing, state.product_attrs],
+    );
     const attrErrors = useMemo(
-        () => (category ? validateProductAttributes(category.attribute_schema, state.product_attrs) : []),
-        [category, state.product_attrs],
+        () => (category
+            ? validateProductAttributes(
+                (category.attribute_schema || []).filter(f => !legacyMissing.includes(f.key)),
+                state.product_attrs)
+            : []),
+        [category, state.product_attrs, legacyMissing],
     );
 
+    // Filas de stock por variante (existentes + combinaciones nuevas).
+    const missingAxes = variantSchema.filter(f => f.required && !(state.variant_matrix[f.key]?.length)).map(f => f.label);
+    const variantRows = useMemo(
+        () => buildVariantRows(
+            variantSchema.map(f => f.key),
+            missingAxes.length > 0 ? {} : state.variant_matrix,
+            state.existing_variants,
+            state.variant_stocks,
+            state.variant_active,
+        ),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [variantSchema.map(f => f.key).join(','), missingAxes.join(','), state.variant_matrix, state.existing_variants,
+         state.variant_stocks, state.variant_active],
+    );
+    const variantsOk = !state.has_variants
+        || (variantRows.some(r => r.is_active) && variantRows.length <= 200
+            && variantRows.every(r => !r.variant_id || !r.is_active || r.stock >= r.reserved));
+
+    // Requisitos de calidad para publicar (los valida también la base).
+    const publishIssues = [
+        state.name.length < 5 && 'Nombre de al menos 5 caracteres',
+        state.description.length < 30 && 'Descripción de al menos 30 caracteres',
+        !(typeof state.price === 'number' && state.price > 0) && 'Precio mayor a 0',
+        state.images.length === 0 && 'Al menos una foto',
+    ].filter(Boolean) as string[];
+
     const canGoStep2 = !!state.category_id;
-    const canGoStep3 = state.name.length >= 5
-                    && state.description.length >= 30
-                    && typeof state.price === 'number' && state.price > 0
-                    && state.images.length > 0
-                    && attrErrors.length === 0;
-    const canSave    = canGoStep2 && canGoStep3 && (!state.has_variants || Object.keys(state.variant_matrix).length > 0);
+    // Crear: todo lo de calidad. Editar: nombre y precio bastan para guardar;
+    // lo demás se muestra como pendiente para publicar.
+    const canGoStep3 = attrErrors.length === 0 && (isEdit
+        ? state.name.length >= 5 && typeof state.price === 'number' && state.price > 0
+        : publishIssues.length === 0);
+    const canSave    = canGoStep2 && canGoStep3 && variantsOk;
+    const canPublish = canSave && publishIssues.length === 0;
+    const isActiveProduct = isEdit && state.current_status === 'active';
 
     // ─────────────────────────────────────────────────────────────────────
     // Guardar
@@ -178,9 +252,10 @@ export function ProductWizard() {
                 category_id:       state.category_id || null,
                 brand_id:          state.brand_id || null,
                 attributes:        mergedAttrs,
-                stock:             state.has_variants ? 0 : state.base_stock,
-                vendor_profile_id: vendorProfile?.id || null,
-                status:            'draft',
+                // Con variantes, el stock es de cada variante (products.stock es la suma).
+                ...(state.has_variants ? (isEdit ? {} : { stock: 0 }) : { stock: state.base_stock }),
+                // Al editar no se toca el estado (guardar un producto activo no lo despublica).
+                ...(isEdit ? {} : { vendor_profile_id: vendorProfile?.id || null, status: 'draft' }),
             };
 
             let createdProductId = productId;
@@ -207,22 +282,49 @@ export function ProductWizard() {
                     },
                     body: JSON.stringify(payload),
                 });
-                if (!res.ok) throw new Error('Error actualizando producto.');
+                if (!res.ok) {
+                    const j = await res.json().catch(() => ({}));
+                    throw new Error(j?.error || 'Error actualizando producto.');
+                }
             }
 
-            // Bulk variants si aplica y aun no se han creado
-            if (state.has_variants && Object.keys(state.variant_matrix).length > 0 && !isEdit) {
-                await fetch(`${API_URL}/api/v1/vendor/products/${createdProductId}/variants/bulk`, {
-                    method:  'POST',
-                    headers: {
-                        'Content-Type':  'application/json',
-                        'Authorization': `Bearer ${session?.access_token}`,
-                    },
-                    body: JSON.stringify({
-                        matrix:   state.variant_matrix,
-                        defaults: state.variant_defaults,
-                    }),
-                });
+            // Variantes: nuevas con SU stock inicial; las existentes, ajuste de
+            // inventario (kardex) si cambió el stock; activar/desactivar.
+            if (state.has_variants && createdProductId) {
+                const token = session?.access_token;
+                const plan = planVariantSave(variantRows, state.existing_variants, state.variant_price_override ?? null);
+                const failures: string[] = [];
+                if (plan.create.length > 0) {
+                    try {
+                        await createVariants(token, createdProductId, plan.create);
+                    } catch (e) {
+                        failures.push((e as Error).message);
+                    }
+                }
+                for (const a of plan.adjust) {
+                    try {
+                        await adjustStock(token, createdProductId, {
+                            variant_id: a.variant_id, new_stock: a.to, reason_code: a.reason_code,
+                            note: 'Edición del producto',
+                        });
+                    } catch (e) {
+                        const label = variantRows.find(r => r.variant_id === a.variant_id)?.label ?? 'variante';
+                        failures.push(`${label}: ${(e as Error).message}`);
+                    }
+                }
+                for (const t of plan.toggle) {
+                    try {
+                        await setVariantActive(token, createdProductId, t.variant_id, t.is_active);
+                    } catch (e) {
+                        failures.push((e as Error).message);
+                    }
+                }
+                if (failures.length > 0) {
+                    toast({ title: 'Algunas variantes no se guardaron', description: failures.join(' · '), variant: 'destructive' });
+                    setSaving(false);
+                    if (!isEdit) navigate(`/vendor/products/${createdProductId}/edit`, { replace: true });
+                    return;
+                }
             }
 
             if (publish) {
@@ -243,6 +345,8 @@ export function ProductWizard() {
                     title:       json.data.status === 'pending_review' ? 'Producto en revisión' : 'Producto publicado',
                     description: json.message,
                 });
+            } else if (isEdit) {
+                toast({ title: 'Cambios guardados', description: state.name });
             } else {
                 toast({ title: 'Borrador guardado', description: 'Puedes publicarlo cuando quieras.' });
             }
@@ -297,7 +401,7 @@ export function ProductWizard() {
                                                 ...s,
                                                 category_slug: c.slug,
                                                 category_id:   c.id,
-                                                product_attrs: {},
+                                                product_attrs: s.category_id === c.id ? s.product_attrs : {},
                                                 brand_id:      s.category_id === c.id ? s.brand_id : undefined,
                                             }))}
                                             className={`text-left rounded-lg border p-4 transition-colors hover:bg-muted ${active ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border'}`}
@@ -321,6 +425,16 @@ export function ProductWizard() {
                         )}
                     </CardContent>
                 </Card>
+            )}
+
+            {step >= 2 && !category && (
+                <Alert>
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Elige una categoría</AlertTitle>
+                    <AlertDescription className="text-xs">
+                        La categoría de este producto ya no está disponible. Vuelve al paso 1 y elige otra.
+                    </AlertDescription>
+                </Alert>
             )}
 
             {/* PASO 2: Información básica + atributos producto */}
@@ -410,6 +524,29 @@ export function ProductWizard() {
                             </div>
                         )}
 
+                        {legacyLabels.length > 0 && (
+                            <Alert data-testid="legacy-attrs-alert">
+                                <AlertTriangle className="h-4 w-4" />
+                                <AlertTitle>Dato nuevo sin completar</AlertTitle>
+                                <AlertDescription className="text-xs">
+                                    Este producto se creó antes de que {legacyLabels.join(', ')} fuera obligatorio.
+                                    Complétalo cuando puedas; no impide guardar los cambios.
+                                </AlertDescription>
+                            </Alert>
+                        )}
+
+                        {isEdit && publishIssues.length > 0 && (
+                            <Alert>
+                                <AlertTriangle className="h-4 w-4" />
+                                <AlertTitle>Para publicar falta</AlertTitle>
+                                <AlertDescription>
+                                    <ul className="list-disc pl-5 text-xs space-y-0.5">
+                                        {publishIssues.map((e, i) => <li key={i}>{e}</li>)}
+                                    </ul>
+                                </AlertDescription>
+                            </Alert>
+                        )}
+
                         {attrErrors.length > 0 && (
                             <Alert variant="destructive">
                                 <AlertTriangle className="h-4 w-4" />
@@ -438,22 +575,35 @@ export function ProductWizard() {
                                 <p className="text-sm font-medium">Este producto tiene variantes</p>
                                 <p className="text-xs text-muted-foreground">Ej: distintas tallas, colores, sabores, presentaciones.</p>
                             </div>
-                            <Switch checked={state.has_variants} onCheckedChange={c => setState(s => ({ ...s, has_variants: c }))} />
+                            <Switch checked={state.has_variants}
+                                    disabled={state.existing_variants.length > 0}
+                                    aria-label="Este producto tiene variantes"
+                                    onCheckedChange={c => setState(s => ({ ...s, has_variants: c }))} />
                         </div>
 
                         {!state.has_variants ? (
                             <div>
-                                <Label>Stock disponible</Label>
-                                <Input type="number" min={0} value={state.base_stock}
-                                       onChange={e => setState(s => ({ ...s, base_stock: Number(e.target.value) }))} />
+                                <Label htmlFor="base-stock">Stock disponible</Label>
+                                <Input id="base-stock" type="number" min={0} value={state.base_stock}
+                                       onChange={e => setState(s => ({ ...s, base_stock: Math.max(0, Math.trunc(Number(e.target.value) || 0)) }))} />
+                                {isEdit && <p className="text-xs text-muted-foreground mt-1">El cambio queda en el historial de inventario.</p>}
                             </div>
                         ) : (
                             <VariantMatrixBuilder
                                 schema={variantSchema}
                                 matrix={state.variant_matrix}
                                 onChange={m => setState(s => ({ ...s, variant_matrix: m }))}
-                                defaults={state.variant_defaults}
-                                onDefaultsChange={d => setState(s => ({ ...s, variant_defaults: d }))}
+                                rows={variantRows}
+                                onStockChange={(key, n) => setState(s => ({ ...s, variant_stocks: { ...s.variant_stocks, [key]: n } }))}
+                                onActiveChange={(key, a) => setState(s => ({ ...s, variant_active: { ...s.variant_active, [key]: a } }))}
+                                onApplyAll={n => setState(s => ({
+                                    ...s,
+                                    variant_stocks: Object.fromEntries(variantRows.filter(r => r.is_active).map(r => [r.key, n])),
+                                }))}
+                                priceOverride={state.variant_price_override}
+                                onPriceOverrideChange={v => setState(s => ({ ...s, variant_price_override: v }))}
+                                missingAxes={missingAxes}
+                                isEdit={isEdit}
                             />
                         )}
                     </CardContent>
@@ -472,7 +622,12 @@ export function ProductWizard() {
                             <div className="flex justify-between"><span className="text-sm text-muted-foreground">Categoría</span><span className="text-sm font-medium">{category.name}</span></div>
                             <div className="flex justify-between"><span className="text-sm text-muted-foreground">Nombre</span><span className="text-sm font-medium truncate max-w-[60%]">{state.name}</span></div>
                             <div className="flex justify-between"><span className="text-sm text-muted-foreground">Precio</span><span className="text-sm font-medium">${typeof state.price === 'number' ? state.price.toLocaleString('es-CO') : '—'} COP</span></div>
-                            <div className="flex justify-between"><span className="text-sm text-muted-foreground">Variantes</span><span className="text-sm font-medium">{state.has_variants ? `${Object.values(state.variant_matrix).reduce((a, v) => a * (v.length || 1), 1)} combinaciones` : 'Producto único'}</span></div>
+                            <div className="flex justify-between"><span className="text-sm text-muted-foreground">Variantes</span><span className="text-sm font-medium">{state.has_variants
+                                ? `${variantRows.filter(r => r.is_active).length} combinaciones · ${variantRows.filter(r => r.is_active).reduce((a, r) => a + r.stock, 0)} unidades`
+                                : `Producto único · ${state.base_stock} unidades`}</span></div>
+                            {isEdit && state.current_status && (
+                                <div className="flex justify-between"><span className="text-sm text-muted-foreground">Estado</span><span className="text-sm font-medium">{productStatusLabel(state.current_status)}</span></div>
+                            )}
                         </div>
 
                         <div>
@@ -510,7 +665,7 @@ export function ProductWizard() {
                 {step < 4 ? (
                     <Button
                         onClick={() => setStep(s => s + 1)}
-                        disabled={(step === 1 && !canGoStep2) || (step === 2 && !canGoStep3)}
+                        disabled={(step === 1 && !canGoStep2) || (step === 2 && !canGoStep3) || (step >= 2 && !category)}
                     >
                         Siguiente
                         <ChevronRight className="h-4 w-4 ml-1" />
@@ -519,12 +674,14 @@ export function ProductWizard() {
                     <div className="flex gap-2">
                         <Button variant="outline" onClick={saveAsDraft} disabled={saving || !canSave}>
                             {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
-                            Guardar borrador
+                            {isEdit ? 'Guardar cambios' : 'Guardar borrador'}
                         </Button>
-                        <Button onClick={saveAndPublish} disabled={saving || !canSave}>
-                            {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-1" />}
-                            Publicar ahora
-                        </Button>
+                        {!isActiveProduct && (
+                            <Button onClick={saveAndPublish} disabled={saving || !canPublish}>
+                                {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-1" />}
+                                Publicar ahora
+                            </Button>
+                        )}
                     </div>
                 )}
             </div>

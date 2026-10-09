@@ -386,14 +386,14 @@ describe('resumirRafaga (pura)', () => {
 describe('Bandeja: número desconocido', () => {
     beforeEach(() => { state.atencion = { atender: false, tipo: 'desconocido', botEncendido: true }; });
 
-    it('anuncia un pago («Mira mile mi pago de este mes»): se GUARDA el archivo y no se le responde', async () => {
+    it('anuncia un pago («Mira mile mi pago de este mes») y no es un comprobante: se GUARDA el archivo y no se le responde', async () => {
         state.textos = [{ text_body: 'Mira mile mi pago de este mes' }];
+        extractReceiptMock.mockResolvedValue({ isReceipt: false, isTransactionList: false, amount: null });
         await runWhatsAppQueue();
         expect(downloadMediaMock).toHaveBeenCalledTimes(1);
         expect(updatesCola.some((u) => typeof u.storage_path === 'string')).toBe(true);
         expect(updatesCola.find((u) => u.status === 'ignored')).toMatchObject({ error_message: 'contacto_no_atendido' });
         expect(mensajesDelBot()).toBe(0);
-        expect(extractReceiptMock).not.toHaveBeenCalled();
     });
 
     it('pie «Mes octubre»: también se guarda', async () => {
@@ -402,13 +402,20 @@ describe('Bandeja: número desconocido', () => {
         expect(downloadMediaMock).toHaveBeenCalledTimes(1);
     });
 
-    it('sin hablar de pagos, o contacto PERSONAL: ni se baja ni se responde', async () => {
+    it('sin hablar de pagos y sin destino de la escuela: se lee pero NO se guarda ni se responde', async () => {
         state.textos = [{ text_body: 'Urgente' }];
         await runWhatsAppQueue();
+        expect(updatesCola.some((u) => typeof u.storage_path === 'string')).toBe(false);
+        expect(updatesCola.find((u) => u.status === 'ignored')).toMatchObject({ error_message: 'contacto_no_atendido' });
+        expect(mensajesDelBot()).toBe(0);
+    });
+
+    it('contacto PERSONAL: ni se baja ni se lee ni se responde', async () => {
         state.atencion = { atender: false, tipo: 'personal', botEncendido: true };
         state.textos = [{ text_body: 'te mando el pago' }];
         await runWhatsAppQueue();
         expect(downloadMediaMock).not.toHaveBeenCalled();
+        expect(extractReceiptMock).not.toHaveBeenCalled();
         expect(mensajesDelBot()).toBe(0);
     });
 });

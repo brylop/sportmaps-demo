@@ -5,9 +5,49 @@ import { requireAuth, requireRole, AuthenticatedRequest } from '../../middleware
 // sin cargar este router (ver footballShapes.ts).
 import {
   validateArrows, sanitizeArrows, validatePresetSlots, sanitizeSlots, MAX_PRESET_NAME,
+  validateFrames, sanitizeFrames, isMissingFramesColumn,
 } from './footballShapes';
 
 const router = Router();
+
+// ── Jugada animada por cuadros (T1) ──────────────────────────────────────────
+// `frames` llega con la migración 20261008155454. Mientras no esté aplicada en
+// una base, leer o escribir la columna falla (42703 / PGRST204): en vez de
+// tumbar la pizarra entera, se lee sin ella y se escribe sin ella cuando la
+// jugada es de un solo cuadro (frames = null). Con cuadros de verdad se avisa.
+const LINEUP_COLS = 'id, team_id, source_type, source_id, formation, arrows, created_by, created_at, updated_at';
+const FRAMES_UNAVAILABLE = 'La animación por cuadros todavía no está habilitada. Guarda la jugada con un solo cuadro.';
+
+/** Corre un SELECT pidiendo `frames`; si la columna no existe, lo repite sin ella. */
+async function selectWithFrames<R extends { error: unknown }>(base: string, run: (cols: string) => PromiseLike<R>): Promise<R> {
+  const r = await run(`${base}, frames`);
+  if (r.error && isMissingFramesColumn(r.error)) return run(base);
+  return r;
+}
+
+/** Corre un INSERT/UPDATE con `frames` en el payload. Si la columna no existe:
+ *  con frames null lo repite sin la columna; con cuadros devuelve 'unavailable'. */
+async function writeWithFrames<R extends { error: unknown }>(
+  payload: Record<string, unknown>,
+  run: (p: Record<string, unknown>) => PromiseLike<R>,
+): Promise<R | 'unavailable'> {
+  const r = await run(payload);
+  if (r.error && 'frames' in payload && isMissingFramesColumn(r.error)) {
+    if (payload.frames !== null) return 'unavailable';
+    const { frames: _omit, ...rest } = payload;
+    return run(rest);
+  }
+  return r;
+}
+
+/** `frames` del body: undefined = no tocar la columna; null = un solo cuadro;
+ *  lista = validada y saneada. */
+function parseFrames(frames: unknown): { provided: false } | { provided: true; value: Record<string, unknown>[] | null } | { errors: string[] } {
+  if (frames === undefined) return { provided: false };
+  const errors = validateFrames(frames);
+  if (errors.length > 0) return { errors };
+  return { provided: true, value: frames === null ? null : sanitizeFrames(frames as any[]) };
+}
 
 const STAFF_ROLES = ['owner', 'super_admin', 'admin', 'school_admin', 'coach', 'staff'] as const;
 // Editar el tablero táctico (alineación, plantillas guardadas, flechas) es
@@ -223,17 +263,18 @@ router.get(
       const { schoolId } = req;
       const { team_id, source_type, source_id } = req.query as Record<string, string>;
 
-      let query = supabase
-        .from('match_lineups')
-        .select('id, team_id, source_type, source_id, formation, arrows, created_by, created_at, updated_at')
-        .eq('school_id', schoolId)
-        .order('created_at', { ascending: false });
+      const { data, error } = await selectWithFrames(LINEUP_COLS, (cols) => {
+        let query = supabase
+          .from('match_lineups')
+          .select(cols)
+          .eq('school_id', schoolId)
+          .order('created_at', { ascending: false });
 
-      if (team_id) query = query.eq('team_id', team_id);
-      if (source_type) query = query.eq('source_type', source_type);
-      if (source_id) query = query.eq('source_id', source_id);
-
-      const { data, error } = await query.limit(200);
+        if (team_id) query = query.eq('team_id', team_id);
+        if (source_type) query = query.eq('source_type', source_type);
+        if (source_id) query = query.eq('source_id', source_id);
+        return query.limit(200);
+      });
       if (error) throw error;
 
       res.json(data ?? []);
@@ -257,12 +298,12 @@ router.get(
       const { schoolId } = req;
       const { id } = req.params;
 
-      const { data: lineup, error: lineupErr } = await supabase
+      const { data: lineup, error: lineupErr } = await selectWithFrames(LINEUP_COLS, (cols) => supabase
         .from('match_lineups')
-        .select('id, team_id, source_type, source_id, formation, arrows, created_by, created_at, updated_at')
+        .select(cols)
         .eq('id', id)
         .eq('school_id', schoolId)
-        .maybeSingle();
+        .maybeSingle());
       if (lineupErr) throw lineupErr;
       if (!lineup) return res.status(404).json({ error: 'Alineación no encontrada.' });
 
@@ -273,7 +314,7 @@ router.get(
         .order('role', { ascending: true });
       if (playersErr) throw playersErr;
 
-      res.json({ ...lineup, players: players ?? [] });
+      res.json({ ...(lineup as unknown as Record<string, unknown>), players: players ?? [] });
     } catch (err: any) {
       req.log?.error({ err }, 'school/football unhandled error');
       res.status(500).json({ error: 'Error interno del servidor.' });
@@ -294,7 +335,7 @@ router.post(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { schoolId, user } = req;
-      const { team_id, source_type, source_id, formation, players, arrows } = req.body;
+      const { team_id, source_type, source_id, formation, players, arrows, frames } = req.body;
 
       if (!team_id || !source_type || !VALID_LINEUP_SOURCE_TYPES.includes(source_type) || !source_id) {
         return res.status(400).json({
@@ -330,6 +371,13 @@ router.post(
         arrowList = sanitizeArrows(arrows);
       }
 
+      // Jugada animada (T1): el cuadro 1 viaja igual en players/arrows (el
+      // frontend lo manda así), `frames` guarda la animación completa.
+      const parsedFrames = parseFrames(frames);
+      if ('errors' in parsedFrames) {
+        return res.status(422).json({ error: 'Cuadros inválidos.', details: parsedFrames.errors });
+      }
+
       if (!(await assertTeamBelongsToSchool(team_id, schoolId!))) {
         return res.status(403).json({ error: 'El equipo no pertenece a esta escuela.' });
       }
@@ -347,14 +395,17 @@ router.post(
           team_id, formation: formation ?? null, updated_at: new Date().toISOString(),
         };
         if (arrowsProvided) updatePayload.arrows = arrowList;
+        if (parsedFrames.provided) updatePayload.frames = parsedFrames.value;
 
-        const { data: updated, error: updateErr } = await supabase
+        const updatedRes = await writeWithFrames(updatePayload, (p) => supabase
           .from('match_lineups')
-          .update(updatePayload)
+          .update(p)
           .eq('id', existing.id)
           .eq('school_id', schoolId)
           .select('id')
-          .single();
+          .single());
+        if (updatedRes === 'unavailable') return res.status(409).json({ error: FRAMES_UNAVAILABLE });
+        const { data: updated, error: updateErr } = updatedRes;
         if (updateErr) throw updateErr;
         lineupId = updated.id;
 
@@ -364,19 +415,23 @@ router.post(
           .eq('lineup_id', lineupId);
         if (delErr) throw delErr;
       } else {
-        const { data: created, error: createErr } = await supabase
+        const insertPayload: Record<string, unknown> = {
+          school_id: schoolId,
+          team_id,
+          source_type,
+          source_id,
+          formation: formation ?? null,
+          arrows: arrowList,
+          created_by: user.id,
+        };
+        if (parsedFrames.provided) insertPayload.frames = parsedFrames.value;
+        const createdRes = await writeWithFrames(insertPayload, (p) => supabase
           .from('match_lineups')
-          .insert({
-            school_id: schoolId,
-            team_id,
-            source_type,
-            source_id,
-            formation: formation ?? null,
-            arrows: arrowList,
-            created_by: user.id,
-          })
+          .insert(p)
           .select('id')
-          .single();
+          .single());
+        if (createdRes === 'unavailable') return res.status(409).json({ error: FRAMES_UNAVAILABLE });
+        const { data: created, error: createErr } = createdRes;
         if (createErr) throw createErr;
         lineupId = created.id;
       }
@@ -400,17 +455,17 @@ router.post(
         if (insertErr) throw insertErr;
       }
 
-      const { data: fullLineup } = await supabase
+      const { data: fullLineup } = await selectWithFrames(LINEUP_COLS, (cols) => supabase
         .from('match_lineups')
-        .select('id, team_id, source_type, source_id, formation, arrows, created_by, created_at, updated_at')
+        .select(cols)
         .eq('id', lineupId)
-        .single();
+        .single());
       const { data: fullPlayers } = await supabase
         .from('match_lineup_players')
         .select('id, subject_type, subject_id, position_code, role, jersey_number, minutes_played, slot_label, x, y')
         .eq('lineup_id', lineupId);
 
-      res.status(existing ? 200 : 201).json({ ...fullLineup, players: fullPlayers ?? [] });
+      res.status(existing ? 200 : 201).json({ ...((fullLineup ?? {}) as unknown as Record<string, unknown>), players: fullPlayers ?? [] });
     } catch (err: any) {
       req.log?.error({ err }, 'school/football unhandled error');
       res.status(500).json({ error: 'Error interno del servidor.' });
@@ -693,16 +748,17 @@ router.get(
       const { schoolId } = req;
       const { team_id, situation } = req.query as Record<string, string>;
 
-      let query = supabase
-        .from('team_tactical_presets')
-        .select('id, team_id, name, situation, slots, arrows, created_by, created_at, updated_at')
-        .eq('school_id', schoolId)
-        .order('created_at', { ascending: false });
+      const { data, error } = await selectWithFrames('id, team_id, name, situation, slots, arrows, created_by, created_at, updated_at', (cols) => {
+        let query = supabase
+          .from('team_tactical_presets')
+          .select(cols)
+          .eq('school_id', schoolId)
+          .order('created_at', { ascending: false });
 
-      if (team_id) query = query.eq('team_id', team_id);
-      if (situation) query = query.eq('situation', situation);
-
-      const { data, error } = await query.limit(100);
+        if (team_id) query = query.eq('team_id', team_id);
+        if (situation) query = query.eq('situation', situation);
+        return query.limit(100);
+      });
       if (error) throw error;
 
       res.json(data ?? []);
@@ -722,7 +778,7 @@ router.post(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { schoolId, user } = req;
-      const { team_id, name, situation, slots, arrows } = req.body;
+      const { team_id, name, situation, slots, arrows, frames } = req.body;
 
       if (!team_id || typeof name !== 'string' || !name.trim() || !VALID_SITUATIONS.includes(situation)) {
         return res.status(400).json({
@@ -746,24 +802,33 @@ router.post(
       if (arrowErrors.length > 0) {
         return res.status(422).json({ error: 'Flechas inválidas.', details: arrowErrors });
       }
+      // Mis jugadas animadas (T1): claves = índice de slot, mismo formato.
+      const parsedFrames = parseFrames(frames);
+      if ('errors' in parsedFrames) {
+        return res.status(422).json({ error: 'Cuadros inválidos.', details: parsedFrames.errors });
+      }
 
       if (!(await assertTeamBelongsToSchool(team_id, schoolId!))) {
         return res.status(403).json({ error: 'El equipo no pertenece a esta escuela.' });
       }
 
-      const { data, error } = await supabase
+      const presetPayload: Record<string, unknown> = {
+        school_id: schoolId,
+        team_id,
+        name: name.trim(),
+        situation,
+        slots: sanitizeSlots(slotList),
+        arrows: sanitizeArrows(arrowList),
+        created_by: user.id,
+      };
+      if (parsedFrames.provided) presetPayload.frames = parsedFrames.value;
+      const insertedRes = await writeWithFrames(presetPayload, (p) => supabase
         .from('team_tactical_presets')
-        .insert({
-          school_id: schoolId,
-          team_id,
-          name: name.trim(),
-          situation,
-          slots: sanitizeSlots(slotList),
-          arrows: sanitizeArrows(arrowList),
-          created_by: user.id,
-        })
+        .insert(p)
         .select()
-        .single();
+        .single());
+      if (insertedRes === 'unavailable') return res.status(409).json({ error: FRAMES_UNAVAILABLE });
+      const { data, error } = insertedRes;
       if (error) {
         if (isUniqueViolation(error)) {
           return res.status(409).json({ error: 'Ya existe una plantilla con ese nombre para este equipo y situación.' });
@@ -790,7 +855,7 @@ router.put(
       // `expected_updated_at` (opcional): la versión que el cliente tenía al
       // cargar la plantilla. Si otro miembro del cuerpo técnico la modificó
       // en el medio, se responde 409 en vez de pisarle el cambio en silencio.
-      const { name, situation, slots, arrows, expected_updated_at } = req.body;
+      const { name, situation, slots, arrows, frames, expected_updated_at } = req.body;
 
       const { data: current, error: currentErr } = await supabase
         .from('team_tactical_presets')
@@ -839,6 +904,11 @@ router.put(
         }
         update.arrows = sanitizeArrows(arrowList);
       }
+      const parsedFrames = parseFrames(frames);
+      if ('errors' in parsedFrames) {
+        return res.status(422).json({ error: 'Cuadros inválidos.', details: parsedFrames.errors });
+      }
+      if (parsedFrames.provided) update.frames = parsedFrames.value;
       if (Object.keys(update).length === 0) {
         return res.status(400).json({ error: 'Nada para actualizar.' });
       }
@@ -851,14 +921,16 @@ router.put(
       }
 
       // Se actualiza solo si nadie la tocó desde que se leyó arriba.
-      const { data, error } = await supabase
+      const updatedRes = await writeWithFrames(update, (p) => supabase
         .from('team_tactical_presets')
-        .update(update)
+        .update(p)
         .eq('id', req.params.id)
         .eq('school_id', schoolId)
         .eq('updated_at', current.updated_at)
         .select()
-        .maybeSingle();
+        .maybeSingle());
+      if (updatedRes === 'unavailable') return res.status(409).json({ error: FRAMES_UNAVAILABLE });
+      const { data, error } = updatedRes;
       if (error) {
         if (isUniqueViolation(error)) {
           return res.status(409).json({ error: 'Ya existe una plantilla con ese nombre para este equipo y situación.' });

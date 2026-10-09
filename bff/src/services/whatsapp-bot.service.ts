@@ -51,9 +51,11 @@ import { conEnlacesDePago, lineaPagar, botonPagarUnico } from './whatsapp-enlace
 import { esSalienteAutomatico } from './whatsapp-buzon';
 import { avisarEscalamientoPorCorreo } from './avisos-correo.service';
 import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from './whatsapp-optin.service';
+import { esActivacionDeAvisos } from './whatsapp-activar-avisos';
 import { estadoDeHorario, mensajeDeEscalamiento } from './whatsapp-horario.service';
 import { sendToUser } from './push.service';
-import { mediosDePago } from './whatsapp-medios-de-pago.service';
+import { mediosDePago, mediosDePagoDeFamilia, type CobroParaPagar } from './whatsapp-medios-de-pago.service';
+import { textoDeEleccion } from './whatsapp-comprobante-de-ficha.service';
 import { infoDeEscuela, fallbackInfoEscuela, horariosDelDia, textoHorarioDeHoy } from './whatsapp-info-escuela.service';
 import {
     esCierreDeCortesia, pideAlgo, seIdentificaComoExterno, preguntaHorarioDeHoy, mencionaCambioOCierre,
@@ -89,6 +91,9 @@ import { ajustesWhatsAppDeEscuela, atencionPresencialDeEscuela, type AjustesWhat
 import { mensajeSemanaDeCortesia } from './whatsapp-cortesia-semana.service';
 import { atenderTurnoVenta } from './whatsapp-venta-servicios.service';
 import { textoDePreciosDeEscuela } from './whatsapp-precios.service';
+import { pidePrecio, preciosParaProspecto } from './whatsapp-precios.service';
+import { leerEstadoDeSupabase } from './whatsapp-clase-cortesia.service';
+import { atenderLlegada, yaReservoClase } from './prospecto-ciclo-clase.service';
 import { preguntaComoPagar, textoComoPagar, textoHorarioPresencial } from './whatsapp-pago-publico';
 import { pideAyudaDeApp, textoAyudaApp } from './whatsapp-ayuda-app.service';
 import {
@@ -243,10 +248,28 @@ async function cuerpoDelTurno(
 
     if (!conv) return;
 
+    // 0d. «… ACTIVAR AVISOS»: el texto prellenado del enlace de /p/:token y del
+    //     correo del estado de cuenta (whatsapp-activar-avisos). Lo escribe el
+    //     número mismo, así que vale como consentimiento aunque no esté
+    //     identificado: va antes del OTP para no pedirle un código por esto.
+    if (!botonId && esActivacionDeAvisos(text)) {
+        await activarAvisosPorPedido(integration, conversationId, contactWaId, conv.parent_id, waMessageId);
+        return;
+    }
+
     // 1. No identificado → flujo OTP determinista. Si el TELÉFONO lo reconoce,
     //    el turno sigue: antes se le contestaba con saludo + consentimiento y el
     //    mensaje que había escrito (un comprobante, una pregunta) quedaba sin
     //    respuesta (P2, análisis 2026-10-06).
+    // 0e. Familia sin cuenta (o número sin ficha) que contesta la pregunta de
+    //     un comprobante («¿a cuál cobro?», «¿de qué deportista?»): la
+    //     identificación no la deja llegar a 2.5. Por audio no (mueve plata).
+    if (!conv.identified && text && ctx.origen !== 'audio' && await hayPreguntaDeCobroAbierta(integration, contactWaId)) {
+        const resuelta = await resolverRespuestaDeCobro(integration, contactWaId, textoDeEleccion(botonId, text),
+            (texto, paso) => deliver(integration, conversationId, contactWaId, texto, { step: paso })).catch(() => false);
+        if (resuelta) return;
+    }
+
     if (!conv.identified) {
         const r = await handleIdentification(integration, conversationId, contactWaId, text, botonId,
             textoDeRafaga(recientes, text, waMessageId));
@@ -379,7 +402,7 @@ async function cuerpoDelTurno(
         return;
     }
     const respondio = await resolverRespuestaDeCobro(
-        integration, contactWaId, text,
+        integration, contactWaId, textoDeEleccion(botonId, text),
         (texto, paso) => deliver(integration, conversationId, contactWaId, texto, { step: paso }),
     );
     if (respondio) return;
@@ -760,7 +783,8 @@ async function responderSinModelo(
 ): Promise<void> {
     const ruta = rutaSinModelo(text);
     if (ruta === 'medios') {
-        const medios = await mediosDePago(integration.school_id);
+        const medios = await mediosDePagoDeFamilia(integration.school_id, parentId,
+            { integrationId: integration.id, waPhone: contactWaId });
         await deliver(integration, conversationId, contactWaId,
             fallbackMediosDePago(medios), { step: 'medios_fallback', via: 'llm_error' });
         return;
@@ -895,7 +919,8 @@ async function ejecutarAccionDeBoton(
     }
 
     if (accion === 'get_payment_methods') {
-        const medios = await mediosDePago(integration.school_id);
+        const medios = await mediosDePagoDeFamilia(integration.school_id, parentId,
+            { integrationId: integration.id, waPhone: contactWaId });
         const anexo = await anexoDeConsentimiento(integration, conversationId, contactWaId, parentId);
         const m = conAnexoDeConsentimiento(fallbackMediosDePago(medios),
             { step: 'get_payment_methods', via: 'boton' }, undefined, anexo);
@@ -1130,6 +1155,24 @@ async function revisarVinculoPorTelefono(
 
     const estado = (data as any)?.estado;
     const porTelefono = (data as any)?.parent_id as string | undefined;
+
+    // El número se volvió ambiguo (dos cuentas, o es también el número de
+    // alguien del equipo: auditoría de privacidad 2026-10-08). Si la RPC
+    // deshizo el vínculo —solo lo hace cuando NO lo respalda un OTP del correo
+    // de ese acudiente—, este turno no puede seguir con el parent_id que se
+    // leyó antes: sería contestarle con los pagos de otra familia.
+    if (estado === 'ambiguo') {
+        const { data: ahora } = await supabase
+            .from('whatsapp_conversations')
+            .select('identified')
+            .eq('id', conversationId)
+            .maybeSingle();
+        if (ahora && !(ahora as any).identified) {
+            await identificarPorTelefono(integration, conversationId, contactWaId);
+            return 'corto';
+        }
+        return 'sin_cambio';
+    }
 
     // El telefono confirma lo que ya teniamos, o no sabe: nada que hacer.
     if (estado !== 'identificado' || !porTelefono) return 'sin_cambio';
@@ -1713,6 +1756,14 @@ async function handleIdentification(
         if (palabras.length <= 3 || conVocativo) return 'resuelto';
     }
 
+    // Ya reservó su clase de cortesía: es un prospecto atendido, no se le pide
+    // el correo (embudo 2026-10-08: «escríbeme tu correo» a un «Gracias»
+    // después de reservar). Lo ve la escuela en el buzón.
+    if (!botonId && await yaReservoClase(integration.school_id, contactWaId)) {
+        await abrirEnBuzon(integration, conversationId, contactWaId, { motivo: 'prospecto' });
+        return 'resuelto';
+    }
+
     if (!(await reservarPasoUnaVez(conversationId, 'ask_email', 24))) return 'resuelto';
 
     const nombreEscuela = await nombreDeEscuela(integration.school_id);
@@ -1808,7 +1859,7 @@ async function arrancarOtp(
     correo: string,
 ): Promise<void> {
     const email = correo.toLowerCase();
-    const code = String(Math.floor(100000 + Math.random() * 900000)); // 6 dígitos
+    const code = String(crypto.randomInt(100000, 1000000)); // 6 dígitos, CSPRNG (no Math.random)
     const otpHash = hashOtp(code);
     const expiresAt = new Date(Date.now() + OTP_TTL_MIN * 60_000).toISOString();
 
@@ -2025,6 +2076,8 @@ export type ResultadoDesconocido =
     | 'prospecto_horarios' | 'prospecto_precios' | 'prospecto_info' | 'prospecto_persona'
     | 'venta_consulta' | 'medios_de_pago' | 'medios_de_pago_escalado'
     | 'externo' | 'horarios_de_hoy'
+    | 'pregunta_de_comprobante'
+    | 'llegada_clase'
     | 'frenado' | 'silencio';
 
 export async function atenderDesconocido(
@@ -2041,6 +2094,32 @@ export async function atenderDesconocido(
 
     const text = (inboundText || '').trim();
     if (!text && !botonId) return 'silencio';
+
+    // 0a. Contesta «¿De qué deportista es este pago?» (o «¿a cuál cobro?») de un
+    //     comprobante que mandó desde este número sin ficha.
+    if (text && await hayPreguntaDeCobroAbierta(integration, contactWaId)) {
+        const resuelta = await resolverRespuestaDeCobro(integration, contactWaId, textoDeEleccion(botonId, text),
+            (texto, paso) => deliver(integration, conversationId, contactWaId, texto, { step: paso })).catch(() => false);
+        if (resuelta) return 'pregunta_de_comprobante';
+    }
+
+    // 0a. «Llegué / llegamos» el DÍA de su clase de cortesía (embudo 2026-10-08):
+    //     bienvenida + aviso a la escuela + lead en «asistio». Va antes del
+    //     flujo de cortesía: el recordatorio del mismo día lo deja abierto.
+    if (!botonId && !enSimulacion() && await atenderLlegada({
+        schoolId: integration.school_id, conversationId, contactWaId, texto: text,
+        responder: (t) => deliver(integration, conversationId, contactWaId, t, { step: PASO_LLEGADA_CLASE }),
+    })) {
+        return 'llegada_clase';
+    }
+
+    // 0b. «¿Y los precios?» con el flujo de cortesía abierto: la lista corta
+    //     y el flujo sigue donde iba (el saliente conserva su estado). Antes
+    //     el flujo lo tomaba como respuesta al paso y repetía la pregunta.
+    if (!botonId && pidePrecio(text)) {
+        const precioEnFlujo = await precioConCortesiaAbierta(integration, conversationId, contactWaId, text);
+        if (precioEnFlujo) return precioEnFlujo;
+    }
 
     // 0. Clase de cortesía EN CURSO: «Juan Pérez», «12», «Confirmar» no son
     //    tema escolar y sin esto el filtro de abajo los callaría a mitad de
@@ -2122,6 +2201,7 @@ export async function atenderDesconocido(
     //     escolar (silencio) y «cuánto vale la mensualidad» recibe el enlace.
     //     Mismo step y mismo freno de 30 días que el resto de respuestas al desconocido.
     if (ajustesEscuela.responderPrecios && preguntaPrecioComoProspecto(text)
+        && !interesesDeProspecto(text).some((i) => i === 'horarios' || i === 'edades' || i === 'cortesia' || i === 'visita')
         && !(await yaSeLeContestoEscolar(conversationId))
         && !humanoReciente(await mensajesRecientes(conversationId), SILENCIO_HUMANO_MIN)) {
         const precios = await textoDePreciosDeEscuela(integration.school_id);
@@ -2231,10 +2311,12 @@ export async function atenderDesconocido(
         const paraFamilias =
             'Si ya eres familia de la escuela, escríbeme el *correo electrónico* con el que estás ' +
             'registrado y te envío un código para verificarte; así te digo el valor de tu mensualidad.';
+        const preciosCombinado = await preciosParaProspecto(integration.school_id, ajustesEscuela.responderPrecios);
         if (enlaceCombinado) {
             await deliver(integration, conversationId, contactWaId,
                 S + paraFamilias + '\n\n' +
-                'Si todavía no estás inscrito, en este enlace ves los grupos y los valores, y puedes ' +
+                (preciosCombinado ? `Si todavía no estás inscrito:\n\n${preciosCombinado}\n\n` : '') +
+                (preciosCombinado ? 'En este enlace puedes ' : 'Si todavía no estás inscrito, en este enlace ves los grupos y los valores, y puedes ') +
                 `hacer la inscripción: ${enlaceCombinado}`,
                 { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'pagos_y_precio', con_enlace: true });
             return 'pagos_y_precio';
@@ -2247,6 +2329,16 @@ export async function atenderDesconocido(
             { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'pagos_y_precio', con_enlace: false });
         await abrirEnBuzon(integration, conversationId, contactWaId, { motivo: 'prospecto' });
         return 'pagos_y_precio_sin_enlace';
+    }
+
+    // Prospecto que ya reservó su clase de cortesía: tampoco se le pide el correo.
+    if (tema === 'pagos' && await yaReservoClase(integration.school_id, contactWaId)) {
+        await abrirEnBuzon(integration, conversationId, contactWaId, { motivo: 'prospecto' });
+        if (await pasoReciente(conversationId, PASO_PROSPECTO_SEGUIMIENTO, 24)) return 'frenado';
+        await deliver(integration, conversationId, contactWaId,
+            '¡Gracias! 🙌 Ya pasé tu mensaje a la escuela y alguien te responde por aquí.',
+            { step: PASO_PROSPECTO_SEGUIMIENTO });
+        return 'prospecto_seguimiento';
     }
 
     if (tema === 'pagos') {
@@ -2284,6 +2376,14 @@ export async function atenderDesconocido(
     const intereses = prospecto ? interesesDeProspecto(todoElTexto) : [];
     const quiereVisitar = intereses.includes('visita');
     const esAdulto = prospecto ? buscaParaAdulto(todoElTexto) : false;
+    // ¿Preguntó el precio (ahora o en la ráfaga sin responder)? Va la lista
+    // corta en ESTA respuesta (embudo 2026-10-08: 9 de 24 preguntaron y el
+    // bot dio 0 cifras). Con edad, el grupo que le corresponde.
+    const pidioPrecio = [text, rafaga, ...textosProspecto].some((t) => pidePrecio(t));
+    const preciosPrimera = pidioPrecio
+        ? await preciosParaProspecto(integration.school_id, ajustesEscuela.responderPrecios)
+        : null;
+    const bloquePrecios = preciosPrimera ? `\n\n${preciosPrimera}` : '';
 
     // Cortesía «semana por la app» (ajuste por escuela): el paso a paso del
     // enlace de cortesía reemplaza la clase suelta y el enlace genérico. Mismo
@@ -2291,8 +2391,8 @@ export async function atenderDesconocido(
     // de siempre (el texto habla de «tu hijo/a»). Sin QR válido → null → igual.
     const semana = esAdulto ? null : await mensajeSemanaDeCortesia(integration.school_id, ajustesEscuela);
     if (semana) {
-        await deliver(integration, conversationId, contactWaId, S + semana,
-            { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'cortesia_semana', con_enlace: true });
+        await deliver(integration, conversationId, contactWaId, S + (preciosPrimera ? `${preciosPrimera}\n\n` : '') + semana,
+            { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'cortesia_semana', con_enlace: true, con_precios: Boolean(preciosPrimera) });
         return contestar('cortesia_semana');
     }
 
@@ -2327,7 +2427,7 @@ export async function atenderDesconocido(
                     : 'Y si quieres conocer la escuela antes, puedes venir a una *clase de cortesía* gratis. ' +
                       'Estas son las próximas franjas:';
         await iniciarCortesia(ctxCortesia(integration, conversationId, contactWaId, null), {
-            encabezado: (saludo + lineaEnlace).trim(),
+            encabezado: (saludo + bloquePrecios + lineaEnlace).trim(),
             step: PASO_DESCONOCIDO_ESCOLAR,
             intro,
             texto: prospecto ? todoElTexto : text,
@@ -2341,10 +2441,11 @@ export async function atenderDesconocido(
     if (enlace) {
         await deliver(integration, conversationId, contactWaId,
             S +
-            '¡Gracias por tu interés! 🙌 En este enlace ves los grupos y los valores, y puedes ' +
+            '¡Gracias por tu interés! 🙌' + (await preciosConGrupo(integration.school_id, ajustesEscuela, pidioPrecio, todoElTexto) || ' ') +
+            'En este enlace ves los grupos y los valores, y puedes ' +
             `hacer la inscripción: ${enlace}` + '\n\n' +
             'Si te queda alguna duda, escríbela por acá y la escuela te responde.',
-            { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'inscripcion', con_enlace: true });
+            { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'inscripcion', con_enlace: true, con_precios: pidioPrecio && Boolean(preciosPrimera) });
         if (esAdulto) await abrirEnBuzon(integration, conversationId, contactWaId, { motivo: 'prospecto' });
         return contestar('inscripcion');
     }
@@ -2354,7 +2455,8 @@ export async function atenderDesconocido(
     // desconocido que avisa por push, porque es plata que se está yendo.
     await deliver(integration, conversationId, contactWaId,
         S +
-        '¡Gracias por tu interés! 🙌 Ya le avisé a la escuela y alguien te responde por aquí ' +
+        '¡Gracias por tu interés! 🙌' + (await preciosConGrupo(integration.school_id, ajustesEscuela, pidioPrecio, todoElTexto) || ' ') +
+        'Ya le avisé a la escuela y alguien te responde por aquí ' +
         'con la información de inscripción.',
         { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'inscripcion', con_enlace: false });
     await abrirEnBuzon(integration, conversationId, contactWaId, { motivo: 'prospecto' });
@@ -2363,6 +2465,49 @@ export async function atenderDesconocido(
 
 /** step del acuse al prospecto que sigue escribiendo después de la primera respuesta. */
 export const PASO_PROSPECTO_SEGUIMIENTO = 'prospecto_seguimiento';
+
+/** step de la bienvenida al prospecto que llegó a su clase de cortesía. */
+export const PASO_LLEGADA_CLASE = 'cortesia_llegada';
+
+/**
+ * «\n\n<precios>\n\n👉 <grupo>» para pegar en una respuesta al prospecto que
+ * preguntó el precio; '' si no preguntó o la escuela no responde precios.
+ */
+async function preciosConGrupo(
+    schoolId: string, ajustes: AjustesWhatsAppEscuela, pidio: boolean, texto: string,
+): Promise<string> {
+    if (!pidio) return '';
+    const b = await preciosParaProspecto(schoolId, ajustes.responderPrecios, leerPerfil(texto));
+    return b ? `\n\n${b}\n\n` : '';
+}
+
+/**
+ * «¿Y los precios?» con el flujo de cortesía abierto (Dynasty 2026-10-07: lo
+ * tomó como respuesta al paso). Lista corta y el flujo sigue: el saliente
+ * lleva el mismo estado. null = no aplica (sin flujo, sin ajuste, ya se le
+ * dieron en 24 h). Nunca lanza.
+ */
+async function precioConCortesiaAbierta(
+    integration: WhatsAppIntegration, conversationId: string, contactWaId: string, text: string,
+): Promise<ResultadoDesconocido | null> {
+    try {
+        const estado = await leerEstadoDeSupabase(conversationId);
+        if (!estado || estado.paso === 'recordatorio') return null;
+        if (await pasoReciente(conversationId, PASO_PROSPECTO_PRECIOS, 24)) return null;
+        const ajustes = await ajustesWhatsAppDeEscuela(integration.school_id);
+        const precios = await preciosParaProspecto(integration.school_id, ajustes.responderPrecios, leerPerfil(text));
+        if (!precios) return null;
+        await deliver(integration, conversationId, contactWaId,
+            precios + '\n\nCuando quieras, seguimos con la reserva de tu clase de cortesía. 🙌',
+            {
+                step: PASO_PROSPECTO_PRECIOS, flujo: FLUJO_CORTESIA,
+                paso_cortesia: estado.paso, datos_cortesia: estado.datos ?? {},
+            });
+        return 'prospecto_precios';
+    } catch {
+        return null;
+    }
+}
 
 // ─── Seguimiento del prospecto (2026-10-07) ──────────────────────────────────
 //
@@ -2426,6 +2571,7 @@ async function responderSeguimientoDeProspecto(
 
     const intereses = interesesDeProspecto(nuevo);
     const perfilNuevo = leerPerfil(nuevo);
+    const pidioPrecio = intereses.includes('precio') || pidePrecio(nuevo);
     const enlace = await enlaceDeInscripcion(integration.school_id);
     const lineaEnlace = enlace
         ? `\n\nEn este enlace ves los grupos y los valores, y puedes hacer la inscripción: ${enlace}`
@@ -2440,17 +2586,21 @@ async function responderSeguimientoDeProspecto(
         && await grupoPorEdadEnBot(integration, conversationId, contactWaId, null, nuevo, PASO_PROSPECTO_HORARIOS)) {
         return 'prospecto_horarios';
     }
-    if (pideHorarios) {
-        // Las franjas acaban de salir (el flujo de cortesía las mostró): no se repiten.
-        if (await pasoReciente(conversationId, 'cortesia_ofrecer', 10 / 60)
-            || await pasoReciente(conversationId, PASO_PROSPECTO_HORARIOS, 24)) {
-            return 'frenado';
-        }
+    const horariosFrenados = pideHorarios && (await pasoReciente(conversationId, 'cortesia_ofrecer', 10 / 60)
+        || await pasoReciente(conversationId, PASO_PROSPECTO_HORARIOS, 24));
+    if (pideHorarios && horariosFrenados && !pidioPrecio) return 'frenado';
+    if (pideHorarios && !horariosFrenados) {
+        // Horarios Y precio («costos y disponibilidad de días»): los dos en el
+        // mismo mensaje, la lista de valores arriba.
+        const precios = pidioPrecio && !(await pasoReciente(conversationId, PASO_PROSPECTO_PRECIOS, 24))
+            ? await preciosParaProspecto(integration.school_id, p.ajustesEscuela.responderPrecios)
+            : null;
+        const arriba = precios ? `${precios}\n\n` : '';
         const esAdulto = buscaParaAdulto(p.todo) || !!leerPerfil(p.todo)?.adulto;
         const ofrecidas = await ofrecerHorariosDeCortesia(ctxCortesia(integration, conversationId, contactWaId, null), {
             texto: p.todo,
             textoDelDia: nuevo,
-            intro: (esAdulto ? 'La escuela te confirma por aquí cuál grupo te queda mejor. ' : '') +
+            intro: arriba + (esAdulto ? 'La escuela te confirma por aquí cuál grupo te queda mejor. ' : '') +
                 'Estos son los próximos entrenamientos; en cualquiera puedes tomar una *clase de cortesía* gratis:',
             step: PASO_PROSPECTO_HORARIOS,
         });
@@ -2459,23 +2609,23 @@ async function responderSeguimientoDeProspecto(
         const info = await infoDeEscuela(integration.school_id).catch(() => null);
         if (info && info.grupos.some((g) => g.horario)) {
             await deliver(integration, conversationId, contactWaId,
-                'Estos son los grupos y sus horarios:\n\n' + fallbackInfoEscuela(info) + lineaEnlace,
+                arriba + 'Estos son los grupos y sus horarios:\n\n' + fallbackInfoEscuela(info) + lineaEnlace,
                 { step: PASO_PROSPECTO_HORARIOS, con_enlace: Boolean(enlace) });
             return 'prospecto_horarios';
         }
         if (enlace) {
             await deliver(integration, conversationId, contactWaId,
-                'Los horarios de cada grupo te los confirma la escuela por aquí.' + lineaEnlace,
+                arriba + 'Los horarios de cada grupo te los confirma la escuela por aquí.' + lineaEnlace,
                 { step: PASO_PROSPECTO_HORARIOS, con_enlace: true });
             return 'prospecto_horarios';
         }
         return null;
     }
 
-    // 3. Precio.
-    if (intereses.includes('precio')) {
+    // 3. Precio (con edad dicha, también el grupo que le corresponde).
+    if (pidioPrecio) {
         if (await pasoReciente(conversationId, PASO_PROSPECTO_PRECIOS, 24)) return 'frenado';
-        const precios = p.ajustesEscuela.responderPrecios ? await textoDePreciosDeEscuela(integration.school_id) : null;
+        const precios = await preciosParaProspecto(integration.school_id, p.ajustesEscuela.responderPrecios, leerPerfil(p.todo));
         if (precios) {
             await deliver(integration, conversationId, contactWaId, precios + lineaEnlace,
                 { step: PASO_PROSPECTO_PRECIOS, con_enlace: Boolean(enlace) });
@@ -2652,7 +2802,7 @@ async function modoAsistidoDeConversacion(conversationId: string): Promise<boole
  *
  * Nunca lanza: sin enlace, quien llama manda el caso al buzón.
  */
-async function enlaceDeInscripcion(schoolId: string): Promise<string | null> {
+export async function enlaceDeInscripcion(schoolId: string): Promise<string | null> {
     try {
         const ahora = new Date().toISOString();
         const { data, error } = await supabase
@@ -2818,7 +2968,11 @@ export const textoPreguntaConsentimiento = (escuela: string) =>
     `Una cosa más 🙂 ¿Quieres que *${escuela}* te envíe por aquí los recordatorios de pago ` +
     'y los avisos de tu atleta?\n\nResponde *SÍ* para activarlos. Puedes darte de baja cuando quieras.';
 
-/** Una vez por conversación, solo a familias con cuenta, nunca a quien ya aceptó o se dio de baja. */
+/**
+ * Solo a familias con cuenta, nunca a quien ya aceptó, se dio de baja o dijo
+ * que no; a quien la ignoró, otra vez pasados DIAS_PARA_REPREGUNTAR (máximo
+ * MAX_PREGUNTAS_CONSENTIMIENTO veces).
+ */
 async function faltaPreguntarConsentimiento(
     integration: WhatsAppIntegration,
     conversationId: string,
@@ -2941,42 +3095,109 @@ async function registrarOptIn(
     if (error) console.error('[whatsapp-bot] wa_register_optin error:', error);
 }
 
-export async function yaSePreguntoConsentimiento(conversationId: string): Promise<boolean> {
-    const { count: enviados } = await supabase
+/**
+ * La familia mandó «… ACTIVAR AVISOS» (enlace de /p/:token o del correo). Su
+ * propio mensaje es la prueba: se registra con ESE wa_message_id. Si ya tenía
+ * el opt-in vigente, solo se le confirma.
+ */
+async function activarAvisosPorPedido(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    parentId: string | null,
+    waMessageId: string,
+): Promise<void> {
+    const { data: optin } = await supabase
+        .from('whatsapp_optins')
+        .select('opted_in_at, opted_out_at')
+        .eq('integration_id', integration.id)
+        .eq('contact_wa_id', contactWaId)
+        .maybeSingle();
+    if ((optin as any)?.opted_in_at && !(optin as any)?.opted_out_at) {
+        await deliver(integration, conversationId, contactWaId,
+            '👍 Ya tienes activos los avisos por aquí. (Si algún día no quieres recibirlos, me escribes *BAJA*.)',
+            { step: 'opt_in_registrado', via: 'enlace_activar', ya_estaba: true });
+        return;
+    }
+    await registrarOptIn(integration, contactWaId, parentId, waMessageId);
+    await deliver(integration, conversationId, contactWaId,
+        '✅ Listo, te avisaré por aquí de tus pagos y de tu atleta. ' +
+        '(Si algún día no quieres recibirlos, me escribes *BAJA*.)',
+        { step: 'opt_in_registrado', via: 'enlace_activar' });
+}
+
+/**
+ * Cada cuánto se puede volver a hacer la pregunta a quien la IGNORÓ (ni sí ni
+ * no), y cuántas veces como máximo. Antes era una sola vez por conversación, y
+ * como cada número tiene UNA conversación, era una sola vez para siempre: de
+ * 28 familias preguntadas en Dynasty (06–08 oct) 10 no contestaron a la
+ * pregunta y no se les iba a volver a ofrecer nunca. A quien dijo «no» no se
+ * le vuelve a preguntar.
+ */
+export const DIAS_PARA_REPREGUNTAR = 14;
+export const MAX_PREGUNTAS_CONSENTIMIENTO = 3;
+
+/** ¿Se da por preguntado? Pura: fechas de las preguntas que salieron y si dijo que no. */
+export function consentimientoYaPreguntado(
+    fechas: (string | null | undefined)[],
+    rechazo: boolean,
+    ahora = Date.now(),
+): boolean {
+    if (rechazo) return true;
+    const ts = fechas.map((f) => Date.parse(String(f ?? ''))).filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
+    if (!ts.length) return false;
+    // Un borrador aprobado y su saliente son la MISMA pregunta: se cuentan
+    // como una si están a menos de una hora.
+    const veces = ts.filter((t, i) => i === 0 || t - ts[i - 1] > 3_600_000).length;
+    if (veces >= MAX_PREGUNTAS_CONSENTIMIENTO) return true;
+    return ts[ts.length - 1] >= ahora - DIAS_PARA_REPREGUNTAR * 86_400_000;
+}
+
+export async function yaSePreguntoConsentimiento(conversationId: string, ahora = Date.now()): Promise<boolean> {
+    const { count: rechazos } = await supabase
         .from('whatsapp_messages')
         .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', conversationId)
+        .eq('direction', 'outbound')
+        .eq('payload->>step', 'consent_rechazado');
+    if ((rechazos ?? 0) > 0) return true;
+
+    const fechas = (r: { data: any[] | null }) => ((r.data ?? []) as any[]).map((f) => f?.created_at);
+    const enviados = await supabase
+        .from('whatsapp_messages')
+        .select('created_at')
         .eq('conversation_id', conversationId)
         .eq('direction', 'outbound')
         .eq('payload->>step', 'ask_consent');
-    if ((enviados ?? 0) > 0) return true;
     // La pregunta al pie de otra respuesta (`conAnexoDeConsentimiento`).
-    const { count: alPie } = await supabase
+    const alPie = await supabase
         .from('whatsapp_messages')
-        .select('id', { count: 'exact', head: true })
+        .select('created_at')
         .eq('conversation_id', conversationId)
         .eq('direction', 'outbound')
         .eq('payload->>pregunta', 'ask_consent');
-    if ((alPie ?? 0) > 0) return true;
 
     // Borradores: solo cuentan los que SALIERON (aprobados o enviados desde el
     // buzón). Antes contaba cualquiera, y el modo asistido del 06-oct dejó 9
     // familias marcadas como «ya preguntadas» por un borrador que nunca vieron
     // (auditoría P1-8a). Un borrador `pending` igual no se repite: `deliver` no
     // deja dos borradores idénticos pendientes en la misma conversación.
-    const { count: borradores } = await supabase
+    const borradores = await supabase
         .from('whatsapp_message_drafts')
-        .select('id', { count: 'exact', head: true })
+        .select('created_at')
         .eq('conversation_id', conversationId)
         .eq('tool_context->>step', 'ask_consent')
         .in('status', ['approved', 'sent']);
-    if ((borradores ?? 0) > 0) return true;
-    const { count: borradoresAlPie } = await supabase
+    const borradoresAlPie = await supabase
         .from('whatsapp_message_drafts')
-        .select('id', { count: 'exact', head: true })
+        .select('created_at')
         .eq('conversation_id', conversationId)
         .eq('tool_context->>pregunta', 'ask_consent')
         .in('status', ['approved', 'sent']);
-    return (borradoresAlPie ?? 0) > 0;
+
+    return consentimientoYaPreguntado(
+        [...fechas(enviados as any), ...fechas(alPie as any), ...fechas(borradores as any), ...fechas(borradoresAlPie as any)],
+        false, ahora);
 }
 
 export async function nombreDeEscuela(schoolId: string): Promise<string> {
@@ -3120,7 +3341,13 @@ COMO PAGAR:
 - Da los numeros de cuenta COMPLETOS, tal como vienen. No los recortes.
 - Si la escuela no tiene cuentas cargadas, no te las inventes: ofrece el enlace para
   pagar en linea y el envio del comprobante por aqui.
-- Si get_payment_methods trae instrucciones_del_enlace, repitelas junto al enlace.`;
+- Si get_payment_methods trae instrucciones_del_enlace, repitelas junto al enlace.
+- Si get_payment_methods trae cobros_pendientes, pon debajo de cada cobro su enlace_pago
+  como «Pagar: <enlace>» (y su enlace_instrucciones si viene). Si enlace_para_pagar
+  viene null, no hay pago en linea general: no lo menciones.
+- NUNCA escribas enlaces de la app que piden iniciar sesion (/my-payments, /dashboard,
+  /login): la familia no tiene la sesion abierta en el chat. Solo los enlaces que trae
+  la herramienta.`;
 
 export const TOOLS: LlmTool[] = [
     {
@@ -3351,7 +3578,10 @@ async function handleIntent(
     }
 
     if (call.name === 'get_payment_methods') {
-        const medios = await mediosDePago(integration.school_id);
+        // Con los cobros pendientes de la familia y el enlace público de cada
+        // uno: nunca /my-payments, que pide iniciar sesión (Dynasty 28-sep → 08-oct).
+        const medios = await mediosDePagoDeFamilia(integration.school_id, parentId,
+            { integrationId: integration.id, waPhone: contactWaId });
 
         messages.push({ role: 'assistant', content: MARCA_CONSULTA });
         messages.push({ role: 'tool', toolName: 'get_payment_methods', content: JSON.stringify(medios) });
@@ -3450,7 +3680,7 @@ async function handleIntent(
  * Si la segunda llamada al LLM falla, el acudiente igual se queda con las
  * cuentas y el enlace. Dejarlo sin respuesta seria peor que un texto plano.
  */
-function fallbackMediosDePago(m: Awaited<ReturnType<typeof mediosDePago>>): string {
+function fallbackMediosDePago(m: Awaited<ReturnType<typeof mediosDePago>> & { cobros_pendientes?: CobroParaPagar[] }): string {
     const lineas: string[] = ['Puedes pagar de estas formas:', ''];
     if (m.cuentas.length) {
         lineas.push('*Transferencia*');
@@ -3459,12 +3689,27 @@ function fallbackMediosDePago(m: Awaited<ReturnType<typeof mediosDePago>>): stri
         }
         lineas.push('');
     }
-    lineas.push(`*En línea:* ${m.enlace_para_pagar}`);
-    // Con link de pago (Wompi/MP de la escuela) va también qué hacer con él:
-    // la familia paga por fuera de SportMaps y, si no manda el comprobante, el
-    // pago no queda registrado. Sin modelo, este texto es lo único que lo dice.
-    if (m.instrucciones_del_enlace) lineas.push(m.instrucciones_del_enlace);
-    lineas.push('');
+    // Cada cobro pendiente con SU enlace público (/p/:token o Wompi con el
+    // monto). Nunca /my-payments: pide iniciar sesión.
+    const cobros = (m.cobros_pendientes ?? []).filter((c) => c.enlace_pago);
+    if (cobros.length) {
+        lineas.push('*Tus cobros pendientes*');
+        for (const c of cobros) {
+            const monto = c.monto != null ? ` — ${new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(c.monto)}` : '';
+            lineas.push(`• ${c.concepto ?? 'Cobro'}${monto}`);
+            lineas.push(`   Pagar: ${c.enlace_pago}`);
+            if (c.enlace_instrucciones) lineas.push(`   (${c.enlace_instrucciones})`);
+        }
+        lineas.push('');
+    }
+    if (m.enlace_para_pagar) {
+        lineas.push(`*En línea:* ${m.enlace_para_pagar}`);
+        // Con link de pago (Wompi/MP de la escuela) va también qué hacer con él:
+        // la familia paga por fuera de SportMaps y, si no manda el comprobante, el
+        // pago no queda registrado. Sin modelo, este texto es lo único que lo dice.
+        if (m.instrucciones_del_enlace) lineas.push(m.instrucciones_del_enlace);
+        lineas.push('');
+    }
     lineas.push('*Y si ya pagaste*, mándame la foto del comprobante por acá mismo y yo lo registro. 📄');
     return lineas.join('\n');
 }

@@ -124,7 +124,10 @@ begin
   exception when others then
     if sqlerrm <> 'GATEWAY_NOT_CONFIGURED' then raise; end if;
   end;
-  perform public.set_store_payment_settings(current_setting('qa.vp_a')::uuid, '{"accept_cash_pickup":true}'::jsonb, null);
+  -- Todos los medios explícitos: la preparación del E2E deja la transferencia
+  -- prendida en esta tienda y set_store_payment_settings solo cambia lo que recibe.
+  perform public.set_store_payment_settings(current_setting('qa.vp_a')::uuid,
+    '{"accept_cash_pickup":true,"accept_transfer":false,"accept_wompi":false,"accept_mercadopago":false}'::jsonb, null);
   if (select count(*) from jsonb_array_elements(public.store_payment_methods(current_setting('qa.vp_a')::uuid)->'methods')) <> 1 then
     raise exception 'FALLO: medios de la escuela';
   end if;

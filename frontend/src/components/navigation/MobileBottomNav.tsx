@@ -1,10 +1,16 @@
 import { NavLink, useLocation } from 'react-router-dom';
-import { Home, Calendar, MessageSquare, User, Compass, Users, CreditCard, Baby, Settings, Trophy, Activity } from 'lucide-react';
+import { Home, Calendar, MessageSquare, User, Compass, Users, CreditCard, Baby, Settings, Trophy, Activity, ShoppingBag } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import { SHOW_EXPLORE } from '@/lib/feature-flags';
+import { useMySchoolStore } from '@/hooks/useMySchoolStore';
+import { BUYER_ROLES } from '@/lib/store/buyerStoreVisibility';
 
-const getNavigationItemsForRole = (role: string) => {
+// «Tienda» del comprador: solo si la tienda de SU escuela activa vende
+// (useMySchoolStore → store_seller_allowed), nunca por el flag global solo.
+const TIENDA_ITEM = { href: '/mi-tienda', label: 'Tienda', icon: ShoppingBag };
+
+const getNavigationItemsForRole = (role: string, showStore = false) => {
   switch (role) {
     case 'parent':
       return [
@@ -12,6 +18,7 @@ const getNavigationItemsForRole = (role: string) => {
         ...(SHOW_EXPLORE ? [{ href: '/explorar', label: 'Explorar', icon: Compass }] : []),
         { href: '/children', label: 'Hijos', icon: Baby },
         { href: '/my-payments', label: 'Pagos', icon: CreditCard },
+        ...(showStore ? [TIENDA_ITEM] : []),
         { href: '/messages', label: 'Chat', icon: MessageSquare },
       ];
     case 'school':
@@ -35,6 +42,7 @@ const getNavigationItemsForRole = (role: string) => {
         { href: '/dashboard', label: 'Inicio', icon: Home },
         { href: '/enrollments', label: 'Mis inscripciones', icon: Trophy },
         { href: '/training', label: 'Entrenamientos', icon: Activity },
+        ...(showStore ? [TIENDA_ITEM] : []),
         { href: '/profile', label: 'Perfil', icon: User },
       ];
     default:
@@ -50,6 +58,7 @@ const getNavigationItemsForRole = (role: string) => {
 export function MobileBottomNav() {
   const { profile } = useAuth();
   const location = useLocation();
+  const { showStore } = useMySchoolStore({ enabled: !!profile && BUYER_ROLES.has(profile.role) });
 
   if (!profile) {
     return null;
@@ -70,10 +79,10 @@ export function MobileBottomNav() {
     return null;
   }
 
-  const navigationItems = getNavigationItemsForRole(profile.role);
+  const navigationItems = getNavigationItemsForRole(profile.role, showStore);
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-30 bg-background border-t border-border md:hidden safe-area-bottom">
+    <nav data-testid="mobile-bottom-nav" className="fixed bottom-0 left-0 right-0 z-30 bg-background border-t border-border md:hidden safe-area-bottom">
       <div className="flex items-center justify-around h-16 px-2">
         {navigationItems.map((item) => {
           const Icon = item.icon;

@@ -7,11 +7,11 @@
  * y "Ya lo recibí" cuando va en camino.
  */
 
-import { useRef, useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowLeft, Building2, CheckCircle2, Copy, FileUp, KeyRound, Loader2, Package, School, Truck, XCircle,
+  ArrowLeft, Building2, CheckCircle2, Copy, FileUp, KeyRound, Loader2, Package, RefreshCw, School, Truck, XCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -26,10 +26,11 @@ import {
   buyerCanCancel, buyerCanConfirmReceived, buyerCanRetryGateway, buyerCanUploadReceipt, buyerStatusMessage,
   normalizeOrderStatus, orderShortRef, paymentMethodLabel,
 } from '@/lib/store/orderStatus';
-import { storeErrorView } from '@/lib/store/storeErrors';
+import { orderLoadError, storeErrorView } from '@/lib/store/storeErrors';
+import { buyerCanRegeneratePickupCode, buyerCopy } from '@/lib/store/buyerCopy';
 import {
-  cancelMyOrder, confirmReceived, fetchMyOrder, fetchOrderHistory, fetchOrderPayment, recallPickupCode,
-  receiptFileProblem, uploadOrderReceipt, type TransferInfo,
+  cancelMyOrder, confirmReceived, fetchMyOrder, fetchOrderHistory, fetchOrderPayment, pickupCodeRegenerations,
+  receiptFileProblem, recallPickupCodeEntry, regeneratePickupCode, rememberPickupCode, uploadOrderReceipt, type TransferInfo,
 } from '@/lib/api/storeApi';
 import { openWompiCheckout } from '@/lib/api/wompi';
 import { OrderStatusBadge } from '@/components/store/OrderStatusBadge';
@@ -38,22 +39,47 @@ import { OrderTimeline } from '@/components/store/OrderTimeline';
 export default function MiCompraDetallePage() {
   const { orderId } = useParams<{ orderId: string }>();
   const location = useLocation();
-  const created = (location.state as { created?: boolean; transfer?: TransferInfo } | null) ?? null;
-  const { user } = useAuth();
+  const navigate = useNavigate();
+  // El checkout llega con { created, transfer } en el estado de navegación. El
+  // banner "¡Pedido creado!" es SOLO para esa llegada: el estado se copia una vez
+  // y se borra del historial, así que recargar (o volver con atrás) no lo repite.
+  const navState = (location.state as { created?: boolean; transfer?: TransferInfo } | null) ?? null;
+  const [justCreated] = useState(() => !!navState?.created);
+  const [createdTransfer] = useState<TransferInfo | null>(() => navState?.transfer ?? null);
+  useEffect(() => {
+    if (navState?.created || navState?.transfer) {
+      navigate(`${location.pathname}${location.search}${location.hash}`, { replace: true, state: null });
+    }
+    // Solo al llegar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const { user, profile } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  const [busy, setBusy] = useState<'cancel' | 'received' | 'pay' | null>(null);
+  const [busy, setBusy] = useState<'cancel' | 'received' | 'pay' | 'code' | null>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  const [codeOpen, setCodeOpen] = useState(false);
+  const [freshCode, setFreshCode] = useState<{ code: string; left: number } | null>(null);
+  const copyFor = buyerCopy(profile?.role);
 
   const orderQ = useQuery({
     queryKey: ['store', 'my-order', orderId],
     queryFn: () => fetchMyOrder(orderId!),
     enabled: !!orderId,
+    // Un 429 o un 404 no se arreglan reintentando en caliente (el 429 empeora).
+    retry: (count, err) => {
+      const kind = orderLoadError(err);
+      return (kind === 'network' || kind === 'other') && count < 2;
+    },
   });
   const order = orderQ.data;
+  // "Ver/generar código" desde Mis compras llega con #codigo.
+  useEffect(() => {
+    if (order && location.hash === '#codigo') document.getElementById('codigo')?.scrollIntoView({ block: 'center' });
+  }, [order, location.hash]);
   const historyQ = useQuery({
     queryKey: ['store', 'order-history', orderId],
     queryFn: () => fetchOrderHistory(orderId!),
@@ -64,10 +90,10 @@ export default function MiCompraDetallePage() {
   const transferQ = useQuery({
     queryKey: ['store', 'order-payment', orderId],
     queryFn: async () => (await fetchOrderPayment(orderId!)).transfer ?? null,
-    enabled: !!order && needsReceipt && !created?.transfer,
+    enabled: !!order && needsReceipt && !createdTransfer,
     retry: false,
   });
-  const transfer: TransferInfo | null = created?.transfer ?? transferQ.data ?? null;
+  const transfer: TransferInfo | null = createdTransfer ?? transferQ.data ?? null;
 
   const refresh = async () => {
     await Promise.all([
@@ -135,6 +161,22 @@ export default function MiCompraDetallePage() {
     } catch (err) { fail(err); } finally { setBusy(null); }
   };
 
+  const onRegenerateCode = async () => {
+    if (!orderId || !user) return;
+    setBusy('code');
+    try {
+      const r = await regeneratePickupCode(orderId);
+      rememberPickupCode(user.id, orderId, r.pickup_code, r.regenerations_used);
+      setFreshCode({ code: r.pickup_code, left: r.regenerations_left });
+      setCodeOpen(false);
+      toast({ title: 'Código nuevo listo', description: 'El código anterior ya no sirve para retirar.' });
+      await qc.invalidateQueries({ queryKey: ['store', 'order-history', orderId] });
+    } catch (err) {
+      setCodeOpen(false);
+      fail(err);
+    } finally { setBusy(null); }
+  };
+
   const copy = async (text: string) => {
     try { await navigator.clipboard.writeText(text); toast({ title: 'Copiado', description: text }); } catch { /* nada */ }
   };
@@ -143,19 +185,48 @@ export default function MiCompraDetallePage() {
     return <div className="py-20 grid place-items-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
   }
   if (orderQ.isError || !order) {
+    // 429 (límite de operaciones) y fallas de red NO son "no existe".
+    const kind = orderQ.isError ? orderLoadError(orderQ.error) : 'not_found';
+    const view = kind === 'rate_limited'
+      ? { title: 'Demasiadas solicitudes', text: 'Demasiadas solicitudes, intenta en un minuto.' }
+      : kind === 'network'
+        ? { title: 'Sin conexión', text: 'No pudimos comunicarnos. Revisa tu internet e intenta de nuevo.' }
+        : kind === 'other'
+          ? { title: 'No pudimos cargar el pedido', text: 'Intenta de nuevo en un momento.' }
+          : { title: 'Pedido no encontrado', text: 'Este pedido no existe o no es de tu cuenta.' };
     return (
-      <div className="max-w-xl mx-auto text-center py-16 space-y-3">
+      <div className="max-w-xl mx-auto text-center py-16 space-y-3" data-testid="order-load-error" data-kind={kind}>
         <Package className="h-10 w-10 mx-auto text-muted-foreground/40" />
-        <h1 className="text-xl font-bold">Pedido no encontrado</h1>
-        <Button asChild variant="outline"><Link to="/mis-compras">Volver a Mis compras</Link></Button>
+        <h1 className="text-xl font-bold">{view.title}</h1>
+        <p className="text-sm text-muted-foreground">{view.text}</p>
+        <div className="flex justify-center gap-2">
+          {kind !== 'not_found' && (
+            <Button onClick={() => orderQ.refetch()} disabled={orderQ.isFetching} className="gap-1.5">
+              {orderQ.isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Reintentar
+            </Button>
+          )}
+          <Button asChild variant="outline"><Link to="/mis-compras">Volver a Mis compras</Link></Button>
+        </div>
       </div>
     );
   }
 
   const status = normalizeOrderStatus(order.status);
   const pickup = order.fulfillment_mode !== 'shipping';
-  const pickupCode = user && pickup ? recallPickupCode(user.id, order.id) : null;
-  const showPickupCode = !!pickupCode && status !== 'delivered' && status !== 'cancelled' && status !== 'expired';
+  const closed = status === 'delivered' || status === 'cancelled' || status === 'expired'
+    || status === 'refunded' || status === 'partially_refunded';
+  // El código guardado en este dispositivo deja de valer si el historial muestra
+  // una regeneración posterior (hecha en otro dispositivo).
+  const stored = user && pickup ? recallPickupCodeEntry(user.id, order.id) : null;
+  const regenerations = pickupCodeRegenerations(historyQ.data ?? []);
+  const storedStale = !!stored && historyQ.isSuccess && regenerations > stored.gen;
+  const pickupCode = freshCode?.code ?? (stored && !storedStale ? stored.code : null);
+  const canRegenerate = buyerCanRegeneratePickupCode(order);
+  // Efectivo sin pagar: se muestra el aviso aunque no haya código en este dispositivo
+  // (ahí no se regenera: el código es también la prueba del cobro).
+  const showPickupBox = pickup && !closed && (!!pickupCode || canRegenerate || order.payment_method === 'cash_pickup');
+  // El banner solo acompaña la llegada desde el checkout, y solo si todavía falta pagar.
+  const showCreatedBanner = justCreated && (status === 'pending_payment' || status === 'awaiting_approval');
   const items = order.order_items ?? [];
 
   return (
@@ -164,8 +235,8 @@ export default function MiCompraDetallePage() {
         <Link to="/mis-compras"><ArrowLeft className="h-4 w-4" /> Mis compras</Link>
       </Button>
 
-      {created?.created && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 dark:bg-emerald-950/40 dark:border-emerald-900 p-4 flex gap-3" role="status">
+      {showCreatedBanner && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 dark:bg-emerald-950/40 dark:border-emerald-900 p-4 flex gap-3" role="status" data-testid="order-created-banner">
           <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
           <div><p className="font-semibold">¡Pedido creado!</p><p className="text-sm text-muted-foreground">Te guardamos los productos mientras completas el pago.</p></div>
         </div>
@@ -182,13 +253,60 @@ export default function MiCompraDetallePage() {
         )}
       </header>
 
-      {showPickupCode && (
-        <section className="rounded-xl border-2 border-primary/40 bg-primary/5 p-4 space-y-1" aria-labelledby="pickup-code" data-testid="pickup-code-box">
+      {showPickupBox && (
+        <section id="codigo" className="rounded-xl border-2 border-primary/40 bg-primary/5 p-4 space-y-2" aria-labelledby="pickup-code" data-testid="pickup-code-box">
           <h2 id="pickup-code" className="text-sm font-semibold flex items-center gap-1.5"><KeyRound className="h-4 w-4" /> Código de retiro</h2>
-          <p className="text-3xl font-bold tracking-[0.3em] tabular-nums" data-testid="pickup-code">{pickupCode}</p>
-          <p className="text-xs text-muted-foreground">Muéstralo en la sede para recibir tu pedido. Guárdalo: por seguridad no lo podemos volver a mostrar en otro dispositivo.</p>
+          {pickupCode ? (
+            <>
+              <p className="text-3xl font-bold tracking-[0.3em] tabular-nums" data-testid="pickup-code">{pickupCode}</p>
+              <p className="text-xs text-muted-foreground">Muéstralo en la sede para recibir tu pedido. {copyFor.pickupShare}</p>
+              {freshCode && (
+                <p className="text-xs text-muted-foreground" data-testid="pickup-code-left">
+                  El código anterior ya no sirve. {freshCode.left > 0 ? `Puedes generar ${freshCode.left} ${freshCode.left === 1 ? 'código más' : 'códigos más'} si lo necesitas.` : 'Ya no puedes generar más códigos para este pedido.'}
+                </p>
+              )}
+            </>
+          ) : storedStale && canRegenerate ? (
+            <p className="text-sm" data-testid="pickup-code-missing">
+              Generaste un código nuevo en otro dispositivo, así que el que estaba guardado aquí ya no sirve. Usa el nuevo o genera otro aquí.
+            </p>
+          ) : canRegenerate ? (
+            <p className="text-sm" data-testid="pickup-code-missing">
+              Tu código quedó guardado en el dispositivo donde hiciste la compra. Si no lo tienes a mano, genera uno nuevo aquí: el anterior deja de servir.
+            </p>
+          ) : (
+            <p className="text-sm" data-testid="pickup-code-missing">
+              Tu código quedó guardado en el dispositivo donde hiciste el pedido. Como pagas en efectivo al retirar, ábrelo desde ese dispositivo o escríbele a la tienda.
+            </p>
+          )}
+          {canRegenerate && (
+            <Button
+              variant={pickupCode ? 'outline' : 'default'} size="sm" className="gap-1.5"
+              onClick={() => setCodeOpen(true)} disabled={busy === 'code'} data-testid="pickup-code-generate"
+            >
+              {busy === 'code' ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              {pickupCode ? 'Generar un código nuevo' : 'Generar código de retiro'}
+            </Button>
+          )}
         </section>
       )}
+
+      <AlertDialog open={codeOpen} onOpenChange={setCodeOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Generar un código de retiro nuevo?</AlertDialogTitle>
+            <AlertDialogDescription>
+              El código anterior deja de servir, también si lo tienes en otro celular o se lo pasaste a alguien. Puedes hacerlo hasta 3 veces por pedido.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Volver</AlertDialogCancel>
+            <AlertDialogAction onClick={(e) => { e.preventDefault(); onRegenerateCode(); }} disabled={busy === 'code'} data-testid="pickup-code-confirm">
+              {busy === 'code' && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Sí, generar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {needsReceipt && (
         <section className="rounded-xl border bg-card p-4 space-y-3" aria-labelledby="transfer-title" data-testid="transfer-box">

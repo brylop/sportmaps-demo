@@ -15,14 +15,16 @@
  *   POST /orders/:id/receipt            → submit_order_receipt → awaiting_approval
  *   POST /orders/:id/cancel             → cancel_my_order
  *   POST /orders/:id/received           → order_transition(delivered) "Ya lo recibí"
+ *   POST /orders/:id/pickup-code        → regenerate_my_pickup_code: código de retiro NUEVO (invalida el anterior)
  * Vendedor (quien administra la tienda):
  *   GET  /vendor/orders/:id/receipt-url → URL firmada de lectura del comprobante
  *   POST /vendor/orders/:id/approve-receipt
  *   POST /vendor/orders/:id/reject-receipt   {reason}
  *   POST /vendor/orders/:id/confirm-cash     {pickupCode}
  *   POST /vendor/orders/:id/transition       {to, note?, trackingNumber?, carrier?, pickupCode?}
- *   GET  /vendor/:vendorProfileId/payment-settings
- *   PUT  /vendor/:vendorProfileId/payment-settings
+ *   GET  /vendor/:vendorProfileId/payment-settings  (+ admin: store_admin_settings)
+ *   PUT  /vendor/:vendorProfileId/payment-settings  (+ transfer_account_ids, allow_shipping, pickup_branch_ids)
+ *   GET  /vendor/school-store/:schoolId          → la tienda de la escuela que administra (N0)
  * Público:
  *   GET  /payment-methods/:vendorProfileId → store_payment_methods (sin secretos)
  */
@@ -33,7 +35,7 @@ import { z } from 'zod';
 import { requireMarketplaceAuth, auditLog } from '../middlewares/authMiddleware';
 import { supabase } from '../config/supabase';
 import { mapStoreRpcError } from '../services/store-rpc-errors';
-import { canManageStoreAs } from '../services/store-access';
+import { canManageStoreAs, findSchoolStore } from '../services/store-access';
 import { findStoreOrderById, gatewayPayloadForOrder, SellerGatewayError } from '../services/store-checkout';
 
 export const ORDER_RECEIPTS_BUCKET = 'order-receipts';
@@ -153,6 +155,21 @@ router.post('/orders/:id/received', async (req: Request, res: Response) => {
     return res.json({ ok: true, data });
 });
 
+// Código de retiro desde cualquier dispositivo: la base solo guarda el hash, así
+// que no se puede "volver a mostrar"; se genera uno nuevo (máx. 3 por pedido,
+// pagado y sin entregar) y el anterior deja de servir. Se muestra una vez.
+router.post('/orders/:id/pickup-code', async (req: Request, res: Response) => {
+    const { data, error } = await supabase.rpc('regenerate_my_pickup_code', {
+        p_order_id: req.params.id, p_actor: req.user.id,
+    });
+    if (error) return sendRpcError(res, error);
+    // Sin el código en la auditoría del BFF (solo el conteo).
+    await auditLog(req, 'store_pickup_code_regenerated', 'orders', req.params.id as string, null, {
+        regenerations_used: (data as any)?.regenerations_used ?? null,
+    });
+    return res.json({ ok: true, data });
+});
+
 // ─── Vendedor ───────────────────────────────────────────────────────────────
 router.get('/vendor/orders/:id/receipt-url', async (req: Request, res: Response) => {
     try {
@@ -230,7 +247,28 @@ router.get('/vendor/:vendorProfileId/payment-settings', async (req: Request, res
     if (!(await canManageStoreAs(vendorProfileId, req.user.id))) return res.status(403).json({ ok: false, error: 'NOT_OWNER' });
     const { data } = await supabase.from('store_payment_settings').select('*').eq('vendor_profile_id', vendorProfileId).maybeSingle();
     const { data: methods } = await supabase.rpc('store_payment_methods', { p_vendor_profile_id: vendorProfileId });
-    return res.json({ ok: true, data: { settings: data ?? null, methods: methods ?? null } });
+    // Pantalla «Tienda → Ajustes → Cobros»: llaves enmascaradas con su aptitud,
+    // sedes, pasarelas conectadas y estado de habilitación (migración 20261008163336).
+    const { data: admin } = await supabase.rpc('store_admin_settings', {
+        p_vendor_profile_id: vendorProfileId, p_actor: req.user.id,
+    });
+    return res.json({ ok: true, data: { settings: data ?? null, methods: methods ?? null, admin: admin ?? null } });
+});
+
+/**
+ * La tienda de la escuela que el usuario administra (bug N0): por school_id,
+ * no por vendor_profiles.user_id. 404 si la escuela no tiene tienda; 403 si el
+ * usuario no la administra (coach, padre).
+ */
+router.get('/vendor/school-store/:schoolId', async (req: Request, res: Response) => {
+    const { schoolId } = req.params as { schoolId: string };
+    if (!UUID.test(schoolId)) return res.status(400).json({ ok: false, error: 'INVALID_PARAMETER' });
+    const store = await findSchoolStore(schoolId);
+    if (!store) return res.status(404).json({ ok: false, error: 'NOT_FOUND' });
+    if (!(await canManageStoreAs(store.id, req.user.id, store.user_id))) {
+        return res.status(403).json({ ok: false, error: 'NOT_OWNER' });
+    }
+    return res.json({ ok: true, data: store });
 });
 
 const SettingsSchema = z.object({
@@ -241,6 +279,12 @@ const SettingsSchema = z.object({
     transfer_instructions: z.string().max(1000).nullable().optional(),
     transfer_hold_hours: z.number().int().min(1).max(168).optional(),
     cash_hold_hours: z.number().int().min(1).max(168).optional(),
+    // null = todas las llaves aptas de la escuela; lista = solo esas.
+    transfer_account_ids: z.array(z.string().min(1).max(100)).max(50).nullable().optional(),
+    // false = solo retiro en sede; true = también envío.
+    allow_shipping: z.boolean().optional(),
+    // null = todas las sedes activas; lista = al menos una.
+    pickup_branch_ids: z.array(z.string().uuid()).min(1).max(50).nullable().optional(),
 }).strict();
 router.put('/vendor/:vendorProfileId/payment-settings', async (req: Request, res: Response) => {
     const { vendorProfileId } = req.params as { vendorProfileId: string };

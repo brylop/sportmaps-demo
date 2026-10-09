@@ -27,6 +27,7 @@ import {
 } from '../services/whatsapp.service';
 import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from '../services/whatsapp-optin.service';
 import { extractReceipt } from '../services/ocr.service';
+import { conContextoLlm } from '../services/llm-usage.service';
 import { extractEnrollmentForm, type EnrollmentFormResult } from '../services/enrollment-ocr.service';
 import { buildVerdictContext } from '../services/receipt-context.service';
 import { normalizeDestination, normalizeReference, evaluateVerdict, destinationMatchesRegistered } from '../services/receipt-verdict';
@@ -47,6 +48,11 @@ import {
     detectarOtroConcepto, decidirOtroConcepto, mensajeOtroConcepto, motivoOtroConcepto, textosAlrededor,
 } from '../services/whatsapp-otro-concepto.service';
 import { ventaAbiertaDeContacto, decidirComprobanteDeVenta } from '../services/whatsapp-venta-servicios.service';
+import {
+    fichasPorTelefono, deportistaPorNombre, pendientesPorLlaves, pagoYaRegistrado, botonesDeCobros,
+    PREGUNTA_DEPORTISTA, PASO_PREGUNTA_DEPORTISTA, TEXTO_YA_REGISTRADO, type LlavesDeFicha,
+} from '../services/whatsapp-comprobante-de-ficha.service';
+import type { BotonInteractivo } from '../services/whatsapp.service';
 
 const BUCKET = 'payment-receipts';
 const LOTE = 10;
@@ -299,7 +305,10 @@ async function esperarAlUsuario(id: string, pregunta: {
     ocr: Awaited<ReturnType<typeof extractReceipt>>;
     sha: string;
     storagePath: string | null;
-    parentId: string;
+    /** null: familia sin cuenta (cobros por ficha) o número sin ficha. */
+    parentId: string | null;
+    /** 'deportista': se preguntó de qué deportista es (número sin ficha). */
+    tipo?: 'cobro' | 'deportista';
 }) {
     await supabase.from('whatsapp_inbound_queue')
         .update({
@@ -312,6 +321,7 @@ async function esperarAlUsuario(id: string, pregunta: {
                 sha: pregunta.sha,
                 storagePath: pregunta.storagePath,
                 parentId: pregunta.parentId,
+                ...(pregunta.tipo === 'deportista' ? { tipo: 'deportista' } : {}),
             },
             pregunta_at: new Date().toISOString(),
         })
@@ -350,7 +360,8 @@ async function reintentar(fila: FilaCola, motivo: string, log?: Logger) {
 export interface ContextoAplicacion {
     queueId: string;
     schoolId: string;
-    parentId: string;
+    /** null: familia sin cuenta, el cobro se encontró por la ficha. */
+    parentId: string | null;
     storagePath: string | null;
     /** sha256 de la imagen. Es la llave del dedup: no se recalcula, se pasa. */
     sha: string;
@@ -698,19 +709,26 @@ export async function destinoEsDeLaEscuela(
  */
 async function continuarComoComprobante(
     fila: FilaCola,
-    parentId: string,
-    responder: (texto: string, paso: string) => Promise<unknown>,
+    parentId: string | null,
+    responder: (texto: string, paso: string, botones?: BotonInteractivo[]) => Promise<unknown>,
     base64: string,
     mime: string,
     storagePath: string,
     ocr: Awaited<ReturnType<typeof extractReceipt>>,
     log?: Logger,
+    /**
+     * `llaves`: familia sin cuenta (o número sin ficha resuelto por nombre):
+     * los cobros se buscan por la ficha. `alFallar`: quién maneja un fallo
+     * transitorio (el worker reintenta; la respuesta de la familia no).
+     */
+    opts: { llaves?: LlavesDeFicha; alFallar?: (motivo: string) => Promise<void> } = {},
 ): Promise<void> {
+    const alFallar = opts.alFallar ?? ((motivo: string) => reintentar(fila, motivo, log));
     // ¿La MISMA imagen ya se recibió de esta familia? (…0340, 07-oct: la foto
     // enviada dos veces recibió «lo apliqué…» y 40 s después «no tienes cobros
     // pendientes».) Va antes que todo: la respuesta nunca contradice a la primera.
     const shaArchivo = crypto.createHash('sha256').update(Buffer.from(base64, 'base64')).digest('hex');
-    if (await atenderComprobanteRepetido(fila, parentId, shaArchivo, responder, log)) return;
+    if (await atenderComprobanteRepetido(fila, parentId, shaArchivo, responder, log, opts.llaves)) return;
 
     if (ocr.isTransactionList === true) {
         await responder(M.esListado, 'es_listado');
@@ -733,8 +751,10 @@ async function continuarComoComprobante(
         return;
     }
 
-    // ¿A qué pago va?
-    const pendientes = await pagosPendientesDe(parentId, fila.school_id);
+    // ¿A qué pago va? Sin cuenta: por la ficha (child_id / unregistered_athlete_id).
+    const pendientes = opts.llaves
+        ? await pendientesPorLlaves(fila.school_id, { parentId, ...opts.llaves })
+        : await pagosPendientesDe(parentId as string, fila.school_id);
 
     // ¿Hay una venta por WhatsApp esperando el pago (servicio, carril B)? La
     // foto es de ESE cobro suelto, nunca de la mensualidad
@@ -748,7 +768,7 @@ async function continuarComoComprobante(
             queueId: fila.id, schoolId: fila.school_id, parentId, storagePath,
             sha: crypto.createHash('sha256').update(Buffer.from(base64, 'base64')).digest('hex'),
             ocr, responder,
-            alFallar: (motivo) => reintentar(fila, motivo, log),
+            alFallar,
             log,
         }, venta.pago, pendientes.filter((x) => x.id !== venta.pago.id));
         return;
@@ -780,7 +800,7 @@ async function continuarComoComprobante(
             queueId: fila.id, schoolId: fila.school_id, parentId, storagePath,
             sha: crypto.createHash('sha256').update(Buffer.from(base64, 'base64')).digest('hex'),
             ocr, responder,
-            alFallar: (motivo) => reintentar(fila, motivo, log),
+            alFallar,
             log,
         }, otro.pago, pendientes.filter((x) => x.id !== otro.pago.id));
         return;
@@ -808,6 +828,24 @@ async function continuarComoComprobante(
     }
 
     if (match.tipo === 'sin_pendientes') {
+        // (d) ¿Ya estaba registrado? Un pago aprobado con la misma referencia, o
+        // por el mismo monto en esos días: se dice, no se escala.
+        const ya = await pagoYaRegistrado(fila.school_id, { parentId, ...(opts.llaves ?? {}) }, ocr,
+            fila.created_at ?? new Date().toISOString());
+        if (ya) {
+            await responder(TEXTO_YA_REGISTRADO, 'ya_registrado');
+            await cerrar(fila.id, 'ignored', {
+                result_type: 'none', result_ref_id: ya.id, matched_parent_id: parentId,
+                error_message: `ya registrado: ${ya.concept ?? ya.id}`,
+            });
+            return;
+        }
+        if (!parentId) {
+            // Sin cuenta y sin cobros por la ficha: lo aplica la escuela, como antes.
+            await responder(M.escaladoSinAcudiente, 'familia_sin_cuenta');
+            await cerrar(fila.id, 'ignored', { result_type: 'escalated', error_message: 'familia_sin_cuenta: la ficha no tiene cobros pendientes' });
+            return;
+        }
         await responder(M.sinPendientes, 'sin_pendientes');
         await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'sin pagos pendientes' });
         return;
@@ -819,7 +857,9 @@ async function continuarComoComprobante(
             : `Recibí tu comprobante por ${cop(ocr.amount ?? 0)}. Parece que cubre estos cobros:\n\n` +
               `${match.pagos.map((p) => `• ${describirPago(p)}`).join('\n')}\n\n` +
               'Respóndeme *sí* para aplicarlo así.';
-        await responder(texto, match.tipo === 'preguntar' ? 'ask_cual_pago' : 'confirmar_combinacion');
+        // (c) Con botones (concepto + monto): tocar es más fácil que escribir «2».
+        await responder(texto, match.tipo === 'preguntar' ? 'ask_cual_pago' : 'confirmar_combinacion',
+            match.tipo === 'preguntar' ? botonesDeCobros(match.opciones) : undefined);
         await esperarAlUsuario(fila.id, {
             opciones: match.tipo === 'preguntar' ? match.opciones : match.pagos,
             ocr,
@@ -837,7 +877,7 @@ async function continuarComoComprobante(
     await aplicarComprobante({
         queueId: fila.id, schoolId: fila.school_id, parentId, storagePath, sha, ocr,
         responder,
-        alFallar: (motivo) => reintentar(fila, motivo, log),
+        alFallar,
         log,
     }, pago, pendientes.filter((x) => x.id !== pago.id));
 }
@@ -854,13 +894,23 @@ export const TEXTO_COMPROBANTE_REPETIDO = 'Este comprobante ya lo había recibid
 
 /** El cobro de la familia que ya tiene esta imagen (≤ 7 días), o null. Nunca lanza. */
 export async function cobroConLaMismaImagen(
-    schoolId: string, parentId: string, sha: string, ahora = Date.now(),
+    schoolId: string, parentId: string | null, sha: string, ahora = Date.now(),
+    /** Familia sin cuenta: la misma imagen en un cobro de sus fichas. */
+    llaves?: LlavesDeFicha,
 ): Promise<{ id: string; concept: string | null; status: string } | null> {
     try {
-        const { data, error } = await supabase.from('payments')
+        const porFicha = [
+            ...(llaves?.childIds.length ? [`child_id.in.(${llaves.childIds.join(',')})`] : []),
+            ...(llaves?.unregisteredIds.length ? [`unregistered_athlete_id.in.(${llaves.unregisteredIds.join(',')})`] : []),
+        ];
+        if (!parentId && !porFicha.length) return null;
+        let q = supabase.from('payments')
             .select('id, concept, status')
-            .eq('school_id', schoolId)
-            .eq('parent_id', parentId)
+            .eq('school_id', schoolId);
+        q = porFicha.length
+            ? q.or([...(parentId ? [`parent_id.eq.${parentId}`] : []), ...porFicha].join(','))
+            : q.eq('parent_id', parentId as string);
+        const { data, error } = await q
             .eq('receipt_image_sha256', sha)
             .gte('receipt_verdict_at', new Date(ahora - DIAS_COMPROBANTE_REPETIDO * 24 * 3600_000).toISOString())
             .limit(1);
@@ -897,12 +947,13 @@ async function repetidoAvisadoHacePoco(fila: FilaCola, ahora = Date.now()): Prom
  */
 async function atenderComprobanteRepetido(
     fila: FilaCola,
-    parentId: string,
+    parentId: string | null,
     sha: string,
     responder: (texto: string, paso: string) => Promise<unknown>,
     log?: Logger,
+    llaves?: LlavesDeFicha,
 ): Promise<boolean> {
-    const previo = await cobroConLaMismaImagen(fila.school_id, parentId, sha);
+    const previo = await cobroConLaMismaImagen(fila.school_id, parentId, sha, Date.now(), llaves);
     if (!previo) return false;
     const callar = await repetidoAvisadoHacePoco(fila);
     if (!callar) await responder(TEXTO_COMPROBANTE_REPETIDO, 'comprobante_repetido');
@@ -1254,7 +1305,7 @@ let esperaAcuseMs = ACUSE_DIFERIDO_MS;
 export function _fijarEsperaAcuse(ms: number): void { esperaAcuseMs = ms; }
 
 /** Pasos que son PREGUNTAS: salen en el acto (llevan su `queue_id` y esperan respuesta). */
-const PASOS_PREGUNTA = new Set(['ask_cual_pago', 'confirmar_combinacion']);
+const PASOS_PREGUNTA = new Set(['ask_cual_pago', 'confirmar_combinacion', PASO_PREGUNTA_DEPORTISTA]);
 
 /** Respuestas de una ráfaga de archivos del mismo contacto, para mandarlas en UN mensaje. */
 export interface RespuestaEnRafaga { texto: string; paso: string; queueId: string }
@@ -1358,12 +1409,183 @@ async function anotarAtletaDeLaFicha(fila: FilaCola): Promise<void> {
     } catch { /* sin atleta: la escuela lo busca */ }
 }
 
+// ─── Comprobantes por ficha (Dynasty 28-sep → 08-oct, 43 escalados) ────────
+//
+// (a) Familia sin cuenta con ficha por teléfono → el cobro se busca por la
+//     ficha y se aplica igual que a una familia con cuenta.
+// (b) Número sin ficha → el deportista por nombre (pie, chat, concepto y quien
+//     paga en el comprobante); si no hay uno solo, se pregunta UNA vez.
+// Ver whatsapp-comprobante-de-ficha.service.
+
+/**
+ * ¿A qué cuenta fue el dinero? 'general' (una cuenta de la escuela para
+ * cualquier cobro), 'restringida' (p. ej. el Nequi personal de la dueña, solo
+ * para inscripciones: un amigo que le devuelve plata también llega ahí),
+ * 'ajena', o null si no se pudo cruzar (sin destino leído o sin cuentas).
+ */
+export async function destinoDelComprobante(
+    schoolId: string,
+    ocr: Awaited<ReturnType<typeof extractReceipt>>,
+): Promise<'general' | 'restringida' | 'ajena' | null> {
+    const destino = normalizeDestination(ocr.destination);
+    if (!destino) return null;
+    const ctx = await buildVerdictContext(schoolId, { referenceNorm: null, imageSha256: null });
+    const generales = ctx.registeredAccounts ?? [];
+    const restringidas = (ctx.restrictedAccounts ?? []).map((r) => r.value);
+    if (!generales.length && !restringidas.length) return null;
+    if (generales.length && destinationMatchesRegistered(destino, generales)) return 'general';
+    if (restringidas.length && destinationMatchesRegistered(destino, restringidas)) return 'restringida';
+    return 'ajena';
+}
+
+/** ¿Este paso ya salió a la conversación en las últimas 24 h? Nunca lanza. */
+async function yaSalioElPaso(conversationId: string | null, paso: string): Promise<boolean> {
+    if (!conversationId) return false;
+    try {
+        const { data } = await supabase.from('whatsapp_messages')
+            .select('id')
+            .eq('conversation_id', conversationId)
+            .eq('direction', 'outbound')
+            .eq('payload->>step', paso)
+            .gte('created_at', new Date(Date.now() - 24 * 3600_000).toISOString())
+            .limit(1);
+        return Array.isArray(data) && data.length > 0;
+    } catch {
+        return false;
+    }
+}
+
+type Responder = (texto: string, paso: string, botones?: BotonInteractivo[]) => Promise<unknown>;
+
+/**
+ * (a) Familia sin cuenta con fichas por teléfono: se lee y se aplica por la
+ * ficha. Una consulta (reclamo + algo que no es un comprobante) va a una
+ * persona, como en `escalarALaEscuela`.
+ */
+async function comprobanteDeFamiliaSinCuenta(
+    fila: FilaCola, wa: WhatsAppIntegration, conversationId: string | null,
+    responder: Responder, llaves: LlavesDeFicha, log?: Logger,
+): Promise<void> {
+    const bajada = await bajarYGuardarArchivo(fila, wa, log);
+    if (!bajada.ok) return;
+    let ocr;
+    try {
+        ocr = await extractReceipt(bajada.base64, bajada.mime);
+    } catch (err: any) {
+        await reintentar(fila, `OCR no disponible: ${err?.message ?? err}`, log);
+        return;
+    }
+    if (!pareceComprobanteDePago(ocr)) {
+        if (ocr.isReceipt === false && !esConsultaSobreCobro(await textosCercanos(fila))) {
+            await responder(M.noEsComprobante, 'no_es_comprobante');
+            await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'no es un comprobante' });
+            return;
+        }
+        await derivarConsulta(fila, wa, conversationId, responder, 'familia_sin_cuenta', log);
+        return;
+    }
+    log?.info?.({ queueId: fila.id, fichas: llaves.childIds.length + llaves.unregisteredIds.length }, '[wa-queue] sin cuenta: por la ficha');
+    await continuarComoComprobante(fila, null, responder, bajada.base64, bajada.mime, bajada.storagePath, ocr, log, { llaves });
+}
+
+/**
+ * (b) Número sin ficha. Solo se le escribe si el archivo ES un comprobante
+ * hacia una cuenta de la escuela (o el contacto habla de un pago y el destino
+ * no es ajeno): a la vida privada de la dueña no se le contesta. Lo que no es
+ * un comprobante no se guarda (salvo que hable de un pago: la Bandeja lo
+ * muestra, como antes). Siempre cierra o deja esperando la fila.
+ */
+async function comprobanteDeNumeroSinFicha(
+    fila: FilaCola, wa: WhatsAppIntegration, conversationId: string | null,
+    responder: Responder, log?: Logger,
+): Promise<void> {
+    const silencio = () => cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'contacto_no_atendido' });
+    const textos = await textosDelContacto(fila, conversationId);
+    const hablaDePago = textosHablanDePago(textos);
+    let archivo: { base64: string; mime: string };
+    if (hablaDePago) {
+        const bajada = await bajarYGuardarArchivo(fila, wa, log);
+        if (!bajada.ok) return;
+        archivo = bajada;
+    } else {
+        const r = await obtenerArchivoDeFila(fila, wa, { guardar: false });
+        if (!r.ok) { await silencio(); return; }
+        archivo = r;
+    }
+    let ocr;
+    try {
+        ocr = await extractReceipt(archivo.base64, archivo.mime);
+    } catch {
+        await silencio();
+        return;
+    }
+    // Se le escribe solo si el dinero fue a una cuenta general de la escuela, o
+    // si habla de un pago y el destino no es ajeno.
+    const destino = pareceComprobanteDePago(ocr) ? await destinoDelComprobante(fila.school_id, ocr) : 'ajena';
+    if (destino === 'ajena' || (destino !== 'general' && !hablaDePago)) { await silencio(); return; }
+
+    const bajada = await bajarYGuardarArchivo(fila, wa, log);
+    if (!bajada.ok) return;
+    const llaves = await deportistaPorNombre(fila.school_id, [...textos, ocr.description, ocr.originName]);
+    if (llaves) {
+        log?.info?.({ queueId: fila.id }, '[wa-queue] número sin ficha: deportista por nombre');
+        await continuarComoComprobante(fila, null, responder, bajada.base64, bajada.mime, bajada.storagePath, ocr, log, { llaves });
+        return;
+    }
+    // UNA vez: si ya se le preguntó (otra foto de la ráfaga), esta queda esperando la misma respuesta.
+    if (!(await yaSalioElPaso(conversationId, PASO_PREGUNTA_DEPORTISTA))) {
+        await responder(PREGUNTA_DEPORTISTA, PASO_PREGUNTA_DEPORTISTA);
+    }
+    await esperarAlUsuario(fila.id, {
+        opciones: [], ocr,
+        sha: crypto.createHash('sha256').update(Buffer.from(bajada.base64, 'base64')).digest('hex'),
+        storagePath: bajada.storagePath, parentId: null, tipo: 'deportista',
+    });
+}
+
+/**
+ * La familia contestó «¿De qué deportista es este pago?» y el nombre señala UNA
+ * ficha: se aplica el comprobante guardado como el de una familia sin cuenta.
+ * Lo llama whatsapp-respuesta-de-cobro (vía whatsapp-comprobante-de-ficha).
+ * Nunca reintenta solo: un fallo deja la fila en el buzón.
+ */
+export async function aplicarComprobanteDeFicha(
+    queueId: string,
+    llaves: LlavesDeFicha,
+    responder: (texto: string, paso: string) => Promise<unknown>,
+    log?: Logger,
+): Promise<void> {
+    const { data: tomadas } = await supabase.from('whatsapp_inbound_queue')
+        .update({ status: 'processing', updated_at: new Date().toISOString() })
+        .eq('id', queueId).eq('status', 'waiting_user')
+        .select('*');
+    const fila = (Array.isArray(tomadas) ? tomadas[0] : null) as (FilaCola & { pregunta_ocr?: any }) | null;
+    const guardado = fila?.pregunta_ocr;
+    if (!fila || !guardado?.ocr) return;
+    const aLaEscuela = async (motivo: string) => {
+        await responder(M.escaladoSinAcudiente, 'familia_sin_cuenta');
+        await cerrar(fila.id, 'ignored', { result_type: 'escalated', error_message: `sin_familia: ${motivo}` });
+    };
+    const { data: integ } = await supabase.from('school_whatsapp_integrations')
+        .select('*').eq('id', fila.integration_id).maybeSingle();
+    if (!integ) { await aLaEscuela('la integración ya no existe'); return; }
+    const archivo = await obtenerArchivoDeFila(fila, integ as WhatsAppIntegration, { guardar: false });
+    if (!archivo.ok || !archivo.storagePath) {
+        await aLaEscuela(archivo.ok ? 'sin archivo guardado' : archivo.error);
+        return;
+    }
+    await continuarComoComprobante(fila, null, responder, archivo.base64, archivo.mime, archivo.storagePath,
+        guardado.ocr, log, { llaves, alFallar: aLaEscuela });
+}
+
 async function procesarFila(fila: FilaCola, log?: Logger, rafaga?: Rafaga): Promise<void> {
     // Acuse diferido: se arma cuando se sabe que a esta familia se le va a
     // contestar, y se desarma al salir.
     let acuseTimer: ReturnType<typeof setTimeout> | null = null;
     try {
-        await procesarFilaInterna(fila, log, rafaga, (t) => { acuseTimer = t; });
+        // La escuela de la fila queda en el contexto para el registro de consumo (llm_usage).
+        await conContextoLlm({ schoolId: fila.school_id, feature: 'ocr' },
+            () => procesarFilaInterna(fila, log, rafaga, (t) => { acuseTimer = t; }));
     } finally {
         if (acuseTimer) clearTimeout(acuseTimer);
     }
@@ -1425,9 +1647,10 @@ async function procesarFilaInterna(
      * (resultado de un comprobante) EN EL MISMO MENSAJE, anti-repetición, y
      * registro en whatsapp_messages.
      */
-    const enviar = async (texto: string, payload: Record<string, unknown>, conConsentimiento: boolean) => {
+    const enviar = async (texto: string, payload: Record<string, unknown>, conConsentimiento: boolean,
+        botonesPropios?: BotonInteractivo[]) => {
         let cuerpo = texto;
-        let botones: any[] | null = null;
+        let botones: any[] | null = botonesPropios?.length ? botonesPropios : null;
         let extra: Record<string, unknown> = {};
         // Import perezoso: el bot arrastra el modelo y media app. Cada pieza
         // por separado y sin poder tumbar el envío: la respuesta sale igual.
@@ -1497,7 +1720,7 @@ async function procesarFilaInterna(
         return enviado;
     };
 
-    const responder = async (texto: string, paso: string) => {
+    const responder = async (texto: string, paso: string, botones?: BotonInteractivo[]) => {
         if (tomada) {
             log?.info?.({ queueId: fila.id, paso }, '[wa-queue] conversación tomada: no se le escribe a la familia');
             return { ok: true, silenciado: true };
@@ -1511,7 +1734,7 @@ async function procesarFilaInterna(
             rafaga.enviar = enviar;
             return { ok: true, enRafaga: true };
         }
-        return enviar(texto, { step: paso, queue_id: fila.id }, paso === 'resultado_comprobante');
+        return enviar(texto, { step: paso, queue_id: fila.id }, paso === 'resultado_comprobante', botones);
     };
 
     /**
@@ -1584,6 +1807,12 @@ async function procesarFilaInterna(
         return;
     }
     if (decision === 'silencio') {
+        // (b) Número sin ficha que manda un comprobante a la escuela: se busca
+        // al deportista por nombre o se le pregunta una vez.
+        if (atencion.tipo === 'desconocido' && !tomada) {
+            await comprobanteDeNumeroSinFicha(fila, wa, conversationId, responder, log);
+            return;
+        }
         // Número desconocido que ANUNCIA un pago («Mira mile mi pago de este
         // mes», 06-oct: Helen, Andrés Vargas, Mauricio…): no se le responde,
         // pero el archivo se guarda (`storage_path`) para que la escuela lo vea
@@ -1603,6 +1832,12 @@ async function procesarFilaInterna(
         return;
     }
     if (decision === 'escalar_sin_cuenta') {
+        // (a) Con ficha por teléfono: se aplica por la ficha, sin pedir cuenta.
+        const fichas = await fichasPorTelefono(fila.school_id, fila.wa_phone_number);
+        if (fichas.childIds.length || fichas.unregisteredIds.length) {
+            await comprobanteDeFamiliaSinCuenta(fila, wa, conversationId, responder, fichas, log);
+            return;
+        }
         // El mensaje (con el enlace de registro) se arma solo si de verdad es un
         // comprobante: a una consulta no se le ofrece registrarse.
         //

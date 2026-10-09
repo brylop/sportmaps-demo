@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import { countMyAppointments, currentMonthColombia, getMyVendorSummary, monthRangeISO } from '@/lib/clinical/agenda-extra';
 import { todayColombia } from '@/lib/dateUtils';
+import { useStoreSalesInsights } from '@/hooks/useMyStoreProducts';
+import { formatCOP } from '@/lib/store/inventory';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -68,6 +70,11 @@ export default function VendorDashboardPage() {
     enabled: isWellness && !!session,
   });
 
+  // Ventas reales de la tienda (orders/order_items pagados en adelante), últimos 30 días.
+  const salesQ = useStoreSalesInsights(30);
+  const sales = !isWellness ? salesQ.data : undefined;
+  const salesValue = (v: string | number) => (salesQ.isLoading ? '…' : salesQ.error ? '—' : v);
+
   const vendor = vendorQ.data;
   const ratingCard: StatCard[] = vendor && (vendor.reviews_count ?? 0) > 0 && vendor.avg_rating != null
     ? [{
@@ -84,8 +91,11 @@ export default function VendorDashboardPage() {
       ...ratingCard,
     ]
     : [
-      { title: 'Productos activos', value: loading ? '-' : stats?.total_products ?? 0, icon: Package, color: 'text-blue-600' },
-      { title: 'Órdenes', value: loading ? '-' : stats?.total_orders ?? 0, icon: ShoppingBag, color: 'text-green-600' },
+      { title: 'Ingresos (30 días)', value: salesValue(formatCOP(sales?.revenue ?? 0)), icon: DollarSign, color: 'text-emerald-600', onClick: () => navigate('/orders') },
+      { title: 'Pedidos pagados (30 días)', value: salesValue(sales?.orders ?? 0), icon: ShoppingBag, color: 'text-green-600', onClick: () => navigate('/orders') },
+      { title: 'Ticket promedio', value: salesValue(formatCOP(sales?.avg_ticket ?? 0)), icon: BarChart3, color: 'text-violet-600' },
+      { title: 'Productos activos', value: loading ? '…' : stats?.total_products ?? 0, icon: Package, color: 'text-blue-600', onClick: () => navigate('/vendor/products') },
+      // Calificación solo si hay reseñas reales (sin "-" fijo).
       ...ratingCard,
     ];
 
@@ -125,6 +135,35 @@ export default function VendorDashboardPage() {
           </Card>
         ))}
       </div>
+
+      {!isWellness && (
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle className="text-lg">Más vendidos (30 días)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {salesQ.isLoading ? (
+              <p className="text-sm text-muted-foreground">Cargando…</p>
+            ) : salesQ.error ? (
+              <p className="text-sm text-muted-foreground">No se pudieron cargar las ventas de la tienda.</p>
+            ) : (sales?.top_products.length ?? 0) === 0 ? (
+              <p className="text-sm text-muted-foreground" data-testid="top-products-empty">Todavía no hay ventas pagadas en este periodo.</p>
+            ) : (
+              <ol className="space-y-2" data-testid="top-products">
+                {sales!.top_products.map((p, i) => (
+                  <li key={p.product_id} className="flex items-center justify-between gap-3 text-sm">
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className="w-5 text-muted-foreground">{i + 1}.</span>
+                      <span className="truncate font-medium">{p.name}</span>
+                    </span>
+                    <span className="shrink-0 text-muted-foreground">{p.units} u. · {formatCOP(p.revenue)}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

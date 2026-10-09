@@ -15,6 +15,15 @@ import {
     buildDuplicateRow,
 } from '../services/store-product-fields';
 import { mapStoreRpcError } from '../services/store-rpc-errors';
+import {
+    productStockView,
+    parseVariantSpecs,
+    comboKey,
+    variantDisplayName,
+    buildSalesInsights,
+    parsePeriodDays,
+    PAID_LIKE_STATUSES,
+} from '../services/store-inventory';
 
 const router = Router();
 
@@ -68,6 +77,16 @@ router.use(async (req: Request, res: Response, next: NextFunction) => {
 
 function managedOf(res: Response): ManagedVendorProfile[] {
     return (res.locals.managedVendorProfiles as ManagedVendorProfile[] | undefined) ?? [];
+}
+
+/** Filtra products/orders a las tiendas que el usuario gestiona (o las suyas legacy por vendor_id). */
+function scopeToMyStores<Q extends { or: (f: string) => Q; eq: (c: string, v: string) => Q }>(
+    query: Q, req: Request, res: Response,
+): Q {
+    const managedIds = managedOf(res).map((vp) => vp.id);
+    return managedIds.length > 0
+        ? query.or(`vendor_id.eq.${req.user.id},vendor_profile_id.in.(${managedIds.join(',')})`)
+        : query.eq('vendor_id', req.user.id);
 }
 
 /**
@@ -128,20 +147,18 @@ router.get('/', async (req: Request, res: Response) => {
     try {
         const { status, category, page = '1', limit = '50' } = req.query;
         const offset = (parseInt(page as string, 10) - 1) * parseInt(limit as string, 10);
-        const managedIds = managedOf(res).map((vp) => vp.id);
 
         let query = supabase
             .from('products')
             .select(`
                 *,
-                product_variants (id, sku, name, attributes, price_override, stock, image_url, is_active, sort_order)
+                product_categories (id, slug, name),
+                product_variants (id, sku, name, attributes, price_override, stock, reserved, image_url, is_active, sort_order)
             `, { count: 'exact' })
             .order('created_at', { ascending: false })
             .range(offset, offset + parseInt(limit as string, 10) - 1);
 
-        query = managedIds.length > 0
-            ? query.or(`vendor_id.eq.${req.user.id},vendor_profile_id.in.(${managedIds.join(',')})`)
-            : query.eq('vendor_id', req.user.id);
+        query = scopeToMyStores(query, req, res);
 
         if (status) query = query.eq('status', status as string);
         if (category) query = query.eq('category', category as string);
@@ -152,7 +169,67 @@ router.get('/', async (req: Request, res: Response) => {
             return res.status(500).json({ ok: false, error: 'Error obteniendo productos.' });
         }
 
-        return res.json({ ok: true, data: data || [], total: count || 0 });
+        // Stock real: con variantes = suma de las activas (no products.stock suelto);
+        // "stock bajo" según el min_stock_alert de cada producto.
+        const rows = (data || []).map((p: any) => {
+            const variants = Array.isArray(p.product_variants)
+                ? [...p.product_variants].sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+                : [];
+            return { ...p, product_variants: variants, ...productStockView({ ...p, product_variants: variants }) };
+        });
+
+        return res.json({ ok: true, data: rows, total: count || 0 });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: 'Error interno.' });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/v1/vendor/products/insights?days=30 — métricas de la tienda
+// Ingresos, pedidos, ticket promedio y más vendidos desde orders/order_items
+// de las tiendas que el usuario gestiona. Solo pedidos pagados en adelante.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get('/insights', async (req: Request, res: Response) => {
+    try {
+        const days = parsePeriodDays(req.query.days);
+        const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+        let ordersQ = supabase
+            .from('orders')
+            .select('id, status, total_amount, created_at')
+            .in('status', PAID_LIKE_STATUSES as unknown as string[])
+            .gte('created_at', since)
+            .limit(5000);
+        ordersQ = scopeToMyStores(ordersQ, req, res);
+        const { data: orders, error: oErr } = await ordersQ;
+        if (oErr) {
+            req.log?.error({ err: oErr }, 'insights: error leyendo pedidos');
+            return res.status(500).json({ ok: false, error: 'Error obteniendo métricas.' });
+        }
+
+        const orderIds = (orders || []).map((o: any) => o.id as string);
+        let items: any[] = [];
+        for (let i = 0; i < orderIds.length; i += 200) {
+            const { data: chunk, error: iErr } = await supabase
+                .from('order_items')
+                .select('order_id, product_id, quantity, line_total, subtotal, unit_price')
+                .in('order_id', orderIds.slice(i, i + 200));
+            if (iErr) {
+                req.log?.error({ err: iErr }, 'insights: error leyendo ítems');
+                return res.status(500).json({ ok: false, error: 'Error obteniendo métricas.' });
+            }
+            items = items.concat(chunk || []);
+        }
+
+        const productIds = [...new Set(items.map((it) => it.product_id).filter(Boolean))] as string[];
+        const names: Record<string, string> = {};
+        if (productIds.length > 0) {
+            const { data: prods } = await supabase.from('products').select('id, name').in('id', productIds);
+            for (const p of prods || []) names[(p as any).id] = (p as any).name;
+        }
+
+        const insights = buildSalesInsights((orders || []) as any[], items, names);
+        return res.json({ ok: true, data: { ...insights, days, since } });
     } catch (err) {
         return res.status(500).json({ ok: false, error: 'Error interno.' });
     }
@@ -225,7 +302,8 @@ router.post('/', async (req: Request, res: Response) => {
                 name,
                 description: description || null,
                 price,
-                stock: stock.present && stock.valid ? stock.value : 0,
+                // Nace en 0: el stock inicial entra abajo por inventory_adjust (kardex).
+                stock: 0,
                 category: category || null,            // legacy text
                 category_id: category_id || null,      // FK nuevo
                 brand_id: brand_id || null,
@@ -253,8 +331,23 @@ router.post('/', async (req: Request, res: Response) => {
             return res.status(500).json({ ok: false, error: 'Error creando producto.' });
         }
 
+        let created = data;
+        if (stock.present && stock.valid && stock.value > 0) {
+            const { data: adj, error: adjErr } = await adjustInventory(
+                req, { productId: data.id }, stock.value, 'manual_restock', 'Stock inicial',
+            );
+            if (adjErr) {
+                req.log?.error({ err: adjErr }, 'Producto creado sin stock inicial');
+                return res.status(207).json({
+                    ok: false, data, error: 'El producto se creó, pero no se pudo cargar el stock inicial.',
+                    code: mapStoreRpcError(adjErr).code,
+                });
+            }
+            created = { ...data, stock: (adj as any)?.stock_after ?? stock.value };
+        }
+
         await auditLog(req, 'product_create', 'products', data.id);
-        return res.status(201).json({ ok: true, data });
+        return res.status(201).json({ ok: true, data: created });
     } catch (err) {
         return res.status(500).json({ ok: false, error: 'Error interno.' });
     }
@@ -309,6 +402,56 @@ router.patch('/:id', async (req: Request, res: Response) => {
         }
 
         return res.json({ ok: true, data, inventory });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: 'Error interno.' });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/v1/vendor/products/:id/inventory — kardex (historial de movimientos)
+// Lo más reciente primero. Solo lectura: inventory_logs es append-only.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get('/:id/inventory', async (req: Request, res: Response) => {
+    try {
+        const id = req.params.id as string;
+        const product = await loadManagedProduct(req, id);
+        if (!product) {
+            return res.status(404).json({ ok: false, error: 'Producto no encontrado.' });
+        }
+        const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '100'), 10) || 100, 1), 500);
+
+        const { data: logs, error } = await supabase
+            .from('inventory_logs')
+            .select('id, variant_id, delta, stock_before, stock_after, reason, note, order_id, created_by, created_at')
+            .eq('product_id', id)
+            .order('created_at', { ascending: false })
+            .limit(limit);
+        if (error) {
+            req.log?.error({ err: error }, 'Error leyendo kardex');
+            return res.status(500).json({ ok: false, error: 'Error obteniendo el historial.' });
+        }
+
+        const variantIds = [...new Set((logs || []).map((l: any) => l.variant_id).filter(Boolean))] as string[];
+        const actorIds = [...new Set((logs || []).map((l: any) => l.created_by).filter(Boolean))] as string[];
+        const [variantsRes, actorsRes] = await Promise.all([
+            variantIds.length
+                ? supabase.from('product_variants').select('id, name').in('id', variantIds)
+                : Promise.resolve({ data: [] as any[] }),
+            actorIds.length
+                ? supabase.from('profiles').select('id, full_name').in('id', actorIds)
+                : Promise.resolve({ data: [] as any[] }),
+        ]);
+        const vName = new Map((variantsRes.data || []).map((v: any) => [v.id, v.name]));
+        const aName = new Map((actorsRes.data || []).map((a: any) => [a.id, a.full_name]));
+
+        return res.json({
+            ok: true,
+            data: (logs || []).map((l: any) => ({
+                ...l,
+                variant_name: l.variant_id ? vName.get(l.variant_id) ?? null : null,
+                actor_name: l.created_by ? aName.get(l.created_by) ?? null : null,
+            })),
+        });
     } catch (err) {
         return res.status(500).json({ ok: false, error: 'Error interno.' });
     }
@@ -664,27 +807,22 @@ router.post('/:id/duplicate', async (req: Request, res: Response) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/v1/vendor/products/:id/variants/bulk — crea matriz de variantes
-// body: { matrix: { attributeKey: string[], ... }, defaults: { stock?, price_override? } }
-// Ejemplo: matrix = { talla: ["S","M","L"], color: ["negro","blanco"] }
-//   → genera 6 variantes (S-negro, S-blanco, M-negro, ...)
+// POST /api/v1/vendor/products/:id/variants/bulk — crea variantes con su stock
+// body (preferido): { variants: [{ attributes: { talla: "S" }, stock: 12, price_override? }, …] }
+//   → cada combinación con SU stock inicial.
+// body (legacy):    { matrix: { talla: ["S","M"], color: [...] }, defaults: { stock?, price_override? } }
+//   → producto cartesiano con el mismo stock.
+// Las combinaciones que el producto ya tiene se omiten (sirve al editar para
+// agregar tallas nuevas). Las variantes nacen en 0 y el stock inicial entra por
+// inventory_adjust ('manual_restock', nota "Stock inicial"): queda en el kardex.
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/:id/variants/bulk', async (req: Request, res: Response) => {
     try {
         const id = req.params.id as string;
-        const { matrix, defaults = {} } = req.body as {
-            matrix:   Record<string, string[]>;
-            defaults: { stock?: number; price_override?: number };
-        };
 
-        if (!matrix || typeof matrix !== 'object' || Object.keys(matrix).length === 0) {
-            return res.status(400).json({ ok: false, error: 'matrix es requerido y debe tener al menos 1 eje.' });
-        }
-
-        // Stock inicial de cada variante (alta, no edición).
-        const initialStock = parseStock(defaults as Record<string, unknown>);
-        if (initialStock.present && !initialStock.valid) {
-            return res.status(400).json({ ok: false, error: 'defaults.stock debe ser un entero mayor o igual a 0.' });
+        const parsed = parseVariantSpecs(req.body);
+        if (!parsed.ok) {
+            return res.status(400).json({ ok: false, error: parsed.error });
         }
 
         const product = await loadManagedProduct(req, id, 'id, name, sku, vendor_id, vendor_profile_id');
@@ -692,57 +830,70 @@ router.post('/:id/variants/bulk', async (req: Request, res: Response) => {
             return res.status(404).json({ ok: false, error: 'Producto no encontrado.' });
         }
 
-        // Producto cartesiano de los ejes
-        const keys = Object.keys(matrix);
-        const axes = keys.map(k => matrix[k]);
-        if (axes.some(a => !Array.isArray(a) || a.length === 0)) {
-            return res.status(400).json({ ok: false, error: 'Cada eje del matrix debe ser un array no vacio.' });
+        const { data: existing, error: exErr } = await supabase
+            .from('product_variants')
+            .select('id, attributes, sort_order')
+            .eq('product_id', id);
+        if (exErr) {
+            return res.status(500).json({ ok: false, error: 'Error leyendo variantes.' });
+        }
+        const have = new Set((existing || []).map((v: any) => comboKey(v.attributes || {})));
+        const toCreate = parsed.variants.filter((v) => !have.has(comboKey(v.attributes)));
+        if ((existing?.length ?? 0) + toCreate.length > 200) {
+            return res.status(400).json({ ok: false, error: 'El producto superaría 200 variantes. Reducir ejes.' });
+        }
+        if (toCreate.length === 0) {
+            return res.status(200).json({ ok: true, data: [], count: 0, skipped: parsed.variants.length });
         }
 
-        const combinations: Record<string, string>[] = axes.reduce<Record<string, string>[]>(
-            (acc, axisValues, idx) => {
-                const key = keys[idx];
-                if (acc.length === 0) return axisValues.map(v => ({ [key]: v }));
-                const next: Record<string, string>[] = [];
-                for (const prev of acc) for (const v of axisValues) next.push({ ...prev, [key]: v });
-                return next;
-            },
-            [],
-        );
-
-        // Hard cap para evitar abuso
-        if (combinations.length > 200) {
-            return res.status(400).json({ ok: false, error: 'La matriz genera mas de 200 variantes. Reducir ejes.' });
-        }
-
-        // Build payload
         const baseSku = (product.sku || String(product.name).toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 20));
-        const variantsToInsert = combinations.map((attrs, idx) => {
-            const variantSuffix = Object.values(attrs).map(v => String(v).toUpperCase().replace(/\s+/g, '')).join('-');
+        const maxSort = Math.max(-1, ...(existing || []).map((v: any) => Number(v.sort_order ?? 0)));
+        const stamp = Date.now().toString(36).slice(-4).toUpperCase();
+        const rows = toCreate.map((v, idx) => {
+            const suffix = Object.values(v.attributes).map((x) => String(x).toUpperCase().replace(/\s+/g, '')).join('-');
             return {
                 product_id:     id,
-                name:           Object.entries(attrs).map(([k, v]) => `${k}: ${v}`).join(', '),
-                attributes:     attrs,
-                stock:          initialStock.present && initialStock.valid ? initialStock.value : 0,
-                price_override: defaults.price_override ?? null,
-                sku:            `${baseSku}-${variantSuffix}-${idx + 1}`.toUpperCase(),
+                name:           variantDisplayName(v.attributes),
+                attributes:     v.attributes,
+                stock:          0,
+                price_override: v.price_override,
+                sku:            `${baseSku}-${suffix}-${stamp}${idx + 1}`.toUpperCase(),
                 is_active:      true,
-                sort_order:     idx,
+                sort_order:     maxSort + 1 + idx,
             };
         });
 
         const { data: inserted, error: ie } = await supabase
             .from('product_variants')
-            .insert(variantsToInsert)
+            .insert(rows)
             .select();
 
-        if (ie) {
+        if (ie || !inserted) {
             req.log?.error({ err: ie }, 'Error en bulk variant insert');
             return res.status(500).json({ ok: false, error: 'Error creando variantes.' });
         }
 
-        await auditLog(req, 'product_variants_bulk', 'product_variants', id, null, { count: inserted?.length });
-        return res.status(201).json({ ok: true, data: inserted, count: inserted?.length || 0 });
+        // Stock inicial por variante, con kardex.
+        const stockErrors: { variant_id: string; error: string }[] = [];
+        for (const v of inserted as any[]) {
+            const spec = toCreate.find((t) => comboKey(t.attributes) === comboKey(v.attributes || {}));
+            if (!spec || spec.stock <= 0) continue;
+            const { error: adjErr } = await adjustInventory(req, { variantId: v.id }, spec.stock, 'manual_restock', 'Stock inicial');
+            if (adjErr) {
+                stockErrors.push({ variant_id: v.id, error: mapStoreRpcError(adjErr).message });
+            } else {
+                v.stock = spec.stock;
+            }
+        }
+
+        await auditLog(req, 'product_variants_bulk', 'product_variants', id, null, { count: inserted.length });
+        if (stockErrors.length > 0) {
+            return res.status(207).json({
+                ok: false, data: inserted, count: inserted.length, stock_errors: stockErrors,
+                error: 'Se crearon las variantes, pero no se pudo cargar el stock inicial de algunas.',
+            });
+        }
+        return res.status(201).json({ ok: true, data: inserted, count: inserted.length });
     } catch (err) {
         return res.status(500).json({ ok: false, error: 'Error interno.' });
     }

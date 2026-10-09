@@ -70,7 +70,9 @@ const depsReales: CorreoAutopayDeps = {
         const email = (data as any)?.email;
         return typeof email === 'string' && email.includes('@') ? email : null;
     },
-    enviar: enviarConReserva,
+    // Envoltura: los tests que mockean avisos-correo sin enviarConReserva no
+    // rompen al importar la cadena de autopay (el acceso queda para el envío).
+    enviar: (...args) => enviarConReserva(...args),
     now: () => new Date(),
 };
 

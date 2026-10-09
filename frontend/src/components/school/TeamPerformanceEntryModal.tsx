@@ -9,7 +9,6 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { NumberStepper } from '@/components/ui/number-stepper';
@@ -23,6 +22,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar as CalendarPicker } from '@/components/ui/calendar';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { QuickMetricInput } from './QuickMetricInput';
+import { metricLabels, readEvaluation, type EvaluationCatalog } from './evaluationMetrics';
 
 interface TeamPerformanceEntryModalProps {
   open: boolean;
@@ -35,6 +36,9 @@ interface TeamPerformanceEntryModalProps {
 
 /** key = `${subject_id}:${metric_key}` */
 type GridValues = Record<string, number | ''>;
+
+/** Pestaña de la evaluación rápida (las demás son subcategorías de la completa). */
+const QUICK_TAB = '__quick';
 
 const SUBCATEGORY_ORDER = [
   'tecnica_gmb_gma',
@@ -86,14 +90,30 @@ export function TeamPerformanceEntryModal({
 
   const [values, setValues] = useState<GridValues>({});
   const [recordedAt, setRecordedAt] = useState<string>(todayColombia());
-  const [activeSubcategory, setActiveSubcategory] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<string>(QUICK_TAB);
+  const [showFull, setShowFull] = useState(false);
 
-  const allMetrics = data?.metrics.filter((m) => m.is_active) ?? [];
+  // `evaluation` llega del BFF (F5); el tipo del hook todavía no lo declara.
+  const evaluation = useMemo(
+    () => readEvaluation(data as (typeof data & { evaluation?: EvaluationCatalog }) | undefined),
+    [data]
+  );
+  const quickMetrics = evaluation.quick;
+  const fullMetrics = useMemo(() => {
+    const keys = new Set(evaluation.full_keys);
+    return (data?.metrics ?? []).filter((m) => m.is_active && keys.has(m.metric_key));
+  }, [data, evaluation]);
+
   const subjects = data?.subjects ?? [];
-  const grouped = useMemo(() => groupBySubcategory(allMetrics), [allMetrics]);
+  const grouped = useMemo(() => groupBySubcategory(fullMetrics), [fullMetrics]);
   const subcategoryKeys = useMemo(() => [...grouped.keys()], [grouped]);
-  const currentSubcategory = activeSubcategory ?? subcategoryKeys[0] ?? 'general';
-  const metrics = grouped.get(currentSubcategory) ?? [];
+  const currentTab = activeTab === QUICK_TAB && quickMetrics.length === 0 ? subcategoryKeys[0] ?? QUICK_TAB : activeTab;
+  const fullTabMetrics = grouped.get(currentTab) ?? [];
+
+  const capturableKeys = useMemo(
+    () => [...quickMetrics.map((m) => m.metric_key), ...fullMetrics.map((m) => m.metric_key)],
+    [quickMetrics, fullMetrics]
+  );
 
   const cellKey = (subjectId: string, metricKey: string) => `${subjectId}:${metricKey}`;
 
@@ -119,23 +139,24 @@ export function TeamPerformanceEntryModal({
   const handleClose = () => {
     setValues({});
     setRecordedAt(todayColombia());
-    setActiveSubcategory(null);
+    setActiveTab(QUICK_TAB);
+    setShowFull(false);
     onClose();
   };
 
   const handleSave = async () => {
-    // Guarda TODAS las métricas con valor, de todas las pestañas, no solo la activa
+    // Guarda TODO lo que tenga valor: rápida y completa, todas las pestañas.
     const entries = subjects.flatMap((s) =>
-      allMetrics
-        .filter((m) => {
-          const v = values[cellKey(s.subject_id, m.metric_key)];
+      capturableKeys
+        .filter((k) => {
+          const v = values[cellKey(s.subject_id, k)];
           return v !== '' && v !== undefined;
         })
-        .map((m) => ({
+        .map((k) => ({
           subject_type: s.subject_type,
           subject_id: s.subject_id,
-          metric_key: m.metric_key,
-          value: Number(values[cellKey(s.subject_id, m.metric_key)]),
+          metric_key: k,
+          value: Number(values[cellKey(s.subject_id, k)]),
           recorded_at: recordedAt,
         }))
     );
@@ -148,7 +169,7 @@ export function TeamPerformanceEntryModal({
     try {
       await createEntries.mutateAsync({ entries, teamId });
       toast({
-        title: '✅ Rendimiento del equipo registrado',
+        title: '✅ Evaluación del equipo guardada',
         description: `${entries.length} registro(s) para ${athletesWithDataCount} atleta(s).`,
       });
       handleClose();
@@ -156,6 +177,9 @@ export function TeamPerformanceEntryModal({
       toast({ title: 'Error al guardar', description: err?.message ?? 'Intenta de nuevo.', variant: 'destructive' });
     }
   };
+
+  const nothingToCapture = quickMetrics.length === 0 && fullMetrics.length === 0;
+  const onQuickTab = currentTab === QUICK_TAB;
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
@@ -170,7 +194,7 @@ export function TeamPerformanceEntryModal({
               </div>
             )}
             <div>
-              <DialogTitle>Evaluar Rendimiento</DialogTitle>
+              <DialogTitle>Evaluación rápida del equipo</DialogTitle>
               <DialogDescription className="flex items-center gap-1.5">
                 <Users className="h-3 w-3" /> {teamName}
               </DialogDescription>
@@ -197,7 +221,7 @@ export function TeamPerformanceEntryModal({
               {data?.message ?? 'Esta escuela aún no tiene un deporte asignado.'}
             </p>
           </div>
-        ) : allMetrics.length === 0 ? (
+        ) : nothingToCapture ? (
           <div className="flex flex-col items-center gap-3 py-16 text-center">
             <AlertCircle className="h-8 w-8 text-amber-500" />
             <p className="text-sm text-muted-foreground">No hay métricas activas para este deporte todavía.</p>
@@ -210,7 +234,7 @@ export function TeamPerformanceEntryModal({
         ) : (
           <>
             <div className="flex flex-col sm:flex-row sm:items-center gap-3 py-3 shrink-0">
-              <Label className="shrink-0">Fecha del registro</Label>
+              <Label className="shrink-0">Fecha</Label>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button variant="outline" className="w-44 justify-start text-left font-normal bg-background border-input">
@@ -238,36 +262,70 @@ export function TeamPerformanceEntryModal({
               </Popover>
               {filledCount > 0 && (
                 <Badge variant="outline" className="gap-1.5 text-green-600 border-green-500/30 bg-green-500/5 sm:ml-auto">
-                  {athletesWithDataCount} de {subjects.length} atletas · {filledCount} registro(s) listos (todas las pestañas)
+                  {athletesWithDataCount} de {subjects.length} atletas · {filledCount} registro(s) listos
                 </Badge>
               )}
             </div>
 
-            <Tabs value={currentSubcategory} onValueChange={setActiveSubcategory} className="shrink-0">
-              <TabsList className="flex-wrap h-auto">
-                {subcategoryKeys.map((key) => (
-                  <TabsTrigger key={key} value={key} className="text-xs">
-                    {SUBCATEGORY_LABEL[key] ?? key} ({grouped.get(key)?.length ?? 0})
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
+            {(showFull || quickMetrics.length === 0) && subcategoryKeys.length > 0 ? (
+              <Tabs value={currentTab} onValueChange={setActiveTab} className="shrink-0">
+                <TabsList className="flex-wrap h-auto">
+                  {quickMetrics.length > 0 && (
+                    <TabsTrigger value={QUICK_TAB} className="text-xs">
+                      Evaluación rápida ({quickMetrics.length})
+                    </TabsTrigger>
+                  )}
+                  {subcategoryKeys.map((key) => (
+                    <TabsTrigger key={key} value={key} className="text-xs">
+                      {SUBCATEGORY_LABEL[key] ?? key} ({grouped.get(key)?.length ?? 0})
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </Tabs>
+            ) : (
+              <div className="flex items-center justify-between gap-3 shrink-0">
+                <p className="text-xs text-muted-foreground">
+                  Toca un número por atleta: 1 = por mejorar · 5 = excelente. Lo que quede en blanco no se guarda.
+                </p>
+                {fullMetrics.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowFull(true)}
+                    className="shrink-0 text-sm font-medium text-primary hover:underline"
+                  >
+                    Evaluación completa ({fullMetrics.length} más)
+                  </button>
+                )}
+              </div>
+            )}
 
             <div className="flex-1 overflow-auto rounded-lg border mt-3">
               <table className="w-full text-sm border-collapse">
                 <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm z-10">
                   <tr>
-                    <th className="text-left font-semibold px-3 py-2 sticky left-0 bg-muted/95 min-w-[180px] border-b">
+                    <th className="text-left font-semibold px-3 py-2 sticky left-0 bg-muted/95 min-w-[160px] border-b">
                       Atleta
                     </th>
-                    {metrics.map((m) => (
-                      <th key={m.metric_key} className="text-center font-semibold px-2 py-2 min-w-[110px] border-b border-l">
-                        <div className="flex flex-col items-center gap-0.5">
-                          <span>{m.display_name}</span>
-                          {m.unit && <span className="text-[10px] font-normal text-muted-foreground">({m.unit})</span>}
-                        </div>
-                      </th>
-                    ))}
+                    {onQuickTab
+                      ? quickMetrics.map((m) => {
+                          const { title, hint } = metricLabels(m);
+                          return (
+                            <th key={m.metric_key} className="text-center font-semibold px-2 py-2 min-w-[200px] border-b border-l">
+                              <div className="flex flex-col items-center gap-0.5">
+                                <span>{title}</span>
+                                {hint && <span className="text-[10px] font-normal text-muted-foreground">{hint}</span>}
+                              </div>
+                            </th>
+                          );
+                        })
+                      : fullTabMetrics.map((m) => (
+                          <th key={m.metric_key} className="text-center font-semibold px-2 py-2 min-w-[110px] border-b border-l">
+                            <div className="flex flex-col items-center gap-0.5">
+                              <span>{m.display_name}</span>
+                              {m.unit && <span className="text-[10px] font-normal text-muted-foreground">({m.unit})</span>}
+                            </div>
+                          </th>
+                        ))}
                   </tr>
                 </thead>
                 <tbody>
@@ -276,40 +334,60 @@ export function TeamPerformanceEntryModal({
                       <td className="px-3 py-2 font-medium sticky left-0 bg-inherit border-b">
                         {s.full_name}
                       </td>
-                      {metrics.map((m) => {
-                        const key = cellKey(s.subject_id, m.metric_key);
-                        const latest = data.latest_values[key];
-                        const currentVal = values[key];
-                        const liveBand = computeMetricBand(currentVal, m.thresholds);
-                        const band = liveBand ?? latest?.band ?? null;
-                        return (
-                          <td key={m.metric_key} className="px-2 py-1.5 border-b border-l">
-                            <div className="flex flex-col items-center gap-0.5">
-                              <div className="flex items-center gap-1">
-                                {band && (
-                                  <span
-                                    className={`h-1.5 w-1.5 rounded-full ${BAND_STYLE[band].dot}`}
-                                    title={BAND_STYLE[band].label}
-                                    aria-label={BAND_STYLE[band].label}
+                      {onQuickTab
+                        ? quickMetrics.map((m) => {
+                            const key = cellKey(s.subject_id, m.metric_key);
+                            const latest = data.latest_values[key];
+                            return (
+                              <td key={m.metric_key} className="px-2 py-1.5 border-b border-l">
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <QuickMetricInput
+                                    metric={m}
+                                    size="sm"
+                                    value={values[key]}
+                                    onChange={(val) => setCell(s.subject_id, m.metric_key, val)}
                                   />
-                                )}
-                                <NumberStepper
-                                  value={currentVal ?? ''}
-                                  onChange={(val) => setCell(s.subject_id, m.metric_key, val)}
-                                  min={m.min_value ?? 0}
-                                  max={m.max_value ?? undefined}
-                                  step={1}
-                                />
-                              </div>
-                              {latest && (
-                                <span className="text-[9px] text-muted-foreground">
-                                  último: {latest.value}
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                        );
-                      })}
+                                  {latest && (
+                                    <span className="text-[9px] text-muted-foreground">último: {latest.value}</span>
+                                  )}
+                                </div>
+                              </td>
+                            );
+                          })
+                        : fullTabMetrics.map((m) => {
+                            const key = cellKey(s.subject_id, m.metric_key);
+                            const latest = data.latest_values[key];
+                            const currentVal = values[key];
+                            const liveBand = computeMetricBand(currentVal, m.thresholds);
+                            const band = liveBand ?? latest?.band ?? null;
+                            return (
+                              <td key={m.metric_key} className="px-2 py-1.5 border-b border-l">
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <div className="flex items-center gap-1">
+                                    {band && (
+                                      <span
+                                        className={`h-1.5 w-1.5 rounded-full ${BAND_STYLE[band].dot}`}
+                                        title={BAND_STYLE[band].label}
+                                        aria-label={BAND_STYLE[band].label}
+                                      />
+                                    )}
+                                    <NumberStepper
+                                      value={currentVal ?? ''}
+                                      onChange={(val) => setCell(s.subject_id, m.metric_key, val)}
+                                      min={m.min_value ?? 0}
+                                      max={m.max_value ?? undefined}
+                                      step={1}
+                                    />
+                                  </div>
+                                  {latest && (
+                                    <span className="text-[9px] text-muted-foreground">
+                                      último: {latest.value}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                            );
+                          })}
                     </tr>
                   ))}
                 </tbody>
@@ -324,7 +402,7 @@ export function TeamPerformanceEntryModal({
           </Button>
           <Button
             onClick={handleSave}
-            disabled={createEntries.isPending || allMetrics.length === 0 || subjects.length === 0 || filledCount === 0}
+            disabled={createEntries.isPending || nothingToCapture || subjects.length === 0 || filledCount === 0}
           >
             {createEntries.isPending ? (
               <>
@@ -332,7 +410,7 @@ export function TeamPerformanceEntryModal({
                 Guardando...
               </>
             ) : (
-              `Guardar Registro${filledCount > 0 ? ` (${filledCount})` : ''}`
+              `Guardar${filledCount > 0 ? ` (${filledCount})` : ''}`
             )}
           </Button>
         </DialogFooter>
