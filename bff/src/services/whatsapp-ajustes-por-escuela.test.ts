@@ -3,7 +3,11 @@
  * lo puro — lectura de la fila, validación del QR de cortesía, horarios, textos
  * y detectores. Sin base ni Meta.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// Solo funciones puras: la base no se toca, pero los módulos importan el cliente
+// (que exige las variables de entorno de Supabase al cargarse).
+vi.mock('../config/supabase', () => ({ supabase: {} }));
 import { ajustesDesdeFila, AJUSTES_POR_DEFECTO } from './whatsapp-ajustes-escuela.service';
 import {
     qrSirveParaCortesia, horaLegible, diasLegibles, bloqueDeHorarios, textoSemanaDeCortesia,

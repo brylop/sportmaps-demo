@@ -580,6 +580,38 @@ export const PASO_TIPO_NO_SOPORTADO = 'tipo_no_soportado';
 export const VENTANA_TEXTO_DEL_VIDEO_MS = 15 * 60_000;
 const HABLA_DE_PAGO = /\b(pagos?|pague|pagar|comprobantes?|soportes?|transferencias?|transferi|consignacion|consigne|mensualidad|recibos?|abono|cuota|nequi|daviplata|bre b)\b/;
 
+// ─── Un archivo de la familia en la ráfaga (Dynasty 2026-10-09) ─────────────
+//
+// Imagen + «Buen día»: el modelo contestó con el estado de cuenta y la cola,
+// en el mismo minuto, preguntó a cuál cobro aplicar el comprobante. Dos
+// respuestas al mismo gesto. El archivo lo contesta la cola, y el turno del bot
+// calla lo que sea saludo o tema de pagos.
+
+/** Cuánto hacia atrás cuenta un archivo como parte de la ráfaga del turno. */
+export const VENTANA_ADJUNTO_DEL_TURNO_MS = 5 * 60_000;
+
+/**
+ * ¿Llegó una imagen o un PDF de la familia en esta ráfaga (después de la
+ * última respuesta y dentro de los últimos 5 min)? Pura.
+ */
+export function adjuntoEnLaRafaga(filas: FilaReciente[], _waMessageIdActual?: string | null, ahora = Date.now()): boolean {
+    // La respuesta de la COLA a ese archivo no corta la ráfaga: si ya contestó,
+    // con más razón el turno no tiene nada que agregar.
+    const ultimaRespuesta = Math.max(0, ...filas
+        .filter((f) => f.direction === 'outbound' && !esAutomaticoDeApp(f) && !f.payload?.queue_id).map(momento));
+    const desde = Math.max(ultimaRespuesta, ahora - VENTANA_ADJUNTO_DEL_TURNO_MS);
+    return filas.some((f) => f.direction === 'inbound'
+        && (f.type === 'image' || f.type === 'document') && momento(f) > desde);
+}
+
+/** Saldo, deuda, cobros o pagos: lo que la respuesta al comprobante ya cubre. Pura. */
+export function hablaDePagoOEstado(texto: string | null | undefined): boolean {
+    const t = normalizarFrase(texto);
+    if (!t) return false;
+    return HABLA_DE_PAGO.test(t)
+        || /\b(debo|deuda|debe|pendientes?|cobros?|saldo|estado de cuenta|factura|cuanto (es|debo|tengo|sale|vale))\b/.test(t);
+}
+
 /**
  * ¿Merece respuesta un video (u otro tipo que el bot no lee)? Pura.
  *  - `textoPropio`: el pie del video, si trae.
