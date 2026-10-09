@@ -1,0 +1,34 @@
+{
+  "name": "sm_informe_cartera_semanal",
+  "language": "es_CO",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Hola, el informe de cartera de esta semana de {{1}} está listo: {{2}} familia(s) en mora por {{3}} y {{4}} comprobante(s) de pago en revisión. El detalle está en SportMaps.",
+      "example": {
+        "body_text": [
+          [
+            "Academia Tigres FC",
+            "12",
+            "$1.850.000",
+            "3"
+          ]
+        ]
+      }
+    },
+    {
+      "type": "BUTTONS",
+      "buttons": [
+        {
+          "type": "URL",
+          "text": "Ver en la app",
+          "url": "https://app.sportmaps.co/{{1}}",
+          "example": [
+            "finances"
+          ]
+        }
+      ]
+    }
+  ]
+}

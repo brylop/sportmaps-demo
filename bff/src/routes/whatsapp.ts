@@ -45,6 +45,8 @@ import {
 import { cerrarSiEsCierre } from '../services/whatsapp-ponerse-al-dia.service';
 import { atenderNotaDeVoz, atenderNotaDeVozDeProspecto } from '../services/whatsapp-notas-de-voz.service';
 import { conContextoLlm } from '../services/llm-usage.service';
+import { esNumeroDePlataforma, guardarEstadoPlataforma } from '../services/plataforma-wa.service';
+import { atenderEntrantePlataforma } from '../services/plataforma-wa-entrante.service';
 
 /**
  * Corre en segundo plano lo que espera (la ráfaga, el acuse): el webhook
@@ -190,6 +192,12 @@ async function procesarEstados(req: Request, body: any): Promise<void> {
 
     for (const e of estados) {
         if (!e.waMessageId) continue;
+        // Salientes del canal de plataforma (número de SportMaps): no son de
+        // ninguna escuela; su estado va a platform_wa_mensajes.
+        if (await esNumeroDePlataforma(e.phoneNumberId)) {
+            await guardarEstadoPlataforma(e.waMessageId, e.status, e.timestamp, e.errorDetail);
+            continue;
+        }
 
         const parche: Record<string, unknown> = {
             status: e.status,
@@ -327,6 +335,19 @@ async function procesarEventosDeCuenta(req: Request, body: any): Promise<void> {
 async function processInboundMessage(req: Request, msg: ParsedInboundMessage): Promise<void> {
     if (!msg.phoneNumberId || !msg.contactWaId || !msg.waMessageId) {
         req.log?.warn({ msg }, 'WhatsApp: inbound message missing required fields');
+        return;
+    }
+
+    // 0. Canal de PLATAFORMA (número comercial de SportMaps, spec
+    //    canal-whatsapp-plataforma): no pertenece a ninguna escuela y nunca
+    //    pasa por `resolveIntegration` ni por las tablas whatsapp_* de una
+    //    escuela. Avisos a dueñas con opt-in y el modo pruebas del desarrollador.
+    if (await esNumeroDePlataforma(msg.phoneNumberId)) {
+        const resultado = await atenderEntrantePlataforma(msg).catch((err) => {
+            req.log?.error({ err: err?.message || err }, 'WhatsApp: canal de plataforma falló');
+            return 'error' as const;
+        });
+        req.log?.info({ resultado }, 'WhatsApp: canal de plataforma');
         return;
     }
 

@@ -29,6 +29,7 @@
 
 import { supabase } from '../config/supabase';
 import type { Logger } from 'pino';
+import { avisarComprobantesPorPlataforma } from '../services/plataforma-wa-avisos.service';
 
 export const RECORDATORIO_MS = 2 * 60 * 60 * 1000;
 export const INTERVALO_NUEVO_MS = 10 * 60 * 1000;
@@ -279,6 +280,18 @@ export async function runReceiptReviewAlerts(log?: Logger, ahora = Date.now()): 
         }
         avisos++;
         (log ?? console).info?.({ schoolId, tipo: plan.aviso.tipo, destinatarios: ids.length }, '[receipt-alerts] aviso enviado');
+        // Canal de plataforma (spec canal-whatsapp-plataforma): el mismo aviso al
+        // WhatsApp personal de la dueña con opt-in. La versión reclamada es única
+        // por aviso: es la clave de idempotencia. No hace nada con el flag apagado.
+        const lista = porEscuela.get(schoolId)!;
+        avisarComprobantesPorPlataforma({
+            schoolId,
+            version: estado.version + 1,
+            titulo: plan.aviso.titulo,
+            mensaje: plan.aviso.mensaje,
+            total: lista.length,
+            masAntiguo: lista.reduce<string | null>((m, c) => (!m || c.enviado_en < m ? c.enviado_en : m), null),
+        }, ahora);
     }
     return { avisos };
 }

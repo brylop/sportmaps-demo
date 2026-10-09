@@ -64,6 +64,7 @@ import {
     COLUMNAS_CONTACTO_FICHA, COLUMNAS_CONTACTO_HIJO, contactoDeFicha, contactoDeHijoSinCuenta, type FichaContacto,
 } from './contacto-acudiente';
 import { appPublica } from '../utils/url-publica-familias';
+import { avisarCarteraPorPlataforma } from './plataforma-wa-avisos.service';
 
 export const TIPO_INFORME = 'informe_cartera';
 /** Filas por sección en el correo. El CSV de la app trae todas. */
@@ -761,6 +762,15 @@ export async function enviarInformeCartera(schoolId: string, o: { ahora?: Date; 
         const informe = await armarInformeCartera(schoolId, ahora);
         if (informeVacio(informe)) return { resultado: 'vacio', informe };
         if (!o.aplicar) return { resultado: 'simulado', informe };
+
+        // Canal de plataforma (D11: solo cifras + enlace). Idempotente por
+        // escuela + lunes en su propia reserva. Flag apagado = nada.
+        avisarCarteraPorPlataforma({
+            schoolId, escuela: informe.escuela, lunes,
+            familiasEnMora: informe.morosos.familias,
+            totalEnMora: informe.morosos.total,
+            comprobantesEnRevision: informe.pendientes.enRevision.length,
+        });
 
         const { correos } = await destinatariosDeEscuela(schoolId);
         if (!correos.length) return { resultado: 'sin_destinatarios', informe };
