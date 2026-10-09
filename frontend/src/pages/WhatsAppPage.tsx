@@ -23,6 +23,7 @@ import { Conversaciones } from '@/components/whatsapp/Conversaciones';
 import { HorariosDeEntrenamiento } from '@/components/whatsapp/HorariosDeEntrenamiento';
 import { Metricas } from '@/components/whatsapp/Metricas';
 import { ClasesCortesia } from '@/components/whatsapp/ClasesCortesia';
+import { AvisosSportMaps } from '@/components/whatsapp/AvisosSportMaps';
 import { ImportarChatExportado } from '@/components/whatsapp/ImportarChatExportado';
 import { BandejaComprobantes, type ResumenBandeja } from '@/components/whatsapp/BandejaComprobantes';
 import { useToast } from '@/hooks/use-toast';
@@ -528,6 +529,7 @@ export default function WhatsAppPage() {
                         onGuardar={guardarAjustes}
                     />
                     {schoolId && <AjusteAudiosSinConsentimiento schoolId={schoolId} />}
+                    {schoolId && <AvisosSportMaps schoolId={schoolId} />}
                 </TabsContent>
             </Tabs>
         </div>

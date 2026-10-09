@@ -139,7 +139,17 @@ const turnoEnCurso = new AsyncLocalStorage<ContextoDeTurno>();
 // Dentro de `simularEnvios`, `deliver` NO envía ni deja borrador: anota lo que
 // habría salido. `abrirEnBuzon` y el registro del lead tampoco escriben. Sirve
 // para mostrar la respuesta REAL del camino del bot sin hablarle a nadie.
-export interface SalidaSimulada { texto: string; step: string | null; botones: string[]; imagen?: string }
+export interface SalidaSimulada {
+    texto: string; step: string | null; botones: string[]; imagen?: string;
+    /**
+     * Los botones completos (id + título), para que el modo pruebas del canal
+     * de plataforma los mande como botones reales y tocarlos ejercite
+     * `accionDeBoton` con el mismo id `sm_*`.
+     */
+    opciones?: { id: string; title: string; descripcion?: string }[];
+    /** Botón URL (cta_url) que habría salido. */
+    cta?: { texto: string; url: string };
+}
 const simulacion = new AsyncLocalStorage<SalidaSimulada[]>();
 export async function simularEnvios<T>(fn: () => Promise<T>): Promise<{ resultado: T; salidas: SalidaSimulada[] }> {
     const salidas: SalidaSimulada[] = [];
@@ -3813,6 +3823,9 @@ export async function deliver(
     if (sim) {
         sim.push({ texto: proposedText, step: ((context as any)?.step ?? null) as string | null,
             botones: (conBotones?.botones ?? []).map((b: any) => b.title),
+            opciones: (conBotones?.botones ?? []).map((b: any) => ({ id: String(b.id), title: String(b.title),
+                ...(b.descripcion ? { descripcion: String(b.descripcion) } : {}) })),
+            ...(conBotones?.cta ? { cta: conBotones.cta } : {}),
             ...(conBotones?.imagen ? { imagen: conBotones.imagen } : {}) });
         return;
     }

@@ -32,6 +32,7 @@
 import { supabase } from '../config/supabase';
 import { sendToUser } from './push.service';
 import { destinatariosDeEscuela, enviarConReserva, uuidDeClave } from './avisos-correo.service';
+import { avisarCortesiaPorPlataforma } from './plataforma-wa-avisos.service';
 import type { AvisoCortesia, TipoAvisoCortesia } from './whatsapp-clase-cortesia.service';
 
 const TZ = 'America/Bogota';
@@ -383,6 +384,8 @@ export async function avisarCortesia(a: AvisoCortesia): Promise<{ inApp: number;
         const c = contenidoAviso(a, (conv as any)?.contact_name ?? null);
         const clave = claveAviso(a);
         const ids = await destinatariosIds(a.schoolId);
+        // Canal de plataforma (WhatsApp personal de la dueña con opt-in). Flag apagado = nada.
+        avisarCortesiaPorPlataforma({ schoolId: a.schoolId, clave, titulo: c.titulo, cuerpo: c.cuerpo });
 
         await Promise.allSettled(ids.map(async (uid) => {
             const { error } = await supabase.from('notifications').insert({

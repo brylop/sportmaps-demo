@@ -118,7 +118,7 @@ export async function downloadAthleteReportPdf(id: string): Promise<void> {
   if (!session?.access_token) throw new Error('No hay sesión activa.');
 
   const bffUrl = (import.meta as any).env?.VITE_BFF_URL
-    || (window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://sportmaps-bff.onrender.com');
+    || (window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://sportmaps-bff-prod.onrender.com');
 
   const response = await fetch(`${bffUrl}/api/v1/athlete-reports/${id}/pdf`, {
     headers: { Authorization: `Bearer ${session.access_token}` },
@@ -143,7 +143,7 @@ export async function downloadTeamReportPdf(schoolId: string, teamId: string, ye
   if (!session?.access_token) throw new Error('No hay sesión activa.');
 
   const bffUrl = (import.meta as any).env?.VITE_BFF_URL
-    || (window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://sportmaps-bff.onrender.com');
+    || (window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://sportmaps-bff-prod.onrender.com');
 
   const response = await fetch(
     `${bffUrl}/api/v1/school/reports/team/${teamId}/pdf?year=${year}&month=${month}`,
