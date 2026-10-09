@@ -20,9 +20,10 @@ vi.mock('../config/supabase', () => {
             select: () => api,
             eq: (c: string, v: any) => { filas = filas.filter((f) => f[c] === v); return api; },
             in: (c: string, vs: readonly any[]) => { filas = filas.filter((f) => vs.includes(f[c])); return api; },
-            // Solo lo que usa el job: .not(col, 'is', null) y .gte(col, valor).
+            // Solo lo que usa el job: .not(col, 'is', null), .gte(col, valor) y .gt(col, valor).
             not: (c: string, _op: string, _v: null) => { filas = filas.filter((f) => (f[c] ?? null) !== null); return api; },
             gte: (c: string, v: any) => { filas = filas.filter((f) => f[c] != null && f[c] >= v); return api; },
+            gt: (c: string, v: any) => { filas = filas.filter((f) => f[c] != null && f[c] > v); return api; },
             order: (c: string, o?: { ascending?: boolean }) => {
                 const asc = o?.ascending ?? true;
                 filas = [...filas].sort((a, b) => (a[c] < b[c] ? -1 : a[c] > b[c] ? 1 : 0) * (asc ? 1 : -1));

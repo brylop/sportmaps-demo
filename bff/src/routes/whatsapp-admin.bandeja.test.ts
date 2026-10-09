@@ -216,3 +216,15 @@ describe('POST /:schoolId/bandeja/:id/cerrar', () => {
         expect((await llamar('POST', `/${A}/bandeja/f-ruido/cerrar`, { accion: 'descartado', motivo: 'xxx' })).status).toBe(403);
     });
 });
+
+// El pie de la foto llega a Pagos (Dynasty 2026-10-09, inventado).
+describe('notasPorCobro (GET notas-de-comprobantes)', () => {
+    it('el pie más reciente de cada cobro; sin pie no hay nota', async () => {
+        const { notasPorCobro } = await import('./whatsapp-admin.routes');
+        expect(notasPorCobro([
+            { result_ref_id: 'p1', media_caption: 'envío saldo ago 20 - sep 20 $70.000', created_at: '2026-10-09T10:00:00Z' },
+            { result_ref_id: 'p1', media_caption: 'otra foto', created_at: '2026-10-09T09:00:00Z' },
+            { result_ref_id: 'p2', media_caption: '   ', created_at: '2026-10-09T10:00:00Z' },
+        ])).toEqual({ p1: { pie: 'envío saldo ago 20 - sep 20 $70.000', recibido_at: '2026-10-09T10:00:00Z' } });
+    });
+});

@@ -156,6 +156,6 @@ export function mensajeElegirPago(opciones: PagoPendiente[]): string {
         'Recibí tu comprobante, pero tienes varios cobros pendientes y no quiero ' +
         'aplicarlo al que no es 🤔\n\n' +
         `${lineas.join('\n')}\n\n` +
-        'Respóndeme con el número al que corresponde.'
+        'Toca el botón o respóndeme con el número (o el mes) al que corresponde.'
     );
 }

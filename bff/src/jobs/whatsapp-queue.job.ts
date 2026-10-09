@@ -53,6 +53,9 @@ import {
     PREGUNTA_DEPORTISTA, PASO_PREGUNTA_DEPORTISTA, TEXTO_YA_REGISTRADO, type LlavesDeFicha,
 } from '../services/whatsapp-comprobante-de-ficha.service';
 import type { BotonInteractivo } from '../services/whatsapp.service';
+import {
+    leerTextosDelComprobante, decidirCobroPorTexto, type CobroParcial,
+} from '../services/whatsapp-cobro-por-texto.service';
 
 const BUCKET = 'payment-receipts';
 const LOTE = 10;
@@ -193,6 +196,40 @@ async function pistaDeCobro(fila: FilaCola): Promise<PistaDeCobro | null> {
         return pistaDesdeTextos(await textosCercanos(fila));
     } catch {
         return null;
+    }
+}
+
+/**
+ * Cobros abonados (`partial`) de la familia, con lo pagado: «envío el saldo»
+ * se compara contra lo que les falta. Nunca lanza.
+ */
+async function cobrosParcialesDe(
+    schoolId: string, parentId: string | null, llaves?: LlavesDeFicha,
+): Promise<CobroParcial[]> {
+    try {
+        const r = await import('../services/whatsapp-recuperacion.service');
+        const registrados = parentId && !llaves
+            ? await r.pagosRegistradosDeLaFamilia(parentId, schoolId)
+            : await r.pagosRegistradosDe(schoolId, { parentId, ...(llaves ?? {}) });
+        return registrados.filter((p) => p.status === 'partial')
+            .map((p) => ({ id: p.id, amount: p.amount, amount_paid: p.amount_paid, concept: p.concept }));
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * ¿La escuela recibe abonos (`school_settings.allow_installments`)? Ante la
+ * duda, no: el default de la columna es false y equivocarse diciendo «sí»
+ * estampa en silencio un monto que no cuadra.
+ */
+async function escuelaRecibeAbonos(schoolId: string): Promise<boolean> {
+    try {
+        const { data } = await supabase.from('school_settings')
+            .select('allow_installments').eq('school_id', schoolId).maybeSingle();
+        return (data as any)?.allow_installments === true;
+    } catch {
+        return false;
     }
 }
 
@@ -816,10 +853,40 @@ async function continuarComoComprobante(
         return;
     }
 
-    let match = resolverPago(pendientes, ocr.amount ?? null);
+    // Lo que la familia ESCRIBIÓ con la foto (pie y textos cercanos) y si el
+    // monto cuadra (Dynasty 2026-10-09: «envío saldo sept 15 - oct 15 $80.000»
+    // se estampó como pago nuevo en la mensualidad de $150.000). Ver
+    // whatsapp-cobro-por-texto.service.
+    const porTexto = decidirCobroPorTexto({
+        pendientes,
+        parciales: await cobrosParcialesDe(fila.school_id, parentId, opts.llaves),
+        monto: typeof ocr.amount === 'number' && ocr.amount > 0 ? ocr.amount : null,
+        lectura: leerTextosDelComprobante(fila.media_caption, await textosCercanos(fila), pendientes),
+        permiteAbonos: await escuelaRecibeAbonos(fila.school_id),
+    });
+    if (porTexto?.tipo === 'a_la_escuela') {
+        await responder(porTexto.mensaje, 'comprobante_a_la_escuela');
+        await cerrar(fila.id, 'ignored', {
+            result_type: 'escalated',
+            matched_parent_id: parentId,
+            error_message: `${porTexto.codigo}: ${porTexto.resumen}`,
+        });
+        log?.info?.({ queueId: fila.id, codigo: porTexto.codigo, paymentId: porTexto.pagoId }, '[wa-queue] a la escuela por monto/texto');
+        return;
+    }
+
+    let match = porTexto?.tipo === 'aplicar'
+        ? { tipo: 'unico' as const, pago: porTexto.pago }
+        : porTexto?.tipo === 'preguntar'
+            ? { tipo: 'preguntar' as const, opciones: porTexto.opciones }
+            : resolverPago(pendientes, ocr.amount ?? null);
+    if (porTexto?.tipo === 'aplicar') {
+        log?.info?.({ queueId: fila.id, paymentId: porTexto.pago.id, motivo: porTexto.motivo }, '[wa-queue] cobro elegido por el texto/antigüedad');
+    }
 
     // El monto no desempata: ¿la familia dijo a cuál iba? (P3)
-    if (match.tipo === 'preguntar') {
+    // (Si la pregunta la pidió el monto que no cuadra, la pista no la salta.)
+    if (match.tipo === 'preguntar' && porTexto?.tipo !== 'preguntar') {
         const elegido = elegirPorPista(pendientes, await pistaDeCobro(fila));
         if (elegido) {
             log?.info?.({ queueId: fila.id, paymentId: elegido.id }, '[wa-queue] cobro elegido por la pista del texto');
