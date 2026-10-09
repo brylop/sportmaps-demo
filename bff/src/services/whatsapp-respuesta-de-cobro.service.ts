@@ -13,10 +13,13 @@
 
 import { supabase } from '../config/supabase';
 import { aplicarComprobante } from '../jobs/whatsapp-queue.job';
-import { interpretarEleccion, loQueQueda } from './whatsapp-eleccion-de-pago.service';
-import { resolverRespuestaDeDeportista } from './whatsapp-comprobante-de-ficha.service';
-import { describirPago, mensajeElegirPago, type PagoPendiente } from './whatsapp-receipt-matching.service';
-import type { WhatsAppIntegration } from './whatsapp.service';
+import {
+    interpretarEleccion, loQueQueda, etiquetaDeCobro, resumenParaLaEscuela, TEXTO_REVISION_ESCUELA,
+} from './whatsapp-eleccion-de-pago.service';
+import { resolverRespuestaDeDeportista, botonesDeCobros } from './whatsapp-comprobante-de-ficha.service';
+import { describirPago, type PagoPendiente } from './whatsapp-receipt-matching.service';
+import { soloSaludoOCortesia } from './whatsapp-atencion.service';
+import type { BotonInteractivo, WhatsAppIntegration } from './whatsapp.service';
 
 /**
  * Cuánto vale una pregunta abierta.
@@ -30,6 +33,22 @@ const VIGENCIA_H = 24;
 /** Cuántas veces se le vuelve a preguntar antes de pasarlo a la escuela. */
 const MAX_REPREGUNTAS = 2;
 
+/**
+ * Un saludo suelto («Buen día») que llega pegado a la pregunta no es una
+ * respuesta: es lo que escribió junto con el comprobante. No se le repregunta
+ * (Dynasty 2026-10-09: imagen + «Buen día» → la lista salió dos veces).
+ */
+const SALUDO_PEGADO_MIN = 5;
+
+/** Responde a la familia. `botones`: las opciones como botones (si el canal los soporta). */
+export type ResponderCobro = (texto: string, paso: string, botones?: BotonInteractivo[]) => Promise<unknown>;
+
+/**
+ * Pasa el caso a la escuela con `resumen`. `mensajeFamilia`: lo que se le
+ * dice a la familia (UNA vez, lo dice quien escala); null = solo la escuela.
+ */
+export type PasarALaEscuela = (p: { resumen: string; mensajeFamilia: string | null }) => Promise<unknown>;
+
 interface FilaEsperando {
     id: string;
     pregunta_opciones: PagoPendiente[] | null;
@@ -41,6 +60,8 @@ interface FilaEsperando {
         parentId: string | null;
         /** 'deportista': se preguntó de qué deportista es (número sin ficha). */
         tipo?: 'deportista';
+        /** Meses que la familia dijo que YA pagó en respuestas anteriores («agosto»). */
+        dice_pagado?: string[];
     } | null;
     pregunta_at: string | null;
     retries: number;
@@ -59,7 +80,8 @@ export async function resolverRespuestaDeCobro(
     integration: WhatsAppIntegration,
     contactWaId: string,
     texto: string,
-    responder: (texto: string, paso: string) => Promise<unknown>,
+    responder: ResponderCobro,
+    pasarALaEscuela?: PasarALaEscuela,
 ): Promise<boolean> {
     const { data } = await supabase
         .from('whatsapp_inbound_queue')
@@ -102,7 +124,42 @@ export async function resolverRespuestaDeCobro(
         return false;
     }
 
+    // «Buen día» pegado a la pregunta (llegó con el comprobante): ni se
+    // repregunta ni pasa al modelo. Más tarde, un saludo sí sigue su curso.
+    const minutos = fila.pregunta_at ? (Date.now() - new Date(fila.pregunta_at).getTime()) / 60_000 : Infinity;
+    if (soloSaludoOCortesia(texto) && minutos <= SALUDO_PEGADO_MIN) return true;
+
     const eleccion = interpretarEleccion(texto, opciones);
+    const yaDichos = Array.isArray(guardado.dice_pagado) ? guardado.dice_pagado : [];
+
+    // Discute el VALOR, o dice que ya está al día: no se aplica por inferencia.
+    // A la escuela con un resumen, y a la familia UNA respuesta.
+    if (eleccion.tipo === 'revision_escuela') {
+        const resumen = resumenParaLaEscuela(eleccion, yaDichos);
+        if (pasarALaEscuela) {
+            await pasarALaEscuela({ resumen, mensajeFamilia: TEXTO_REVISION_ESCUELA });
+        } else {
+            await responder(TEXTO_REVISION_ESCUELA, 'cobro_a_revision_escuela');
+        }
+        await cerrarPregunta(fila.id, `revision_escuela: ${resumen}`, 'failed');
+        return true;
+    }
+
+    // Descartó algunos («agosto ya lo pagué») o el mes lo tienen varios: se
+    // pregunta SOLO entre lo que queda, con botones nuevos. Las opciones
+    // congeladas se reemplazan: «sm_cobro_1» ahora señala la primera de ESTAS.
+    if (eleccion.tipo === 'acotar') {
+        const dicePagado = [...new Set([...yaDichos, ...eleccion.dicePagado.map(etiquetaDeCobro)])];
+        await supabase.from('whatsapp_inbound_queue')
+            .update({
+                pregunta_opciones: eleccion.opciones,
+                pregunta_ocr: { ...guardado, dice_pagado: dicePagado },
+            })
+            .eq('id', fila.id);
+        await responder(mensajeAcotado(eleccion.opciones, eleccion.dicePagado, opciones, eleccion.motivo),
+            'ask_cual_pago_acotado', botonesDeCobros(eleccion.opciones));
+        return true;
+    }
 
     if (eleccion.tipo === 'cancelar') {
         await responder(
@@ -129,7 +186,9 @@ export async function resolverRespuestaDeCobro(
         await supabase.from('whatsapp_inbound_queue')
             .update({ retries: fila.retries + 1 })
             .eq('id', fila.id);
-        await responder(mensajeElegirPago(opciones), 'ask_cual_pago_reintento');
+        // Nunca la misma lista otra vez: otro texto, y los botones.
+        await responder(mensajeReintento(opciones, fila.retries), 'ask_cual_pago_reintento',
+            botonesDeCobros(opciones));
         return true;
     }
 
@@ -179,7 +238,58 @@ export async function resolverRespuestaDeCobro(
         },
     }, pago, restantes);
 
+    // Eligió, pero dijo que algo que figura pendiente ya lo pagó («agosto ya lo
+    // pagué»): el comprobante se aplicó a lo que eligió, y la escuela tiene que
+    // revisar ese otro cobro. Sin otro mensaje a la familia.
+    const dichos = [...new Set([...yaDichos, ...(eleccion.dicePagado ?? []).map(etiquetaDeCobro)])];
+    if (dichos.length && pasarALaEscuela) {
+        const nota = `La familia dice que ${dichos.join(' y ')} ya ${dichos.length > 1 ? 'están pagados' : 'está pagado'}, ` +
+            `pero figura pendiente. El comprobante se aplicó a ${describirPago(pago)}.`;
+        await pasarALaEscuela({ resumen: nota, mensajeFamilia: null }).catch(() => undefined);
+    }
+
     return true;
+}
+
+/**
+ * La pregunta otra vez, solo con lo que sigue en pie. Pura.
+ *
+ * «Ya había pagado agosto» → «Entendido, agosto no. ¿Entonces a cuál…?» con
+ * las dos que quedan; nunca la lista completa repetida.
+ */
+export function mensajeAcotado(
+    quedan: PagoPendiente[],
+    dicePagado: PagoPendiente[],
+    antes: PagoPendiente[],
+    motivo: 'descarte' | 'ambiguo',
+): string {
+    const fuera = antes.filter((p) => !quedan.includes(p));
+    const lineas = quedan.map((p, i) => `${i + 1}. ${describirPago(p)}`).join('\n');
+    const nombres = [...new Set(fuera.map(etiquetaDeCobro))].join(' y ');
+    const cabeza = motivo === 'ambiguo'
+        ? 'Hay más de un cobro de ese mes. ¿A cuál de estos aplico el comprobante?'
+        : dicePagado.length
+            ? `Entendido, *${nombres}* no. Le aviso a la escuela que ya lo pagaste para que lo revise. ` +
+              '¿Entonces a cuál de estos aplico el comprobante?'
+            : `Entendido, *${nombres}* no. ¿Entonces a cuál de estos aplico el comprobante?`;
+    return `${cabeza}\n\n${lineas}\n\nToca el botón o respóndeme con el número.`;
+}
+
+/**
+ * La repregunta cuando no se entendió. Distinta de la pregunta original y
+ * distinta entre un intento y el siguiente: repetir el mismo texto le dice a
+ * la familia que nadie la está leyendo. Pura.
+ */
+export function mensajeReintento(opciones: PagoPendiente[], intento: number): string {
+    const lineas = opciones.map((p, i) => `${i + 1}. ${describirPago(p)}`).join('\n');
+    const cabeza = intento <= 0
+        ? 'Perdón, no te entendí a cuál cobro va el comprobante 🙏'
+        : 'Sigo sin tener claro a cuál cobro va. Para no aplicarlo al que no es:';
+    const pie = intento <= 0
+        ? 'Toca el botón del cobro, o escríbeme el número o el mes (por ejemplo «el de ' +
+          `${etiquetaDeCobro(opciones[opciones.length - 1])}»).`
+        : 'Toca uno de los botones. Si no es ninguno, escribe *ninguno*.';
+    return `${cabeza}\n\n${lineas}\n\n${pie}`;
 }
 
 async function cerrarPregunta(
