@@ -770,6 +770,9 @@ router.post('/set-access-group', requireAuth, requireRole('owner', 'admin', 'sch
       metadata,
     }));
     await supabase.from('device_commands').insert(commands);
+    // El puente de Dreamers ya no sondea: sin este aviso el bloqueo/restauración
+    // esperaba hasta la próxima reconexión (la de las 3 am).
+    wakeSchool(schoolId);
     return res.json({
       success: true,
       message: group === 2

@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 720,
-  "head": "20261008183746",
+  "count": 721,
+  "head": "20261008210954",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -723,6 +723,7 @@
     {"v":"20261008164914","file":"20261008164914_wa_telefono_solo_colombia_y_numero_de_personal.sql","sha256":"e7bb90857cee40ee5ad85b4f9d87bcd47dfcbc2fafd7fcd11436c6b62b6f1d33","added":"2026-10-08","by":"Brayan Steven Lopez"},
     {"v":"20261008165728","file":"20261008165728_rechazo_comprobante_conserva_deuda.sql","sha256":"2b530573d48bdafa5057b238e725bc336adcb0dd8cb0373817749670d97cc4fe","added":"2026-10-08","by":"Brayan Steven Lopez"},
     {"v":"20261008183744","file":"20261008183744_biblioteca_ejercicios_v2.sql","sha256":"e590440e5ca873f69580a2f9d5e86d1d48871c15b1a027d9a30883c3ad8b4e38","added":"2026-10-08","by":"Brayan Steven Lopez"},
-    {"v":"20261008183746","file":"20261008183746_pizarra_metricas_uso_y_deportes_v2.sql","sha256":"f0a0d3b48e1c685f6154ebbce44bf5bb54d074b2899d18df5ccd014c601f941c","added":"2026-10-08","by":"Brayan Steven Lopez"}
+    {"v":"20261008183746","file":"20261008183746_pizarra_metricas_uso_y_deportes_v2.sql","sha256":"f0a0d3b48e1c685f6154ebbce44bf5bb54d074b2899d18df5ccd014c601f941c","added":"2026-10-08","by":"Brayan Steven Lopez"},
+    {"v":"20261008210954","file":"20261008210954_overdue_hold_until_y_bloqueo_auto_gymrm.sql","sha256":"85cd39cd489f1cecd21e9c887438c02d24cbe364d7690c8c5362e65a2e1abc88","added":"2026-10-09","by":"judegor99"}
   ]
 }
