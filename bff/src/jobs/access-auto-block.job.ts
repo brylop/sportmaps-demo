@@ -1,4 +1,5 @@
 import { supabase } from '../config/supabase';
+import { wakeSchool } from '../services/bridgeWsHub';
 import { getAccessBlockMechanism, buildBlockCommand, computeIsBlocked, athleteKey, BLOCK_COMMAND_TYPES } from '../utils/accessBlockMechanism';
 
 /**
@@ -141,11 +142,36 @@ async function reconcileSchool(schoolId: string): Promise<{ blocked: number; unb
     }));
   };
 
+  // Comandos EN VUELO: si el puente tarda en ejecutar (PC dormida, lector ocupado)
+  // el estado "bloqueado" —que solo cuenta comandos ejecutados— no cambia, y cada
+  // corrida de 15 min volvía a encolar lo mismo (93 comandos duplicados y una
+  // notificación al owner por corrida el 2026-10-06). Se omite el comando si ya hay
+  // uno igual (mismo tipo, PIN y lector) encolado en los últimos 30 min; pasado ese
+  // tiempo se reintenta, por si el puente lo reclamó y murió antes de ejecutarlo.
+  const inFlightSince = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  const { data: inFlight } = await supabase
+    .from('device_commands')
+    .select('device_id, command_type, metadata')
+    .eq('school_id', schoolId)
+    .in('command_type', BLOCK_COMMAND_TYPES)
+    .eq('status', 'pending')
+    .gt('expires_at', new Date().toISOString())
+    .gte('issued_at', inFlightSince);
+  const cmdKey = (deviceId: string, type: string, md: any) =>
+    `${deviceId}:${type}:${md?.pin}:${md?.group ?? ''}`;
+  const inFlightKeys = new Set((inFlight ?? []).map((c: any) => cmdKey(c.device_id, c.command_type, c.metadata)));
+
   const commands: QueuedCommand[] = [
     ...toBlock.flatMap(pin => commandsFor(pin, 'block')),
     ...toUnblock.flatMap(pin => commandsFor(pin, 'unblock')),
-  ];
+  ].filter(c => !inFlightKeys.has(cmdKey(c.device_id, c.command_type, c.metadata)));
+
+  if (!commands.length) return { blocked: 0, unblocked: 0 };
   await supabase.from('device_commands').insert(commands);
+  // El puente por WebSocket no sondea: hay que avisarle que revise (antes los
+  // bloqueos esperaban a la reconexión de las 3 am — cuatro horas de retraso el
+  // 2026-10-06). No-op si no hay un puente conectado a esta instancia.
+  wakeSchool(schoolId);
 
   if (toBlock.length || toUnblock.length) {
     const { data: school } = await supabase.from('schools').select('owner_id').eq('id', schoolId).maybeSingle();

@@ -117,7 +117,7 @@ export function motivoDeFila(fila: FilaCruda): { motivo: string; detalle: string
     if (em.startsWith('pregunta_vencida')) return { motivo: 'pregunta_vencida', detalle: em.replace(/^pregunta_vencida:\s*/, '') || null };
     if (em.startsWith('referencia ya usada')) return { motivo: 'ya_registrado', detalle: em };
     if (em.startsWith('consulta_no_comprobante')
-        || ['no es un comprobante', 'ni comprobante ni matrícula'].includes(em)) {
+        || ['no es un comprobante', 'no_es_comprobante_sin_contexto', 'ni comprobante ni matrícula'].includes(em)) {
         return { motivo: 'no_es_comprobante', detalle: null };
     }
     if (em === 'listado de movimientos') return { motivo: 'es_listado', detalle: null };
