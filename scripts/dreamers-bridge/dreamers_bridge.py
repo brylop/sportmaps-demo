@@ -514,7 +514,20 @@ def set_enabled_physically(device, pin, enabled):
                 user_id=existing.user_id,
                 card=existing.card,
             )
-            log(f"[{device['name']}] PIN {pin} {'habilitado' if enabled else 'deshabilitado'}.")
+            # Verificacion por lectura: "set_user no dio error" no prueba que el
+            # lector haya guardado el cambio (2026-10-06: ordenes `executed` y la
+            # persona igual pasaba). Se relee el usuario y se compara el bit 0; si no
+            # coincide, el comando se reporta como FALLIDO en vez de ejecutado.
+            after = next((u for u in conn.get_users() if str(u.user_id) == str(pin)), None)
+            if after is None or bool(after.privilege & 1) == enabled:
+                raise Exception(
+                    f"El lector no conservo el cambio de PIN {pin}: "
+                    f"privilege antes={existing.privilege} despues={getattr(after, 'privilege', None)}"
+                )
+            log(
+                f"[{device['name']}] PIN {pin} {'habilitado' if enabled else 'deshabilitado'} "
+                f"(verificado en el lector: privilege {existing.privilege} -> {after.privilege})."
+            )
         finally:
             if conn:
                 try:
