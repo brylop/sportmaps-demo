@@ -54,6 +54,27 @@ const LINEA_JSON = /^\s*([{\[]\s*("|$)|"[^"\n]+"\s*:\s*|[}\]],?\s*$)/;
 const SNAKE = /\b[a-z0-9]+(?:_[a-z0-9]+)+\b/i;
 const URL_O_CORREO = /(https?:\/\/\S+|www\.\S+|[\w.+-]+@[\w-]+\.[\w.-]+)/gi;
 
+/**
+ * Emojis de un deporte concreto (auditoría 2026-10-10: ⚽ en un club de
+ * voleibol). El bot atiende escuelas de cualquier deporte; un emoji de otro
+ * deporte se lee como plantilla genérica. Se quitan del texto del modelo.
+ */
+export const EMOJIS_DE_DEPORTE =
+    /(?:⚽|🏐|🏀|🏈|⚾|🥎|🎾|🏉|🏒|🏑|🥍|🏏|🏓|🏸|🥊|🥋|⛳|🏊|🚴|🏇|🤾|🤽|⛹|🏋|🤸|🤺|🏌|🏄|🚣|🧗|🛹|⛸|🎿|⛷|🏂|🥅)️?(?:\u{1F3FB}|\u{1F3FC}|\u{1F3FD}|\u{1F3FE}|\u{1F3FF})?(?:‍[♀♂]️?)?️?/gu;
+
+/** Quita los emojis de deporte y los espacios que dejan. Pura. */
+export function sinEmojisDeDeporte(t: string): string {
+    return t.replace(EMOJIS_DE_DEPORTE, '').replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+$/gm, '');
+}
+
+/**
+ * «Otro sistema procesa las imágenes», «un sistema automático revisa…»: para
+ * la familia, quien revisa es la escuela (auditoría 2026-10-10). La oración se
+ * reemplaza entera.
+ */
+const OTRO_SISTEMA = /[^.!?\n]*\b(otro sistema|un sistema (automatico|automático|aparte|externo)|sistema automatizado)\b[^.!?\n]*[.!?]?/gi;
+const LA_ESCUELA_REVISA = 'La escuela revisa los comprobantes.';
+
 function escapar(s: string): string {
     return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -82,6 +103,21 @@ export function filtrarSalidaDelModelo(
     if (/```/.test(t)) {
         t = t.replace(/```[\s\S]*?(```|$)/g, '');
         motivos.push('bloque_de_codigo');
+    }
+
+    // «Otro sistema procesa las imágenes» → «La escuela revisa los comprobantes.»
+    if (OTRO_SISTEMA.test(t)) {
+        OTRO_SISTEMA.lastIndex = 0;
+        t = t.replace(OTRO_SISTEMA, (m) => (m.startsWith(' ') ? ' ' : '') + LA_ESCUELA_REVISA);
+        motivos.push('menciona_otro_sistema');
+    }
+    OTRO_SISTEMA.lastIndex = 0;
+
+    // Emojis de un deporte (⚽ en un club de voleibol): fuera.
+    const sinDeporte = sinEmojisDeDeporte(t);
+    if (sinDeporte !== t) {
+        t = sinDeporte;
+        motivos.push('emoji_de_deporte');
     }
 
     // «Llamando X» en la misma línea que texto legítimo: se quita el pedazo.

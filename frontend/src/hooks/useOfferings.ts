@@ -130,6 +130,16 @@ export function useOfferings(type?: string) {
         },
     });
 
+    // «Aplicar a todos»: misma Inscripción/Seguro en varias tarifas (un solo UPDATE en el BFF).
+    // null = deja de cobrarse; campo ausente = no se toca.
+    const applyOneTimeFees = useMutation({
+        mutationFn: (data: { plan_ids: string[]; registration_fee?: number | null; insurance_fee?: number | null }) =>
+            bffClient.post<{ updated: number }>('/api/v1/offerings/one-time-fees/apply', data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['offerings', schoolId] });
+        },
+    });
+
     const deletePlan = useMutation({
         mutationFn: ({ offeringId, planId }: { offeringId: string; planId: string }) =>
             bffClient.delete<{ success: boolean }>(`/api/v1/offerings/${offeringId}/plans/${planId}`),
@@ -149,5 +159,6 @@ export function useOfferings(type?: string) {
         createPlan,
         updatePlan,
         deletePlan,
+        applyOneTimeFees,
     };
 }

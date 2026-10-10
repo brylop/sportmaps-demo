@@ -434,7 +434,7 @@ export async function emitInvoiceForPayment(paymentId: string): Promise<EmitResu
 
     const { data: payment } = await supabase
         .from('payments')
-        .select('id, amount, gross_amount, payment_method, status, concept, school_id, parent_id, user_id, child_id, unregistered_athlete_id')
+        .select('id, amount, amount_paid, gross_amount, payment_method, status, concept, school_id, parent_id, user_id, child_id, unregistered_athlete_id')
         .eq('id', paymentId)
         .maybeSingle();
     if (!payment) return { ok: false, error: 'payment_not_found' };
@@ -442,6 +442,14 @@ export async function emitInvoiceForPayment(paymentId: string): Promise<EmitResu
     // una factura fiscal (con número de la resolución DIAN, irrecuperable) por
     // un cobro pendiente o anulado.
     if (payment.status !== 'paid') return { ok: false, error: 'payment_not_paid' };
+    // Exonerado ($0): una mensualidad «No cobrar» queda `paid` con amount = 0
+    // (spec cobros-multiples §6.5, I29). No hubo venta: una factura de $0 quema
+    // un número de la resolución DIAN que solo se recupera con nota crédito.
+    // `amount_paid = 0` explícito (no NULL) es lo mismo: no entró plata. Hoy
+    // hay 0 filas `paid` con amount_paid = 0 y amount > 0 (medido 2026-10-10).
+    if (!(Number(payment.amount) > 0) || (payment.amount_paid !== null && payment.amount_paid !== undefined && Number(payment.amount_paid) === 0)) {
+        return { ok: false, error: 'payment_zero_amount' };
+    }
     if (!payment.school_id) return { ok: false, error: 'payment_without_school' };
     // El comprador es parent_id (menor con acudiente) o, si no hay, user_id
     // (atleta adulto que paga por sí mismo — school_athletes.parent_id sale

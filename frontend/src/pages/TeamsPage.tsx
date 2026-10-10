@@ -54,9 +54,12 @@ import {
 } from '@/components/ui/alert-dialog';
 import { CreateTeamModal } from '@/components/teams/CreateTeamModal';
 import { EnrollTeamStudentModal } from '@/components/teams/EnrollTeamStudentModal';
+import { CobrosYPagosModal } from '@/components/payment/CobrosYPagosModal';
+import { isCobrosYPagosEnabled } from '@/lib/cobrosYPagosFlag';
+import { canManageCharges } from '@/lib/cobrosYPagos';
 import { useToast } from '@/hooks/use-toast';
 import { studentsAPI } from '@/lib/api/students';
-import { Mail, Phone, User, Copy } from 'lucide-react';
+import { Mail, Phone, User, Copy, Banknote } from 'lucide-react';
 
 interface TeamWithRelations {
   id: string;
@@ -92,6 +95,9 @@ interface TeamWithRelations {
 export default function TeamsPage() {
   const { toast } = useToast();
   const { schoolId, activeBranchId, currentUserRole } = useSchoolContext();
+  // «Cobrar a este equipo» (docs/specs/cobros-multiples.md §10.1): mismo modal en modo varios.
+  const canChargeTeam = isCobrosYPagosEnabled() && canManageCharges(currentUserRole);
+  const [chargeTeamId, setChargeTeamId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('name');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -371,6 +377,12 @@ export default function TeamsPage() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        {canChargeTeam && team.status !== 'inactive' && (
+          <DropdownMenuItem onClick={() => setChargeTeamId(team.id)}>
+            <Banknote className="h-4 w-4 mr-2" />
+            Cobrar a este equipo
+          </DropdownMenuItem>
+        )}
         {team.status === 'inactive' ? (
           <DropdownMenuItem onClick={() => handleReactivate(team)}>
             <RotateCcw className="h-4 w-4 mr-2" />
@@ -994,6 +1006,16 @@ export default function TeamsPage() {
         branchId={activeBranchId}
         team={editingTeam}
       />
+      {canChargeTeam && (
+        <CobrosYPagosModal
+          open={!!chargeTeamId}
+          onOpenChange={(o) => { if (!o) setChargeTeamId(null); }}
+          onSuccess={() => refetch()}
+          initialMode="multi"
+          initialTeamId={chargeTeamId ?? undefined}
+          lockAthlete={false}
+        />
+      )}
       <EnrollTeamStudentModal
         open={isEnrollModalOpen}
         onClose={() => {

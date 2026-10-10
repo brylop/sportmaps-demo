@@ -367,6 +367,7 @@ export default function StudentsPage() {
         onClose={() => setShowCreateChildModal(false)}
         onSuccess={loadStudents}
         schoolId={schoolId || ''}
+        canWaiveFees={profile?.role !== 'coach'}
       />
 
       {/* Registro de Adulto */}
@@ -375,6 +376,7 @@ export default function StudentsPage() {
         onClose={() => setShowCreateAdultModal(false)}
         onSuccess={loadStudents}
         schoolId={schoolId || ''}
+        canWaiveFees={profile?.role !== 'coach'}
       />
 
       {/* CSV Import Modal */}

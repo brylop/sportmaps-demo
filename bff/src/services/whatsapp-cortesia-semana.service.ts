@@ -130,7 +130,7 @@ export function textoDeLaCortesia(dias: number): string {
 export function textoSemanaDeCortesia(p: { enlace: string; dias: number; horarios: string | null }): string {
     const periodo = textoDeLaCortesia(p.dias);
     return [
-        `¡Tu hijo/a puede entrenar *gratis durante ${periodo}*! ⚽`,
+        `¡Tu hijo/a puede entrenar *gratis durante ${periodo}*! 🙌`,
         '',
         'Así lo inscribes en la app para tomar la cortesía:',
         `1️⃣ Abre este enlace: ${p.enlace}`,

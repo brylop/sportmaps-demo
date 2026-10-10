@@ -119,6 +119,9 @@ import mobileRouter from './routes/mobile.routes';
 import internalNotificationsRouter from './routes/internal-notifications.routes';
 import internalAutopayRouter from './routes/internal-autopay.routes';
 import autopayRouter from './routes/autopay.routes';
+import chargeBatchesRouter from './routes/charge-batches.routes';
+import paymentAdjustmentsRouter from './routes/payment-adjustments.routes';
+import athleteChargesRouter from './routes/athlete-charges.routes';
 import { requireStoreEnabled } from './services/store-flag.service';
 import { storeRateLimit } from './middlewares/storeRateLimit';
 
@@ -382,6 +385,14 @@ app.use('/api/v1/reservations-admin', generalLimiter, reservationsAdminRouter);
 app.use('/api/v1/payments/glosas', paymentLimiter, glosasRouter);
 app.use('/api/v1/payments/reconciliation', paymentLimiter, reconciliationRouter);
 app.use('/api/v1/payments', paymentLimiter, paymentsRouter);
+// Modal «Cobros y pagos» (spec cobros-multiples F2). SIN paymentLimiter: era 20/min por
+// IP (de borde de Cloudflare) compartido con MP/glosas/conciliación, y la vista previa
+// automática del modal lo agotaba en uso normal. Los cupos van dentro del router, por
+// usuario, tras requireAuth (middlewares/cobrosRateLimit.ts: lectura 120/min, preview
+// 60/min, escritura 20/min) + los topes de Q11 al confirmar (chargeBatchRateLimit.ts:
+// 10 lotes/10 min por usuario, 2.000 cobros/hora por escuela).
+app.use('/api/v1/charge-batches', chargeBatchesRouter);
+app.use('/api/v1/payment-adjustments', paymentAdjustmentsRouter);
 app.use('/api/v1/admin/payments', generalLimiter, adminPaymentsRouter);
 // payment-tokens y recurring: state-changing → CSRF header + cap especifico
 app.use('/api/v1/payment-tokens', cardAlterLimiter, requireCsrfHeader, paymentTokensRouter);
@@ -471,6 +482,9 @@ app.use('/api/v1/athlete', generalLimiter, requireAthleteAuth, athleteStatsRoute
 app.use('/api/v1/athlete', generalLimiter, requireAthleteAuth, athleteTrainingRouter);
 app.use('/api/v1/athlete', generalLimiter, requireAthleteAuth, athleteBiomechRouter);
 app.use('/api/v1/athlete', generalLimiter, requireAthleteAuth, athletePerformanceRouter);
+// Cobros de un atleta (open-charges / charge-suggestions). Sin limitador en el montaje: pasaría
+// también por bulkUpload, que comparte el prefijo. El cupo de lectura del modal va en el gate.
+app.use('/api/v1/athletes', athleteChargesRouter);
 app.use('/api/v1/athletes', bulkUploadRouter);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────

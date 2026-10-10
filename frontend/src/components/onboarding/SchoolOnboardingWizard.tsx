@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { SPORTS_LIST } from '@/lib/constants/sportsCatalog';
 import { emailClient } from '@/lib/email-client';
+import { esNombreDePagoUnico, PAGO_UNICO_NO_ES_PLAN_MSG } from '@/lib/school/pagosUnicos';
 
 type BusinessModel = 'teams' | 'plans' | 'both';
 type StepId = 'branch' | 'model' | 'team' | 'plan' | 'coach' | 'student' | 'payments';
@@ -402,6 +403,12 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
     if (!schoolId || !user) return;
     if (!planName.trim()) {
       toast({ title: 'Ingresa el nombre del plan', variant: 'destructive' });
+      return;
+    }
+    // Inscripción / seguro no son planes (pagos únicos del plan mensual). Este paso
+    // escribe directo en Supabase, sin el guard del BFF: se valida acá.
+    if (esNombreDePagoUnico(planName)) {
+      toast({ title: 'Ese nombre no es un plan', description: PAGO_UNICO_NO_ES_PLAN_MSG, variant: 'destructive' });
       return;
     }
     if (!planPrice || Number(planPrice) <= 0) {

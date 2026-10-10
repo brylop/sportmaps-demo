@@ -143,6 +143,7 @@ export function categoriaDeCobro(
     const c = (concept ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
     if (c) {
         if (/matricul|inscrip/.test(c)) return 'inscripcion';
+        if (/seguro/.test(c)) return 'seguro';
         if (/mensualidad|mensual/.test(c)) return 'mensualidad';
         if (/torneo/.test(c)) return 'torneo';
         if (/uniforme|articulo|kit\b|dotacion/.test(c)) return 'articulos';
@@ -174,4 +175,66 @@ export function describirCategorias(cats: readonly string[]): string {
     const nombres = cats.map((c) => (esCategoria(c) ? NOMBRE_CATEGORIA[c] : c));
     if (nombres.length <= 1) return nombres[0] ?? '';
     return `${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}`;
+}
+
+/** Nombre singular del cobro para la familia («Seguro de accidentes»). Igual que CHARGE_CATEGORY_LABEL del frontend. */
+export const ETIQUETA_COBRO: Record<CategoriaCobro, string> = {
+    mensualidad: 'Mensualidad',
+    inscripcion: 'Inscripción',
+    articulos: 'Artículos',
+    torneo: 'Torneo',
+    otro: 'Otro cobro',
+    seguro: 'Seguro de accidentes',
+    excedente: 'Horas adicionales',
+    clase_extra: 'Clase extra',
+    vacacional: 'Vacacional',
+    viaje: 'Viaje',
+};
+
+/**
+ * ¿Es un cobro ÚNICO (no la mensualidad del período)? Solo por la categoría
+ * EXPLÍCITA: NULL = fila vieja u open_month, que es mensualidad. No se mira el
+ * concepto ni `payment_type` (2.220 'one_time' con categoría NULL son
+ * mensualidades, medido 2026-10-10). Misma regla que el trigger
+ * fn_extend_enrollment_on_payment_paid (migración 20261010130450): lo que esto
+ * da por único no extiende la vigencia al pagarse.
+ */
+export function esCobroUnico(paymentCategory: string | null | undefined): boolean {
+    return !!paymentCategory && paymentCategory !== 'mensualidad';
+}
+
+/*
+ * REGLA ÚNICA de cobro único (F0, migración 20261010143132, 2026-10-10):
+ * mensualidad ⇔ COALESCE(payment_category,'mensualidad') = 'mensualidad'.
+ * Un cobro único (inscripción, seguro, torneo, artículos, viaje… y cualquier
+ * categoría futura) NUNCA se vence, no lleva recargo, no bloquea el acceso y
+ * pagarlo no activa ni extiende la inscripción. Las decisiones de dinero y de
+ * acceso usan SOLO esto (o el filtro de abajo), nunca el concepto:
+ * `tipo-de-cobro.ts` deduce del concepto para NOMBRAR el cobro, no para decidir.
+ */
+
+/** ¿Es la mensualidad del período? El complemento exacto de `esCobroUnico`. */
+export function esMensualidadPorCategoria(paymentCategory: string | null | undefined): boolean {
+    return !esCobroUnico(paymentCategory);
+}
+
+/**
+ * La misma regla como filtro PostgREST, para `.or(FILTRO_SOLO_MENSUALIDAD)`:
+ * categoría NULL o 'mensualidad'. (payments_payment_category_check impide la
+ * cadena vacía, así que coincide con el COALESCE de la SQL.)
+ */
+export const FILTRO_SOLO_MENSUALIDAD = 'payment_category.is.null,payment_category.eq.mensualidad';
+
+/**
+ * Etiqueta corta del cobro: la categoría (explícita o deducida del concepto);
+ * sin categoría, «Mensualidad» si es de período y si no «Cobro».
+ */
+export function etiquetaDeCobro(p: {
+    payment_category?: string | null;
+    concept?: string | null;
+    payment_type?: string | null;
+}): string {
+    const cat = categoriaDeCobro(p.payment_category, p.concept);
+    if (cat) return ETIQUETA_COBRO[cat];
+    return p.payment_type === 'subscription' ? ETIQUETA_COBRO.mensualidad : 'Cobro';
 }

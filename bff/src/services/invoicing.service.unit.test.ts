@@ -237,6 +237,30 @@ describe('el estado del cobro decide si se puede facturar', () => {
         expect(emit).not.toHaveBeenCalled();
     });
 
+    it('mensualidad exonerada ($0, «No cobrar») no se factura (cobros-multiples I29)', async () => {
+        sembrarPago({ amount: 0, amount_paid: 0 });
+        const emit = adaptadorQueDevuelve(ACEPTADA);
+
+        const r = await emitInvoiceForPayment(PAGO);
+
+        expect(r.ok).toBe(false);
+        expect(r.error).toBe('payment_zero_amount');
+        expect(emit).not.toHaveBeenCalled();
+        expect(tablas.electronic_invoices ?? []).toHaveLength(0);
+    });
+
+    it('pagado con amount_paid = 0 explícito tampoco se factura; amount_paid NULL (pasarela) sí', async () => {
+        sembrarPago({ amount: 150000, amount_paid: 0 });
+        const emit = adaptadorQueDevuelve(ACEPTADA);
+        expect((await emitInvoiceForPayment(PAGO)).error).toBe('payment_zero_amount');
+        expect(emit).not.toHaveBeenCalled();
+
+        sembrarPago({ amount: 150000, amount_paid: null });
+        const emit2 = adaptadorQueDevuelve(ACEPTADA);
+        expect((await emitInvoiceForPayment(PAGO)).ok).toBe(true);
+        expect(emit2).toHaveBeenCalledTimes(1);
+    });
+
     it('un cobro pagado sí llega al PAC', async () => {
         sembrarPago();
         const emit = adaptadorQueDevuelve(ACEPTADA);

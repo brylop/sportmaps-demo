@@ -227,7 +227,7 @@ export function mesDelCobro(p: PagoCartera): string {
 /** Mensualidad u otro concepto. payment_type no es fiable solo; payment_category manda si existe. */
 export function esMensualidad(p: PagoCartera): boolean {
     if (p.payment_category) return p.payment_category === 'mensualidad';
-    if (/inscrip|matr[ií]cula|uniforme|torneo|kit/i.test(p.concept ?? '')) return false;
+    if (/inscrip|matr[ií]cula|seguro|p[oó]liza|uniforme|torneo|kit/i.test(p.concept ?? '')) return false;
     return p.payment_type === 'subscription';
 }
 
