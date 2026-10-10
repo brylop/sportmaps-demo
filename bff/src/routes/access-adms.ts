@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { checkInPresenceFromEvent } from './attendance';
 import { accessEventDecisionFields, notifyOwnerDayNotAllowedOnce, resolveEntryDayWarning } from '../utils/planDayRules';
+import { FILTRO_SOLO_MENSUALIDAD } from '../services/payment-accounts';
 
 const router = Router();
 
@@ -426,7 +427,7 @@ export async function validateAccess(schoolId: string, zkPin: string, direction:
 
   // F-D: con pending_proof_counts_as_paid, un comprobante en revisión cuenta
   // como pagado → no se deniega por vencida. El chequeo de pago de abajo sigue
-  // corriendo (un 'overdue' más reciente igual deniega). Escuelas sin el flag:
+  // corriendo (una mensualidad 'overdue' igual deniega). Escuelas sin el flag:
   // ni una consulta extra fuera de la caché, mismo resultado que antes.
   let note: 'pending_proof' | undefined;
   if (
@@ -449,17 +450,25 @@ export async function validateAccess(schoolId: string, zkPin: string, direction:
     };
   }
 
-  // 3. Verificar pago al día
-  const { data: payment } = await supabase
+  // 3. Verificar pago al día — F0 (migración 20261010143132, cobros-multiples
+  // I23): se niega si el atleta tiene CUALQUIER mensualidad 'overdue', no solo
+  // si el último cobro creado lo está. Antes un torneo o un artículo creado
+  // hoy escondía una mensualidad vencida anterior y dejaba entrar, y un cobro
+  // único vencido negaba. Solo la mensualidad bloquea (FILTRO_SOLO_MENSUALIDAD).
+  // Gracia, overdue_hold_until y la reapertura de rechazados ya los resuelve
+  // el barrido que pone 'overdue' (apply_late_fees); un comprobante enviado
+  // saca la fila de 'overdue' (awaiting_approval/glosado), así que tampoco niega.
+  const { data: overdueMensualidad } = await supabase
     .from('payments')
-    .select('status')
+    .select('id')
     .eq('school_id', schoolId)
     .eq(subjectColumn, subjectValue as string)
-    .order('created_at', { ascending: false })
+    .eq('status', 'overdue')
+    .or(FILTRO_SOLO_MENSUALIDAD)
     .limit(1)
     .maybeSingle();
 
-  if (payment?.status === 'overdue') {
+  if (overdueMensualidad) {
     return {
       granted: false,
       reason: 'payment_overdue',

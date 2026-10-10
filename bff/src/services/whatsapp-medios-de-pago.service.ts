@@ -152,6 +152,8 @@ export async function mediosDePago(
 
 /** Un cobro pendiente con su enlace público para pagarlo (/p/:token o Wompi con monto). */
 export interface CobroParaPagar {
+    /** «Mensualidad octubre 2026», «Inscripción», «Seguro de accidentes»… (conTipoDeCobro). */
+    tipo_cobro?: string | null;
     concepto: string | null;
     monto: number | null;
     vence: string | null;
@@ -176,11 +178,15 @@ export async function mediosDePagoDeFamilia(
         const { data, error } = await supabase.rpc('wa_get_payment_status', { p_parent_id: parentId, p_school_id: schoolId });
         if (error || !Array.isArray(data)) return { ...medios, cobros_pendientes: [] };
         // Import diferido: cobro-enlace-publico (que usan los enlaces) importa este módulo.
-        const { conEnlacesDePago } = await import('./whatsapp-enlaces-de-pago.service');
-        const conEnlace = await conEnlacesDePago(data as any[], parentId, schoolId, aviso);
+        const enlaces = await import('./whatsapp-enlaces-de-pago.service');
+        let conEnlace = await enlaces.conEnlacesDePago(data as any[], parentId, schoolId, aviso);
+        // «Inscripción», «Seguro de accidentes», «Mensualidad octubre 2026»
+        // (pagos únicos, 2026-10-10). Extra: si falla, sin tipo.
+        try { conEnlace = await enlaces.conTipoDeCobro(conEnlace, parentId, schoolId); } catch { /* sin tipo */ }
         const cobros_pendientes = conEnlace
             .filter((p: any) => p?.debe_pagarse === true && p?.enlace_pago)
             .map((p: any) => ({
+                ...(p.tipo_cobro ? { tipo_cobro: p.tipo_cobro as string } : {}),
                 concepto: p.concept ?? null,
                 monto: p.amount == null ? null : Number(p.amount),
                 vence: p.due_date ?? null,

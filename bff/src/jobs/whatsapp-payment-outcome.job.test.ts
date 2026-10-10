@@ -168,3 +168,29 @@ describe('desenlace del comprobante (rechazo que no borra la deuda, 2026-10-08)'
         expect(textoComprobanteRechazado('$ 1', null, null)).not.toContain('Motivo');
     });
 });
+
+describe('pagos únicos (2026-10-10)', () => {
+    it('con categoría manda la categoría: inscripción/seguro → pago_recibido_otro_concepto aunque el plan diga MENSUAL', async () => {
+        const { plantillaDelDesenlace: p } = await import('./whatsapp-payment-outcome.job');
+        expect(p('paid', 'Inscripción — PLAN RM MENSUAL — Atleta', { payment_category: 'inscripcion', payment_type: 'one_time' }))
+            .toEqual({ concepto: 'pago_recibido_otro_concepto' });
+        expect(p('paid', 'Seguro de accidentes — PGX — Atleta', { payment_category: 'seguro', payment_type: 'one_time' }))
+            .toEqual({ concepto: 'pago_recibido_otro_concepto' });
+        expect(p('paid', 'Plan PGX — Mensualidad completa', { payment_category: 'mensualidad', payment_type: 'subscription' }))
+            .toEqual({ concepto: 'pago_confirmado' });
+        // Categoría nueva (lista de pagos únicos por plan): también es otro concepto.
+        expect(p('paid', 'Uniforme de gala', { payment_category: 'uniforme_gala', payment_type: 'one_time' }))
+            .toEqual({ concepto: 'pago_recibido_otro_concepto' });
+    });
+    it('sin categoría, el seguro por su texto ya no sale como «la mensualidad de»', async () => {
+        const { plantillaDelDesenlace: p } = await import('./whatsapp-payment-outcome.job');
+        expect(p('paid', 'Seguro de accidentes — PGX — Atleta')).toEqual({ concepto: 'pago_recibido_otro_concepto' });
+    });
+    it('«Queda al día» solo si no queda otro cobro vivo', async () => {
+        const { cierreDelAvisoDePago: c } = await import('./whatsapp-payment-outcome.job');
+        expect(c(0)).toBe(' Queda al día.');
+        expect(c(1)).toBe(' Te queda 1 cobro pendiente.');
+        expect(c(2)).toBe(' Te quedan 2 cobros pendientes.');
+        expect(c(null)).toBe('');
+    });
+});

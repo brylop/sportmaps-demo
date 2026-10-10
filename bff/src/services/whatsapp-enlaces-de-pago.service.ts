@@ -24,6 +24,7 @@ import { supabase } from '../config/supabase';
 import { emitirTokenCobro } from './cobro-enlace-publico.service';
 import { crearLinkWompiConMonto } from './wompi-link-con-monto.service';
 import { appPublica, enlaceDeCobro } from '../utils/url-publica-familias';
+import { etiquetaDelCobro, type CobroClasificable } from './tipo-de-cobro';
 
 /** Máximo de enlaces por mensaje: más que eso es un muro de URLs. */
 export const MAX_ENLACES_POR_MENSAJE = 5;
@@ -48,6 +49,15 @@ export interface PagoConEnlace {
     enlace_instrucciones?: string | null;
     /** El aviso por WhatsApp al aprobarse quedó registrado (se puede prometer). */
     enlace_avisa?: boolean | null;
+    /** Lo que cobra el link con monto (cobro + recargo en línea de la escuela). */
+    enlace_total?: number | null;
+    /** El recargo en línea (online_fee_pct) incluido en `enlace_total`; 0 = sin recargo. */
+    enlace_recargo?: number | null;
+    /**
+     * Nombre humano del cobro («Mensualidad octubre 2026», «Inscripción»,
+     * «Seguro de accidentes»…), solo en los pendientes. Ver `conTipoDeCobro`.
+     */
+    tipo_cobro?: string | null;
     [k: string]: unknown;
 }
 
@@ -129,12 +139,14 @@ export async function conEnlacesDePago<T extends PagoConEnlace>(
         // escribe el valor y, al aprobarse, el pago queda aplicado solo. Si la
         // escuela no tiene pago en línea (Dynasty hoy: 'sin_pago_en_linea') o
         // algo falla, la página del cobro /p/:token como siempre.
-        const enlaces = new Map<number, { url: string; minutos: number | null; avisa?: boolean }>();
+        const enlaces = new Map<number, {
+            url: string; minutos: number | null; avisa?: boolean; total?: number; recargo?: number;
+        }>();
         await Promise.all([...ids].map(async ([i, id]) => {
             const wompi = await crearLinkWompiConMonto(id).catch(() => null);
             if (wompi?.ok && wompi.url) {
                 const avisa = aviso ? await registrarAviso(aviso, schoolId, id) : false;
-                enlaces.set(i, { url: wompi.url, minutos: wompi.minutos, avisa });
+                enlaces.set(i, { url: wompi.url, minutos: wompi.minutos, avisa, total: wompi.total, recargo: wompi.recargo });
                 return;
             }
             const token = await emitirTokenCobro(id);
@@ -145,7 +157,9 @@ export async function conEnlacesDePago<T extends PagoConEnlace>(
             if (!e) return p;
             return e.minutos
                 ? { ...p, enlace_pago: e.url, enlace_vence_min: e.minutos, enlace_avisa: e.avisa === true,
-                    enlace_instrucciones: instruccionesDelLinkConMonto(e.minutos, e.avisa === true) }
+                    enlace_total: e.total ?? null, enlace_recargo: e.recargo ?? null,
+                    enlace_instrucciones: instruccionesDelLinkConMonto(e.minutos, e.avisa === true,
+                        { total: e.total, recargo: e.recargo }) }
                 : { ...p, enlace_pago: e.url };
         });
     } catch (e: any) {
@@ -198,12 +212,27 @@ export function plazoParaPagar(minutos: number): string {
     return `${minutos} minutos`;
 }
 
+const cop = (n: number) => `$${Math.round(n).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`;
+
 /**
  * Lo que acompaña al link con monto. «Te aviso por aquí» SOLO si el aviso de
  * desenlace quedó registrado (`avisa`); si no, no se promete.
+ *
+ * Con recargo en línea (online_fee_pct de la escuela) se dice cuánto cobra el
+ * link y cuánto es el recargo (auditoría 2026-10-10): en Wompi la familia ve
+ * un valor distinto al de su cobro y no sabía por qué.
  */
-export function instruccionesDelLinkConMonto(minutos: number, avisa = false): string {
-    return `Tienes ${plazoParaPagar(minutos)} para pagar con ese link; al aprobarse, el pago queda aplicado solo` +
+export function instruccionesDelLinkConMonto(
+    minutos: number,
+    avisa = false,
+    montos?: { total?: number | null; recargo?: number | null },
+): string {
+    const recargo = Number(montos?.recargo ?? 0);
+    const total = Number(montos?.total ?? 0);
+    const valor = recargo > 0 && total > 0
+        ? `El link cobra ${cop(total)} (incluye ${cop(recargo)} de recargo por pago en línea). `
+        : '';
+    return `${valor}Tienes ${plazoParaPagar(minutos)} para pagar con ese link; al aprobarse, el pago queda aplicado solo` +
         (avisa ? ' y te aviso por aquí.' : '.');
 }
 
@@ -224,7 +253,8 @@ async function registrarAviso(aviso: { integrationId: string; waPhone: string },
 export function lineaPagar(p: PagoConEnlace | null | undefined): string | null {
     if (!p?.enlace_pago) return null;
     return p.enlace_vence_min
-        ? `   Pagar: ${p.enlace_pago}\n   (${instruccionesDelLinkConMonto(p.enlace_vence_min, p.enlace_avisa === true)})`
+        ? `   Pagar: ${p.enlace_pago}\n   (${instruccionesDelLinkConMonto(p.enlace_vence_min, p.enlace_avisa === true,
+            { total: p.enlace_total, recargo: p.enlace_recargo })})`
         : `   Pagar: ${p.enlace_pago}`;
 }
 
@@ -237,4 +267,45 @@ export function botonPagarUnico(pagos: PagoConEnlace[] | null | undefined): { te
     const pendientes = (Array.isArray(pagos) ? pagos : []).filter((p) => p?.debe_pagarse === true);
     if (pendientes.length !== 1 || !pendientes[0].enlace_pago) return null;
     return { texto: TEXTO_BOTON_PAGAR, url: pendientes[0].enlace_pago };
+}
+
+// ─── Tipo de cada cobro (pagos únicos, 2026-10-10) ──────────────────────────
+
+/**
+ * Los pagos de la RPC con `tipo_cobro` en cada pendiente: «Mensualidad octubre
+ * 2026», «Inscripción», «Seguro de accidentes», «Torneo»… La RPC no trae
+ * `payment_category` ni `payment_type`, así que se leen los cobros vivos del
+ * mismo pagador y se emparejan igual que los enlaces (concepto + vencimiento +
+ * monto + estado). Lo que no empareja se nombra por su concepto. Nunca lanza:
+ * ante cualquier falla, el nombre sale del concepto.
+ */
+export async function conTipoDeCobro<T extends PagoConEnlace>(
+    pagos: T[] | null | undefined,
+    parentId: string | null | undefined,
+    schoolId: string,
+): Promise<T[]> {
+    const lista = Array.isArray(pagos) ? pagos : [];
+    if (!lista.some((p) => p?.debe_pagarse === true)) return lista;
+    let filas: (FilaCobro & CobroClasificable)[] = [];
+    if (parentId) {
+        try {
+            const { data, error } = await supabase
+                .from('payments')
+                .select('id, concept, amount, due_date, status, payment_category, payment_type, period_year, period_month')
+                .eq('parent_id', parentId)
+                .eq('school_id', schoolId)
+                .in('status', ['pending', 'partial', 'overdue'])
+                .order('due_date', { ascending: true })
+                .limit(50);
+            if (!error && Array.isArray(data)) filas = data as any[];
+        } catch { /* se nombra por el concepto */ }
+    }
+    const porId = new Map(filas.map((f) => [f.id, f]));
+    const ids = emparejarIds(lista, filas, Number.POSITIVE_INFINITY);
+    return lista.map((p, i) => {
+        if (p?.debe_pagarse !== true) return p;
+        const fila = porId.get(ids.get(i) ?? '');
+        const tipo = etiquetaDelCobro(fila ?? { concept: p.concept ?? null, due_date: p.due_date ?? null });
+        return { ...p, tipo_cobro: tipo };
+    });
 }

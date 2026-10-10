@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { PaymentCheckoutModal } from '@/components/payment/PaymentCheckoutModal';
+import { isOneTimeCategory } from '@/lib/payment-accounts';
 import { GlosaRespondModal } from '@/components/payment/GlosaRespondModal';
 import { FailedAttemptChip } from '@/components/payment/FailedAttemptChip';
 import { listMine as listMyGlosas, OPEN_GLOSA_STATUSES, REASON_LABELS, type Glosa } from '@/lib/api/glosas';
@@ -78,6 +79,8 @@ interface Transaction {
   discount_amount?: number;
   discount_eligible?: boolean;
   discount_valid_until?: string | null;
+  /** payments.payment_category (la vista payments_with_installments no la trae). */
+  payment_category?: string | null;
   last_failure_reason?: string | null;
   last_failure_at?: string | null;
   requires_review?: boolean | null;
@@ -144,6 +147,7 @@ export default function MyPaymentsPage() {
     paymentId?: string;
     discount_eligible?: boolean;
     discount_amount?: number;
+    paymentCategory?: string | null;
   } | null>(null);
 
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
@@ -235,11 +239,11 @@ export default function MyPaymentsPage() {
       // se regenera incluyendo estos campos, esta query se vuelve redundante
       // pero no rompe nada (devuelve los mismos valores).
       const paymentIds = (payments || []).map((p: any) => p.id).filter(Boolean);
-      let periodMap: Record<string, { period_year: number | null; period_month: number | null; late_fee_amount?: number | null; created_at: string; early_payment_discount_applied?: number | null; sibling_discount_applied?: number | null; child_id?: string | null; parent_id?: string | null; school_id: string; last_failure_reason?: string | null; last_failure_at?: string | null; requires_review?: boolean | null }> = {};
+      let periodMap: Record<string, { period_year: number | null; period_month: number | null; late_fee_amount?: number | null; created_at: string; early_payment_discount_applied?: number | null; sibling_discount_applied?: number | null; child_id?: string | null; parent_id?: string | null; school_id: string; last_failure_reason?: string | null; last_failure_at?: string | null; requires_review?: boolean | null; payment_category?: string | null }> = {};
       if (paymentIds.length > 0) {
         const { data: periodRows } = await supabase
           .from('payments')
-          .select('id, period_year, period_month, late_fee_amount, created_at, early_payment_discount_applied, sibling_discount_applied, child_id, parent_id, school_id, last_failure_reason, last_failure_at, requires_review')
+          .select('id, period_year, period_month, late_fee_amount, created_at, early_payment_discount_applied, sibling_discount_applied, child_id, parent_id, school_id, last_failure_reason, last_failure_at, requires_review, payment_category')
           .in('id', paymentIds);
         periodMap = Object.fromEntries(
           (periodRows || []).map((r: any) => [r.id, {
@@ -255,6 +259,7 @@ export default function MyPaymentsPage() {
             last_failure_reason: r.last_failure_reason,
             last_failure_at: r.last_failure_at,
             requires_review: r.requires_review,
+            payment_category: r.payment_category ?? null,
           }]),
         );
       }
@@ -299,7 +304,12 @@ export default function MyPaymentsPage() {
 
       const txns: Transaction[] = (payments || []).map((p: any) => {
         const created_at = periodMap[p.id]?.created_at ?? p.created_at;
-        const discountCfg = discountConfigMap[p.school_id] ?? { enabled: false, days: 5, percentage: 0 };
+        const paymentCategory = periodMap[p.id]?.payment_category ?? null;
+        // Pronto pago = solo mensualidad: a un cobro único (inscripción, seguro…)
+        // no se le muestra descuento (el modal tampoco se lo aplica).
+        const discountCfg = isOneTimeCategory(paymentCategory)
+          ? { enabled: false, days: 5, percentage: 0 }
+          : discountConfigMap[p.school_id] ?? { enabled: false, days: 5, percentage: 0 };
         const earlierUnpaid = hasEarlierUnpaidFor(p.school_id, p.child_id, p.parent_id, created_at);
         const discount = calcEarlyPaymentDiscount(p.amount, {
           createdAt: created_at,
@@ -340,6 +350,7 @@ export default function MyPaymentsPage() {
           last_failure_reason: periodMap[p.id]?.last_failure_reason ?? null,
           last_failure_at: periodMap[p.id]?.last_failure_at ?? null,
           requires_review: periodMap[p.id]?.requires_review ?? null,
+          payment_category: paymentCategory,
         };
       });
       setTransactions(txns);
@@ -508,6 +519,7 @@ export default function MyPaymentsPage() {
     paymentId: p.id,
     discount_eligible: p.discount_eligible,
     discount_amount: p.discount_amount,
+    paymentCategory: p.payment_category ?? null,
   });
 
   useEffect(() => {
@@ -594,7 +606,8 @@ export default function MyPaymentsPage() {
             schoolId: p.school_id || '',
             paymentId: p.id,
             discount_eligible: p.discount_eligible,
-            discount_amount: p.discount_amount
+            discount_amount: p.discount_amount,
+            paymentCategory: p.payment_category ?? null,
           });
         }}
         isSelected={selectedPayment?.paymentId === txn.id}
@@ -822,6 +835,7 @@ export default function MyPaymentsPage() {
           paymentId={selectedPayment.paymentId}
           amount={selectedPayment.amount}
           concept={selectedPayment.teamName}
+          paymentCategory={selectedPayment.paymentCategory ?? null}
           mode={selectedPayment.paymentId ? 'update' : 'create'}
           onSuccess={fetchPaymentData}
         />

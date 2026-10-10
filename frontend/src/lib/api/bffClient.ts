@@ -51,6 +51,8 @@ class BFFError extends Error {
         public status: number,
         message: string,
         public body?: unknown,
+        /** Segundos del header `Retry-After` (solo en 429/503 cuando el BFF lo manda). */
+        public retryAfterSeconds?: number,
     ) {
         super(message);
         this.name = 'BFFError';
@@ -129,7 +131,13 @@ async function request<T>(
             (responseBody as any)?.error ??
             (responseBody as any)?.message ??
             `Error ${response.status}`;
-        throw new BFFError(response.status, message, responseBody);
+        const retryAfter = Number(response.headers?.get?.('Retry-After'));
+        throw new BFFError(
+            response.status,
+            message,
+            responseBody,
+            Number.isFinite(retryAfter) && retryAfter >= 0 ? retryAfter : undefined,
+        );
     }
 
     return responseBody as T;

@@ -394,7 +394,7 @@ async function handleSchoolPayment({
         //     para revisión con el motivo — la escuela decide si devuelve.
         const { data: actual } = await supabase
             .from('payments')
-            .select('status, wompi_transaction_id')
+            .select('status, wompi_transaction_id, amount, amount_paid')
             .eq('id', link.payment_id)
             .maybeSingle();
         if ((actual as any)?.status === 'paid' && (actual as any)?.wompi_transaction_id !== txId) {
@@ -440,6 +440,21 @@ async function handleSchoolPayment({
         //    (pse|card|transfer|cash|other); 'wompi' lo violaba y el UPDATE
         //    fallaba en silencio (el pago quedaba pending pese al webhook OK).
         const payMethod = WOMPI_METHOD_MAP[String(paymentMethodType || '').toUpperCase()] ?? 'other';
+
+        // 3.c Sobrepago (spec cobros-multiples I35, §13.10c). El enlace firmó un
+        //     monto; si entre la firma y el pago la escuela bajó el cobro (un
+        //     descuento por una vía que la regla PAGO_EN_CURSO no vio), lo
+        //     recibido supera `amount`. La plata ya entró: el cobro queda `paid`
+        //     con `amount_paid` = lo recibido y a revisión («pagó de más $X»), para
+        //     que la escuela decida si devuelve. Nunca se reabre ni se pierde el
+        //     descuento en silencio. Se compara `base_amount` (lo cobrado sin el
+        //     recargo online, que es de la escuela) contra el `amount` vigente.
+        const montoVigente = Number((actual as any)?.amount);
+        const recibidoBase = Number(link.base_amount);
+        const sobrepago = Number.isFinite(montoVigente) && montoVigente > 0
+            && Number.isFinite(recibidoBase) && recibidoBase > montoVigente + 1
+            ? Math.round(recibidoBase - montoVigente)
+            : 0;
         const { error: payUpdErr } = await supabase
             .from('payments')
             .update({
@@ -460,6 +475,7 @@ async function handleSchoolPayment({
                 wompi_transaction_id: txId,
                 gross_amount: txAmountCop,
                 sportmaps_fee: link.sportmaps_fee,
+                ...(sobrepago > 0 ? { amount_paid: recibidoBase } : {}),
                 updated_at: new Date().toISOString(),
             })
             .eq('id', link.payment_id);
@@ -473,6 +489,18 @@ async function handleSchoolPayment({
                 'School payment: FALLÓ marcar payment como paid',
             );
             return { status: 500, body: { error: 'payment_update_failed', detail: payUpdErr.message } };
+        }
+
+        if (sobrepago > 0) {
+            const { error: flagErr } = await supabase.rpc('flag_payment_for_review', {
+                p_kind: 'payment',
+                p_id: link.payment_id,
+                p_reason: `${buildFailureReason('wompi', 'sobrepago', paymentMethodType, null, txId)} · pagó de más $${sobrepago.toLocaleString('es-CO')} (cobro $${montoVigente.toLocaleString('es-CO')}, recibido $${recibidoBase.toLocaleString('es-CO')})`,
+            });
+            if (flagErr) {
+                req.log?.error({ err: flagErr, paymentId: link.payment_id }, 'No se pudo marcar el sobrepago para revisión');
+            }
+            req.log?.warn({ paymentId: link.payment_id, txReference, sobrepago }, 'School payment: recibido mayor que el cobro vigente — a revisión');
         }
 
         // 5. Marcar payment_link
@@ -549,7 +577,7 @@ async function handleSchoolPayment({
         }
 
         req.log?.info({ paymentId: link.payment_id, txReference }, 'School payment confirmed');
-        return { status: 200, body: { status: 'ok', kind: 'school_payment' } };
+        return { status: 200, body: { status: 'ok', kind: 'school_payment', ...(sobrepago > 0 ? { overpayment: sobrepago } : {}) } };
     }
 
     // No-paid (declined/voided/error) → dejar rastro del intento.

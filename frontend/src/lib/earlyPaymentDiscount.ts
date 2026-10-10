@@ -14,7 +14,23 @@ export interface EarlyPaymentDiscountResult {
 }
 
 /**
+ * El pronto pago es exclusivo de la mensualidad (payment_category NULL =
+ * legado/mensualidad). Misma regla que aplica el servidor en
+ * `fn_payments_pronto_pago_servidor` (migración 20261010143743, S1/H5): si el
+ * navegador ofrece descuento en un cobro único, la base lo deja en NULL y la
+ * familia transferiría de menos.
+ */
+export function earlyDiscountAppliesToCategory(paymentCategory: string | null | undefined): boolean {
+  return !paymentCategory || paymentCategory === 'mensualidad';
+}
+
+/**
  * Calcula si un pago es elegible para descuento por pronto pago.
+ *
+ * Es una VISTA PREVIA: el valor que queda en payments.early_payment_discount_applied
+ * lo acota la base (trigger trg_zzz_pronto_pago_servidor) a
+ * LEAST(lo enviado, el calculado por el servidor). El navegador no puede
+ * darse más descuento que el de la escuela.
  *
  * Ventana = desde payment.created_at hasta N dias despues (config.days),
  * misma regla para los 3 billing_cycle_type — no depende del dia de corte,

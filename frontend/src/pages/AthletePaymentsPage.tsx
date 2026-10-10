@@ -20,6 +20,9 @@ import { CheckCircle2 as CheckCircle, Loader2 as Loader, CreditCard as CardIcon 
 import { normalizeReceiptUrl } from '@/lib/normalizeReceiptUrl';
 import { todayColombia, formatDayCO } from '@/lib/dateUtils';
 import { calcEarlyPaymentDiscount } from '@/lib/earlyPaymentDiscount';
+// get_athlete_payments no devuelve payment_category: la etiqueta del cobro único
+// sale del concepto; el modal de pago lee la categoría real de la fila.
+import { oneTimeLabelFromConcept } from '@/lib/payment-accounts';
 
 interface Payment {
   id: string;
@@ -278,7 +281,8 @@ export default function AthletePaymentsPage() {
       const discount = calcEarlyPaymentDiscount(payment.amount, {
         createdAt: payment.created_at,
         config: {
-          enabled: !!payment.early_payment_discount_enabled,
+          // Pronto pago = solo mensualidad, nunca un cobro único.
+          enabled: !!payment.early_payment_discount_enabled && !oneTimeLabelFromConcept(payment.concept),
           days: payment.early_payment_discount_days || 5,
           percentage: payment.early_payment_discount_percentage || 0,
         },
@@ -528,7 +532,11 @@ export default function AthletePaymentsPage() {
           branchId={selectedPayment.branch_id}
           amount={selectedPayment.amount}
           concept={
-            selectedPayment.child_name
+            // Un cobro único se muestra con su concepto («Seguro de accidentes — …»),
+            // no con el nombre del plan, que lo hacía pasar por la mensualidad.
+            oneTimeLabelFromConcept(selectedPayment.concept) && selectedPayment.concept
+              ? selectedPayment.concept
+              : selectedPayment.child_name
               ? `${selectedPayment.child_name} — ${selectedPayment.program_name || selectedPayment.team_name}`
               : selectedPayment.program_name || selectedPayment.team_name || selectedPayment.concept || 'Pago mensualidad'
           }
@@ -642,8 +650,12 @@ function PaymentCard({ payment, formatCurrency, formatDate, onRefresh, onSelect,
   const isEquipo = !!payment.team_id;
   const isPlan   = !payment.team_id && !!payment.plan_name;
 
-  // Nombre del programa siempre disponible
-  const programName = payment.program_name || payment.team_name || payment.concept || 'Servicio deportivo';
+  // Nombre del programa siempre disponible. Un cobro único lleva su etiqueta
+  // delante: sin ella el seguro y la inscripción se veían como otra mensualidad
+  // del mismo plan.
+  const oneTimeLabel = oneTimeLabelFromConcept(payment.concept);
+  const baseName = payment.program_name || payment.team_name || payment.concept || 'Servicio deportivo';
+  const programName = oneTimeLabel && baseName !== payment.concept ? `${oneTimeLabel} · ${baseName}` : baseName;
 
   return (
     <Card

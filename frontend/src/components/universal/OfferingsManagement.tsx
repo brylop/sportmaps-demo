@@ -31,6 +31,11 @@ import { OfferingCoachesPanel } from './OfferingCoachesPanel';
 import { formatFriendlyDuration } from '@/lib/utils';
 import { PlanLevelRulesSection, EMPTY_LEVEL_RULES, levelRulesFromPlan, levelRulesPayload, type PlanLevelRules } from './PlanLevelRulesSection';
 import { useLevelProgressionEnabled } from '@/hooks/useLevelProgression';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+    PAGO_UNICO_NO_ES_PLAN_MSG, PAGOS_UNICOS_AYUDA, bloquearNombreDePlan, esNombreDePagoUnico,
+    esTarifaMensualActiva, montoPagoUnico, resumenPagosUnicos,
+} from '@/lib/school/pagosUnicos';
 
 const MIN_SEARCH_CHARS = 1;
 
@@ -457,7 +462,8 @@ export function OfferingsManagement() {
         deleteOffering,
         createPlan,
         updatePlan,
-        deletePlan
+        deletePlan,
+        applyOneTimeFees,
     } = useOfferings();
 
     const isCreatingOffering = createOffering.isPending;
@@ -514,6 +520,18 @@ export function OfferingsManagement() {
         insurance_fee: '',
     });
 
+    // Pagos únicos: nombre con el que se abrió el formulario (null = creando). Un plan
+    // viejo llamado «Seguro» se puede seguir guardando si no se le cambia el nombre.
+    const [planOriginalName, setPlanOriginalName] = useState<string | null>(null);
+    const [offeringOriginalName, setOfferingOriginalName] = useState<string | null>(null);
+    // Aviso «la inscripción y el seguro no son planes» (origen: tarifa u oferta/plan).
+    const [nombreBloqueado, setNombreBloqueado] = useState<'tarifa' | 'plan' | null>(null);
+    const pagosUnicosRef = useRef<HTMLDivElement>(null);
+    // «Aplicar a todos los planes»
+    const [showAplicarTodos, setShowAplicarTodos] = useState(false);
+    const [bulkFees, setBulkFees] = useState({ registration_fee: '', insurance_fee: '' });
+    const [bulkPlanIds, setBulkPlanIds] = useState<string[]>([]);
+
     const [isCustomDays, setIsCustomDays] = useState(false);
     const [customDays, setCustomDays] = useState('30');
 
@@ -526,6 +544,7 @@ export function OfferingsManagement() {
     const resetOfferingForm = () => {
         setNewOffering({ name: '', description: '', offering_type: 'membership', sport: '', booking_mode: 'coach', facility_id: '' });
         setEditingOfferingId(null);
+        setOfferingOriginalName(null);
     };
 
     const resetPlanForm = () => {
@@ -533,12 +552,82 @@ export function OfferingsManagement() {
         setIsCustomDays(false);
         setCustomDays('30');
         setEditingPlanId(null);
+        setPlanOriginalName(null);
         setLevelRules(EMPTY_LEVEL_RULES);
         setLevelRulesInitial(EMPTY_LEVEL_RULES);
     };
 
+    // Tarifas mensuales activas de planes activos, sin las que ya se llaman
+    // «Inscripción»/«Seguro» (ponerles inscripción encima no tiene sentido).
+    const tarifasMensuales = useMemo(() =>
+        offerings
+            .filter((o) => o.is_active !== false && !esNombreDePagoUnico(o.name))
+            .flatMap((o) => (o.offering_plans ?? [])
+                .filter((p) => esTarifaMensualActiva(p) && !esNombreDePagoUnico(p.name))
+                .map((p) => ({ plan: p, offeringName: o.name }))),
+        [offerings]);
+
+    const abrirAplicarTodos = () => {
+        // Prellenar con el valor si todas las tarifas ya comparten el mismo.
+        const comun = (campo: 'registration_fee' | 'insurance_fee') => {
+            const vals = new Set(tarifasMensuales.map(({ plan }) => Number(plan[campo] ?? 0)));
+            const unico = vals.size === 1 ? [...vals][0] : 0;
+            return unico > 0 ? String(unico) : '';
+        };
+        setBulkFees({ registration_fee: comun('registration_fee'), insurance_fee: comun('insurance_fee') });
+        setBulkPlanIds(tarifasMensuales.map(({ plan }) => plan.id));
+        setShowAplicarTodos(true);
+    };
+
+    const handleAplicarTodos = () => {
+        if (bulkPlanIds.length === 0) return;
+        applyOneTimeFees.mutate({
+            plan_ids: bulkPlanIds,
+            registration_fee: montoPagoUnico(bulkFees.registration_fee),
+            insurance_fee: montoPagoUnico(bulkFees.insurance_fee),
+        }, {
+            onSuccess: (r) => {
+                toast({ title: 'Pagos únicos actualizados ✓', description: `Se aplicaron a ${r.updated} tarifa${r.updated === 1 ? '' : 's'}.` });
+                setShowAplicarTodos(false);
+            },
+            onError: (err: Error) => toast({ title: 'Error', description: err.message, variant: 'destructive' }),
+        });
+    };
+
+    const enfocarPagosUnicos = () => {
+        setTimeout(() => {
+            pagosUnicosRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            document.getElementById('plan-registration-fee')?.focus();
+        }, 50);
+    };
+
+    // Botón del aviso: lleva a los campos Inscripción / Seguro.
+    const irAPagosUnicos = () => {
+        const origen = nombreBloqueado;
+        setNombreBloqueado(null);
+        if (origen === 'tarifa') {
+            enfocarPagosUnicos();
+            return;
+        }
+        // Desde «Nuevo Plan»: los pagos únicos van en las tarifas mensuales.
+        setShowCreate(false);
+        resetOfferingForm();
+        if (tarifasMensuales.length > 0) {
+            abrirAplicarTodos();
+        } else {
+            toast({
+                title: 'Primero crea el plan mensual',
+                description: 'Crea el plan con su tarifa mensual y llena ahí los campos «Inscripción» y «Seguro».',
+            });
+        }
+    };
+
 
     const handleSaveOffering = () => {
+        if (bloquearNombreDePlan(newOffering.name, editingOfferingId ? offeringOriginalName : null)) {
+            setNombreBloqueado('plan');
+            return;
+        }
         const payload = {
             name: newOffering.name,
             offering_type: newOffering.offering_type as Offering['offering_type'],
@@ -563,6 +652,10 @@ export function OfferingsManagement() {
     };
 
     const handleSavePlan = (offeringId: string) => {
+        if (bloquearNombreDePlan(newPlan.name, editingPlanId ? planOriginalName : null)) {
+            setNombreBloqueado('tarifa');
+            return;
+        }
         const durationValue = newPlan.duration_days === 'custom'
             ? parseInt(customDays)
             : parseInt(newPlan.duration_days);
@@ -584,8 +677,10 @@ export function OfferingsManagement() {
             // comportamiento actual (hereda bloque de escuela / sin cobro de inscripción).
             session_block_minutes: newPlan.session_block_minutes ? parseInt(newPlan.session_block_minutes) : null,
             included_sessions_per_week: newPlan.included_sessions_per_week ? parseInt(newPlan.included_sessions_per_week) : null,
-            registration_fee: newPlan.registration_fee ? parseFloat(newPlan.registration_fee) : null,
-            insurance_fee: newPlan.insurance_fee ? parseFloat(newPlan.insurance_fee) : null,
+            // Pagos únicos: '' y 0 → null (no se cobra). emit_enrollment_fees ya trata
+            // NULL y 0 igual (COALESCE(x,0) > 0); null deja la base sin ambigüedad.
+            registration_fee: montoPagoUnico(newPlan.registration_fee),
+            insurance_fee: montoPagoUnico(newPlan.insurance_fee),
             metadata: {
                 secondary_session_label: newPlan.secondary_session_label || undefined,
                 schedule_type: newPlan.schedule_type,
@@ -616,6 +711,7 @@ export function OfferingsManagement() {
             facility_id: offering.facility_id || '',
         });
         setEditingOfferingId(offering.id);
+        setOfferingOriginalName(offering.name);
         setShowCreate(true);
     };
 
@@ -624,6 +720,7 @@ export function OfferingsManagement() {
         const plan = offering?.offering_plans?.find((p) => p.id === planId);
         if (plan) {
             setEditingPlanId(planId);
+            setPlanOriginalName(plan.name);
             const durationStr = plan.duration_days?.toString() || '30';
             const isPreset = ['7', '15', '30', '90', '180', '365'].includes(durationStr);
             setNewPlan({
@@ -735,6 +832,17 @@ export function OfferingsManagement() {
                             <Share2 className="h-4 w-4" /> Compartir link
                         </Button>
                     )}
+                    {tarifasMensuales.length > 0 && (
+                        <Button
+                            onClick={abrirAplicarTodos}
+                            size="sm"
+                            variant="outline"
+                            className="gap-1.5"
+                            title="Fijar la misma inscripción y el mismo seguro en todas las tarifas mensuales"
+                        >
+                            <DollarSign className="h-4 w-4" /> Inscripción y seguro
+                        </Button>
+                    )}
                     <Button onClick={() => { resetOfferingForm(); setShowCreate(true); }} size="sm" className="gap-1.5 shadow-sm">
                         <Plus className="h-4 w-4" /> Nuevo Plan
                     </Button>
@@ -819,6 +927,9 @@ export function OfferingsManagement() {
                                 value={newOffering.name}
                                 onChange={(e) => setNewOffering((prev) => ({ ...prev, name: e.target.value }))}
                             />
+                            {bloquearNombreDePlan(newOffering.name, editingOfferingId ? offeringOriginalName : null) && (
+                                <p className="text-[11px] text-destructive leading-snug">{PAGO_UNICO_NO_ES_PLAN_MSG}</p>
+                            )}
                         </div>
 
                         <div className="space-y-4">
@@ -956,7 +1067,15 @@ export function OfferingsManagement() {
                                 Nombre de la tarifa <span className="text-destructive">*</span>
                             </Label>
                             <Input id="plan-name" placeholder="Ej: Básico, Premium, 2 veces/semana" value={newPlan.name} onChange={(e) => setNewPlan((prev) => ({ ...prev, name: e.target.value }))} className="h-9" />
-                            
+                            {bloquearNombreDePlan(newPlan.name, editingPlanId ? planOriginalName : null) && (
+                                <p className="text-[11px] text-destructive leading-snug">
+                                    {PAGO_UNICO_NO_ES_PLAN_MSG}{' '}
+                                    <button type="button" onClick={enfocarPagosUnicos} className="underline font-medium">
+                                        Ir a Inscripción y Seguro
+                                    </button>
+                                </p>
+                            )}
+
                             {/* Suggested Categories logic */}
                             {(() => {
                                 const parentOffering = offerings.find(o => o.id === (showCreatePlan || editingPlanId));
@@ -999,56 +1118,67 @@ export function OfferingsManagement() {
                             })()}
                         </div>
 
-                        {/* Price + Duration row */}
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-2">
-                                <Label className="text-sm font-medium flex items-center gap-1.5">
-                                    <DollarSign className="h-3.5 w-3.5 text-green-500" /> Precio <span className="text-destructive">*</span>
-                                </Label>
-                                <NumberStepper
-                                    id="plan-price"
-                                    value={newPlan.price}
-                                    onChange={(v) => setNewPlan((prev) => ({ ...prev, price: v }))}
-                                    placeholder="0"
-                                    prefix="$"
-                                    step={5000}
-                                    isCurrency={true}
-                                />
+                        {/* Precio (mensualidad) */}
+                        <div className="space-y-2">
+                            <Label className="text-sm font-medium flex items-center gap-1.5">
+                                <DollarSign className="h-3.5 w-3.5 text-green-500" /> Precio <span className="text-destructive">*</span>
+                            </Label>
+                            <NumberStepper
+                                id="plan-price"
+                                value={newPlan.price}
+                                onChange={(v) => setNewPlan((prev) => ({ ...prev, price: v }))}
+                                placeholder="0"
+                                prefix="$"
+                                step={5000}
+                                isCurrency={true}
+                            />
+                        </div>
+
+                        {/* Pagos únicos al inscribirse: NO son planes aparte (regla de producto). */}
+                        <div ref={pagosUnicosRef} id="pagos-unicos" className="space-y-3 rounded-lg border border-orange-200/60 bg-orange-50/30 dark:bg-orange-500/5 p-3">
+                            <div className="space-y-0.5">
+                                <p className="text-sm font-semibold">Pagos únicos al inscribirse</p>
+                                <p className="text-[11px] text-muted-foreground leading-snug">{PAGOS_UNICOS_AYUDA}</p>
                             </div>
-                            <div className="space-y-2">
-                                <Label className="text-sm font-medium flex items-center gap-1.5">
-                                    <DollarSign className="h-3.5 w-3.5 text-orange-500" /> Inscripción
-                                </Label>
-                                <NumberStepper
-                                    id="plan-registration-fee"
-                                    value={newPlan.registration_fee}
-                                    onChange={(v) => setNewPlan((prev) => ({ ...prev, registration_fee: v }))}
-                                    placeholder="Sin cobro"
-                                    prefix="$"
-                                    step={5000}
-                                    isCurrency={true}
-                                />
-                                <p className="text-[10px] text-muted-foreground">
-                                    Cobro único al inscribirse, aparte de la mensualidad. Vacío = sin inscripción.
-                                </p>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="plan-registration-fee" className="text-sm font-medium flex items-center gap-1.5">
+                                        <DollarSign className="h-3.5 w-3.5 text-orange-500" /> Inscripción
+                                    </Label>
+                                    <NumberStepper
+                                        id="plan-registration-fee"
+                                        value={newPlan.registration_fee}
+                                        onChange={(v) => setNewPlan((prev) => ({ ...prev, registration_fee: v }))}
+                                        placeholder="Sin cobro"
+                                        prefix="$"
+                                        step={5000}
+                                        isCurrency={true}
+                                    />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="plan-insurance-fee" className="text-sm font-medium flex items-center gap-1.5">
+                                        <DollarSign className="h-3.5 w-3.5 text-sky-500" /> Seguro
+                                    </Label>
+                                    <NumberStepper
+                                        id="plan-insurance-fee"
+                                        value={newPlan.insurance_fee}
+                                        onChange={(v) => setNewPlan((prev) => ({ ...prev, insurance_fee: v }))}
+                                        placeholder="Sin cobro"
+                                        prefix="$"
+                                        step={5000}
+                                        isCurrency={true}
+                                    />
+                                </div>
                             </div>
-                            <div className="space-y-2">
-                                <Label className="text-sm font-medium flex items-center gap-1.5">
-                                    <DollarSign className="h-3.5 w-3.5 text-sky-500" /> Seguro
-                                </Label>
-                                <NumberStepper
-                                    id="plan-insurance-fee"
-                                    value={newPlan.insurance_fee}
-                                    onChange={(v) => setNewPlan((prev) => ({ ...prev, insurance_fee: v }))}
-                                    placeholder="Sin cobro"
-                                    prefix="$"
-                                    step={5000}
-                                    isCurrency={true}
-                                />
-                                <p className="text-[10px] text-muted-foreground">
-                                    Seguro de accidentes al inscribirse. Se cobra máximo una vez cada 12 meses por atleta. Vacío = sin seguro.
-                                </p>
-                            </div>
+                            {(newPlan.registration_fee || newPlan.insurance_fee) && (
+                                <button
+                                    type="button"
+                                    onClick={() => setNewPlan((prev) => ({ ...prev, registration_fee: '', insurance_fee: '' }))}
+                                    className="text-[11px] text-muted-foreground underline hover:text-foreground"
+                                >
+                                    Quitar los dos (no cobrar inscripción ni seguro)
+                                </button>
+                            )}
                         </div>
 
                         <div className="space-y-2">
@@ -1305,6 +1435,103 @@ export function OfferingsManagement() {
                 />
             )}
 
+            {/* -- Aviso: la inscripción y el seguro no son planes -- */}
+            <AlertDialog open={!!nombreBloqueado} onOpenChange={(o) => !o && setNombreBloqueado(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>No se puede guardar con ese nombre</AlertDialogTitle>
+                        <AlertDialogDescription>{PAGO_UNICO_NO_ES_PLAN_MSG}</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cambiar el nombre</AlertDialogCancel>
+                        <AlertDialogAction onClick={irAPagosUnicos}>
+                            {nombreBloqueado === 'tarifa' ? 'Ir a Inscripción y Seguro' : 'Configurar inscripción y seguro'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* -- Aplicar Inscripción / Seguro a todas las tarifas mensuales -- */}
+            <Dialog open={showAplicarTodos} onOpenChange={(o) => { if (!o) setShowAplicarTodos(false); }}>
+                <DialogContent className="sm:max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle className="text-lg font-bold">Pagos únicos al inscribirse</DialogTitle>
+                        <p className="text-sm text-muted-foreground">{PAGOS_UNICOS_AYUDA}</p>
+                    </DialogHeader>
+                    <div className="space-y-4 py-1 max-h-[65vh] overflow-y-auto pr-1">
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                                <Label htmlFor="bulk-registration-fee" className="text-sm font-medium">Inscripción</Label>
+                                <NumberStepper
+                                    id="bulk-registration-fee"
+                                    value={bulkFees.registration_fee}
+                                    onChange={(v) => setBulkFees((prev) => ({ ...prev, registration_fee: v }))}
+                                    placeholder="Sin cobro"
+                                    prefix="$"
+                                    step={5000}
+                                    isCurrency={true}
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label htmlFor="bulk-insurance-fee" className="text-sm font-medium">Seguro</Label>
+                                <NumberStepper
+                                    id="bulk-insurance-fee"
+                                    value={bulkFees.insurance_fee}
+                                    onChange={(v) => setBulkFees((prev) => ({ ...prev, insurance_fee: v }))}
+                                    placeholder="Sin cobro"
+                                    prefix="$"
+                                    step={5000}
+                                    isCurrency={true}
+                                />
+                            </div>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                            Se reemplazan los valores de las tarifas marcadas. Un campo vacío quita ese cobro en esas tarifas.
+                            Solo afecta a los atletas que se inscriban de aquí en adelante.
+                        </p>
+                        <div className="space-y-1.5">
+                            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                Tarifas mensuales activas ({bulkPlanIds.length}/{tarifasMensuales.length})
+                            </p>
+                            <div className="rounded-lg border border-border/50 divide-y divide-border/30">
+                                {tarifasMensuales.map(({ plan, offeringName }) => {
+                                    const checked = bulkPlanIds.includes(plan.id);
+                                    const actual = resumenPagosUnicos(plan);
+                                    return (
+                                        <label key={plan.id} className="flex items-start gap-2.5 px-3 py-2 text-xs cursor-pointer hover:bg-muted/30">
+                                            <Checkbox
+                                                checked={checked}
+                                                onCheckedChange={(c) => setBulkPlanIds((prev) =>
+                                                    c ? [...prev, plan.id] : prev.filter((id) => id !== plan.id))}
+                                                className="mt-0.5"
+                                            />
+                                            <span className="min-w-0 flex-1">
+                                                <span className="font-medium break-words">{offeringName} · {plan.name}</span>
+                                                <span className="block text-[10px] text-muted-foreground">
+                                                    {actual || 'Hoy sin inscripción ni seguro'}
+                                                </span>
+                                            </span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter className="gap-2 sm:gap-0 pt-2">
+                        <Button variant="outline" size="sm" onClick={() => setShowAplicarTodos(false)}>Cancelar</Button>
+                        <Button
+                            size="sm"
+                            onClick={handleAplicarTodos}
+                            disabled={bulkPlanIds.length === 0 || applyOneTimeFees.isPending}
+                        >
+                            {applyOneTimeFees.isPending
+                                ? 'Aplicando...'
+                                : `Aplicar a ${bulkPlanIds.length} tarifa${bulkPlanIds.length === 1 ? '' : 's'}`}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             {/* -- Deletion Confirmation Dialogs -- */}
             <AlertDialog open={!!planToDelete} onOpenChange={(o) => !o && setPlanToDelete(null)}>
                 <AlertDialogContent>
@@ -1510,21 +1737,19 @@ function OfferingCard({
                                                     {plan.included_sessions_per_week} días/sem
                                                 </Badge>
                                             )}
-                                            {/* Cobro de inscripción (D17) — aparte de la mensualidad. */}
-                                            {plan.registration_fee > 0 && (
-                                                <Badge variant="secondary" className="text-[9px] h-4 px-1 py-0 bg-orange-50 text-orange-700 border-orange-200">
-                                                    +${formatCurrency(plan.registration_fee)} inscripción
-                                                </Badge>
-                                            )}
-                                            {plan.insurance_fee > 0 && (
-                                                <Badge variant="secondary" className="text-[9px] h-4 px-1 py-0 bg-sky-50 text-sky-700 border-sky-200">
-                                                    +${formatCurrency(plan.insurance_fee)} seguro
-                                                </Badge>
-                                            )}
                                             <span className="font-bold text-primary ml-1">
                                                 ${formatCurrency(plan.price)}
                                             </span>
                                         </div>
+                                        {/* Pagos únicos al inscribirse (inscripción + seguro), aparte de la mensualidad. */}
+                                        {resumenPagosUnicos(plan) && (
+                                            <div
+                                                className="mt-1 text-[10px] font-medium text-orange-700 dark:text-orange-300"
+                                                title="Se cobran una sola vez al inscribir al atleta. El seguro, máximo una vez cada 12 meses."
+                                            >
+                                                {resumenPagosUnicos(plan)}
+                                            </div>
+                                        )}
 
                                     </div>
                                     <div className="flex items-center gap-1">
