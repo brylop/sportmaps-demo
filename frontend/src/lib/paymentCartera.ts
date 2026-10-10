@@ -71,3 +71,35 @@ export const isOverdueCharge = (p: ChargeState): boolean =>
  * desaparecería de las dos tarjetas — el mismo fallo silencioso que F-01.
  */
 export const isUpcomingCharge = (p: ChargeState): boolean => isUnpaid(p) && !isOverdueCharge(p);
+
+/** Un cobro abierto con lo mínimo para mostrarlo en la ficha del atleta. */
+export type OpenChargeRow = BalanceState & {
+  child_id?: string | null;
+  user_id?: string | null;
+  unregistered_athlete_id?: string | null;
+  label: string;
+};
+
+export type AthleteOpenDebt = { total: number; items: { label: string; amount: number }[] };
+
+/**
+ * Saldo abierto por atleta (llave = child_id / user_id / unregistered_athlete_id,
+ * la misma que `school_athletes.id`), con el detalle por cobro. TODOS los cobros
+ * impagos cuentan: la inscripción y el seguro del alta son filas aparte de la
+ * mensualidad, y una pantalla que solo mira la mensualidad los esconde.
+ */
+export function groupOpenDebtByAthlete(rows: OpenChargeRow[]): Map<string, AthleteOpenDebt> {
+  const out = new Map<string, AthleteOpenDebt>();
+  for (const r of rows) {
+    if (!isUnpaid({ status: r.status, due_date: '' })) continue;
+    const key = r.child_id || r.user_id || r.unregistered_athlete_id;
+    if (!key) continue;
+    const amount = remainingBalance(r);
+    if (amount <= 0) continue;
+    const acc = out.get(key) ?? { total: 0, items: [] };
+    acc.total += amount;
+    acc.items.push({ label: r.label, amount });
+    out.set(key, acc);
+  }
+  return out;
+}

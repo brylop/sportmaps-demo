@@ -35,7 +35,7 @@ import { AsyncLocalStorage } from 'async_hooks';
 import { supabase } from '../config/supabase';
 import { emailClient } from '../utils/emailClient';
 import { chatWithTools, type LlmTool, type LlmMessage, type LlmFalla } from './llm.service';
-import { filtrarSalidaDelModelo } from './whatsapp-salida-segura';
+import { filtrarSalidaDelModelo, sinEmojisDeDeporte } from './whatsapp-salida-segura';
 import {
     clasificarUrgencia, incidenciaUrgente, avisarEscalacionAlEquipo, PLAZO_ESCALACION_MIN,
     escalacionesSinRevisar, respondioUnaPersona, reservarRevision, plazoVencido, textoSinRespuesta,
@@ -47,7 +47,8 @@ import {
     sendTextMessage, sendInteractiveButtons, sendCtaUrl, sendImage, aFormatoWhatsApp, markAsRead,
     type WhatsAppIntegration, type BotonInteractivo,
 } from './whatsapp.service';
-import { conEnlacesDePago, lineaPagar, botonPagarUnico } from './whatsapp-enlaces-de-pago.service';
+import { conEnlacesDePago, conTipoDeCobro, lineaPagar, botonPagarUnico } from './whatsapp-enlaces-de-pago.service';
+import { resumenDeDeuda } from './tipo-de-cobro';
 import { esSalienteAutomatico } from './whatsapp-buzon';
 import { avisarEscalamientoPorCorreo } from './avisos-correo.service';
 import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from './whatsapp-optin.service';
@@ -818,7 +819,7 @@ async function responderYaPague(
     }
     // Enlace «Pagar» en lo pendiente, solo en el texto: a quien dice que ya
     // pagó no se le pone un botón grande de pagar.
-    const pagosConEnlace = await conEnlacesDePago(pagos as any[], parentId, integration.school_id,
+    const pagosConEnlace = await conEnlacesYTipo(pagos as any[], parentId, integration.school_id,
         { integrationId: integration.id, waPhone: contactWaId });
     const { texto, hayAlgo } = textoYaPague(pagosConEnlace as any, cola as any);
     await deliver(integration, conversationId, contactWaId, texto,
@@ -869,7 +870,7 @@ async function responderSinModelo(
             p_parent_id: parentId, p_school_id: integration.school_id,
         });
         if (!error) {
-            const conEnlace = await conEnlacesDePago(payments as any[], parentId, integration.school_id,
+            const conEnlace = await conEnlacesYTipo(payments as any[], parentId, integration.school_id,
         { integrationId: integration.id, waPhone: contactWaId });
             await deliver(integration, conversationId, contactWaId,
                 fallbackPaymentText(conEnlace), { step: 'payment_fallback', via: 'llm_error', tool_result: conEnlace },
@@ -1014,7 +1015,7 @@ async function ejecutarAccionDeBoton(
         await escalate(integration, conversationId, contactWaId, 'tool_error');
         return;
     }
-    const conEnlace = await conEnlacesDePago(payments as any[], parentId, integration.school_id,
+    const conEnlace = await conEnlacesYTipo(payments as any[], parentId, integration.school_id,
         { integrationId: integration.id, waPhone: contactWaId });
     const anexo = await anexoDeConsentimiento(integration, conversationId, contactWaId, parentId);
     const m = conAnexoDeConsentimiento(fallbackPaymentText(conEnlace),
@@ -1688,17 +1689,21 @@ async function identificarPorTelefono(
     if (estado === 'ambiguo') {
         // Dos cuentas con el mismo numero. Elegir mal es mostrarle a alguien
         // los pagos de otra familia: lo resuelve un humano, no el bot.
-        await deliver(integration, conversationId, contactWaId,
-            'Encontré tu número en más de una cuenta y no quiero mostrarte información ' +
-            'que no sea tuya. Ya le avisé a la escuela para que lo revisen contigo. 🙏',
-            { step: 'identificacion_ambigua' });
+        // UN solo mensaje (auditoría 2026-10-10): antes salía «identificación
+        // ambigua» y a los 3 s el «Voy a pasar tu caso…» de `escalate`. Ahora
+        // la explicación va como `antes` del aviso de escalamiento.
         await escalate(integration, conversationId, contactWaId,
-            'Dos cuentas comparten el mismo número de WhatsApp');
+            'Dos cuentas comparten el mismo número de WhatsApp',
+            { antes: TEXTO_IDENTIFICACION_AMBIGUA });
         return true;
     }
 
     return false;
 }
+
+/** Lo que se le explica al número que está en dos cuentas (va antes del aviso de escalamiento). */
+export const TEXTO_IDENTIFICACION_AMBIGUA =
+    'Encontré tu número en más de una cuenta y no quiero mostrarte información que no sea tuya. 🙏';
 
 const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
 const CODE_RE = /\b(\d{6})\b/;
@@ -2153,7 +2158,31 @@ export type ResultadoDesconocido =
     | 'externo' | 'horarios_de_hoy'
     | 'pregunta_de_comprobante'
     | 'llegada_clase'
+    | 'consentimiento_sin_cuenta'
     | 'frenado' | 'silencio';
+
+/** step de la respuesta al botón del consentimiento desde un número que no es del pagador. */
+export const PASO_CONSENTIMIENTO_SIN_CUENTA = 'consentimiento_sin_cuenta';
+
+/**
+ * Tocó «Sí, acepto» (o «No, gracias») del consentimiento desde un número que el
+ * bot no reconoce como el del pagador (auditoría 2026-10-10: el botón le llegó
+ * al pie de un «pago confirmado» y la respuesta caía al pedido del correo).
+ * No hay a quién activarle los avisos: se le contesta amable y sin trámites.
+ * null = no es un botón del consentimiento. Pura.
+ */
+export function respuestaConsentimientoSinCuenta(botonId: string | null, texto: string): string | null {
+    const n = normalizarFrase(texto);
+    if (botonId === BOTON.CONSENTIR_SI || (!botonId && n === 'si acepto')) {
+        return '¡Gracias! 🙌 Este número todavía no está registrado en la escuela como el de quien paga, ' +
+            'así que por aquí no puedo activar los avisos. Si quieres recibirlos en este número, ' +
+            'pídele a la escuela que lo agregue a la ficha de tu deportista.';
+    }
+    if (botonId === BOTON.CONSENTIR_NO) {
+        return 'Entendido, no te enviaré avisos por aquí. 👍';
+    }
+    return null;
+}
 
 export async function atenderDesconocido(
     integration: WhatsAppIntegration,
@@ -2177,6 +2206,15 @@ export async function atenderDesconocido(
             responderDeCobro(integration, conversationId, contactWaId),
             pasarCobroALaEscuela(integration, conversationId, contactWaId)).catch(() => false);
         if (resuelta) return 'pregunta_de_comprobante';
+    }
+
+    // 0a'. El botón del consentimiento («Sí, acepto» / «No, gracias») desde un
+    //      número sin cuenta: una respuesta amable, nunca el pedido del correo.
+    const consentimientoSinCuenta = respuestaConsentimientoSinCuenta(botonId, text);
+    if (consentimientoSinCuenta) {
+        await deliver(integration, conversationId, contactWaId, consentimientoSinCuenta,
+            { step: PASO_CONSENTIMIENTO_SIN_CUENTA });
+        return 'consentimiento_sin_cuenta';
     }
 
     // 0a. «Llegué / llegamos» el DÍA de su clase de cortesía (embudo 2026-10-08):
@@ -3317,6 +3355,10 @@ Reglas estrictas:
   Si el acudiente pregunta por uno de esos, responde con su estado_legible
   ("ya esta pagado y confirmado por la escuela").
 - Si NINGUNO tiene debe_pagarse en true, di que esta al dia; no inventes una lista.
+- Cada pago pendiente trae tipo_cobro («Mensualidad octubre 2026», «Inscripción»,
+  «Seguro de accidentes», «Torneo»…): nombra cada cobro con su tipo_cobro y su saldo.
+  La inscripcion, el seguro y los demas pagos unicos NO son mensualidades: nunca los
+  llames «mensualidad». Si hay mas de un pendiente, cierra con el total_pendiente.
 - Si un pago trae enlace_pago, incluyelo debajo de ese cobro como «Pagar: <enlace>»,
   la URL completa y tal cual (sin acortarla ni ponerla entre corchetes). Ahi la
   familia ve la transferencia, el QR y el pago en linea. Nunca inventes un enlace
@@ -3363,8 +3405,10 @@ FUERA DE TEMA:
   mensaje con escalate_to_human.
 
 ARCHIVOS Y COMPROBANTES:
-- Tu NO ves imagenes ni documentos. «[envió una imagen]» en la conversacion lo
-  procesa otro sistema, que le responde a la familia por su cuenta.
+- Tu NO ves imagenes ni documentos. «[envió una imagen]» en la conversacion ya
+  tiene su propia respuesta: tu no la comentes. Si la familia pregunta por eso,
+  di que la escuela revisa los comprobantes. NUNCA digas «otro sistema», «un
+  sistema automatico» ni nada parecido: para la familia, quien revisa es la escuela.
 - NUNCA digas «voy a revisar el comprobante», «lo estoy revisando» ni «te confirmo
   en un momento»: no puedes cumplirlo. Si preguntan por un comprobante, usa
   get_payment_status y di el estado que trae (en revision, aprobado, rechazado).
@@ -3418,8 +3462,8 @@ COMO PAGAR:
 - Si la escuela no tiene cuentas cargadas, no te las inventes: ofrece el enlace para
   pagar en linea y el envio del comprobante por aqui.
 - Si get_payment_methods trae instrucciones_del_enlace, repitelas junto al enlace.
-- Si get_payment_methods trae cobros_pendientes, pon debajo de cada cobro su enlace_pago
-  como «Pagar: <enlace>» (y su enlace_instrucciones si viene). Si enlace_para_pagar
+- Si get_payment_methods trae cobros_pendientes, nombra cada cobro con su tipo_cobro y
+  pon debajo su enlace_pago como «Pagar: <enlace>» (y su enlace_instrucciones si viene). Si enlace_para_pagar
   viene null, no hay pago en linea general: no lo menciones.
 - NUNCA escribas enlaces de la app que piden iniciar sesion (/my-payments, /dashboard,
   /login): la familia no tiene la sesion abierta en el chat. Solo los enlaces que trae
@@ -3630,9 +3674,10 @@ async function handleIntent(
         messages.push({ role: 'tool', toolName: 'get_school_info', content: JSON.stringify({ hoy, ...info }) });
         let final;
         try {
-            // SIN herramientas: este turno solo REDACTA. Ofrecerle TOOLS lo invita
-            // a llamar otra, y cuando lo hace `text` vuelve vacio.
-            final = await chatWithTools({ system: SYSTEM_PROMPT, messages, tools: [] });
+            // Este turno solo REDACTA: las herramientas van (mismo prefijo que la
+            // primera llamada → la caché de prompt se reutiliza) pero con
+            // toolChoice 'none', así que no puede llamar otra y dejar `text` vacío.
+            final = await chatWithTools({ system: SYSTEM_PROMPT, messages, tools: TOOLS, toolChoice: 'none' });
             anotarFallasDelModelo(final.fallas);
         } catch (err) {
             anotarFallasDelModelo(fallasDeError(err));
@@ -3663,10 +3708,10 @@ async function handleIntent(
         messages.push({ role: 'tool', toolName: 'get_payment_methods', content: JSON.stringify(medios) });
         let final;
         try {
-            // SIN herramientas, a proposito. Este turno solo REDACTA con datos que
-            // ya llegaron; ofrecerle TOOLS lo invita a llamar otra, y cuando lo
-            // hace `text` vuelve vacio y caemos al texto plano.
-            final = await chatWithTools({ system: SYSTEM_PROMPT, messages, tools: [] });
+            // Este turno solo REDACTA: las herramientas van (mismo prefijo que la
+            // primera llamada → la caché de prompt se reutiliza) pero con
+            // toolChoice 'none', así que no puede llamar otra y dejar `text` vacío.
+            final = await chatWithTools({ system: SYSTEM_PROMPT, messages, tools: TOOLS, toolChoice: 'none' });
             anotarFallasDelModelo(final.fallas);
         } catch (err) {
             anotarFallasDelModelo(fallasDeError(err));
@@ -3706,19 +3751,21 @@ async function handleIntent(
 
         // Cada pendiente con su `enlace_pago` (/p/:token). El modelo lo recibe
         // en el JSON y el prompt le pide ponerlo como «Pagar: <enlace>».
-        const conEnlace = await conEnlacesDePago(payments as any[], parentId, integration.school_id,
+        const conEnlace = await conEnlacesYTipo(payments as any[], parentId, integration.school_id,
         { integrationId: integration.id, waPhone: contactWaId });
 
-        // Redacción final con el resultado de la tool.
+        // Redacción final con el resultado de la tool. Con el total: con pagos
+        // únicos (inscripción + seguro + mensualidad, 2026-10-10) la familia
+        // pregunta «cuánto debo» y la respuesta es una suma, no tres renglones.
         messages.push({ role: 'assistant', content: MARCA_CONSULTA });
-        messages.push({ role: 'tool', toolName: 'get_payment_status', content: JSON.stringify(conEnlace) });
+        messages.push({ role: 'tool', toolName: 'get_payment_status', content: contenidoEstadoDePagos(conEnlace) });
 
         let final;
         try {
-            // SIN herramientas, a proposito. Este turno solo REDACTA con datos que
-            // ya llegaron; ofrecerle TOOLS lo invita a llamar otra, y cuando lo
-            // hace `text` vuelve vacio y caemos al texto plano.
-            final = await chatWithTools({ system: SYSTEM_PROMPT, messages, tools: [] });
+            // Este turno solo REDACTA: las herramientas van (mismo prefijo que la
+            // primera llamada → la caché de prompt se reutiliza) pero con
+            // toolChoice 'none', así que no puede llamar otra y dejar `text` vacío.
+            final = await chatWithTools({ system: SYSTEM_PROMPT, messages, tools: TOOLS, toolChoice: 'none' });
             anotarFallasDelModelo(final.fallas);
         } catch (err) {
             anotarFallasDelModelo(fallasDeError(err));
@@ -3772,7 +3819,8 @@ function fallbackMediosDePago(m: Awaited<ReturnType<typeof mediosDePago>> & { co
         lineas.push('*Tus cobros pendientes*');
         for (const c of cobros) {
             const monto = c.monto != null ? ` — ${new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(c.monto)}` : '';
-            lineas.push(`• ${c.concepto ?? 'Cobro'}${monto}`);
+            lineas.push(`• ${c.tipo_cobro ?? c.concepto ?? 'Cobro'}${monto}`);
+            if (c.tipo_cobro && c.concepto && c.concepto !== c.tipo_cobro) lineas.push(`   ${c.concepto.slice(0, 80)}`);
             lineas.push(`   Pagar: ${c.enlace_pago}`);
             if (c.enlace_instrucciones) lineas.push(`   (${c.enlace_instrucciones})`);
         }
@@ -3904,7 +3952,9 @@ export async function deliver(
     // WhatsApp usa UN asterisco para negrita; el modelo escribe Markdown estandar.
     // Máximo 3 emojis por mensaje (auditoría 2026-10-07: un saludo salió con 12).
     // El listado de respaldo de los botones (`enTexto`) no cuenta: no es el cuerpo.
-    let texto = recortarEmojis(aFormatoWhatsApp(conEncabezado));
+    // Sin emojis de un deporte concreto (⚽ en un club de voleibol, auditoría
+    // 2026-10-10): el bot atiende escuelas de cualquier deporte.
+    let texto = recortarEmojis(sinEmojisDeDeporte(aFormatoWhatsApp(conEncabezado)));
     if (!PASOS_DE_CONSENTIMIENTO.includes(String((context as any)?.step ?? ''))
         && await estaDadoDeBaja(integration.id, contactWaId)) {
         texto += AVISO_DADO_DE_BAJA;
@@ -5016,7 +5066,36 @@ function maskEmail(email: string): string {
  * corregido en el prompt del modelo, escondido en el respaldo que nadie volvio
  * a mirar cuando se amplio la consulta.
  */
-function fallbackPaymentText(payments: any): string {
+/**
+ * Los pagos de la RPC con su enlace «Pagar» y su `tipo_cobro`. El tipo es un
+ * extra: si falla (o un test mockea el módulo sin él) se sigue con los enlaces.
+ */
+async function conEnlacesYTipo(
+    pagos: any[], parentId: string | null, schoolId: string,
+    aviso?: { integrationId: string; waPhone: string },
+): Promise<any[]> {
+    const conEnlace = await conEnlacesDePago(pagos, parentId, schoolId, aviso);
+    try {
+        return await conTipoDeCobro(conEnlace, parentId, schoolId);
+    } catch {
+        return conEnlace;
+    }
+}
+
+/**
+ * Lo que el modelo recibe de get_payment_status: los pagos y, aparte, cuántos
+ * pendientes hay y su total (`total_pendiente`), para que «cuánto debo» se
+ * conteste con la suma y no con la cuenta hecha por el modelo. Pura.
+ */
+export function contenidoEstadoDePagos(pagos: unknown): string {
+    const lista = Array.isArray(pagos) ? pagos : [];
+    const r = resumenDeDeuda(lista as any[]);
+    return JSON.stringify({ pagos: lista, cobros_pendientes: r.cantidad, total_pendiente: r.total });
+}
+
+const pesosCop = (n: number) => `$${Math.round(n).toLocaleString('es-CO')}`;
+
+export function fallbackPaymentText(payments: any): string {
     const list = Array.isArray(payments) ? payments : [];
     const pendientes = list.filter((p: any) => p?.debe_pagarse === true);
 
@@ -5026,11 +5105,20 @@ function fallbackPaymentText(payments: any): string {
             : 'No encuentro pagos a tu nombre en esta escuela.';
     }
 
+    // Con `tipo_cobro` (pagos únicos, 2026-10-10) el renglón dice QUÉ es
+    // —«Inscripción», «Seguro de accidentes», «Mensualidad octubre 2026»— y el
+    // concepto de la escuela va debajo (trae el nombre del deportista).
     const lines = pendientes.slice(0, 5).map((p: any) => {
         const monto = Number(p.saldo || 0).toLocaleString('es-CO');
         const venc = p.vencido ? ' (vencida)' : '';
         const pagar = lineaPagar(p);
-        return `• ${p.concept}: $${monto} — vence ${p.due_date}${venc}${pagar ? `\n${pagar}` : ''}`;
+        const tipo = typeof p.tipo_cobro === 'string' && p.tipo_cobro.trim() ? p.tipo_cobro.trim() : null;
+        const concepto = String(p.concept ?? '').trim();
+        const detalle = tipo && concepto && concepto !== tipo ? `\n   ${concepto.slice(0, 80)}` : '';
+        return `• ${tipo ?? (concepto || 'Cobro')}: $${monto} — vence ${p.due_date}${venc}${detalle}${pagar ? `\n${pagar}` : ''}`;
     });
-    return `Estos son tus pagos pendientes:\n${lines.join('\n')}`;
+    const { total } = resumenDeDeuda(pendientes);
+    const totalLinea = pendientes.length > 1 ? `\n\n*Total pendiente: ${pesosCop(total)}*` : '';
+    const mas = pendientes.length > 5 ? `\n(y ${pendientes.length - 5} cobro(s) más)` : '';
+    return `Estos son tus pagos pendientes:\n${lines.join('\n')}${mas}${totalLinea}`;
 }

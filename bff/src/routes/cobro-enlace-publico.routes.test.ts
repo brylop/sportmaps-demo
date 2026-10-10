@@ -405,6 +405,24 @@ describe('GET /:token/qr.png (QR del correo de estado de cuenta)', () => {
 });
 
 describe('otros cobros del mismo pagador', () => {
+    // Alta con cobros únicos (2026-10-10): inscripción y seguro nacen sin
+    // parent_id hasta que el acudiente vincula su cuenta, y con el período del mes.
+    it('cobro único sin parent_id: sin período en la vista y lista los otros del mismo deportista', async () => {
+        const SEGURO = 'dddddddd-0000-4000-8000-00000000000d';
+        const TOKEN_SEG = 'TokenSeguroSeguroSeguroS';
+        estado.tablas.payments.push(cobro(SEGURO, {
+            amount: 150000, concept: 'Seguro de accidentes — Plan X', payment_category: 'seguro', parent_id: null,
+        }));
+        estado.tokens[TOKEN_SEG] = { payment_id: SEGURO, school_id: ESCUELA, vence_en: '2099-01-01T00:00:00Z', estado: 'vigente' };
+        const v = await (await get(TOKEN_SEG)).json();
+        expect(v.concepto).toBe('Seguro de accidentes — Plan X');
+        expect(v.periodo).toBeNull();
+        expect(v.monto).toBe(150000);
+        // La mensualidad de octubre del mismo deportista (COBRO_A) aparece como otro pendiente.
+        expect(v.otrosPendientes.map((o: any) => o.concepto)).toContain('Mensualidad');
+        expect(JSON.stringify(v)).not.toContain('dddddddd');
+    });
+
     it('lista los otros pendientes del MISMO pagador con su token, sin ids ni datos del acudiente', async () => {
         estado.tablas.payments.push(cobro('cccccccc-0000-4000-8000-00000000000c', { amount: 80000, concept: 'Uniforme', period_month: 9, due_date: '2026-09-10', status: 'overdue' }));
         const v = await (await get(TOKEN_A)).json();

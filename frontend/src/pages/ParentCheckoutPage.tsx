@@ -24,7 +24,7 @@ import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
 import { useSchoolInvoicingActive, mustAskBillingData } from '@/hooks/useSchoolInvoicingActive';
 import { getUserFriendlyError } from '@/lib/error-translator';
 import { maskSensitive } from '@/lib/utils';
-import { resolvePaymentAccounts, resolvePaymentLink, accountDisplayLabel, chargeCategoryOf } from '@/lib/payment-accounts';
+import { resolvePaymentAccounts, resolvePaymentLink, accountDisplayLabel, chargeCategoryOf, isOneTimeCategory } from '@/lib/payment-accounts';
 import { PaymentLinkButton } from '@/components/payment/PaymentLinkButton';
 import { FileUpload } from '@/components/common/FileUpload';
 import type { ReceiptValidationResult, ConceptKind } from '@/hooks/useReceiptValidator';
@@ -138,7 +138,7 @@ export default function ParentCheckoutPage() {
   // como fuente de verdad (monto/concepto reales) y al pagar lo ACTUALIZAMOS en vez
   // de crear uno nuevo → evita el pago duplicado sin comprobante.
   const paymentIdParam = searchParams.get('payment_id');
-  const [qrPayment, setQrPayment] = useState<{ amount: number; amount_paid: number | null; concept: string; child_id: string | null; team_id: string | null } | null>(null);
+  const [qrPayment, setQrPayment] = useState<{ amount: number; amount_paid: number | null; concept: string; child_id: string | null; team_id: string | null; payment_category?: string | null } | null>(null);
 
   const amount = qrPayment?.amount ?? parseInt(searchParams.get('amount') || '150000');
   // Abono previo (si el pago ya tiene un parcial). Se cobra solo el SALDO.
@@ -205,7 +205,8 @@ export default function ParentCheckoutPage() {
   // columnas viejas para no dejar el bloque de transferencia vacío.
   // Una llave restringida (`only_for`, p.ej. el Nequi de inscripciones de
   // Dynasty) solo aparece si este cobro es de su concepto.
-  const chargeCategory = chargeCategoryOf(null, concept);
+  // La categoría de la fila manda (inscripción, seguro…); el concepto es el respaldo.
+  const chargeCategory = chargeCategoryOf(qrPayment?.payment_category ?? null, concept);
   const payableAccounts = useMemo(
     () => resolvePaymentAccounts(bankDetails, { category: chargeCategory }),
     [bankDetails, chargeCategory],
@@ -285,7 +286,7 @@ export default function ParentCheckoutPage() {
   useEffect(() => {
     if (!paymentIdParam) return;
     supabase.from('payments')
-      .select('amount, amount_paid, concept, child_id, team_id')
+      .select('amount, amount_paid, concept, child_id, team_id, payment_category')
       .eq('id', paymentIdParam)
       .maybeSingle()
       .then(({ data }) => { if (data) setQrPayment(data as any); });
@@ -340,7 +341,9 @@ export default function ParentCheckoutPage() {
   }, [childId, teamId, schoolIdParam]);
 
   // Periodo objetivo (solo si es mensualidad y hay hijo)
-  const isMensualidad = /mensual/i.test(concept);
+  // Un cobro único (categoría explícita ≠ mensualidad) nunca es mensualidad,
+  // aunque el nombre del plan en su concepto diga «mensual».
+  const isMensualidad = /mensual/i.test(concept) && !isOneTimeCategory(qrPayment?.payment_category);
   const { period: nextPeriod } = useNextUnpaidPeriod(isMensualidad ? childId : null);
   const periodAlreadyCovered =
     !!nextPeriod && isPeriodActive(nextPeriod.current_status as PeriodStatus);

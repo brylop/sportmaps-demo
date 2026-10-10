@@ -53,6 +53,7 @@ import {
     type FilaCola,
 } from '../jobs/whatsapp-queue.job';
 import { normalizarFrase } from './whatsapp-reglas-turno';
+import { categoriaDelCobro } from './tipo-de-cobro';
 import { sendTextMessage, aFormatoWhatsApp, type WhatsAppIntegration } from './whatsapp.service';
 import {
     detectarOtroConcepto, decidirOtroConcepto, motivoOtroConcepto, NOMBRE_OTRO_CONCEPTO,
@@ -549,7 +550,7 @@ export async function pendientesDeLaFamilia(
     const filtro = filtroDeFamilia(k);
     if (!filtro) return [];
     const { data, error } = await supabase.from('payments')
-        .select('id, amount, concept, due_date, child_id, unregistered_athlete_id, child:children(full_name)')
+        .select('id, amount, concept, due_date, child_id, unregistered_athlete_id, payment_category, payment_type, child:children(full_name)')
         .eq('school_id', schoolId)
         .in('status', ['pending', 'overdue'])
         .or(filtro)
@@ -563,6 +564,7 @@ export async function pendientesDeLaFamilia(
         due_date: p.due_date ?? null,
         child_id: p.child_id ?? null,
         atleta: p.child?.full_name ?? (p.unregistered_athlete_id ? nombresSinRegistrar?.get(p.unregistered_athlete_id) ?? null : null),
+        categoria: categoriaDelCobro(p),
     }));
 }
 

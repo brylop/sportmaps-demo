@@ -25,13 +25,20 @@ import { buildReceiptOcrFields, isDuplicateReceiptError } from '@/lib/receiptOcr
 import {
   type PaymentPeriod,
   formatPeriodLabel,
-  isMonthlyConcept,
   currentPeriodBogota,
   periodOptions,
   periodKey,
   parsePeriodKey,
   isDuplicatePeriodError,
 } from '@/lib/paymentPeriod';
+import { chargeCategoryOf, type PaymentChargeCategory } from '@/lib/payment-accounts';
+import {
+  MANUAL_CHARGE_CATEGORY_OPTIONS,
+  effectiveManualCategory,
+  manualChargeInsertFields,
+  manualChargeIsPeriodic,
+  canReuseOnPeriodConflict,
+} from '@/lib/manualPaymentCharge';
 
 interface RegisterCashPaymentModalProps {
   open: boolean;
@@ -88,6 +95,10 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
   const [selectedPaymentId, setSelectedPaymentId] = useState<string>('new');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer'>('cash');
   const [concept, setConcept] = useState('Mensualidad');
+  // Tipo de cobro del cobro NUEVO. null = se deduce del concepto (ver
+  // lib/manualPaymentCharge). Al aplicar a un pendiente no se usa: ese cobro
+  // ya trae su payment_category y la base no deja cambiarla.
+  const [chosenCategory, setChosenCategory] = useState<PaymentChargeCategory | null>(null);
   const [amount, setAmount] = useState<number | ''>(0);
   const [paymentDate, setPaymentDate] = useState<Date>(new Date());
 
@@ -239,7 +250,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
 
       let q = supabase
         .from('payments')
-        .select('id, concept, amount, due_date, status, requires_review, last_failure_at, last_failure_reason')
+        .select('id, concept, amount, due_date, status, requires_review, last_failure_at, last_failure_reason, payment_category, payment_type')
         .eq('school_id', schoolId)
         .in('status', ['pending', 'overdue'])
         .order('due_date', { ascending: true });
@@ -269,9 +280,13 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
     }
   };
 
+  // Categoría del cobro NUEVO: la elegida o la que se deduce del concepto.
+  const newChargeCategory = effectiveManualCategory(chosenCategory, concept);
+
   // Un cobro nuevo de mensualidad debe llevar periodo; aplicado a un pendiente NO
-  // (ese ya trae el suyo desde que se genero).
-  const periodApplies = selectedPaymentId === 'new' && !!selectedAthleteId && isMonthlyConcept(concept);
+  // (ese ya trae el suyo desde que se genero). Un cobro único (inscripción,
+  // seguro, artículos…) tampoco: no es un mes de servicio.
+  const periodApplies = selectedPaymentId === 'new' && !!selectedAthleteId && manualChargeIsPeriodic(newChargeCategory);
 
   useEffect(() => {
     if (!periodApplies) {
@@ -333,6 +348,13 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
   const selectedPending = selectedPaymentId !== 'new'
     ? pendingPayments.find(p => p.id === selectedPaymentId)
     : undefined;
+
+  // Categoría que se le pasa al verificador del comprobante: con ella, una
+  // llave restringida a esa categoría (p. ej. Nequi solo para inscripciones)
+  // cuenta como destino válido en vez de salir amarilla.
+  const receiptCategory: PaymentChargeCategory | null = selectedPending
+    ? chargeCategoryOf(selectedPending.payment_category, selectedPending.concept)
+    : newChargeCategory;
 
   /**
    * Cobro que la pasarela dejo marcado `requires_review` tras un rechazo.
@@ -429,6 +451,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
         if (updateError) throw updateError;
       } else {
         // No pending payment found — create a new one
+        const chargeFields = manualChargeInsertFields(newChargeCategory, selectedStudent.offering_plan_id || null);
         const { error: insertError } = await supabase.from('payments').insert({
           school_id: schoolId,
           child_id: childId,
@@ -438,7 +461,9 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
           // Bloqueador B (docs/specs/vigencia-cobranza-y-sesiones-unificado.md
           // §3.2): sin esto, trg_extend_enrollment_on_payment_paid nunca
           // extiende expires_at para un pago registrado directo como 'paid'.
-          offering_plan_id: selectedStudent.offering_plan_id || null,
+          // Un cobro único va SIN plan (no extiende vigencia), con su
+          // categoría y exento del índice de período (lib/manualPaymentCharge).
+          ...chargeFields,
           amount: numericAmount,
           concept,
           status: 'paid',
@@ -463,15 +488,20 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
           // pendientes no lo agarró, p.ej. estados distintos). En vez de romper
           // con un 409 crudo, reutilizamos ese cobro: si sigue pendiente lo
           // marcamos pagado; si YA está pagado, avisamos (no duplicar).
-          if ((insertError as any).code === '23505') {
+          // Solo se rescata un choque del índice de PERÍODO con período elegido:
+          // sin período, "el último cobro del deportista" podía ser otro (la
+          // mensualidad pendiente) y se saldaba con la plata equivocada.
+          if (canReuseOnPeriodConflict(insertError as any, periodApplies && !!period)) {
             let q = supabase.from('payments').select('id, status')
               .eq('school_id', schoolId);
             if (childId) q = q.eq('child_id', childId);
             else if (userId) q = q.eq('user_id', userId);
             else if (unregisteredId) q = q.eq('unregistered_athlete_id', unregisteredId);
-            if (periodApplies && period) {
+            if (period) {
               q = q.eq('period_year', period.year).eq('period_month', period.month);
             }
+            // Solo la mensualidad del mes: un cobro único exento no es "el cobro del período".
+            q = q.eq('period_uniqueness_exempt', false);
             const { data: existing } = await q.order('created_at', { ascending: false }).limit(1);
             const conflict = existing?.[0] as any;
 
@@ -568,6 +598,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
     setPendingPayments([]);
     setPaymentMethod('cash');
     setConcept('Mensualidad');
+    setChosenCategory(null);
     setAmount(0);
     setPaymentDate(new Date());
     setAthleteSearchQuery('');
@@ -730,6 +761,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
                   schoolId={schoolId || undefined}
                   expectedAmount={typeof amount === 'number' && amount > 0 ? amount : undefined}
                   paymentId={selectedPaymentId !== 'new' ? selectedPaymentId : undefined}
+                  paymentCategory={receiptCategory}
                   onUploadComplete={(url) => setReceiptUrl(url)}
                   onValidationResult={(r) => setOcrResult(r)}
                 />
@@ -923,6 +955,38 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
               className="h-12 bg-background/50 border-border/40 rounded-xl font-medium focus-visible:ring-primary/20"
             />
           </div>
+
+          {/* Tipo del cobro NUEVO. Decide si lleva «Mes que cubre» (solo la
+              mensualidad) y si pagarlo extiende la vigencia (un cobro único
+              no). Por defecto se deduce del concepto; la escuela lo corrige.
+              Al aplicar a un pendiente no se muestra: ese cobro ya tiene el suyo. */}
+          {selectedPaymentId === 'new' && (
+            <div className="space-y-3">
+              <Label htmlFor="charge-category" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                <FileText className="h-3.5 w-3.5" /> Tipo de cobro
+              </Label>
+              <Select
+                value={newChargeCategory ?? ''}
+                onValueChange={(v) => setChosenCategory(v as PaymentChargeCategory)}
+              >
+                <SelectTrigger id="charge-category" className="h-12 bg-background/50 border-border/40 rounded-xl font-bold">
+                  <SelectValue placeholder="Selecciona el tipo de cobro" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-border/40 bg-background/95 backdrop-blur-md">
+                  {MANUAL_CHARGE_CATEGORY_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value} className="rounded-lg py-2.5">
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {newChargeCategory && newChargeCategory !== 'mensualidad' && (
+                <p className="text-[10px] text-muted-foreground leading-relaxed">
+                  Cobro único: no cubre un mes ni extiende la vigencia de la inscripción.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Mes que cubre el cobro. NO es la fecha del pago: se puede registrar
               hoy (julio) un pago que cubre agosto. Poblarlo mete el cobro en los

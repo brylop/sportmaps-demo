@@ -6909,3 +6909,185 @@ paths:
         '400': { description: Invalid id }
         '403': { description: Forbidden }
         '404': { description: Acta not found }
+  # ── Modal «Cobros y pagos» (docs/specs/cobros-multiples.md §9, F2) ─────────────
+  # Autorización: owner / admin / school_admin de la escuela del x-school-id (o
+  # super_admin de plataforma); historial e informe aceptan además accountant.
+  # Coach, reporter, acudiente y atleta: 403. Errores { error, code }:
+  # 422 VALIDACION · 404 ATLETA_AJENO / COBRO_AJENO / DESTINO_AJENO ·
+  # 409 PREVIEW_STALE / COBRO_CAMBIO / EN_REVISION / PAGO_EN_CURSO / COBRO_CERRADO /
+  # ATLETA_DUPLICADO / PERIODO_DUPLICADO · 422 DESCUENTO_EXCEDE / SOBREPAGO /
+  # MULTI_NO_PAGA · 429 RATE_LIMITED · 503 COBROS_NO_DISPONIBLE (RPC de F1 sin aplicar).
+  /api/v1/charge-batches/preview:
+    post:
+      tags: [cobros-y-pagos]
+      summary: Vista previa de una operación (cobros nuevos, pagos de pendientes, descuentos); no escribe
+      description: >
+        Cuerpo = ChargeBatchRequestSchema (bff/src/services/charge-batches.schemas.ts):
+        mode (single|multi), target {kind, ids}, athletes[{type: child|adult|unregistered, id}],
+        lines[{category, amount?, due_date, concept, notes?, period?{year,month}, enrollment_id?,
+        fee_id?, overage_charge_id?, discount?, exonerate?, pay_amount?, close_mode?}],
+        pending[{payment_id, seen{amount, amount_paid}, discount?, waive_late_fee?, exonerate?,
+        pay_amount, close_mode}], global_discount?, payment?{method, payment_date, reference?,
+        receipt_url?, receipt_sha256?, ocr?}, new_athlete?. Topes: 200 atletas, 600 cobros, 10 líneas.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200': { description: 'Resultado de preview_charge_batch (rows_to_create, total_amount, skipped, athletes, warnings_count, preview_hash)' }
+        '403': { description: 'Sin permiso en esta escuela (o horas adicionales sin ser dueño)' }
+        '404': { description: 'Atleta, grupo, pendiente o excedente de otra escuela' }
+        '422': { description: 'Validación' }
+  /api/v1/charge-batches:
+    post:
+      tags: [cobros-y-pagos]
+      summary: Confirma la operación en una sola transacción (create_charge_batch); idempotente por client_request_id
+      description: >
+        Mismo cuerpo que /preview más client_request_id (uuid generado al abrir el modal y
+        conservado en reintentos), preview_hash, overrides[{athlete, line_idx, action: force|skip}]
+        y notify_families (default false).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200': { description: '{ batch_id, duplicated, rows_created, total_amount, payment_ids, paid_ids, partial_ids, adjustments, skipped }' }
+        '403': { description: 'Sin permiso' }
+        '404': { description: 'Algo de otra escuela' }
+        '409': { description: 'PREVIEW_STALE, COBRO_CAMBIO, EN_REVISION, PAGO_EN_CURSO, COBRO_CERRADO, ATLETA_DUPLICADO, PERIODO_DUPLICADO' }
+        '422': { description: 'Validación, DESCUENTO_EXCEDE, SOBREPAGO, MULTI_NO_PAGA' }
+        '429': { description: 'Más de 10 operaciones en 10 min por usuario o 2.000 cobros por hora por escuela' }
+    get:
+      tags: [cobros-y-pagos]
+      summary: Historial de operaciones («Operaciones»); admin y contador
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: cursor, in: query, schema: { type: string, format: date-time } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 30 } }
+      responses:
+        '200': { description: '{ items[], next_cursor }' }
+        '403': { description: 'Sin permiso' }
+  /api/v1/charge-batches/targets:
+    get:
+      tags: [cobros-y-pagos]
+      summary: Atletas activos de un equipo, categoría o plan (pausados fuera salvo include_paused)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: kind, in: query, required: true, schema: { type: string, enum: [team, category, plan] } }
+        - { name: id, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: include_paused, in: query, schema: { type: string, enum: ['true', 'false'] } }
+      responses:
+        '200': { description: '{ group, athletes[{type, id, name, has_guardian, paused}], count, without_guardian, paused_excluded }' }
+        '404': { description: 'Grupo de otra escuela' }
+  /api/v1/charge-batches/athlete-search:
+    get:
+      tags: [cobros-y-pagos]
+      summary: Buscador y duplicados antes de «+ Atleta nuevo» (documento o nombre = duplicado; teléfono solo = informativo)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: q, in: query, schema: { type: string } }
+        - { name: doc, in: query, schema: { type: string } }
+        - { name: phone, in: query, schema: { type: string } }
+      responses:
+        '200': { description: '{ items[{table, athlete_type, id, full_name, doc_masked, guardian, matched_by[], es_duplicado, motivo}], has_duplicate }' }
+        '422': { description: 'Sin criterio de búsqueda' }
+  /api/v1/charge-batches/{id}:
+    get:
+      tags: [cobros-y-pagos]
+      summary: Detalle de una operación con el estado actual de cada cobro y el conteo exacto de lo anulable
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: '{ batch, payments[], annul_preview{annullable_count, annullable_total, kept_count} }' }
+        '404': { description: 'No existe en esta escuela' }
+  /api/v1/charge-batches/{id}/annul:
+    post:
+      tags: [cobros-y-pagos]
+      summary: Anula lo anulable del lote (pending, overdue, rejected, failed); nunca toca cobros con plata
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason, expected_count]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 300 }
+                expected_count: { type: integer, minimum: 0 }
+      responses:
+        '200': { description: '{ annulled, kept[{payment_id, status}] }' }
+        '409': { description: 'ANNUL_STALE (el conteo cambió) o LOTE_ANULADO' }
+  /api/v1/athletes/{athleteType}/{athleteId}/open-charges:
+    get:
+      tags: [cobros-y-pagos]
+      summary: Cobros abiertos del atleta con saldo, desglose de descuentos, en revisión / pago en curso y sugerencias
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: athleteType, in: path, required: true, schema: { type: string, enum: [child, adult, unregistered] } }
+        - { name: athleteId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: '{ items[], totals{count, saldo}, suggestions{varios_meses} }' }
+        '404': { description: 'Atleta de otra escuela' }
+  /api/v1/athletes/{athleteType}/{athleteId}/charge-suggestions:
+    get:
+      tags: [cobros-y-pagos]
+      summary: Inscripciones con monto sugerido de mensualidad (tarifa, plan, equipo), próximo mes libre y excedentes sugeridos
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: athleteType, in: path, required: true, schema: { type: string, enum: [child, adult, unregistered] } }
+        - { name: athleteId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: '{ enrollments[], has_active_enrollment, next_free_period, overage_charges[], one_time_fees[] }' }
+        '404': { description: 'Atleta de otra escuela' }
+  /api/v1/payment-adjustments:
+    get:
+      tags: [cobros-y-pagos]
+      summary: Informe de descuentos, condonaciones y exoneraciones (quién, cuánto, motivo, atleta); admin y contador
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: reason, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, maximum: 500, default: 200 } }
+      responses:
+        '200': { description: '{ from, to, items[], totals{descuentos, recargo_condonado, exonerado, by_reason}, highlights[] }' }
+        '403': { description: 'Sin permiso' }
+  /api/v1/payment-adjustments/{id}/revert:
+    post:
+      tags: [cobros-y-pagos]
+      summary: Quitar descuento (revert_payment_adjustment) mientras el cobro siga abierto
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 300 }
+      responses:
+        '200': { description: OK }
+        '403': { description: 'Sin permiso (el contador no revierte)' }
+        '409': { description: 'YA_REVERTIDO, PAGO_EN_CURSO, COBRO_CERRADO' }

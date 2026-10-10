@@ -43,7 +43,9 @@ import { EpsCombobox } from '@/components/common/EpsCombobox';
 import { TSHIRT_SIZES, BLOOD_TYPES } from '@/lib/athlete-options';
 import { CreateChildModal } from '@/components/students/CreateChildModal';
 import { CreateAdultAthleteModal } from '@/components/students/CreateAdultAthleteModal';
-import { RegisterCashPaymentModal } from '@/components/payment/RegisterCashPaymentModal';
+import { CobrosYPagosModal } from '@/components/payment/CobrosYPagosModal';
+import { isCobrosYPagosEnabled } from '@/lib/cobrosYPagosFlag';
+import { canManageCharges } from '@/lib/cobrosYPagos';
 import {
   useSchoolContext,
   createStudentWithPendingPayment,
@@ -62,6 +64,8 @@ import {
 } from '@/hooks/usePauses';
 import { studentsAPI, StudentViewRow } from '@/lib/api/students';
 import { daysDiffFromToday } from '@/lib/dateUtils';
+import { groupOpenDebtByAthlete, type AthleteOpenDebt } from '@/lib/paymentCartera';
+import { chargeLabel } from '@/lib/payment-accounts';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 import { useNavigate } from 'react-router-dom';
 import { comprimirParaSubir } from '@/lib/imageCompression';
@@ -258,7 +262,11 @@ export default function SchoolStudentsManagementPage() {
   // por fuera de la app (efectivo o transferencia directa). Es el mismo modal de
   // Gestión de Pagos → Registrar pago, abierto con el deportista ya elegido.
   // Solo administración: el coach no registra dinero.
-  const canRegisterPayments = canManageStudents && !hideFinancials;
+  // Con «Cobros y pagos» encendido (docs/specs/cobros-multiples.md, Q21) el gate
+  // es el rol EN LA ESCUELA: owner/admin/school_admin. El BFF lo vuelve a exigir.
+  const { currentUserRole: schoolRole } = useSchoolContext();
+  const cobrosYPagosOn = isCobrosYPagosEnabled();
+  const canRegisterPayments = canManageStudents && !hideFinancials && (!cobrosYPagosOn || canManageCharges(schoolRole));
   const [accountStudentId, setAccountStudentId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   // Atleta que ya existe en la escuela y coincide con el que se está creando.
@@ -1156,6 +1164,37 @@ export default function SchoolStudentsManagementPage() {
     (hourBankBalancesData?.balances ?? []).map((b) => [b.enrollment_id, b.available_minutes])
   );
 
+  // Lo que debe cada atleta, cobro por cobro. El badge de la vista
+  // `school_athletes` es UN estado (el del cobro más urgente) y la columna de al
+  // lado es la mensualidad: con un alta que emite inscripción + seguro + mes, la
+  // escuela leía «Pendiente · $245.000» y la inscripción y el seguro no
+  // aparecían en ninguna parte de la ficha (Dreamers, 2026-10-10). Un solo
+  // request para toda la escuela, igual que el banco de horas. La llave cuelga
+  // de 'school-students' para refrescarse con cada alta.
+  const { data: openDebtByAthlete } = useQuery({
+    queryKey: ['school-students', 'open-debt', schoolId],
+    queryFn: async (): Promise<Map<string, AthleteOpenDebt>> => {
+      const rows: any[] = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await (supabase.from('payments') as any)
+          .select('id, child_id, user_id, unregistered_athlete_id, amount, amount_paid, status, payment_category, payment_type, concept')
+          .eq('school_id', schoolId)
+          .in('status', ['pending', 'overdue', 'partial'])
+          .order('due_date', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, from + 999);
+        if (error) throw error;
+        rows.push(...(data ?? []));
+        if (!data || data.length < 1000) break;
+      }
+      return groupOpenDebtByAthlete(rows.map((r) => ({ ...r, label: chargeLabel(r) })));
+    },
+    staleTime: 60_000,
+    enabled: !!schoolId && !hideFinancials,
+  });
+  const openDebtOf = (studentId: string): AthleteOpenDebt | undefined => openDebtByAthlete?.get(studentId);
+  const debtDetail = (d: AthleteOpenDebt) => d.items.map((i) => `${i.label} ${formatCurrency(i.amount)}`).join(' · ');
+
   const filteredStudents = tabStudents.filter(student => {
     const q = normalizeText(searchQuery);
     if (q && !(
@@ -1287,7 +1326,7 @@ export default function SchoolStudentsManagementPage() {
           <DropdownMenuItem onClick={() => handleEditStudent(student)}>Editar deportista</DropdownMenuItem>
         )}
         {canRegisterPayments && student.status !== 'inactive' && (
-          <DropdownMenuItem onClick={() => setAccountStudentId(student.id)}>Registrar pago</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setAccountStudentId(student.id)}>{cobrosYPagosOn ? 'Cobros y pagos' : 'Registrar pago'}</DropdownMenuItem>
         )}
         {/* Inactivar cancela el plan y anula la cartera pendiente: es acción de
             owner/admin (el RPC exige is_school_admin), no del coach. */}
@@ -1564,6 +1603,11 @@ export default function SchoolStudentsManagementPage() {
                             </>
                           )}
                           {getPaymentBadge(student)}
+                          {openDebtOf(student.id) && (
+                            <span className="text-[11px] font-medium text-red-600">
+                              Debe {formatCurrency(openDebtOf(student.id)!.total)}
+                            </span>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1660,7 +1704,15 @@ export default function SchoolStudentsManagementPage() {
                                 </div>
                               )}
                             </TableCell>
-                            <TableCell>{getPaymentBadge(student)}</TableCell>
+                            <TableCell>
+                              {getPaymentBadge(student)}
+                              {openDebtOf(student.id) && (
+                                <span className="block text-[11px] font-medium text-red-600 mt-0.5" title={debtDetail(openDebtOf(student.id)!)}>
+                                  Debe {formatCurrency(openDebtOf(student.id)!.total)}
+                                  {openDebtOf(student.id)!.items.length > 1 && ` (${openDebtOf(student.id)!.items.length} cobros)`}
+                                </span>
+                              )}
+                            </TableCell>
                           </>
                         )}
                         <TableCell>
@@ -2351,6 +2403,24 @@ export default function SchoolStudentsManagementPage() {
                       )}
                     </div>
 
+                    {/* Saldo pendiente: todos los cobros abiertos, no solo la
+                        mensualidad (inscripción y seguro del alta son filas aparte). */}
+                    {!hideFinancials && openDebtOf(s.id) && (
+                      <div className="mt-3 rounded-lg border border-red-200 bg-red-50/40 dark:bg-red-950/10 p-3">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
+                          Saldo pendiente · <span className="font-semibold text-red-600">{formatCurrency(openDebtOf(s.id)!.total)}</span>
+                        </p>
+                        <ul className="space-y-1 text-sm">
+                          {openDebtOf(s.id)!.items.map((item, idx) => (
+                            <li key={idx} className="flex justify-between gap-3">
+                              <span>{item.label}</span>
+                              <span className="font-medium">{formatCurrency(item.amount)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
                     {/* Plan activo */}
                     <div className="mt-3 rounded-lg border bg-muted/30 p-3">
                       <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2 flex items-center gap-2">
@@ -2584,7 +2654,7 @@ export default function SchoolStudentsManagementPage() {
       )}
       <StudentTypeSelector open={showTypeSelector} onClose={() => setShowTypeSelector(false)} onSelectChild={() => setShowCreateChildModal(true)} onSelectAdult={() => setShowCreateAdultModal(true)} />
       {canRegisterPayments && (
-        <RegisterCashPaymentModal
+        <CobrosYPagosModal
           open={!!accountStudentId}
           onOpenChange={(o) => { if (!o) setAccountStudentId(null); }}
           initialAthleteId={accountStudentId ?? undefined}
@@ -2594,8 +2664,8 @@ export default function SchoolStudentsManagementPage() {
           }}
         />
       )}
-      <CreateChildModal open={showCreateChildModal} onClose={() => setShowCreateChildModal(false)} onSuccess={() => { queryClient.invalidateQueries({ queryKey: ['school-students'] }); setShowCreateChildModal(false); }} schoolId={schoolId || ''} />
-      <CreateAdultAthleteModal open={showCreateAdultModal} onClose={() => setShowCreateAdultModal(false)} onSuccess={() => { queryClient.invalidateQueries({ queryKey: ['school-students'] }); setShowCreateAdultModal(false); }} schoolId={schoolId || ''} />
+      <CreateChildModal open={showCreateChildModal} onClose={() => setShowCreateChildModal(false)} onSuccess={() => { queryClient.invalidateQueries({ queryKey: ['school-students'] }); setShowCreateChildModal(false); }} schoolId={schoolId || ''} canWaiveFees={schoolRole !== 'coach'} />
+      <CreateAdultAthleteModal open={showCreateAdultModal} onClose={() => setShowCreateAdultModal(false)} onSuccess={() => { queryClient.invalidateQueries({ queryKey: ['school-students'] }); setShowCreateAdultModal(false); }} schoolId={schoolId || ''} canWaiveFees={schoolRole !== 'coach'} />
     </div>
   );
 }

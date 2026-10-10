@@ -89,6 +89,26 @@ describe('webhook Wompi — cobro de escuela', () => {
         expect(estado.rpcs.map(x => x.nombre)).toEqual(expect.arrayContaining(['notify_school_payment_paid', 'notify_parent_payment_paid']));
     });
 
+    it('sobrepago (I35): el cobro bajó por un descuento después de firmar el enlace → paid, amount_paid = recibido y a revisión', async () => {
+        // El enlace firmó 150.000 (+ 7.500 de recargo); la escuela descontó a 135.000 entretanto.
+        estado.tablas.payments[0] = { id: COBRO, status: 'pending', wompi_transaction_id: null, amount: 135000, amount_paid: 0 };
+        const r = await routeWompiTransaction({ realTx: tx('1298966-3-3') });
+        expect(r.body).toMatchObject({ status: 'ok', kind: 'school_payment', overpayment: 15000 });
+        expect(estado.tablas.payments[0]).toMatchObject({ status: 'paid', amount: 135000, amount_paid: 150000 });
+        const flag = estado.rpcs.find(x => x.nombre === 'flag_payment_for_review');
+        expect(flag?.args).toMatchObject({ p_kind: 'payment', p_id: COBRO });
+        expect(String(flag?.args.p_reason)).toContain('sobrepago');
+        expect(String(flag?.args.p_reason)).toContain('pagó de más $15.000');
+    });
+
+    it('sin descuento de por medio no hay sobrepago ni revisión', async () => {
+        estado.tablas.payments[0] = { id: COBRO, status: 'pending', wompi_transaction_id: null, amount: 150000, amount_paid: 0 };
+        const r = await routeWompiTransaction({ realTx: tx('1298966-4-4') });
+        expect(r.body).not.toHaveProperty('overpayment');
+        expect(estado.tablas.payments[0].amount_paid).toBe(0);
+        expect(estado.rpcs.some(x => x.nombre === 'flag_payment_for_review')).toBe(false);
+    });
+
     it('el cobro ya estaba pagado (transferencia u otra referencia): no lo pisa, registra el dinero y lo manda a revisión', async () => {
         estado.tablas.payments[0] = { id: COBRO, status: 'paid', wompi_transaction_id: null, payment_date: '2026-10-01', payment_channel: 'transfer' };
         const r = await routeWompiTransaction({ realTx: tx('1298966-2-2') });

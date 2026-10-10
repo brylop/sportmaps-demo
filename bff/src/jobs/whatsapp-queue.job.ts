@@ -918,17 +918,30 @@ async function continuarComoComprobante(
         return;
     }
 
-    if (match.tipo === 'preguntar' || match.tipo === 'combinacion') {
-        const texto = match.tipo === 'preguntar'
-            ? mensajeElegirPago(match.opciones)
-            : `Recibí tu comprobante por ${cop(ocr.amount ?? 0)}. Parece que cubre estos cobros:\n\n` +
-              `${match.pagos.map((p) => `• ${describirPago(p)}`).join('\n')}\n\n` +
-              'Respóndeme *sí* para aplicarlo así.';
+    // UNA transferencia que suma exacto varios cobros (dos hijos; o mensualidad +
+    // inscripción + seguro del alta, 2026-10-10). Un comprobante se estampa en
+    // UN cobro (`uq_payments_school_ocr_reference`), así que no hay cómo
+    // aplicarlo a los tres sin dejar dos «pendientes» pagados o estampar el
+    // total en uno solo. Antes se le pedía «sí» y ese «sí» no lo entendía nadie
+    // (`interpretarEleccion` lo repreguntaba). Ahora se dice la verdad y lo
+    // reparte la escuela, igual que la recuperación en lote («varios_cobros»).
+    if (match.tipo === 'combinacion') {
+        await responder(textoVariosCobros(ocr.amount ?? 0, match.pagos), 'varios_cobros');
+        await cerrar(fila.id, 'ignored', {
+            result_type: 'escalated',
+            matched_parent_id: parentId,
+            error_message: motivoVariosCobros(match.pagos),
+        });
+        log?.info?.({ queueId: fila.id, cobros: match.pagos.map((p) => p.id) }, '[wa-queue] varios cobros: a la escuela');
+        return;
+    }
+
+    if (match.tipo === 'preguntar') {
+        const texto = mensajeElegirPago(match.opciones);
         // (c) Con botones (concepto + monto): tocar es más fácil que escribir «2».
-        await responder(texto, match.tipo === 'preguntar' ? 'ask_cual_pago' : 'confirmar_combinacion',
-            match.tipo === 'preguntar' ? botonesDeCobros(match.opciones) : undefined);
+        await responder(texto, 'ask_cual_pago', botonesDeCobros(match.opciones));
         await esperarAlUsuario(fila.id, {
-            opciones: match.tipo === 'preguntar' ? match.opciones : match.pagos,
+            opciones: match.opciones,
             ocr,
             sha: crypto.createHash('sha256').update(Buffer.from(base64, 'base64')).digest('hex'),
             storagePath,
@@ -947,6 +960,24 @@ async function continuarComoComprobante(
         alFallar,
         log,
     }, pago, pendientes.filter((x) => x.id !== pago.id));
+}
+
+/**
+ * Lo que se le dice a la familia cuando UN comprobante cubre varios cobros.
+ * Nombra cada cobro (el pago único con su concepto: «Inscripción — …») y no
+ * promete aplicarlo: lo reparte la escuela. Pura.
+ */
+export function textoVariosCobros(monto: number, pagos: PagoPendiente[]): string {
+    return `Recibí tu comprobante por ${cop(monto)} 📄 Cubre estos cobros:\n\n` +
+        `${pagos.map((p) => `• ${describirPago(p)}`).join('\n')}\n\n` +
+        'Como es un solo pago para varios cobros, se lo paso a la escuela para que lo reparta ' +
+        'entre ellos y te confirme por aquí.';
+}
+
+/** `error_message` de la fila (la pantalla «Comprobantes sin resolver» lo muestra). Pura. */
+export function motivoVariosCobros(pagos: PagoPendiente[]): string {
+    return `varios_cobros: un comprobante cubre ${pagos.length} cobros (${pagos.map((p) => describirPago(p)).join(' | ')}): repartirlo a mano`
+        .slice(0, 500);
 }
 
 // ─── La misma foto otra vez (auditoría 2026-10-07, …0340) ────────────────────
@@ -1630,6 +1661,42 @@ async function comprobanteDeFamiliaSinCuenta(
     await continuarComoComprobante(fila, null, responder, bajada.base64, bajada.mime, bajada.storagePath, ocr, log, { llaves });
 }
 
+/** Imágenes de un contacto sin ficha (que no habla de pagos) que se pasan por el OCR en la ventana. */
+export const MAX_OCR_SIN_FICHA = 2;
+/** Ventana del tope anterior, en minutos. */
+export const VENTANA_OCR_SIN_FICHA_MIN = 10;
+/** `error_message` de la fila que se cerró sin OCR por la ráfaga. */
+export const MOTIVO_OCR_OMITIDO_RAFAGA = 'ocr_omitido: ráfaga de imágenes de un contacto sin ficha';
+
+/**
+ * ¿Ya hay MAX_OCR_SIN_FICHA adjuntos ANTERIORES de este contacto en la ventana?
+ * Se cuentan por llegada (created_at), no por cuáles se leyeron: así dos filas
+ * de la misma ráfaga procesadas a la vez deciden igual, y una ráfaga larga no
+ * vuelve a abrir el OCR a los 10 min mientras siga llegando. Pura.
+ */
+export function excedeTopeOcr(previasEnVentana: number, max = MAX_OCR_SIN_FICHA): boolean {
+    return previasEnVentana >= max;
+}
+
+/** Cuenta los adjuntos anteriores del contacto en la ventana. Nunca lanza (ante la duda, se lee). */
+async function excedeOcrSinFicha(fila: FilaCola): Promise<boolean> {
+    try {
+        const base = fila.created_at ? new Date(fila.created_at).getTime() : Date.now();
+        if (!Number.isFinite(base)) return false;
+        const { count, error } = await supabase.from('whatsapp_inbound_queue')
+            .select('id', { count: 'exact', head: true })
+            .eq('integration_id', fila.integration_id)
+            .eq('wa_phone_number', fila.wa_phone_number)
+            .neq('id', fila.id)
+            .gte('created_at', new Date(base - VENTANA_OCR_SIN_FICHA_MIN * 60_000).toISOString())
+            .lt('created_at', new Date(base).toISOString());
+        if (error || typeof count !== 'number') return false;
+        return excedeTopeOcr(count);
+    } catch {
+        return false;
+    }
+}
+
 /**
  * (b) Número sin ficha. Solo se le escribe si el archivo ES un comprobante
  * hacia una cuenta de la escuela (o el contacto habla de un pago y el destino
@@ -1650,6 +1717,16 @@ async function comprobanteDeNumeroSinFicha(
         if (!bajada.ok) return;
         archivo = bajada;
     } else {
+        // Ráfaga de imágenes de alguien sin ficha que no habla de pagos
+        // (auditoría 2026-10-10: un número desconocido mandó decenas de fotos y
+        // cada una se bajaba y pasaba por el OCR). Se leen como mucho
+        // MAX_OCR_SIN_FICHA por ventana; las demás se cierran en silencio, sin
+        // bajarlas ni contestar, y quedan marcadas para no reintentarse.
+        if (await excedeOcrSinFicha(fila)) {
+            await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: MOTIVO_OCR_OMITIDO_RAFAGA });
+            log?.info?.({ queueId: fila.id }, '[wa-queue] ráfaga de imágenes sin ficha: sin OCR');
+            return;
+        }
         const r = await obtenerArchivoDeFila(fila, wa, { guardar: false });
         if (!r.ok) { await silencio(); return; }
         archivo = r;

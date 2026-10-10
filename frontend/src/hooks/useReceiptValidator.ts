@@ -28,6 +28,7 @@
 import { useState } from 'react';
 import { bffClient } from '@/lib/api/bffClient';
 import { sha256File } from '@/lib/sha256File';
+import type { PaymentChargeCategory } from '@/lib/payment-accounts';
 
 export type ReceiptVerdict = 'verde' | 'amarillo' | 'rojo';
 
@@ -100,7 +101,8 @@ export interface ValidationOptions {
     paymentId?: string;
     /** Categoría del cobro (mensualidad/inscripcion/...): el BFF solo acepta una
      *  llave restringida (`only_for`) como destino del cobro de su concepto. */
-    paymentCategory?: 'mensualidad' | 'inscripcion' | 'articulos' | 'torneo' | 'otro' | 'seguro' | 'excedente';
+    /** Misma lista que el z.enum del BFF (payments.routes.ts /validate-receipt). */
+    paymentCategory?: PaymentChargeCategory;
     /** Ver DateMode. Default 'window' (flujo del acudiente). */
     dateMode?: DateMode;
     /**
