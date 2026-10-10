@@ -10,6 +10,7 @@
 
 import { supabase } from '../config/supabase';
 import { isWebPushConfigured, webpush } from '../config/webpush';
+import { enCortafuegos } from '../config/cortafuegos-simulacion';
 
 export interface WebPushPayload {
     title: string;
@@ -42,6 +43,8 @@ function serializePayload(payload: WebPushPayload): string {
  * No-op seguro si VAPID no está configurado (sent/failed/revoked = 0).
  */
 export async function sendWebPushToUser(userId: string, payload: WebPushPayload): Promise<WebPushResult> {
+    // Turno simulado del modo pruebas (canal de plataforma): no se avisa a nadie.
+    if (enCortafuegos()) return { sent: 0, failed: 0, revoked: 0 };
     if (!isWebPushConfigured()) return { sent: 0, failed: 0, revoked: 0 };
 
     const { data: subs, error } = await supabase

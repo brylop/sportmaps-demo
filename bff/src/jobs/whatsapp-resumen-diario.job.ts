@@ -44,6 +44,7 @@ import {
 import { contarBorradoresHuerfanos, HUERFANO_MIN_MS } from '../services/whatsapp-ponerse-al-dia.service';
 import { estaCerrada } from '../services/whatsapp-bandeja.service';
 import { lineaCarteraParaResumen } from '../services/informe-cartera.service';
+import { avisarResumenPorPlataforma } from '../services/plataforma-wa-avisos.service';
 
 /** El paso con que el bot contesta a un desconocido con tema escolar.
  *  Copia de PASO_DESCONOCIDO_ESCOLAR (whatsapp-bot.service): importarlo de ahí
@@ -257,7 +258,6 @@ export async function runWhatsAppResumenDiario(ahora = Date.now()): Promise<{ es
             if (resumenVacio(r)) continue;
 
             const { escuela, correos } = await destinatariosDeEscuela(integ.school_id);
-            if (!correos.length) continue;
 
             const url = `${base}/whatsapp?tab=conversaciones`;
             const partes = [
@@ -276,6 +276,16 @@ export async function runWhatsAppResumenDiario(ahora = Date.now()): Promise<{ es
             if (lineaCartera) partes.push(lineaCartera);
             const cortesias = r.cortesias ?? [];
             const leads = r.leadsSinAgendar ?? [];
+
+            // Canal de plataforma: el mismo resumen, corto, al WhatsApp de la
+            // dueña con opt-in. Va antes del corte por correos: una escuela sin
+            // correo de admin igual lo recibe por acá. Flag apagado = nada.
+            avisarResumenPorPlataforma({
+                schoolId: integ.school_id, escuela, fecha, partes,
+                cortesiasDeHoy: cortesias.filter((c) => c.dia === 'hoy')
+                    .map((c) => `${c.hora} · ${c.nombre} — ${c.grupo}${c.sede ? ` (${c.sede})` : ''}`),
+            });
+            if (!correos.length) continue;
 
             const resultado = await enviarConReserva({
                 clave: `wa_resumen_diario:${integ.school_id}:${fecha}`,

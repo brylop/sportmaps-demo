@@ -46,9 +46,15 @@ export function isValidPaymentLinkUrl(value: string): boolean {
 
 export const isPaymentLink = (a: Pick<PaymentAccount, 'type'>): boolean => a.type === PAYMENT_LINK_TYPE;
 
-/** Categorías de cobro (CHECK de payments.payment_category). */
-export type PaymentChargeCategory = 'mensualidad' | 'inscripcion' | 'articulos' | 'torneo' | 'otro' | 'seguro' | 'excedente';
-const CHARGE_CATEGORIES: PaymentChargeCategory[] = ['mensualidad', 'inscripcion', 'articulos', 'torneo', 'otro', 'seguro', 'excedente'];
+/**
+ * Categorías de cobro: las del CHECK payments_payment_category_check (verificado
+ * en la base el 2026-10-10). Misma lista que CATEGORIAS_COBRO del BFF
+ * (bff/src/services/payment-accounts.ts) — si se agrega una allá, va aquí.
+ */
+export const CHARGE_CATEGORIES = ['mensualidad', 'inscripcion', 'articulos', 'torneo', 'otro', 'seguro', 'excedente', 'clase_extra', 'vacacional', 'viaje'] as const;
+export type PaymentChargeCategory = (typeof CHARGE_CATEGORIES)[number];
+export const isChargeCategory = (v: unknown): v is PaymentChargeCategory =>
+    typeof v === 'string' && (CHARGE_CATEGORIES as readonly string[]).includes(v);
 
 export interface PaymentAccount {
     id: string;
@@ -83,17 +89,106 @@ export function chargeCategoryOf(
     paymentCategory: string | null | undefined,
     concept: string | null | undefined,
 ): PaymentChargeCategory | null {
-    const isCat = (v: unknown): v is PaymentChargeCategory => CHARGE_CATEGORIES.includes(v as PaymentChargeCategory);
-    if (isCat(paymentCategory) && paymentCategory !== 'otro') return paymentCategory;
+    if (isChargeCategory(paymentCategory) && paymentCategory !== 'otro') return paymentCategory;
     const c = (concept ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
     if (c) {
         if (/matricul|inscrip/.test(c)) return 'inscripcion';
+        if (/seguro/.test(c)) return 'seguro';
         if (/mensualidad|mensual/.test(c)) return 'mensualidad';
         if (/torneo/.test(c)) return 'torneo';
         if (/uniforme|articulo|kit\b|dotacion/.test(c)) return 'articulos';
     }
     return paymentCategory === 'otro' ? 'otro' : null;
 }
+
+/** Nombre del cobro para la escuela, por categoría. */
+export const CHARGE_CATEGORY_LABEL: Record<PaymentChargeCategory, string> = {
+    mensualidad: 'Mensualidad',
+    inscripcion: 'Inscripción',
+    seguro: 'Seguro de accidentes',
+    excedente: 'Horas adicionales',
+    articulos: 'Artículos',
+    torneo: 'Torneo',
+    otro: 'Otro cobro',
+    clase_extra: 'Clase extra',
+    vacacional: 'Vacacional',
+    viaje: 'Viaje',
+};
+
+/**
+ * ¿Es un cobro ÚNICO (no la mensualidad del período)? Solo por la categoría
+ * EXPLÍCITA de la fila: NULL = fila vieja u open_month, que es mensualidad. No
+ * mira el concepto ni `payment_type` (hay ~2.200 'one_time' que son
+ * mensualidades). Misma regla que `esCobroUnico` del BFF y que el trigger de
+ * vigencia (migración 20261010130450): pagar uno de estos no extiende la
+ * inscripción, no lleva descuento por pronto pago y no compite por el período.
+ * F0 (migración 20261010143132): tampoco se vence, no lleva recargo, no bloquea
+ * el acceso y aprobarlo no activa una inscripción pendiente (approvePayment).
+ * Es LA regla del frontend para dinero y acceso; no hay otra lista.
+ */
+export const isOneTimeCategory = (paymentCategory: string | null | undefined): boolean =>
+    !!paymentCategory && paymentCategory !== 'mensualidad';
+
+/**
+ * Etiqueta del cobro si, por su CONCEPTO, no es la mensualidad («Inscripción»,
+ * «Seguro de accidentes»…). Solo para mostrar cuando la fila llega sin
+ * payment_category (p.ej. get_athlete_payments); no decide reglas de dinero.
+ * null = mensualidad o no se sabe.
+ */
+export function oneTimeLabelFromConcept(concept: string | null | undefined): string | null {
+    const cat = chargeCategoryOf(null, concept);
+    return cat && cat !== 'mensualidad' ? CHARGE_CATEGORY_LABEL[cat] : null;
+}
+
+/**
+ * Lo que el modal de pago necesita saber del cobro EXISTENTE que se paga
+ * (mode='update'): si es único, su etiqueta, y la categoría para elegir llaves
+ * (only_for). `category` = payments.payment_category (prop o leída de la fila).
+ * En mode='create' no hay cobro existente: lo decide el selector de concepto.
+ */
+export function existingChargeInfo(
+    mode: 'create' | 'update',
+    category: string | null | undefined,
+    concept: string | null | undefined,
+): { isOneTime: boolean; label: string | null; accountsCategory: PaymentChargeCategory | null } {
+    if (mode !== 'update') return { isOneTime: false, label: null, accountsCategory: null };
+    const isOneTime = isOneTimeCategory(category);
+    return {
+        isOneTime,
+        label: isOneTime ? chargeLabel({ payment_category: category, concept }) : null,
+        accountsCategory: chargeCategoryOf(isChargeCategory(category) ? category : null, concept),
+    };
+}
+
+/**
+ * Etiqueta corta de un cobro («Inscripción», «Seguro de accidentes»…). Sin
+ * categoría reconocible se asume la mensualidad SOLO si el cobro es de período
+ * (`payment_type = 'subscription'`); si no, «Cobro».
+ */
+export function chargeLabel(p: {
+    payment_category?: string | null;
+    concept?: string | null;
+    payment_type?: string | null;
+}): string {
+    const cat = chargeCategoryOf(p.payment_category, p.concept);
+    if (cat) return CHARGE_CATEGORY_LABEL[cat];
+    return p.payment_type === 'subscription' ? CHARGE_CATEGORY_LABEL.mensualidad : 'Cobro';
+}
+
+/**
+ * SOLO PARA MOSTRAR (qué fila de la lista es «el cobro del mes»). Con categoría
+ * explícita manda la regla única `isOneTimeCategory` (F0, migración
+ * 20261010143132): un torneo, un viaje o cualquier categoría futura es único,
+ * no solo inscripción/seguro/excedente como antes. Sin categoría (filas viejas)
+ * se mira el concepto, igual que `oneTimeLabelFromConcept`.
+ * Las REGLAS de dinero (activar inscripción, mora, descuentos) usan
+ * `isOneTimeCategory` directo, nunca esto.
+ * @deprecated en código nuevo: usar `isOneTimeCategory`.
+ */
+export const isOneOffCharge = (p: { payment_category?: string | null; concept?: string | null }): boolean =>
+    p.payment_category
+        ? isOneTimeCategory(p.payment_category)
+        : oneTimeLabelFromConcept(p.concept) !== null;
 
 export const PAYMENT_ACCOUNT_TYPES: { value: PaymentAccountType; label: string; placeholder: string }[] = [
     { value: 'breb',         label: 'Bre-B',                  placeholder: 'Celular, correo, cédula o @alias' },
@@ -148,7 +243,7 @@ export function parsePaymentAccounts(raw: unknown): PaymentAccount[] {
         // Se conserva `only_for`: si este parseo la descartara, guardar el panel
         // borraría la restricción y la llave volvería a valer para todo.
         const onlyFor = Array.isArray(row.only_for)
-            ? (row.only_for as unknown[]).filter((c): c is PaymentChargeCategory => CHARGE_CATEGORIES.includes(c as PaymentChargeCategory))
+            ? (row.only_for as unknown[]).filter(isChargeCategory)
             : [];
         out.push({
             id: typeof row.id === 'string' && row.id ? row.id : newAccountId(),

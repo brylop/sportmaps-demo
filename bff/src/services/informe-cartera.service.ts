@@ -64,6 +64,7 @@ import {
     COLUMNAS_CONTACTO_FICHA, COLUMNAS_CONTACTO_HIJO, contactoDeFicha, contactoDeHijoSinCuenta, type FichaContacto,
 } from './contacto-acudiente';
 import { appPublica } from '../utils/url-publica-familias';
+import { avisarCarteraPorPlataforma } from './plataforma-wa-avisos.service';
 
 export const TIPO_INFORME = 'informe_cartera';
 /** Filas por sección en el correo. El CSV de la app trae todas. */
@@ -226,7 +227,7 @@ export function mesDelCobro(p: PagoCartera): string {
 /** Mensualidad u otro concepto. payment_type no es fiable solo; payment_category manda si existe. */
 export function esMensualidad(p: PagoCartera): boolean {
     if (p.payment_category) return p.payment_category === 'mensualidad';
-    if (/inscrip|matr[ií]cula|uniforme|torneo|kit/i.test(p.concept ?? '')) return false;
+    if (/inscrip|matr[ií]cula|seguro|p[oó]liza|uniforme|torneo|kit/i.test(p.concept ?? '')) return false;
     return p.payment_type === 'subscription';
 }
 
@@ -761,6 +762,15 @@ export async function enviarInformeCartera(schoolId: string, o: { ahora?: Date; 
         const informe = await armarInformeCartera(schoolId, ahora);
         if (informeVacio(informe)) return { resultado: 'vacio', informe };
         if (!o.aplicar) return { resultado: 'simulado', informe };
+
+        // Canal de plataforma (D11: solo cifras + enlace). Idempotente por
+        // escuela + lunes en su propia reserva. Flag apagado = nada.
+        avisarCarteraPorPlataforma({
+            schoolId, escuela: informe.escuela, lunes,
+            familiasEnMora: informe.morosos.familias,
+            totalEnMora: informe.morosos.total,
+            comprobantesEnRevision: informe.pendientes.enRevision.length,
+        });
 
         const { correos } = await destinatariosDeEscuela(schoolId);
         if (!correos.length) return { resultado: 'sin_destinatarios', informe };

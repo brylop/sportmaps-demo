@@ -13,6 +13,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { todayColombia } from '@/lib/dateUtils';
 import { formatCurrency } from '@/lib/utils';
+import { isOneTimeCategory } from '@/lib/payment-accounts';
 
 export interface ApprovablePayment {
   id: string;
@@ -25,6 +26,8 @@ export interface ApprovablePayment {
   user_id?: string | null;
   unregistered_athlete_id?: string | null;
   team_id?: string | null;
+  /** payments.payment_category. Si no viene, se toma la de la fila actualizada. */
+  payment_category?: string | null;
 }
 
 export interface ApproveOptions {
@@ -70,16 +73,26 @@ export async function approvePayment(payment: ApprovablePayment, opts: ApproveOp
     requires_review: false,
     unblocked_at: nowIso,
     unblocked_by: opts.userId,
-  } as never).eq('id', payment.id).in('status', OPEN_STATUSES).select('id');
+  } as never).eq('id', payment.id).in('status', OPEN_STATUSES).select('id, payment_category');
 
   if (error) return { ok: false, reason: 'error', message: error.message };
   if (!updated || updated.length === 0) {
     return { ok: false, reason: 'already_handled', message: 'Este cobro ya no está abierto (pudo aprobarse mientras tanto).' };
   }
 
-  // Activar la inscripción SOLO cuando el pago quedó completo. enrollments.status
-  // es text: los pendientes reales son 'pending' (NO 'pending_payment').
-  if (!isAbono) {
+  // Activar la inscripción SOLO cuando el pago quedó completo Y es la
+  // mensualidad. enrollments.status es text: los pendientes reales son
+  // 'pending' (NO 'pending_payment').
+  // F0 (migración 20261010143132, cobros-multiples I15): un cobro ÚNICO
+  // (inscripción, seguro, torneo, artículos… — isOneTimeCategory) nunca activa
+  // ni extiende la inscripción; aprobar el torneo de un lote (que lleva
+  // team_id) activaba una inscripción pendiente. La categoría se lee de la fila
+  // que devolvió el UPDATE (la de la base manda); si no viene, la del llamador.
+  const updatedRow = (updated as Array<{ payment_category?: string | null }>)[0];
+  const category = updatedRow && 'payment_category' in updatedRow
+    ? updatedRow.payment_category
+    : payment.payment_category;
+  if (!isAbono && !isOneTimeCategory(category)) {
     let enrollQuery = supabase
       .from('enrollments')
       .update({ status: 'active' })

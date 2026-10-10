@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 720,
-  "head": "20261008183746",
+  "count": 738,
+  "head": "20261010180834",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -723,6 +723,24 @@
     {"v":"20261008164914","file":"20261008164914_wa_telefono_solo_colombia_y_numero_de_personal.sql","sha256":"e7bb90857cee40ee5ad85b4f9d87bcd47dfcbc2fafd7fcd11436c6b62b6f1d33","added":"2026-10-08","by":"Brayan Steven Lopez"},
     {"v":"20261008165728","file":"20261008165728_rechazo_comprobante_conserva_deuda.sql","sha256":"2b530573d48bdafa5057b238e725bc336adcb0dd8cb0373817749670d97cc4fe","added":"2026-10-08","by":"Brayan Steven Lopez"},
     {"v":"20261008183744","file":"20261008183744_biblioteca_ejercicios_v2.sql","sha256":"e590440e5ca873f69580a2f9d5e86d1d48871c15b1a027d9a30883c3ad8b4e38","added":"2026-10-08","by":"Brayan Steven Lopez"},
-    {"v":"20261008183746","file":"20261008183746_pizarra_metricas_uso_y_deportes_v2.sql","sha256":"f0a0d3b48e1c685f6154ebbce44bf5bb54d074b2899d18df5ccd014c601f941c","added":"2026-10-08","by":"Brayan Steven Lopez"}
+    {"v":"20261008183746","file":"20261008183746_pizarra_metricas_uso_y_deportes_v2.sql","sha256":"f0a0d3b48e1c685f6154ebbce44bf5bb54d074b2899d18df5ccd014c601f941c","added":"2026-10-08","by":"Brayan Steven Lopez"},
+    {"v":"20261009115335","file":"20261009115335_canal_whatsapp_plataforma.sql","sha256":"0e216517e58026c92d7bb0f9335b0a614dbb6344f99909ec702fc11fe18e0023","added":"2026-10-09","by":"Brayan Steven Lopez"},
+    {"v":"20261009121558","file":"20261009121558_matriculas_por_revisar_module_key.sql","sha256":"4b5f9d212e0160ef54ff3e350811380bd69512ad4da98d17d87d769023dc25ff","added":"2026-10-09","by":"Brayan Steven Lopez"},
+    {"v":"20261010124934","file":"20261010124934_alta_exonerar_inscripcion_seguro.sql","sha256":"de2a4de40cec8a0f7db26485f203de315faa0417426b914c62a1070c81d4ff02","added":"2026-10-10","by":"Brayan Steven Lopez"},
+    {"v":"20261010130450","file":"20261010130450_vigencia_solo_mensualidad_cobros_unicos_genericos.sql","sha256":"a0b5501abdb5356784e0c325f5fe9eac61ac0387b841f7f561867d48e1421160","added":"2026-10-10","by":"Brayan Steven Lopez"},
+    {"v":"20261010130733","file":"20261010130733_cobros_unicos_sin_mora_ni_bloqueo.sql","sha256":"d67e798894126798cae57eab21170b54cf453bacca9fd0806d02180076b46a5a","added":"2026-10-10","by":"Brayan Steven Lopez"},
+    {"v":"20261010143132","file":"20261010143132_cobros_unicos_reglas_genericas.sql","sha256":"94025b382a61ebd953d7345f52410700ac9afbccb456bc842310cbeb318cd573","added":"2026-10-10","by":"Brayan Steven Lopez"},
+    {"v":"20261010143743","file":"20261010143743_seguridad_s1_descuento_pronto_pago.sql","sha256":"1a335ac16fb68555b275465459b0ec19f1c7fdf3f418579e6bafa8038d2c0977","added":"2026-10-10","by":"Brayan Steven Lopez"},
+    {"v":"20261010144551","file":"20261010144551_cobros_f1_charge_batches.sql","sha256":"dc8bd078a49166dca63cb9d44b956da28f9da4fe0cc167bd9cf0a3c5c7684328","added":"2026-10-10","by":"Brayan Steven Lopez"},
+    {"v":"20261010144552","file":"20261010144552_cobros_f1_payments_columnas.sql","sha256":"95d7b57d6cd16e70768776c3a480f19e7d647364b7a07f4746ff5ad8316d93e8","added":"2026-10-10","by":"Brayan Steven Lopez"},
+    {"v":"20261010144554","file":"20261010144554_cobros_f1_payment_adjustments.sql","sha256":"a304fc3518211b093d2f456e89f2e5bcfeb0e716da34f123c8fdf894d61ef043","added":"2026-10-10","by":"Brayan Steven Lopez"},
+    {"v":"20261010144555","file":"20261010144555_cobros_f1_descuentos_automaticos.sql","sha256":"fd99cce6f6f2622bb2b6354e7b5a5c10b28e7553d8c670aa0591c2c6b2983880","added":"2026-10-10","by":"Brayan Steven Lopez"},
+    {"v":"20261010144556","file":"20261010144556_cobros_f1_backfill_ajustes.sql","sha256":"85a9e3c7f13d3409018cb58e4a824a3d1387e67d2a80b5db5dc52648d9342cd6","added":"2026-10-10","by":"Brayan Steven Lopez"},
+    {"v":"20261010144557","file":"20261010144557_cobros_f1_invariantes_payments.sql","sha256":"0b04d291b65e1e9d6fa21fec89be7a3c2369b3ca306001fe70f15db52b3c2be6","added":"2026-10-10","by":"Brayan Steven Lopez"},
+    {"v":"20261010144558","file":"20261010144558_cobros_f1_guardia_y_notificaciones.sql","sha256":"df4cb398eeb6bf5342ab8d013ee2dd2e5e4ea9ee8ca4fd973cd191c11c00d6a1","added":"2026-10-10","by":"Brayan Steven Lopez"},
+    {"v":"20261010144559","file":"20261010144559_cobros_f1_funciones_internas.sql","sha256":"18c4f26abf279aaff145193cd83d24ec0837e21c954ad1b5f0e75f93c4ebcabe","added":"2026-10-10","by":"Brayan Steven Lopez"},
+    {"v":"20261010144600","file":"20261010144600_cobros_f1_rpcs.sql","sha256":"ff3c098fdc7f8a7cec2617b2bd295391f951347eec5fb0a06a913c916a74ca09","added":"2026-10-10","by":"Brayan Steven Lopez"},
+    {"v":"20261010145241","file":"20261010145241_seguridad_s4_monto_cobro_cliente.sql","sha256":"fc4e75aff1e6007d990a4283810ee1c9968a079e2465f694d7529af44068a076","added":"2026-10-10","by":"Brayan Steven Lopez"},
+    {"v":"20261010180834","file":"20261010180834_versionar_descuento_cobro_y_registro_manual.sql","sha256":"99c83e2e38f1d5cf04c33583930c7439e13cf931ccec534083a767afac0109e7","added":"2026-10-10","by":"Brayan Steven Lopez"}
   ]
 }

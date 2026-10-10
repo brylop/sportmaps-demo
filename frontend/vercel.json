@@ -15,11 +15,11 @@
     },
     {
       "source": "/app.webmanifest",
-      "destination": "https://sportmaps-bff.onrender.com/api/v1/pwa/manifest"
+      "destination": "https://sportmaps-bff-prod.onrender.com/api/v1/pwa/manifest"
     },
     {
       "source": "/app-icon.png",
-      "destination": "https://sportmaps-bff.onrender.com/api/v1/pwa/icon"
+      "destination": "https://sportmaps-bff-prod.onrender.com/api/v1/pwa/icon"
     },
     {
       "source": "/((?!assets/).*)",

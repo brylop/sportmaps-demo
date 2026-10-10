@@ -55,6 +55,7 @@ import whatsappAdminRouter from './routes/whatsapp-admin.routes';
 import whatsappMetricasRouter from './routes/whatsapp-metricas.routes';
 import whatsappImportarChatRouter from './routes/whatsapp-importar-chat.routes';
 import whatsappCortesiasRouter from './routes/whatsapp-cortesias.routes';
+import whatsappPlataformaRouter from './routes/whatsapp-plataforma.routes';
 import publicBookingRouter from './routes/public-booking.routes';
 import cobroEnlacePublicoRouter from './routes/cobro-enlace-publico.routes';
 import { initMaintenanceJobs } from './jobs/maintenance.job';
@@ -118,6 +119,9 @@ import mobileRouter from './routes/mobile.routes';
 import internalNotificationsRouter from './routes/internal-notifications.routes';
 import internalAutopayRouter from './routes/internal-autopay.routes';
 import autopayRouter from './routes/autopay.routes';
+import chargeBatchesRouter from './routes/charge-batches.routes';
+import paymentAdjustmentsRouter from './routes/payment-adjustments.routes';
+import athleteChargesRouter from './routes/athlete-charges.routes';
 import { requireStoreEnabled } from './services/store-flag.service';
 import { storeRateLimit } from './middlewares/storeRateLimit';
 
@@ -319,7 +323,7 @@ app.use('/api/v1/webhooks/whatsapp', whatsappWebhookRouter);
 // alguien agrega un comodín ahí, este seguiría respondiendo. En la MISMA línea
 // y no en un app.use aparte: con dos, cada petición del panel pasaría dos veces
 // por generalLimiter y gastaría doble cupo.
-app.use('/api/v1/whatsapp', generalLimiter, whatsappMetricasRouter, whatsappImportarChatRouter, whatsappCortesiasRouter, whatsappAdminRouter);
+app.use('/api/v1/whatsapp', generalLimiter, whatsappMetricasRouter, whatsappImportarChatRouter, whatsappCortesiasRouter, whatsappPlataformaRouter, whatsappAdminRouter);
 
 // Link público de agendamiento de instalaciones — sin requireAuth, rate-limit propio
 const publicBookingLimiter = rateLimit({
@@ -381,6 +385,14 @@ app.use('/api/v1/reservations-admin', generalLimiter, reservationsAdminRouter);
 app.use('/api/v1/payments/glosas', paymentLimiter, glosasRouter);
 app.use('/api/v1/payments/reconciliation', paymentLimiter, reconciliationRouter);
 app.use('/api/v1/payments', paymentLimiter, paymentsRouter);
+// Modal «Cobros y pagos» (spec cobros-multiples F2). SIN paymentLimiter: era 20/min por
+// IP (de borde de Cloudflare) compartido con MP/glosas/conciliación, y la vista previa
+// automática del modal lo agotaba en uso normal. Los cupos van dentro del router, por
+// usuario, tras requireAuth (middlewares/cobrosRateLimit.ts: lectura 120/min, preview
+// 60/min, escritura 20/min) + los topes de Q11 al confirmar (chargeBatchRateLimit.ts:
+// 10 lotes/10 min por usuario, 2.000 cobros/hora por escuela).
+app.use('/api/v1/charge-batches', chargeBatchesRouter);
+app.use('/api/v1/payment-adjustments', paymentAdjustmentsRouter);
 app.use('/api/v1/admin/payments', generalLimiter, adminPaymentsRouter);
 // payment-tokens y recurring: state-changing → CSRF header + cap especifico
 app.use('/api/v1/payment-tokens', cardAlterLimiter, requireCsrfHeader, paymentTokensRouter);
@@ -470,6 +482,9 @@ app.use('/api/v1/athlete', generalLimiter, requireAthleteAuth, athleteStatsRoute
 app.use('/api/v1/athlete', generalLimiter, requireAthleteAuth, athleteTrainingRouter);
 app.use('/api/v1/athlete', generalLimiter, requireAthleteAuth, athleteBiomechRouter);
 app.use('/api/v1/athlete', generalLimiter, requireAthleteAuth, athletePerformanceRouter);
+// Cobros de un atleta (open-charges / charge-suggestions). Sin limitador en el montaje: pasaría
+// también por bulkUpload, que comparte el prefijo. El cupo de lectura del modal va en el gate.
+app.use('/api/v1/athletes', athleteChargesRouter);
 app.use('/api/v1/athletes', bulkUploadRouter);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────

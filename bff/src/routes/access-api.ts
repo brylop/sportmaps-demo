@@ -7,6 +7,7 @@ import { wakeSchool } from '../services/bridgeWsHub';
 import fs from 'fs';
 import path from 'path';
 import { dayNotAllowedBody, isDateAllowedForEnrollment } from '../utils/planDayRules';
+import { FILTRO_SOLO_MENSUALIDAD } from '../services/payment-accounts';
 
 const router = Router();
 
@@ -791,7 +792,10 @@ router.get('/overdue', requireAuth, requireRole('owner', 'admin', 'school_admin'
       .from('payments')
       .select('id, user_id, unregistered_athlete_id, child_id, due_date, amount')
       .eq('school_id', schoolId)
-      .eq('status', 'overdue');
+      .eq('status', 'overdue')
+      // F0 (migración 20261010143132): solo la mensualidad vencida cuenta para
+      // bloquear; mismo filtro que access-auto-block.job y access-adms.
+      .or(FILTRO_SOLO_MENSUALIDAD);
     if (error) throw error;
     if (!overduePayments?.length) return res.json({ overdue: [] });
 

@@ -21,6 +21,7 @@
 
 import crypto from 'crypto';
 import { supabase } from '../config/supabase';
+import { enCortafuegos } from '../config/cortafuegos-simulacion';
 
 const GRAPH_API_VERSION = process.env.WHATSAPP_GRAPH_VERSION || 'v21.0';
 const GRAPH_BASE_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
@@ -202,6 +203,10 @@ async function postearMensaje(
     integration: WhatsAppIntegration,
     payload: Record<string, unknown>,
 ): Promise<SendTextResult> {
+    // Turno simulado (modo pruebas del canal de plataforma): nada sale por
+    // Graph, tampoco por el número de la escuela. La guardia de fetch ya lo
+    // corta; esto lo dice explícito y sin red.
+    if (enCortafuegos()) return { ok: false, error: 'simulacion' };
     if (!integration.access_token_encrypted) {
         return { ok: false, error: 'integration_without_token' };
     }
@@ -230,6 +235,18 @@ async function postearMensaje(
     } catch (err: any) {
         return { ok: false, error: err?.message || 'network_error' };
     }
+}
+
+/**
+ * Manda un payload ya armado (plantilla, texto) por la integración dada. Lo usa
+ * el canal de plataforma (plataforma-wa.service) para las plantillas: el mismo
+ * POST, el mismo descifrado, la misma traducción de errores. No lanza.
+ */
+export async function sendRawPayload(
+    integration: WhatsAppIntegration,
+    payload: Record<string, unknown>,
+): Promise<SendTextResult> {
+    return postearMensaje(integration, payload);
 }
 
 // ─── Botones de respuesta rápida (interactive / button) ─────────────────────
@@ -709,6 +726,7 @@ export async function markAsRead(
     integration: WhatsAppIntegration,
     waMessageId: string,
 ): Promise<void> {
+    if (enCortafuegos()) return;
     if (!integration.access_token_encrypted) return;
     let token: string;
     try {

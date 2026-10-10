@@ -14,6 +14,7 @@ import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, EyeOff, Loa
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { formatCurrency, maskSensitive } from '@/lib/utils';
+import { chargeLabel, isOneOffCharge } from '@/lib/payment-accounts';
 import { normalizeReceiptUrl } from '@/lib/normalizeReceiptUrl';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -27,7 +28,10 @@ import { InstallmentsConfigCard } from '@/components/payment/InstallmentsConfigC
 import { todayColombia, formatDayCO, daysDiffFromToday } from '@/lib/dateUtils';
 import { SportMapsPaySettings } from '@/components/settings/SportMapsPaySettings';
 import { PaymentProvidersAdmin } from '@/components/admin/PaymentProvidersAdmin';
-import { RegisterCashPaymentModal } from '@/components/payment/RegisterCashPaymentModal';
+import { CobrosYPagosModal } from '@/components/payment/CobrosYPagosModal';
+import { OperacionesTab } from '@/components/payment/OperacionesTab';
+import { isCobrosYPagosEnabled } from '@/lib/cobrosYPagosFlag';
+import { canManageCharges, canReadChargeBatches } from '@/lib/cobrosYPagos';
 import { ApprovePaymentMethodSheet } from '@/components/payment/ApprovePaymentMethodSheet';
 import { RejectReceiptDialog } from '@/components/payment/RejectReceiptDialog';
 import { BulkApproveGreensDialog } from '@/components/payment/BulkApproveGreensDialog';
@@ -201,19 +205,55 @@ function OcrMatchBadge({ payment }: { payment: { amount: number; ocr_amount?: nu
 
 // Badge read-only del veredicto de reglas (modo sombra, Fase 2). Informativo:
 // NO cambia la decisión de aprobar/rechazar — sirve para calibrar antes de activar.
-function VerdictBadge({ verdict }: { verdict?: string | null }) {
+// Motivo corto por código de regla, para que la fila diga POR QUÉ es amarillo
+// sin abrir el comprobante. El texto completo queda en el title.
+const VERDICT_REASON_SHORT: Record<string, string> = {
+  MONTO_DIFIERE: 'Monto distinto',
+  CAMPOS_ILEGIBLES: 'Datos ilegibles',
+  DESTINO_AUSENTE: 'Sin cuenta destino',
+  DESTINO_NO_COINCIDE: 'Otra cuenta destino',
+  FECHA_FUERA_VENTANA: 'Fecha vieja',
+  FECHA_FUTURA: 'Fecha futura',
+  FORMATO_REFERENCIA: 'Referencia rara',
+  IMAGEN_DUPLICADA: 'Imagen repetida',
+  REFERENCIA_DUPLICADA: 'Referencia repetida',
+  IS_TRANSACTION_LIST: 'Lista de movimientos',
+  NOT_A_RECEIPT: 'No es comprobante',
+  POSIBLE_MANIPULACION: 'Posible edición',
+};
+
+function VerdictBadge({ verdict, reasons }: { verdict?: string | null; reasons?: unknown[] | null }) {
   if (!verdict) return null;
-  const cfg: Record<string, { label: string; className: string }> = {
-    verde: { label: 'Veredicto: verde', className: 'bg-green-50 text-green-700 border-green-300' },
-    amarillo: { label: 'Veredicto: amarillo', className: 'bg-amber-50 text-amber-700 border-amber-300' },
-    rojo: { label: 'Veredicto: rojo', className: 'bg-red-50 text-red-700 border-red-300' },
+  const cfg: Record<string, { label: string; className: string; dot: string; text: string }> = {
+    verde: { label: 'Verde', className: 'bg-green-50 text-green-700 border-green-300', dot: 'bg-green-500', text: 'text-green-700' },
+    amarillo: { label: 'Amarillo', className: 'bg-amber-50 text-amber-700 border-amber-300', dot: 'bg-amber-500', text: 'text-amber-700' },
+    rojo: { label: 'Rojo', className: 'bg-red-50 text-red-700 border-red-300', dot: 'bg-red-500', text: 'text-red-700' },
   };
   const c = cfg[verdict];
   if (!c) return null;
+  const list = (Array.isArray(reasons) ? reasons : []) as Array<{ code?: string; message?: string }>;
+  const short = list.map((r) => (r.code && VERDICT_REASON_SHORT[r.code]) || null).filter(Boolean) as string[];
+  const title = ['Veredicto automático de reglas (informativo, no decide)', ...list.map((r) => r.message).filter(Boolean)].join('\n');
   return (
-    <Badge variant="outline" title="Veredicto automático de reglas (informativo, no decide)" className={`text-[10px] py-0 h-5 ${c.className}`}>
-      {c.label}
-    </Badge>
+    <div className="flex flex-col items-start gap-0.5" title={title}>
+      <Badge variant="outline" className={`text-[10px] py-0 h-5 whitespace-nowrap gap-1 ${c.className}`}>
+        <span className={`h-1.5 w-1.5 rounded-full ${c.dot}`} aria-hidden />
+        {c.label}
+      </Badge>
+      {short.length > 0 && (
+        <span className={`text-[10px] leading-tight ${c.text}`}>{short.join(' · ')}</span>
+      )}
+    </div>
+  );
+}
+
+/** Pie de foto que mandó la familia por WhatsApp, citado tal cual. */
+function FamilyNote({ note }: { note?: { pie: string } | null }) {
+  if (!note?.pie) return null;
+  return (
+    <p className="mt-1 max-w-[260px] text-[11px] leading-snug text-slate-600 italic border-l-2 border-emerald-300 pl-2" title="Mensaje de la familia con el comprobante (WhatsApp)">
+      «{note.pie}»
+    </p>
   );
 }
 
@@ -413,6 +453,11 @@ interface TeamSubscription {
     /** ERROR/VOIDED sin resolver: no sabemos si el dinero se movió. */
     requires_review: boolean;
   } | null;
+  /**
+   * Cobros únicos del mes sin pagar (inscripción, seguro, excedente). Son filas
+   * aparte de la mensualidad: `charge` representa solo a la mensualidad.
+   */
+  one_off_due: { label: string; amount: number }[];
   /** Deuda de meses ANTERIORES que sigue sin pagar. */
   arrears: { count: number; amount: number } | null;
   /** Atleta al que pertenece la fila. Para no sumar su deuda dos veces. */
@@ -455,11 +500,15 @@ export default function PaymentsAutomationPage() {
   const { profile, user } = useAuth();
   const { toast } = useToast();
   const { schoolId, schoolName, activeBranchId, currentUserRole } = useSchoolContext();
+  // «Cobros y pagos» (docs/specs/cobros-multiples.md F3). Apagado = «Registrar pago» de siempre.
+  const cobrosYPagosOn = isCobrosYPagosEnabled();
+  const showRegisterButton = !cobrosYPagosOn || canManageCharges(currentUserRole);
+  const showOperacionesTab = cobrosYPagosOn && canReadChargeBatches(currentUserRole);
   // Deep-link a un tab puntual (ej. "Próximo Cierre de Mes" en Finanzas manda
   // acá a abrir el mes — sin esto, quien llega desde ese link caía siempre en
   // "Cobros" y el botón de abrir mes, que vive en "Config", quedaba invisible.
   const [searchParams, setSearchParams] = useSearchParams();
-  const PAYMENTS_TABS = ['recurrent', 'teams', 'glosas', 'conciliacion', 'history', 'cierre', 'debito', 'config'] as const;
+  const PAYMENTS_TABS = ['recurrent', 'teams', 'glosas', 'conciliacion', 'history', 'cierre', 'debito', 'config', 'operaciones'] as const;
   const tabParam = searchParams.get('tab');
   const activeTab = (PAYMENTS_TABS as readonly string[]).includes(tabParam || '') ? tabParam! : 'recurrent';
   // Se incrementa al conectar/quitar una pasarela: remonta SportMaps Pay para
@@ -470,6 +519,10 @@ export default function PaymentsAutomationPage() {
   const esPlatformAdmin = profile?.role === 'admin' || profile?.role === 'super_admin';
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState<PaymentTransaction[]>([]);
+  // Lo que la familia escribió con la foto por WhatsApp («envío saldo sept 15 -
+  // oct 15»), por cobro. Vive en la cola del bot, no en `payments`: sin esto la
+  // escuela aprobaba sin ver la explicación (Dynasty 2026-10-09).
+  const [familyNotes, setFamilyNotes] = useState<Record<string, { pie: string; recibido_at: string | null }>>({});
   const [historyTruncated, setHistoryTruncated] = useState(false);
   // KPIs agregados en DB (school_payment_kpis). NO se derivan de `payments`:
   // esa lista está paginada a 100 filas y calcular las tarjetas sobre ella
@@ -873,6 +926,20 @@ export default function PaymentsAutomationPage() {
         team: p.team,
         plan: p.plan,
       })));
+
+      // Pies de foto del bot. Informativo: si el BFF falla o aún no tiene la
+      // ruta, la cola se ve igual que antes.
+      const noteIds = ((data as any[]) || [])
+        .filter((p) => p.receipt_url && (p.status === 'awaiting_approval' || p.status === 'partial'))
+        .map((p) => p.id as string)
+        .slice(0, 100);
+      if (noteIds.length) {
+        bffClient.get<{ notas: Record<string, { pie: string; recibido_at: string | null }> }>(
+          `/api/v1/whatsapp/${schoolId}/notas-de-comprobantes?payment_ids=${noteIds.join(',')}`,
+        ).then((r) => setFamilyNotes(r?.notas ?? {}), () => setFamilyNotes({}));
+      } else {
+        setFamilyNotes({});
+      }
     } catch (error: unknown) {
       toast({ title: 'Error al cargar pagos', description: getUserFriendlyError(error), variant: 'destructive' });
     } finally {
@@ -952,7 +1019,7 @@ export default function PaymentsAutomationPage() {
       // que no se veía en ninguna pantalla— a quién no se le generó el cobro.
       const [periodYear, periodMonth] = todayColombia().split('-').map(Number);
       const { data: periodCharges } = await (supabase.from('payments') as any)
-        .select('child_id, user_id, unregistered_athlete_id, team_id, status, due_date, amount, last_failure_at, last_failure_reason, requires_review')
+        .select('child_id, user_id, unregistered_athlete_id, team_id, status, due_date, amount, amount_paid, payment_category, concept, last_failure_at, last_failure_reason, requires_review')
         .eq('school_id', schoolId)
         .eq('period_year', periodYear)
         .eq('period_month', periodMonth)
@@ -994,9 +1061,12 @@ export default function PaymentsAutomationPage() {
        * tiene dos inscripciones y puede tener dos cobros: se prefiere el del
        * mismo equipo antes de caer al primero que aparezca.
        */
+      // La inscripción y el seguro del alta llevan el período del mes de entrada
+      // (period_uniqueness_exempt): sin separarlos, uno de ellos podía quedar
+      // como «el cobro de este mes» y la mensualidad y los otros no se veían.
       const chargeFor = (e: any): TeamSubscription['charge'] => {
         const k = athleteKey(e);
-        const all = k ? chargesByAthlete.get(k) ?? [] : [];
+        const all = (k ? chargesByAthlete.get(k) ?? [] : []).filter(c => !isOneOffCharge(c));
         if (all.length === 0) return null;
         const sameTeam = e.team_id ? all.filter(c => c.team_id === e.team_id) : [];
         const pool = sameTeam.length > 0 ? sameTeam : all;
@@ -1012,6 +1082,19 @@ export default function PaymentsAutomationPage() {
           last_failure_reason: best.last_failure_reason ?? null,
           requires_review: best.requires_review === true,
         };
+      };
+
+      /** Inscripción / seguro / excedente del mes que siguen sin pagar. */
+      const oneOffDueFor = (e: any): TeamSubscription['one_off_due'] => {
+        const k = athleteKey(e);
+        return (k ? chargesByAthlete.get(k) ?? [] : [])
+          .filter(c => isOneOffCharge(c) && ['pending', 'overdue', 'partial'].includes(c.status))
+          .map(c => ({
+            label: chargeLabel(c),
+            amount: c.status === 'partial'
+              ? Math.max((Number(c.amount) || 0) - (Number(c.amount_paid) || 0), 0)
+              : Number(c.amount) || 0,
+          }));
       };
 
       const mapped: TeamSubscription[] = rawEnrollments.map(e => {
@@ -1038,6 +1121,7 @@ export default function PaymentsAutomationPage() {
           plan_price_now: Number(e.plan?.price) || null,
           start_date: e.start_date,
           charge: chargeFor(e),
+          one_off_due: oneOffDueFor(e),
           // La deuda vieja es del ATLETA, no de una inscripción suya. Si tiene
           // dos inscripciones activas (multi-categoría) el chip sale en ambas
           // filas, así que el TOTAL se suma una sola vez por `athlete_key`.
@@ -1400,16 +1484,19 @@ export default function PaymentsAutomationPage() {
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          {showRegisterButton && (
           <Button 
             onClick={() => setShowCashModal(true)}
             variant="outline"
             size="sm"
             className="gap-2 text-emerald-600 border-emerald-200 hover:bg-emerald-50"
+            data-testid="open-register-payment"
           >
             <Banknote className="h-4 w-4" />
-            <span className="hidden sm:inline">Registrar pago</span>
-            <span className="sm:hidden">Pago</span>
+            <span className="hidden sm:inline">{cobrosYPagosOn ? 'Cobros y pagos' : 'Registrar pago'}</span>
+            <span className="sm:hidden">{cobrosYPagosOn ? 'Cobros' : 'Pago'}</span>
           </Button>
+          )}
           <Button variant="outline" size="sm" onClick={fetchPayments} disabled={loading}>
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clock className="h-4 w-4 mr-2" />}
             <span className="hidden sm:inline">Actualizar</span>
@@ -1471,6 +1558,7 @@ export default function PaymentsAutomationPage() {
             <TabsTrigger value="cierre" className="text-xs sm:text-sm">Cierre</TabsTrigger>
             <TabsTrigger value="debito" className="text-xs sm:text-sm">Débito automático</TabsTrigger>
             <TabsTrigger value="config" className="text-xs sm:text-sm">Config</TabsTrigger>
+            {showOperacionesTab && <TabsTrigger value="operaciones" className="text-xs sm:text-sm">Operaciones</TabsTrigger>}
           </TabsList>
         </div>
 
@@ -1547,6 +1635,7 @@ export default function PaymentsAutomationPage() {
                               </div>
                             )}
                             <p className="text-xs text-muted-foreground">{(payment as any).parent_responsible || '—'}</p>
+                            <FamilyNote note={familyNotes[payment.id]} />
                           </div>
                           <div className="text-right shrink-0">
                             <p className="font-bold text-primary text-sm">{formatCurrency(payment.amount)}</p>
@@ -1558,7 +1647,7 @@ export default function PaymentsAutomationPage() {
                               ) : (
                                 <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200">Inscripción QR</Badge>
                               )}
-                              <VerdictBadge verdict={payment.receipt_verdict} />
+                              <VerdictBadge verdict={payment.receipt_verdict} reasons={payment.receipt_verdict_reasons} />
                             </div>
                           </div>
                         </div>
@@ -1635,6 +1724,7 @@ export default function PaymentsAutomationPage() {
                                     <AlertTriangle className="h-3 w-3" /> Este mes ya fue pagado y aprobado
                                   </div>
                                 )}
+                                <FamilyNote note={familyNotes[payment.id]} />
                               </div>
                             </TableCell>
                             <TableCell><span className="text-sm">{(payment as any).parent_responsible || <span className="text-muted-foreground text-xs">—</span>}</span></TableCell>
@@ -1666,7 +1756,7 @@ export default function PaymentsAutomationPage() {
                                   <Button variant="outline" size="sm" className="h-8 gap-1 text-blue-600 border-blue-200 bg-blue-50" onClick={() => handleShowProof(payment)}>
                                     <Eye className="h-3 w-3" /> Ver
                                   </Button>
-                                  <VerdictBadge verdict={payment.receipt_verdict} />
+                                  <VerdictBadge verdict={payment.receipt_verdict} reasons={payment.receipt_verdict_reasons} />
                                 </div>
                               ) : (
                                 <span className="text-xs text-muted-foreground">—</span>
@@ -1814,6 +1904,11 @@ export default function PaymentsAutomationPage() {
                         reason={sub.charge?.last_failure_reason}
                         at={sub.charge?.last_failure_at}
                       />
+                      {sub.one_off_due.map((o, idx) => (
+                        <p key={idx} className="text-[11px] font-medium text-red-600">
+                          + {o.label} {formatCurrency(o.amount)} sin pagar
+                        </p>
+                      ))}
                       {sub.arrears && (
                         <p className="text-[11px] font-medium text-red-600">
                           Debe {formatCurrency(sub.arrears.amount)} de meses anteriores
@@ -1891,6 +1986,11 @@ export default function PaymentsAutomationPage() {
                                 />
                               </span>
                             )}
+                            {sub.one_off_due.map((o, idx) => (
+                              <span key={idx} className="block text-[11px] font-medium text-red-600 mt-0.5">
+                                + {o.label} {formatCurrency(o.amount)} sin pagar
+                              </span>
+                            ))}
                             {sub.arrears && (
                               <span className="block text-[11px] font-medium text-red-600 mt-0.5">
                                 Debe {formatCurrency(sub.arrears.amount)} de {sub.arrears.count} cobro
@@ -2279,6 +2379,13 @@ export default function PaymentsAutomationPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* ── Tab: Operaciones de «Cobros y pagos» (cobros-multiples §10.5) ── */}
+        {showOperacionesTab && (
+          <TabsContent value="operaciones">
+            <OperacionesTab canManage={canManageCharges(currentUserRole)} />
+          </TabsContent>
+        )}
 
         {/* ── Tab: Cierre de Mes (F1) ──────────────────────────────────── */}
         <TabsContent value="cierre">
@@ -2892,15 +2999,21 @@ export default function PaymentsAutomationPage() {
       </Dialog>
 
       {/* Cash and Approval Modals */}
-      <RegisterCashPaymentModal 
-        open={showCashModal} 
-        onOpenChange={setShowCashModal} 
-        onSuccess={fetchPayments} 
+      <CobrosYPagosModal
+        open={showCashModal}
+        onOpenChange={setShowCashModal}
+        onSuccess={fetchPayments}
+        onViewOperations={() => setSearchParams(prev => {
+          const next = new URLSearchParams(prev);
+          next.set('tab', 'operaciones');
+          return next;
+        }, { replace: true })}
       />
       <ApprovePaymentMethodSheet
         open={!!paymentToApprove}
         onOpenChange={(open) => !open && setPaymentToApprove(null)}
         payment={paymentToApprove}
+        familyNote={paymentToApprove ? familyNotes[paymentToApprove.id]?.pie ?? null : null}
         onSuccess={() => {
           setPaymentToApprove(null);
           fetchPayments();
@@ -3002,7 +3115,7 @@ function BackfillPaymentsCard({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <AlertTriangle className="h-5 w-5 text-amber-500" />
-          Apertura del Mes — Generar Cobros
+          {isCobrosYPagosEnabled() ? 'Abrir el mes' : 'Apertura del Mes — Generar Cobros'}
         </CardTitle>
         <CardDescription>
           Crea la mensualidad de este mes para los atletas inscritos que todavía no la tienen.
