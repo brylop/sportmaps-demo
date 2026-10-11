@@ -84,7 +84,7 @@ export function StoreChat({
   };
 
   return (
-    <div className="flex flex-col h-[420px]">
+    <div className="flex flex-col h-96 max-h-sheet">
       <div className="flex-1 overflow-y-auto space-y-2 p-1">
         {loading ? (
           <div className="flex items-center justify-center h-full">

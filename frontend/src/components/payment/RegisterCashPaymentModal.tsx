@@ -615,7 +615,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
       onOpenChange(val);
       if (!val) resetForm();
     }}>
-      <DialogContent className="sm:max-w-[480px] w-[95vw] p-0 overflow-hidden border-primary/20 bg-background/95 backdrop-blur-xl shadow-2xl max-h-[90vh] flex flex-col">
+      <DialogContent className="sm:max-w-lg w-[95vw] p-0 overflow-hidden border-primary/20 bg-background/95 backdrop-blur-xl shadow-2xl max-h-[90vh] flex flex-col">
         <DialogHeader className="p-8 pb-4 border-b bg-primary/5 shrink-0">
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 bg-emerald-500/10 rounded-xl">

@@ -662,7 +662,7 @@ export default function CalendarPage() {
                     key={i}
                     onClick={() => setSelectedDate(date)}
                     className={`
-                      relative p-2 rounded-xl text-sm transition-all duration-200 min-h-[56px]
+                      relative p-2 rounded-xl text-sm transition-all duration-200 min-h-14
                       flex flex-col items-center justify-start gap-0.5
                       hover:bg-accent/60 hover:scale-[1.03]
                       ${!isCurMonth ? 'opacity-30 pointer-events-none' : ''}
@@ -866,7 +866,7 @@ export default function CalendarPage() {
 
       {/* ──── Create / Edit Event Dialog ─────────────────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); else setDialogOpen(true); }}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-lg max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingEvent ? 'Editar Evento' : 'Crear Nuevo Evento'}</DialogTitle>
             <DialogDescription>

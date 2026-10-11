@@ -319,7 +319,7 @@ export function WellnessModule({ clientId, clientName, isTrainer = false }: Well
               <div className="grid gap-2">
                 <Label className="text-[11px] uppercase tracking-wider font-semibold text-muted-foreground">Notas (opcional)</Label>
                 <Textarea placeholder="Ej: Medido después de entrenar..."
-                  className="rounded-xl border-border/40 bg-muted/10 min-h-[80px]"
+                  className="rounded-xl border-border/40 bg-muted/10 min-h-20"
                   value={form.notes}
                   onChange={e => setForm({ ...form, notes: e.target.value })}
                   rows={2} />

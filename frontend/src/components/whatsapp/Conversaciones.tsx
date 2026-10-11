@@ -661,6 +661,7 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
 
     return (
         <div className="grid md:grid-cols-[minmax(300px,380px)_1fr] gap-4 md:h-[calc(100dvh-12rem)] md:min-h-[540px]">
+            {/* px solo en md+: pista de la lista de chats y alto mínimo del panel de escritorio */}
             {/* ── Lista ── */}
             <div className={`min-w-0 flex-col md:flex md:min-h-0 ${abierta ? 'hidden' : 'flex'}`}>
                 <div className="space-y-2 pb-2">
@@ -816,7 +817,7 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
 
             {/* ── Hilo ── */}
             {abierta ? (
-                <div className="border rounded-lg flex flex-col min-h-[420px] md:min-h-0 min-w-0">
+                <div className="border rounded-lg flex flex-col min-h-96 md:min-h-0 min-w-0">
                     <div className="border-b p-3 space-y-2">
                         <div className="flex items-center gap-2">
                             <Button variant="ghost" size="sm" className="md:hidden -ml-2" onClick={() => setAbierta(null)}

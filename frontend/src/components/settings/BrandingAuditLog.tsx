@@ -133,7 +133,7 @@ export function BrandingAuditLog() {
                 )}
 
                 {entries.length > 0 && (
-                    <ScrollArea className="h-[420px] pr-3">
+                    <ScrollArea className="h-96 max-h-list pr-3">
                         <ul className="space-y-3">
                             {entries.map((entry) => {
                                 const summary = summarizeChange(entry);

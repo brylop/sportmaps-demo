@@ -54,7 +54,7 @@ function MonthBars({
   const minWidth = Math.max(data.length * 64, 280);
   return (
     <div className="w-full overflow-x-auto">
-      <div className="h-[260px]" style={{ minWidth }} role="img" aria-label={ariaLabel}>
+      <div className="h-chart" style={{ minWidth }} role="img" aria-label={ariaLabel}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ left: 4, right: 4, top: 26, bottom: 0 }}>
             <XAxis

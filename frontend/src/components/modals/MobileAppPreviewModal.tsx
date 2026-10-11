@@ -70,7 +70,7 @@ export function MobileAppPreviewModal({ open, onOpenChange }: MobileAppPreviewMo
               {appScreens.map((screen, index) => (
                 <CarouselItem key={index}>
                   <div className="flex flex-col md:flex-row gap-6 items-center">
-                    {/* Phone Mockup */}
+                    {/* Phone Mockup — px fijos a propósito: marco de dispositivo con proporción 1:2 (cabe en 360px) */}
                     <div className="w-[250px] h-[500px] border-8 border-gray-800 rounded-[3rem] bg-white shadow-2xl overflow-hidden relative">
                       <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-32 h-6 bg-gray-800 rounded-b-2xl z-10" />
                       <div className="h-full bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center p-6">

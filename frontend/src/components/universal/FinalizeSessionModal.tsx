@@ -36,7 +36,7 @@ export function FinalizeSessionModal({
                     </AlertDialogDescription>
                 </AlertDialogHeader>
 
-                <div className="max-h-[300px] overflow-y-auto space-y-2 my-4">
+                <div className="max-h-72 overflow-y-auto space-y-2 my-4">
                     {confirmedBookings.length === 0 ? (
                         <p className="text-sm text-muted-foreground text-center py-4">
                             No hay reservas confirmadas en esta sesión.

@@ -31,7 +31,7 @@ export function PlanProgressBar({ used, max, label, compact = false, className =
     if (compact) {
         return (
             <div className={`flex items-center gap-1.5 ${className}`}>
-                <div className="h-1.5 flex-1 rounded-full bg-muted overflow-hidden min-w-[40px]">
+                <div className="h-1.5 flex-1 rounded-full bg-muted overflow-hidden min-w-10">
                     <div
                         className={`h-full rounded-full transition-all duration-300 ${color}`}
                         style={{ width: `${Math.min(pct, 100)}%` }}

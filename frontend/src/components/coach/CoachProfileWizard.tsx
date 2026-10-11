@@ -258,7 +258,7 @@ export function CoachProfileWizard({ open, onOpenChange, onSuccess, initialStep 
     // ─── Render ──────────────────────────────────────────
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[540px]">
+            <DialogContent className="sm:max-w-xl">
                 <DialogHeader>
                     <DialogTitle>Perfil Profesional</DialogTitle>
                     <DialogDescription>

@@ -94,7 +94,7 @@ export function MobileBottomNav() {
               key={item.href}
               to={item.href}
               className={cn(
-                'flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-lg transition-all duration-200 min-w-[60px]',
+                'flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-lg transition-all duration-200 min-w-14',
                 isActive
                   ? 'text-primary'
                   : 'text-muted-foreground hover:text-foreground'

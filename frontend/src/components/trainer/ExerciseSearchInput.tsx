@@ -120,7 +120,12 @@ export function ExerciseSearchInput({
         }
 
         setSuggestions(data?.results ?? []);
-        setShowDropdown((data?.results?.length ?? 0) > 0);
+        // Solo abrir si la persona está escribiendo en ESTE campo: al editar
+        // una rutina existente la búsqueda corre sola para cada ejercicio y
+        // abría todas las listas a la vez, tapando el formulario (en celular
+        // ocupaban la pantalla entera).
+        const isFocused = !!containerRef.current?.contains(document.activeElement);
+        setShowDropdown(isFocused && (data?.results?.length ?? 0) > 0);
       } catch {
         if (!cancelled) {
           // wger no disponible — degradar silenciosamente
@@ -185,7 +190,7 @@ export function ExerciseSearchInput({
           onChange={(e) => handleInputChange(e.target.value)}
           onFocus={() => suggestions.length > 0 && setShowDropdown(true)}
           placeholder={placeholder}
-          className={`h-9 pr-8 ${isLinked ? 'border-indigo-500/40 bg-indigo-500/5' : ''} ${className ?? ''}`}
+          className={`h-touch md:h-9 pr-8 ${isLinked ? 'border-indigo-500/40 bg-indigo-500/5' : ''} ${className ?? ''}`}
           disabled={disabled}
         />
 
@@ -229,7 +234,7 @@ export function ExerciseSearchInput({
               Ejercicios — catálogo wger
             </p>
           </div>
-          <div className="max-h-[240px] overflow-y-auto">
+          <div className="max-h-60 overflow-y-auto">
             {suggestions.map((exercise) => {
               const name          = exercise.name_es ?? exercise.name_en;
               const muscleNames   = exercise.muscles.map((m) => m.name_en).slice(0, 2).join(', ');

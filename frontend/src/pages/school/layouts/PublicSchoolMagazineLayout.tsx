@@ -20,7 +20,7 @@ export function PublicSchoolMagazineLayout({ school, facilities, slug, onAction 
     return (
         <div className="min-h-screen bg-white pb-20" data-layout="magazine">
             {/* Portada editorial */}
-            <div className="relative h-[520px] w-full overflow-hidden">
+            <div className="relative h-80 md:h-[32.5rem] w-full overflow-hidden">
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent z-10" />
                 <img
                     src={school.banner_url || DEFAULT_BANNER}

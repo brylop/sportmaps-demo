@@ -701,7 +701,7 @@ export default function AdminSubscriptionsPage() {
               <Input placeholder="Buscar escuela…" className="pl-8" value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
           </CardHeader>
-          <CardContent className="p-2 max-h-[70vh] overflow-y-auto">
+          <CardContent className="p-2 max-h-[70dvh] overflow-y-auto">
             {loading ? (
               <div className="py-8 flex justify-center"><Loader2 className="h-5 w-5 animate-spin" /></div>
             ) : schools.length === 0 ? (
@@ -737,7 +737,7 @@ export default function AdminSubscriptionsPage() {
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="text-sm font-semibold">Plan:</span>
                   <Select value={ent?.plan_code || 'starter'} onValueChange={changePlan}>
-                    <SelectTrigger className="w-[220px]"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {PLANS.map((p) => <SelectItem key={p.code} value={p.code}>{p.label}</SelectItem>)}
                     </SelectContent>
@@ -807,7 +807,7 @@ export default function AdminSubscriptionsPage() {
                     <span className="text-xs text-muted-foreground">O fecha exacta:</span>
                     <Input
                       type="date"
-                      className="w-[170px] h-9"
+                      className="w-44 h-9"
                       defaultValue={ent?.trial_ends_at ? new Date(ent.trial_ends_at).toISOString().slice(0, 10) : ''}
                       disabled={!!savingKey}
                       onChange={(e) => {
@@ -834,7 +834,7 @@ export default function AdminSubscriptionsPage() {
                   {/* Exención: avisa pero no corta (el caso Dynasty) */}
                   <div className="flex flex-wrap items-center gap-2 pt-1 border-t">
                     <ShieldOff className="h-4 w-4 text-amber-600" />
-                    <span className="text-xs text-muted-foreground flex-1 min-w-[180px]">
+                    <span className="text-xs text-muted-foreground flex-1 min-w-44">
                       {ent?.blocking_exempt
                         ? `Exenta del bloqueo${ent.blocking_exempt_reason ? `: ${ent.blocking_exempt_reason}` : ''}`
                         : 'Ve el aviso y se bloquea al vencer.'}
@@ -858,7 +858,7 @@ export default function AdminSubscriptionsPage() {
                       value={ent?.account_type || 'real'}
                       onValueChange={(v) => accionPrueba('admin_set_account_type', { p_account_type: v }, `Cuenta marcada como ${v}`)}
                     >
-                      <SelectTrigger className="w-[130px] h-9"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="w-32 h-9"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="real">Cliente real</SelectItem>
                         <SelectItem value="test">Pruebas</SelectItem>
@@ -887,7 +887,7 @@ export default function AdminSubscriptionsPage() {
                       value={ent?.school_type || 'academy'}
                       onValueChange={(v) => accionPrueba('admin_set_school_type', { p_school_type: v }, `Tipo cambiado a ${v}`)}
                     >
-                      <SelectTrigger className="w-[230px]"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="w-60"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {TIPOS_ESCUELA.map((t) => (
                           <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
@@ -1061,13 +1061,13 @@ export default function AdminSubscriptionsPage() {
                         placeholder="Ej: 249000"
                         value={customPriceDraft}
                         onChange={(e) => setCustomPriceDraft(e.target.value)}
-                        className="w-[160px]"
+                        className="w-40"
                       />
                     </div>
                     <div className="space-y-1">
                       <label className="text-xs text-muted-foreground">Ciclo</label>
                       <Select value={billingCycleDraft} onValueChange={(v) => setBillingCycleDraft(v as BillingCycle)}>
-                        <SelectTrigger className="w-[190px]"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           {(Object.keys(BILLING_CYCLE_LABELS) as BillingCycle[]).map((c) => (
                             <SelectItem key={c} value={c}>{BILLING_CYCLE_LABELS[c]}</SelectItem>
@@ -1081,7 +1081,7 @@ export default function AdminSubscriptionsPage() {
                         type="date"
                         value={periodStartDraft}
                         onChange={(e) => setPeriodStartDraft(e.target.value)}
-                        className="w-[150px]"
+                        className="w-40"
                       />
                     </div>
                   </div>

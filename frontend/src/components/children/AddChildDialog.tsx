@@ -281,7 +281,7 @@ export function AddChildDialog({ open, onOpenChange, onSuccess, nombresTomados =
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Añadir Hijo</DialogTitle>
           <DialogDescription>
@@ -504,7 +504,7 @@ export function AddChildDialog({ open, onOpenChange, onSuccess, nombresTomados =
                                 <FileText className="w-5 h-5" />
                               </div>
                               <div className="flex flex-col">
-                                <span className="text-sm font-medium truncate max-w-[150px]">
+                                <span className="text-sm font-medium truncate max-w-36">
                                   {pdfFile ? pdfFile.name : 'Seleccionar PDF'}
                                 </span>
                                 {!pdfFile && (
@@ -754,7 +754,7 @@ export function AddChildDialog({ open, onOpenChange, onSuccess, nombresTomados =
                           <FormControl>
                             <Textarea
                               placeholder="Cualquier otra información importante..."
-                              className="min-h-[80px]"
+                              className="min-h-20"
                               {...field}
                             />
                           </FormControl>
@@ -827,7 +827,7 @@ export function AddChildDialog({ open, onOpenChange, onSuccess, nombresTomados =
                   <Button
                     type="button"
                     onClick={nextStep}
-                    className="bg-primary hover:bg-primary/90 min-w-[120px]"
+                    className="bg-primary hover:bg-primary/90 min-w-32"
                   >
                     Siguiente
                     <ChevronRight className="w-4 h-4 ml-2" />
@@ -847,7 +847,7 @@ export function AddChildDialog({ open, onOpenChange, onSuccess, nombresTomados =
                   <Button
                     type="submit"
                     disabled={isSubmitting || isUploading}
-                    className="bg-primary hover:bg-primary/90 min-w-[120px]"
+                    className="bg-primary hover:bg-primary/90 min-w-32"
                   >
                     {isSubmitting || isUploading ? (
                       <div className="flex items-center gap-2">

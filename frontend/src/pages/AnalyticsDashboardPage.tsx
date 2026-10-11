@@ -229,7 +229,7 @@ export default function AnalyticsDashboardPage() {
               <CardTitle>Visitas Mensuales</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="h-[350px] w-full">
+              <div className="h-chart-lg w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData.visitors}>
                     <CartesianGrid strokeDasharray="3 3" />
@@ -259,7 +259,7 @@ export default function AnalyticsDashboardPage() {
               <CardTitle>Inscripciones Mensuales</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="h-[350px] w-full">
+              <div className="h-chart-lg w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={chartData.enrollments}>
                     <CartesianGrid strokeDasharray="3 3" />
@@ -281,7 +281,7 @@ export default function AnalyticsDashboardPage() {
               <CardTitle>Distribución por Deporte</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="h-[350px] w-full">
+              <div className="h-chart-lg w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
@@ -313,7 +313,7 @@ export default function AnalyticsDashboardPage() {
               <CardTitle>Ingresos Mensuales</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="h-[350px] w-full">
+              <div className="h-chart-lg w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={chartData.revenue}>
                     <CartesianGrid strokeDasharray="3 3" />

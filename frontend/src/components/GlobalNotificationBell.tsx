@@ -53,11 +53,11 @@ export function GlobalNotificationBell() {
           className="relative h-9 w-9 hover:bg-accent transition-all duration-300"
           aria-label={`Notificaciones${unreadCount > 0 ? ` (${unreadCount} sin leer)` : ''}`}
         >
-          <Bell className={`h-[18px] w-[18px] transition-all duration-300 ${
+          <Bell className={`h-5 w-5 transition-all duration-300 ${
             unreadCount > 0 ? 'text-primary' : 'text-muted-foreground'
           }`} />
           {unreadCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground shadow-sm animate-in zoom-in-50 duration-300">
+            <span className="absolute -top-0.5 -right-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground shadow-sm animate-in zoom-in-50 duration-300">
               {unreadCount > 9 ? '9+' : unreadCount}
             </span>
           )}

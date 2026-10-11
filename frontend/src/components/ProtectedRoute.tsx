@@ -7,16 +7,26 @@ interface ProtectedRouteProps {
   children: React.ReactNode;
   allowedRoles?: ('athlete' | 'parent' | 'coach' | 'school' | 'school_admin' | 'wellness_professional' | 'store_owner' | 'admin' | 'super_admin' | 'organizer' | 'reporter' | 'personal_trainer' | 'accountant')[];
   skipOnboardingCheck?: boolean;
-  /** When true, allowedRoles is enforced strictly — school context roles do NOT bypass. */
+  /** When true, allowedRoles is enforced strictly — school context roles do NOT count. */
   strictRoleCheck?: boolean;
 }
 
-// These context roles always override role restrictions — they're admins
-const PRIVILEGED_CONTEXT_ROLES = ['owner', 'admin', 'super_admin', 'school_admin'];
+// Roles de MEMBRESÍA (school_members, vía useSchoolContext) que administran una
+// escuela. Ojo: acá 'admin' es admin DE ESCUELA, no de plataforma.
+//
+// Antes estos roles saltaban allowedRoles por completo: cualquier dueño o admin
+// de escuela entraba por URL a /admin/users, /admin/analytics, /pacientes
+// (historias clínicas), etc. Ahora solo cuentan en rutas que admiten
+// administración de escuela ('school' o 'school_admin' en allowedRoles). Así
+// el dueño cuyo perfil no es 'school' (11 personal_trainer y 1 coach dueños en
+// la base, 2026-10-10) sigue entrando a las rutas de su escuela, sin abrir el
+// resto.
+export const SCHOOL_ADMIN_CONTEXT_ROLES = ['owner', 'admin', 'school_admin'] as const;
+const SCHOOL_ADMIN_ROUTE_ROLES = ['school', 'school_admin'] as const;
 
 export function ProtectedRoute({ children, allowedRoles, skipOnboardingCheck = false, strictRoleCheck = false }: ProtectedRouteProps) {
   const { user, profile, loading: authLoading } = useAuth();
-  const { onboardingStatus, loading: schoolLoading, currentUserRole } = useSchoolContext();
+  const { onboardingStatus, loading: schoolLoading, currentUserRole, schoolId } = useSchoolContext();
   const location = useLocation();
 
   if (authLoading || (schoolLoading && user)) {
@@ -56,9 +66,20 @@ export function ProtectedRoute({ children, allowedRoles, skipOnboardingCheck = f
         return <Navigate to="/unauthorized" replace />;
       }
     } else {
-      // Default: privileged context roles bypass.
-      const hasPrivilegedContextRole = currentUserRole && PRIVILEGED_CONTEXT_ROLES.includes(currentUserRole);
-      if (!hasPrivilegedContextRole && !hasAllowedProfileRole) {
+      // Default: allowedRoles manda. La membresía de administración de escuela
+      // cuenta SOLO si la ruta admite administración de escuela, y solo con una
+      // escuela activa real (useSchoolContext le pone 'owner' a un perfil
+      // school/school_admin/reporter SIN membresías para el onboarding; ese caso
+      // ya entra por su rol de perfil si corresponde).
+      const routeAdmitsSchoolAdmin = allowedRoles.some((r) =>
+        (SCHOOL_ADMIN_ROUTE_ROLES as readonly string[]).includes(r),
+      );
+      const hasSchoolAdminContext =
+        routeAdmitsSchoolAdmin &&
+        !!schoolId &&
+        !!currentUserRole &&
+        (SCHOOL_ADMIN_CONTEXT_ROLES as readonly string[]).includes(currentUserRole);
+      if (!hasSchoolAdminContext && !hasAllowedProfileRole) {
         return <Navigate to="/unauthorized" replace />;
       }
     }

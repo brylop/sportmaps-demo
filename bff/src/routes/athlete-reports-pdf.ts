@@ -18,6 +18,7 @@ import PDFDocument from 'pdfkit';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
 import { requireAuth } from '../middlewares/authMiddleware';
+import { esAdminDePlataforma } from '../middlewares/requirePlatformAdmin';
 import { resolveSchoolBranding } from '../utils/schoolBrandingResolver';
 import {
     INK, MUTED, HAIRLINE,
@@ -45,7 +46,12 @@ async function isAuthorized(req: Request, report: any): Promise<boolean> {
 
     const staffRoles = ['owner', 'admin', 'school_admin', 'school', 'super_admin', 'coach'];
     if (staffRoles.includes(req.role)) {
-        if (['super_admin', 'admin'].includes(req.role)) return true;
+        // 'admin' es admin DE ESCUELA (membresía): no da alcance global. Solo
+        // plataforma ve informes de cualquier escuela; el resto cae al chequeo
+        // de school_staff de abajo.
+        if (req.role === 'super_admin' && await esAdminDePlataforma(userId)) return true;
+        // Admin de la escuela DUEÑA del informe (req.schoolId viene de school_members).
+        if (['owner', 'admin', 'school_admin', 'school'].includes(req.role) && report.school_id === req.schoolId) return true;
         const { data: staff } = await supabase
             .from('school_staff').select('id').eq('coach_auth_id', userId).eq('school_id', report.school_id).maybeSingle();
         if (staff) return true;

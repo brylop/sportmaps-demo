@@ -303,14 +303,14 @@ export function TeamPerformanceEntryModal({
               <table className="w-full text-sm border-collapse">
                 <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm z-10">
                   <tr>
-                    <th className="text-left font-semibold px-3 py-2 sticky left-0 bg-muted/95 min-w-[160px] border-b">
+                    <th className="text-left font-semibold px-3 py-2 sticky left-0 bg-muted/95 min-w-40 border-b">
                       Atleta
                     </th>
                     {onQuickTab
                       ? quickMetrics.map((m) => {
                           const { title, hint } = metricLabels(m);
                           return (
-                            <th key={m.metric_key} className="text-center font-semibold px-2 py-2 min-w-[200px] border-b border-l">
+                            <th key={m.metric_key} className="text-center font-semibold px-2 py-2 min-w-52 border-b border-l">
                               <div className="flex flex-col items-center gap-0.5">
                                 <span>{title}</span>
                                 {hint && <span className="text-[10px] font-normal text-muted-foreground">{hint}</span>}
@@ -319,7 +319,7 @@ export function TeamPerformanceEntryModal({
                           );
                         })
                       : fullTabMetrics.map((m) => (
-                          <th key={m.metric_key} className="text-center font-semibold px-2 py-2 min-w-[110px] border-b border-l">
+                          <th key={m.metric_key} className="text-center font-semibold px-2 py-2 min-w-28 border-b border-l">
                             <div className="flex flex-col items-center gap-0.5">
                               <span>{m.display_name}</span>
                               {m.unit && <span className="text-[10px] font-normal text-muted-foreground">({m.unit})</span>}

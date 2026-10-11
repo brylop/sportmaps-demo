@@ -473,7 +473,7 @@ export default function AttendanceHistoryPage() {
   };
 
   return (
-    <div className="p-4 md:p-6 space-y-5 max-w-[1600px] mx-auto">
+    <div className="p-4 md:p-6 space-y-5 max-w-screen-2xl mx-auto">
       {/* ── Encabezado y selector de mes ─────────────────────────────────── */}
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
         <div>
@@ -520,7 +520,7 @@ export default function AttendanceHistoryPage() {
                 max={currentMonth()}
                 onChange={e => { if (e.target.value) setRangeFrom(e.target.value); }}
                 aria-label="Mes inicial"
-                className="h-8 w-[140px] bg-transparent font-bold text-center border-0 outline-none focus-visible:ring-2 focus-visible:ring-ring rounded cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
+                className="h-8 w-36 bg-transparent font-bold text-center border-0 outline-none focus-visible:ring-2 focus-visible:ring-ring rounded cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
               />
               <span className="text-muted-foreground">hasta</span>
               <input
@@ -529,7 +529,7 @@ export default function AttendanceHistoryPage() {
                 max={currentMonth()}
                 onChange={e => { if (e.target.value) setRangeTo(e.target.value); }}
                 aria-label="Mes final"
-                className="h-8 w-[140px] bg-transparent font-bold text-center border-0 outline-none focus-visible:ring-2 focus-visible:ring-ring rounded cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
+                className="h-8 w-36 bg-transparent font-bold text-center border-0 outline-none focus-visible:ring-2 focus-visible:ring-ring rounded cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
               />
             </div>
           )}
@@ -553,7 +553,7 @@ export default function AttendanceHistoryPage() {
               onChange={e => { if (e.target.value) setMonth(e.target.value); }}
               aria-label="Elegir mes"
               title="Elegir mes"
-              className="h-8 w-[150px] bg-transparent text-sm font-bold text-center border-0 outline-none focus-visible:ring-2 focus-visible:ring-ring rounded cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
+              className="h-8 w-40 bg-transparent text-sm font-bold text-center border-0 outline-none focus-visible:ring-2 focus-visible:ring-ring rounded cursor-pointer [color-scheme:light] dark:[color-scheme:dark]"
             />
 
             <span title={isCurrentMonth
@@ -575,7 +575,7 @@ export default function AttendanceHistoryPage() {
           </>)}
 
           <Select value={contextFilter} onValueChange={setContextFilter}>
-            <SelectTrigger className="w-[220px] h-9">
+            <SelectTrigger className="w-56 h-9">
               <SelectValue placeholder="Todos los equipos y planes" />
             </SelectTrigger>
             <SelectContent>
@@ -593,7 +593,7 @@ export default function AttendanceHistoryPage() {
               efectivamente pasó la lista, así que sirve tanto para ver la carga
               de un coach como para detectar al que no está marcando. */}
           <Select value={coachFilter} onValueChange={setCoachFilter}>
-            <SelectTrigger className="w-[210px] h-9">
+            <SelectTrigger className="w-52 h-9">
               <SelectValue placeholder="Todos los entrenadores" />
             </SelectTrigger>
             <SelectContent>
@@ -764,7 +764,7 @@ export default function AttendanceHistoryPage() {
                     <div className="flex items-center gap-2">
                       <div className="relative">
                         <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                        <Input className="pl-8 h-9 w-[220px]" placeholder="Buscar atleta..."
+                        <Input className="pl-8 h-9 w-56" placeholder="Buscar atleta..."
                           value={search} onChange={e => setSearch(e.target.value)} />
                       </div>
                       <Button variant="outline" size="sm" onClick={exportByAthlete}>
@@ -814,7 +814,7 @@ export default function AttendanceHistoryPage() {
                                 </span>
                               )}
                             </TableCell>
-                            <TableCell className="text-xs text-muted-foreground max-w-[260px] truncate">
+                            <TableCell className="text-xs text-muted-foreground max-w-64 truncate">
                               {a.contexts.join(' · ') || '—'}
                             </TableCell>
                             {isRangeMode ? (
@@ -918,7 +918,7 @@ export default function AttendanceHistoryPage() {
                     <div className="flex items-center gap-2">
                       <div className="relative">
                         <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                        <Input className="pl-8 h-9 w-[220px]" placeholder="Buscar atleta..."
+                        <Input className="pl-8 h-9 w-56" placeholder="Buscar atleta..."
                           value={search} onChange={e => setSearch(e.target.value)} />
                       </div>
                       <Button variant="outline" size="sm" onClick={exportMatrix}>
@@ -930,7 +930,7 @@ export default function AttendanceHistoryPage() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="sticky left-0 bg-card z-10 min-w-[200px]">Atleta</TableHead>
+                          <TableHead className="sticky left-0 bg-card z-10 min-w-48">Atleta</TableHead>
                           {days.map(d => (
                             <TableHead key={d.date} className="text-center px-1 text-[10px] font-bold">
                               {Number(d.date.slice(-2))}

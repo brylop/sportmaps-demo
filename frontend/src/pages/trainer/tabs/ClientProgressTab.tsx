@@ -213,7 +213,7 @@ export function ClientProgressTab({
             <CardHeader className="pb-2">
               <CardTitle className="text-base text-center">Perfil de Habilidades</CardTitle>
             </CardHeader>
-            <CardContent className="h-[280px] flex items-center p-0">
+            <CardContent className="h-chart flex items-center p-0">
               <ResponsiveContainer width="100%" height="100%">
                 <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
                   <PolarGrid stroke="rgba(255,255,255,0.1)" />

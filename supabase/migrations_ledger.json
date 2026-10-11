@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 739,
-  "head": "20261010180834",
+  "count": 742,
+  "head": "20261010202857",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -742,6 +742,9 @@
     {"v":"20261010144559","file":"20261010144559_cobros_f1_funciones_internas.sql","sha256":"18c4f26abf279aaff145193cd83d24ec0837e21c954ad1b5f0e75f93c4ebcabe","added":"2026-10-10","by":"Brayan Steven Lopez"},
     {"v":"20261010144600","file":"20261010144600_cobros_f1_rpcs.sql","sha256":"ff3c098fdc7f8a7cec2617b2bd295391f951347eec5fb0a06a913c916a74ca09","added":"2026-10-10","by":"Brayan Steven Lopez"},
     {"v":"20261010145241","file":"20261010145241_seguridad_s4_monto_cobro_cliente.sql","sha256":"fc4e75aff1e6007d990a4283810ee1c9968a079e2465f694d7529af44068a076","added":"2026-10-10","by":"Brayan Steven Lopez"},
-    {"v":"20261010180834","file":"20261010180834_versionar_descuento_cobro_y_registro_manual.sql","sha256":"99c83e2e38f1d5cf04c33583930c7439e13cf931ccec534083a767afac0109e7","added":"2026-10-10","by":"Brayan Steven Lopez"}
+    {"v":"20261010180834","file":"20261010180834_versionar_descuento_cobro_y_registro_manual.sql","sha256":"99c83e2e38f1d5cf04c33583930c7439e13cf931ccec534083a767afac0109e7","added":"2026-10-10","by":"Brayan Steven Lopez"},
+    {"v":"20261010201231","file":"20261010201231_carnets_plantilla_predeterminada_y_privacidad_publica.sql","sha256":"d0248c412753dafce1f0f6b63db898fd6ebfa36f686d92d6ee3e8176ff70b030","added":"2026-10-11","by":"Brayan Steven Lopez"},
+    {"v":"20261010201426","file":"20261010201426_coach_alcance_equipos_contactos.sql","sha256":"a36fa6e45d5c73283e335db2eca1c1151961f2eda5181d2c613644efe49bb27b","added":"2026-10-11","by":"Brayan Steven Lopez"},
+    {"v":"20261010202857","file":"20261010202857_signup_rol_whitelist_y_gates_admin_por_rol.sql","sha256":"3f6d6ad69ebb8b44f87cb6b7216c4b9765c1d84bbfeb7c5575a2fc46939efb1c","added":"2026-10-11","by":"Brayan Steven Lopez"}
   ]
 }

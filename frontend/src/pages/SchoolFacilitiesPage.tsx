@@ -453,7 +453,7 @@ export default function SchoolFacilitiesPage() {
   // ── Empty state ──
   if (facilities.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center p-8 text-center space-y-6 min-h-[60vh]">
+      <div className="flex flex-col items-center justify-center p-8 text-center space-y-6 min-h-[60dvh]">
         <div className="bg-primary/10 p-5 rounded-full ring-8 ring-primary/5">
           <Building2 className="w-14 h-14 text-primary" />
         </div>
@@ -485,7 +485,7 @@ export default function SchoolFacilitiesPage() {
             <TabsTrigger value="reservations" className="px-6 py-2.5 font-bold data-[state=active]:shadow-md">
               Reservas
               {stats.pending > 0 && (
-                <Badge className="ml-2 bg-yellow-500 text-white text-[10px] px-1.5 py-0 min-w-[18px] flex items-center justify-center font-black">
+                <Badge className="ml-2 bg-yellow-500 text-white text-[10px] px-1.5 py-0 min-w-5 flex items-center justify-center font-black">
                   {stats.pending}
                 </Badge>
               )}
@@ -493,7 +493,7 @@ export default function SchoolFacilitiesPage() {
             <TabsTrigger value="trial-classes" className="px-6 py-2.5 font-bold data-[state=active]:shadow-md">
               Clases de Prueba
               {trialStats.agendada > 0 && (
-                <Badge className="ml-2 bg-primary text-primary-foreground text-[10px] px-1.5 py-0 min-w-[18px] flex items-center justify-center font-black">
+                <Badge className="ml-2 bg-primary text-primary-foreground text-[10px] px-1.5 py-0 min-w-5 flex items-center justify-center font-black">
                   {trialStats.agendada}
                 </Badge>
               )}

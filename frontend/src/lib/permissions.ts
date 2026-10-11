@@ -92,7 +92,10 @@ const rolePermissions: Partial<Record<UserRole, Permission[]>> & Record<string, 
     'calendar:edit',
     'calendar:delete',
     'teams:view',
-    'teams:create',
+    // Sin 'teams:create' ni 'teams:delete': el coach solo EDITA los equipos que
+    // dirige (RLS "Teams: coach update own", mig 20261010201426). Crear depende
+    // de school_settings.coach_can_create_teams (por escuela, no por rol): lo
+    // decide canCreateTeam() de lib/coachTeamScope.ts.
     'teams:edit',
     'students:view',
     'students:edit',

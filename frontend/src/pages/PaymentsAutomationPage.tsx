@@ -251,7 +251,7 @@ function VerdictBadge({ verdict, reasons }: { verdict?: string | null; reasons?:
 function FamilyNote({ note }: { note?: { pie: string } | null }) {
   if (!note?.pie) return null;
   return (
-    <p className="mt-1 max-w-[260px] text-[11px] leading-snug text-slate-600 italic border-l-2 border-emerald-300 pl-2" title="Mensaje de la familia con el comprobante (WhatsApp)">
+    <p className="mt-1 max-w-64 text-[11px] leading-snug text-slate-600 italic border-l-2 border-emerald-300 pl-2" title="Mensaje de la familia con el comprobante (WhatsApp)">
       «{note.pie}»
     </p>
   );
@@ -1588,7 +1588,7 @@ export default function PaymentsAutomationPage() {
                   placeholder="Buscar alumno, padre o equipo..."
                   value={pendingSearch}
                   onChange={(e) => setPendingSearch(e.target.value)}
-                  className="w-full sm:w-[250px] h-9"
+                  className="w-full sm:w-64 h-9"
                 />
               </div>
             </CardHeader>
@@ -1814,10 +1814,10 @@ export default function PaymentsAutomationPage() {
                   placeholder="Buscar alumno, equipo o plan..."
                   value={subsSearch}
                   onChange={(e) => setSubsSearch(e.target.value)}
-                  className="w-full sm:w-[240px] h-9"
+                  className="w-full sm:w-60 h-9"
                 />
                 <select
-                  className="flex h-9 w-full sm:w-[150px] rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="flex h-9 w-full sm:w-40 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   value={subsTeamFilter}
                   onChange={(e) => setSubsTeamFilter(e.target.value)}
                 >
@@ -1827,7 +1827,7 @@ export default function PaymentsAutomationPage() {
                   ))}
                 </select>
                 <select
-                  className="flex h-9 w-full sm:w-[150px] rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="flex h-9 w-full sm:w-40 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   value={subsSort}
                   onChange={(e) => setSubsSort(e.target.value as 'name' | 'fee' | 'urgency')}
                 >
@@ -2104,7 +2104,7 @@ export default function PaymentsAutomationPage() {
                   placeholder="Buscar alumno, padre o concepto..."
                   value={historySearch}
                   onChange={(e) => setHistorySearch(e.target.value)}
-                  className="w-full sm:w-[250px] h-9"
+                  className="w-full sm:w-64 h-9"
                 />
                 {/* Rango por FECHA DEL PAGO (no de emisión del cobro) con dos
                     calendarios. Los atajos cubren la pregunta de todos los días,
@@ -2118,7 +2118,7 @@ export default function PaymentsAutomationPage() {
                       value={historyFrom}
                       max={historyTo || todayColombia()}
                       onChange={(e) => setHistoryFrom(e.target.value)}
-                      className="h-9 w-full sm:w-[145px]"
+                      className="h-9 w-full sm:w-36"
                     />
                     <span className="text-xs text-muted-foreground shrink-0">a</span>
                     <Input
@@ -2128,7 +2128,7 @@ export default function PaymentsAutomationPage() {
                       value={historyTo}
                       min={historyFrom}
                       onChange={(e) => setHistoryTo(e.target.value)}
-                      className="h-9 w-full sm:w-[145px]"
+                      className="h-9 w-full sm:w-36"
                     />
                   </div>
                   <div className="flex flex-wrap gap-1">
@@ -2149,7 +2149,7 @@ export default function PaymentsAutomationPage() {
                   </div>
                 </div>
                 <select
-                  className="flex h-9 w-full sm:w-[150px] rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="flex h-9 w-full sm:w-40 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   value={historyTeamFilter}
                   onChange={(e) => setHistoryTeamFilter(e.target.value)}
                 >
@@ -2965,7 +2965,7 @@ export default function PaymentsAutomationPage() {
             <DialogTitle>Comprobante de Pago</DialogTitle>
             <DialogDescription>{viewingProof.student} — {formatCurrency(viewingProof.amount)}</DialogDescription>
           </DialogHeader>
-          <div className="p-4 flex flex-col items-center justify-center bg-muted rounded-lg min-h-[200px] sm:min-h-[300px]">
+          <div className="p-4 flex flex-col items-center justify-center bg-muted rounded-lg min-h-48 sm:min-h-72">
             {viewingProof.url ? (
               /\.pdf(\?|$)/i.test(viewingProof.url) ? (
                 // Los comprobantes en PDF NO se renderizan con <img> (queda en
@@ -2973,10 +2973,10 @@ export default function PaymentsAutomationPage() {
                 <iframe
                   src={viewingProof.url}
                   title="Comprobante"
-                  className="w-full h-[60vh] rounded border-0 bg-white"
+                  className="w-full h-[60dvh] rounded border-0 bg-white"
                 />
               ) : (
-                <img src={viewingProof.url} alt="Comprobante" className="max-h-[400px] sm:max-h-[500px] object-contain rounded w-full" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                <img src={viewingProof.url} alt="Comprobante" className="max-h-list object-contain rounded w-full" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
               )
             ) : (
               <div className="text-center text-muted-foreground p-8"><p>No hay comprobante disponible.</p></div>

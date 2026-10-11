@@ -29,6 +29,7 @@ import {
 import { getMetricCatalog, type MetricDefinition } from '../../services/metric-catalog.service';
 import { deliverPublishedReports } from '../../services/report-delivery.service';
 import { userClient } from '../../utils/userClient';
+import { resolverAccesoEquipo } from '../../services/team-access.service';
 import { resolveSchoolBranding } from '../../utils/schoolBrandingResolver';
 import {
     INK, MUTED,
@@ -524,6 +525,13 @@ router.get(
 
         if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado.' });
 
+        // Un coach solo ve el informe de los equipos que dirige (BFF = service role:
+        // la RLS de teams le deja leer todos los de su escuela). 2026-10-10.
+        {
+            const acceso = await resolverAccesoEquipo(supabase, { role: req.role, schoolId: req.schoolId, userId: req.user?.id }, teamId);
+            if (!acceso.ok) return res.status(acceso.status).json({ error: acceso.error });
+        }
+
         try {
             const snapshot = await buildTeamReportSnapshot({ schoolId: req.schoolId, teamId, year, month });
 
@@ -897,6 +905,13 @@ router.get(
             .maybeSingle();
 
         if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado.' });
+
+        // Un coach solo ve el informe de los equipos que dirige (BFF = service role:
+        // la RLS de teams le deja leer todos los de su escuela). 2026-10-10.
+        {
+            const acceso = await resolverAccesoEquipo(supabase, { role: req.role, schoolId: req.schoolId, userId: req.user?.id }, teamId);
+            if (!acceso.ok) return res.status(acceso.status).json({ error: acceso.error });
+        }
 
         try {
             const { data: informe } = await userClient(req)

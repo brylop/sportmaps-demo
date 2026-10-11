@@ -632,7 +632,7 @@ export default function MyPaymentsPage() {
 
   if (loading && transactions.length === 0) {
     return (
-      <div className="flex items-center justify-center h-[60vh]">
+      <div className="flex items-center justify-center h-[60dvh]">
         <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" />
       </div>
     );
@@ -909,12 +909,12 @@ export default function MyPaymentsPage() {
                 {formatCurrency(viewingProof.amount)}
               </span>
             </div>
-            <div className="border rounded-md overflow-hidden bg-muted/30 min-h-[200px] flex items-center justify-center">
+            <div className="border rounded-md overflow-hidden bg-muted/30 min-h-48 flex items-center justify-center">
               {viewingProof.url ? (
                 <img
                   src={viewingProof.url}
                   alt="Comprobante"
-                  className="max-w-full max-h-[60vh] object-contain"
+                  className="max-w-full max-h-list object-contain"
                 />
               ) : (
                 <div className="text-center text-muted-foreground p-8">

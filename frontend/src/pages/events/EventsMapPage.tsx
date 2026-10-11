@@ -171,7 +171,7 @@ export default function EventsMapPage() {
       {/* Content */}
       <div className="flex-1">
         {viewMode === 'map' ? (
-          <div className="h-[calc(100vh-140px)]">
+          <div className="h-[calc(100dvh-8.75rem)]">
             <EventsMap
               events={events}
               onEventClick={(event) => navigate(`/event/${event.slug}`)}

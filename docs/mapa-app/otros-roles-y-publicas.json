@@ -1,0 +1,5498 @@
+[
+ {
+  "role": "wellness_professional",
+  "module": "Inicio",
+  "moduleKey": null,
+  "screen": "Panel del Profesional (dashboard generico)",
+  "route": "/dashboard",
+  "file": "pages/DashboardPage.tsx + hooks/useDashboardConfig.ts:281-324",
+  "status": "duplicated",
+  "usage": "login aterriza aqui (LoginPage.tsx:61)",
+  "notes": "Duplica /vendor/dashboard (menu Inicio).",
+  "tabs": [
+   {
+    "name": "Principal",
+    "actions": [
+     {
+      "label": "Tarjetas Pacientes activos / Citas hoy / Solicitudes / Tratamientos abiertos",
+      "type": "link",
+      "file": "hooks/useDashboardStats.ts",
+      "line": 159,
+      "gates": "ProtectedRoute",
+      "reads": [
+       "clinical_patients",
+       "wellness_appointments",
+       "clinical_episodes"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": "clinical_patients=0, clinical_episodes=0, clinical_notes=0 (6 perfiles wellness, 1 login 30d)"
+     },
+     {
+      "label": "Checklist de onboarding wellness",
+      "type": "widget",
+      "file": "hooks/useDashboardConfig.ts",
+      "line": 94,
+      "gates": "-",
+      "reads": [],
+      "writes": [],
+      "status": "dead",
+      "usage": "getStepsForRole devuelve [] para wellness"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "wellness_professional",
+  "module": "Inicio",
+  "moduleKey": null,
+  "screen": "Panel profesional (vendor)",
+  "route": "/vendor/dashboard",
+  "file": "pages/vendor/VendorDashboardPage.tsx",
+  "status": "duplicated",
+  "usage": "",
+  "notes": "Menu 'Inicio'. Duplica /dashboard.",
+  "tabs": [
+   {
+    "name": "Principal",
+    "actions": [
+     {
+      "label": "Nuevo servicio",
+      "type": "button",
+      "file": "pages/vendor/VendorDashboardPage.tsx",
+      "line": 111,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol)",
+      "reads": [],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "KPIs Servicios activos / Citas mes / Por confirmar / Calificacion",
+      "type": "link",
+      "file": "pages/vendor/VendorDashboardPage.tsx",
+      "line": 86,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol)",
+      "reads": [
+       "BFF GET /api/v1/vendor/stats (vendor_profiles, products, service_listings, order_items)",
+       "wellness_appointments"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": "service_listings=2, wellness_appointments=1"
+     },
+     {
+      "label": "useStoreSalesInsights (llamada descartada para wellness)",
+      "type": "fetch",
+      "file": "pages/vendor/VendorDashboardPage.tsx",
+      "line": 74,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol)",
+      "reads": [
+       "BFF /vendor/products/insights"
+      ],
+      "writes": [],
+      "status": "dead",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "wellness_professional",
+  "module": "Agenda",
+  "moduleKey": null,
+  "screen": "Agenda semanal",
+  "route": "/schedule",
+  "file": "pages/WellnessSchedulePage.tsx",
+  "status": "works",
+  "usage": "wellness_appointments=1",
+  "notes": "Canonica. /vendor/appointments solo redirige aqui.",
+  "tabs": [
+   {
+    "name": "Semana",
+    "actions": [
+     {
+      "label": "Nueva cita (AppointmentFormDialog)",
+      "type": "dialog",
+      "file": "pages/WellnessSchedulePage.tsx",
+      "line": 136,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [
+       "clinical_patients"
+      ],
+      "writes": [
+       "wellness_appointments (trigger HORARIO_OCUPADO, notify)"
+      ],
+      "status": "works",
+      "usage": "wellness_appointments=1 (jul-2026)"
+     },
+     {
+      "label": "Solicitud: Confirmar / Rechazar",
+      "type": "button",
+      "file": "pages/WellnessSchedulePage.tsx",
+      "line": 171,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [
+       "wellness_appointments"
+      ],
+      "writes": [
+       "wellness_appointments.status"
+      ],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Navegar semana / Hoy / Mostrar canceladas",
+      "type": "control",
+      "file": "pages/WellnessSchedulePage.tsx",
+      "line": 189,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Detalle cita: Atender/registrar evolucion, Reprogramar, No asistio, Marcar pagada (flag manual), Cancelar, Videollamada",
+      "type": "sheet",
+      "file": "pages/WellnessSchedulePage.tsx",
+      "line": 475,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [
+       "wellness_appointments"
+      ],
+      "writes": [
+       "wellness_appointments"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "wellness_professional",
+  "module": "Agenda",
+  "moduleKey": null,
+  "screen": "Redirect agenda vendor",
+  "route": "/vendor/appointments",
+  "file": "pages/vendor/VendorAppointmentsPage.tsx",
+  "status": "dead",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Navigate a /schedule",
+      "type": "redirect",
+      "file": "pages/vendor/VendorAppointmentsPage.tsx",
+      "line": 4,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol)",
+      "reads": [],
+      "writes": [],
+      "status": "dead",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "wellness_professional",
+  "module": "Pacientes",
+  "moduleKey": null,
+  "screen": "Lista de pacientes",
+  "route": "/pacientes",
+  "file": "pages/clinical/PatientsPage.tsx",
+  "status": "works",
+  "usage": "0 pacientes en BD",
+  "notes": "Rutas viejas /athletes y /evaluations/new redirigen aqui.",
+  "tabs": [
+   {
+    "name": "Activos / De alta / Archivados",
+    "actions": [
+     {
+      "label": "Nuevo paciente (PatientFormDialog)",
+      "type": "dialog",
+      "file": "pages/clinical/PatientsPage.tsx",
+      "line": 59,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [],
+      "writes": [
+       "clinical_patients"
+      ],
+      "status": "works",
+      "usage": "clinical_patients=0"
+     },
+     {
+      "label": "Buscar",
+      "type": "input",
+      "file": "pages/clinical/PatientsPage.tsx",
+      "line": 83,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [
+       "clinical_patients",
+       "clinical_consents"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Abrir paciente",
+      "type": "link",
+      "file": "pages/clinical/PatientsPage.tsx",
+      "line": 108,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "wellness_professional",
+  "module": "Pacientes",
+  "moduleKey": null,
+  "screen": "Historia clinica del paciente",
+  "route": "/pacientes/:patientId",
+  "file": "pages/clinical/PatientDetailPage.tsx",
+  "status": "works",
+  "usage": "clinical_patients=0, clinical_episodes=0, clinical_notes=0 (6 perfiles wellness, 1 login 30d)",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "Cabecera",
+    "actions": [
+     {
+      "label": "Estado del paciente (Select)",
+      "type": "select",
+      "file": "pages/clinical/PatientDetailPage.tsx",
+      "line": 156,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [],
+      "writes": [
+       "clinical_patients.status"
+      ],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Editar datos / Imprimir historia",
+      "type": "button",
+      "file": "pages/clinical/PatientDetailPage.tsx",
+      "line": 162,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [],
+      "writes": [
+       "clinical_patients"
+      ],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Ver historia (log de acceso)",
+      "type": "rpc",
+      "file": "pages/clinical/PatientDetailPage.tsx",
+      "line": 59,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [],
+      "writes": [
+       "rpc log_clinical_access -> clinical_access_log"
+      ],
+      "status": "works",
+      "usage": "clinical_access_log=0"
+     }
+    ]
+   },
+   {
+    "name": "Historia",
+    "actions": [
+     {
+      "label": "Abrir episodio / Editar plan / Alta / Cerrar sin alta",
+      "type": "dialog",
+      "file": "components/clinical/ClinicalHistoryTab.tsx",
+      "line": 99,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid() + consentimiento",
+      "reads": [
+       "clinical_episodes"
+      ],
+      "writes": [
+       "clinical_episodes",
+       "clinical_notes"
+      ],
+      "status": "works",
+      "usage": "clinical_episodes=0"
+     },
+     {
+      "label": "Valoracion inicial / Nota de evolucion / Nota aclaratoria (firma)",
+      "type": "form",
+      "file": "components/clinical/ClinicalHistoryTab.tsx",
+      "line": 246,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid() + consentimiento",
+      "reads": [
+       "clinical_notes",
+       "wellness_appointments"
+      ],
+      "writes": [
+       "clinical_notes (trigger completa la cita)"
+      ],
+      "status": "works",
+      "usage": "clinical_notes=0"
+     },
+     {
+      "label": "Diagnosticos CIE-10",
+      "type": "picker",
+      "file": "components/clinical/DiagnosisPicker.tsx",
+      "line": 122,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [
+       "cie10_codes"
+      ],
+      "writes": [
+       "clinical_diagnoses"
+      ],
+      "status": "works",
+      "usage": "clinical_diagnoses=0"
+     }
+    ]
+   },
+   {
+    "name": "Lesiones",
+    "actions": [
+     {
+      "label": "Registrar / editar / marcar resuelta",
+      "type": "dialog",
+      "file": "components/clinical/InjuriesTab.tsx",
+      "line": 447,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid() + consentimiento (trigger)",
+      "reads": [
+       "athlete_injuries",
+       "athlete_injury_events"
+      ],
+      "writes": [
+       "athlete_injuries"
+      ],
+      "status": "works",
+      "usage": "athlete_injury_events=0"
+     }
+    ]
+   },
+   {
+    "name": "Ejercicios",
+    "actions": [
+     {
+      "label": "Asignar ejercicio (biblioteca o nuevo) / Quitar",
+      "type": "dialog",
+      "file": "components/clinical/ExercisesTab.tsx",
+      "line": 446,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [
+       "exercise_library",
+       "exercise_assignments",
+       "exercise_logs"
+      ],
+      "writes": [
+       "exercise_library",
+       "exercise_assignments"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   },
+   {
+    "name": "Citas",
+    "actions": [
+     {
+      "label": "Agendar / Confirmar / Reprogramar / No asistio / Cancelar",
+      "type": "button",
+      "file": "components/clinical/PatientAppointmentsTab.tsx",
+      "line": 111,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [
+       "wellness_appointments"
+      ],
+      "writes": [
+       "wellness_appointments"
+      ],
+      "status": "duplicated",
+      "usage": "repite acciones de /schedule por paciente"
+     }
+    ]
+   },
+   {
+    "name": "Adjuntos",
+    "actions": [
+     {
+      "label": "Subir anexo / Abrir (URL firmada)",
+      "type": "upload",
+      "file": "components/clinical/AttachmentsTab.tsx",
+      "line": 59,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid() (SIN gate de consentimiento: RLS cat_insert_own solo dueno)",
+      "reads": [
+       "clinical_attachments"
+      ],
+      "writes": [
+       "storage clinical-files",
+       "clinical_attachments"
+      ],
+      "status": "partial",
+      "usage": "clinical_attachments=0"
+     }
+    ]
+   },
+   {
+    "name": "Consentimientos",
+    "actions": [
+     {
+      "label": "Registrar firma presencial",
+      "type": "dialog",
+      "file": "components/clinical/ConsentPanel.tsx",
+      "line": 117,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [
+       "clinical_consents",
+       "clinical_consent_texts"
+      ],
+      "writes": [
+       "rpc record_clinical_consent_presencial",
+       "storage clinical-files"
+      ],
+      "status": "works",
+      "usage": "clinical_consents=0"
+     },
+     {
+      "label": "Invitar a la app (enlace + WhatsApp)",
+      "type": "dialog",
+      "file": "components/clinical/ConsentPanel.tsx",
+      "line": 401,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [],
+      "writes": [
+       "rpc create_clinical_invite"
+      ],
+      "status": "works",
+      "usage": "clinical_patient_invites=0"
+     },
+     {
+      "label": "Revocar",
+      "type": "dialog",
+      "file": "components/clinical/ConsentPanel.tsx",
+      "line": 193,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [],
+      "writes": [
+       "rpc revoke_clinical_consent"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "wellness_professional",
+  "module": "Pacientes",
+  "moduleKey": null,
+  "screen": "Imprimir historia",
+  "route": "/pacientes/:patientId/imprimir",
+  "file": "pages/clinical/PatientRecordPrintPage.tsx",
+  "status": "partial",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Imprimir / Guardar PDF",
+      "type": "button",
+      "file": "pages/clinical/PatientRecordPrintPage.tsx",
+      "line": 228,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [
+       "vendor_profiles",
+       "clinical_*"
+      ],
+      "writes": [
+       "rpc log_clinical_access"
+      ],
+      "status": "partial",
+      "usage": "no imprime lesiones, ejercicios ni adjuntos"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "wellness_professional",
+  "module": "Seguimientos",
+  "moduleKey": null,
+  "screen": "Tratamientos abiertos",
+  "route": "/historias",
+  "file": "pages/clinical/FollowUpsPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "Etiqueta 'Seguimientos' vs ruta 'historias'. /medical-history y /follow-ups redirigen aqui.",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Fila -> paciente",
+      "type": "link",
+      "file": "pages/clinical/FollowUpsPage.tsx",
+      "line": 81,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [
+       "clinical_episodes",
+       "clinical_patients",
+       "clinical_notes"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": "0 episodios"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "wellness_professional",
+  "module": "Consulta",
+  "moduleKey": null,
+  "screen": "Disponibilidad",
+  "route": "/disponibilidad",
+  "file": "pages/clinical/AvailabilityPage.tsx",
+  "status": "works",
+  "usage": "service_availability=0",
+  "notes": "BFF GET/PUT /api/v1/vendor/availability sin uso (duplicado muerto).",
+  "tabs": [
+   {
+    "name": "Bloques semanales",
+    "actions": [
+     {
+      "label": "+ Bloque / editar / switch / borrar / Copiar a dias habiles",
+      "type": "dialog",
+      "file": "pages/clinical/AvailabilityPage.tsx",
+      "line": 204,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [
+       "service_availability"
+      ],
+      "writes": [
+       "service_availability"
+      ],
+      "status": "works",
+      "usage": "service_availability=0"
+     },
+     {
+      "label": "Crear mi perfil profesional (sin vendor_profile)",
+      "type": "link",
+      "file": "pages/clinical/AvailabilityPage.tsx",
+      "line": 149,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [],
+      "writes": [],
+      "status": "partial",
+      "usage": "manda a /vendor/onboarding (sin RETHUS/licencia) en vez de /onboarding/wellness"
+     }
+    ]
+   },
+   {
+    "name": "Bloqueos y vacaciones",
+    "actions": [
+     {
+      "label": "Agregar / borrar bloqueo de fecha",
+      "type": "dialog",
+      "file": "pages/clinical/AvailabilityPage.tsx",
+      "line": 257,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [
+       "service_availability_exceptions"
+      ],
+      "writes": [
+       "service_availability_exceptions"
+      ],
+      "status": "works",
+      "usage": "0"
+     }
+    ]
+   },
+   {
+    "name": "Vista previa",
+    "actions": [
+     {
+      "label": "Fecha de vista previa",
+      "type": "input",
+      "file": "pages/clinical/AvailabilityPage.tsx",
+      "line": 293,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [
+       "rpc get_available_slots"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "wellness_professional",
+  "module": "Consulta",
+  "moduleKey": null,
+  "screen": "Reportes del profesional",
+  "route": "/wellness-reports",
+  "file": "pages/clinical/ProfessionalReportsPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Mes (Select) / Ver seguimientos",
+      "type": "select",
+      "file": "pages/clinical/ProfessionalReportsPage.tsx",
+      "line": 93,
+      "gates": "ProtectedRoute[wellness_professional] (no strict: owner/admin de escuela pasan); RLS professional_id=auth.uid()",
+      "reads": [
+       "vendor_profiles",
+       "wellness_appointments",
+       "clinical_patients",
+       "clinical_episodes",
+       "athlete_injuries",
+       "service_availability*"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": "sin exportar"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "wellness_professional",
+  "module": "Marketplace",
+  "moduleKey": null,
+  "screen": "Mis servicios",
+  "route": "/vendor/services",
+  "file": "pages/vendor/VendorServicesPage.tsx",
+  "status": "partial",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Nuevo servicio (ServiceWizard 3 pasos)",
+      "type": "wizard",
+      "file": "components/vendor/service-wizard/ServiceWizard.tsx",
+      "line": 160,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol)",
+      "reads": [],
+      "writes": [
+       "BFF POST /api/v1/vendor/services -> service_listings, service_variations",
+       "storage product-images"
+      ],
+      "status": "works",
+      "usage": "service_listings=2"
+     },
+     {
+      "label": "Editar",
+      "type": "button",
+      "file": "pages/vendor/VendorServicesPage.tsx",
+      "line": 159,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol)",
+      "reads": [],
+      "writes": [],
+      "status": "hidden",
+      "usage": "disabled 'Edicion proximamente'; BFF PATCH sin uso"
+     },
+     {
+      "label": "Desactivar",
+      "type": "button",
+      "file": "pages/vendor/VendorServicesPage.tsx",
+      "line": 162,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol)",
+      "reads": [],
+      "writes": [
+       "BFF DELETE /services/:id (soft)"
+      ],
+      "status": "partial",
+      "usage": "no valida res.ok, siempre toast de exito"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "wellness_professional|store_owner",
+  "module": "Perfil",
+  "moduleKey": null,
+  "screen": "Mi perfil publico (vendor)",
+  "route": "/vendor/public-profile",
+  "file": "pages/vendor/VendorPublicProfilePage.tsx",
+  "status": "partial",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "General",
+    "actions": [
+     {
+      "label": "Logo/portada, nombre, descripcion, ciudad + Guardar",
+      "type": "form",
+      "file": "pages/vendor/VendorPublicProfilePage.tsx",
+      "line": 283,
+      "gates": "ProtectedRoute[wellness_professional,store_owner] (sin VendorGuard)",
+      "reads": [
+       "vendor_profiles"
+      ],
+      "writes": [
+       "vendor_profiles",
+       "storage avatars"
+      ],
+      "status": "works",
+      "usage": "vendor_profiles=34"
+     }
+    ]
+   },
+   {
+    "name": "Tarifas (solo wellness)",
+    "actions": [
+     {
+      "label": "Gestionar servicios",
+      "type": "link",
+      "file": "pages/vendor/VendorPublicProfilePage.tsx",
+      "line": 393,
+      "gates": "-",
+      "reads": [
+       "service_listings",
+       "service_variations"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   },
+   {
+    "name": "Contacto",
+    "actions": [
+     {
+      "label": "WhatsApp/Email/Web/Direccion",
+      "type": "form",
+      "file": "pages/vendor/VendorPublicProfilePage.tsx",
+      "line": 458,
+      "gates": "-",
+      "reads": [],
+      "writes": [
+       "vendor_profiles"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   },
+   {
+    "name": "Cabecera",
+    "actions": [
+     {
+      "label": "Compartir (/tienda/:slug)",
+      "type": "dialog",
+      "file": "pages/vendor/VendorPublicProfilePage.tsx",
+      "line": 270,
+      "gates": "StoreGate en destino",
+      "reads": [],
+      "writes": [],
+      "status": "broken",
+      "usage": "TiendaPublicaPage no muestra servicios y store_enabled=false"
+     },
+     {
+      "label": "Publicar / Despublicar",
+      "type": "button",
+      "file": "pages/vendor/VendorPublicProfilePage.tsx",
+      "line": 274,
+      "gates": "-",
+      "reads": [],
+      "writes": [
+       "vendor_profiles.is_active"
+      ],
+      "status": "broken",
+      "usage": "is_active=false hace que VendorGuard expulse de /vendor/* a onboarding"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "wellness_professional",
+  "module": "Nutricion",
+  "moduleKey": null,
+  "screen": "Nutricion",
+  "route": "/nutrition",
+  "file": "pages/NutritionPage.tsx",
+  "status": "dead",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "Planes / Plantillas / Alimentos",
+    "actions": [
+     {
+      "label": "Nuevo Plan / Ver Plan / Crear Plantilla / Agregar Alimento",
+      "type": "button",
+      "file": "pages/NutritionPage.tsx",
+      "line": 46,
+      "gates": "ProtectedRoute[wellness_professional,admin,super_admin]",
+      "reads": [],
+      "writes": [],
+      "status": "mock",
+      "usage": "mockPlans=[]; botones sin handler; sin entrada de menu"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "wellness_professional",
+  "module": "Onboarding",
+  "moduleKey": null,
+  "screen": "Onboarding profesional de salud",
+  "route": "/onboarding/wellness",
+  "file": "pages/onboarding/WellnessOnboarding.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "Datos / Practica",
+    "actions": [
+     {
+      "label": "Finalizar",
+      "type": "button",
+      "file": "pages/onboarding/WellnessOnboarding.tsx",
+      "line": 144,
+      "gates": "ProtectedRoute; forzado desde /dashboard si onboarding_completed=false",
+      "reads": [],
+      "writes": [
+       "profiles",
+       "vendor_profiles (licencia, RETHUS, especialidad)",
+       "rpc complete_onboarding"
+      ],
+      "status": "works",
+      "usage": "vendor_profiles wellness=3"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "wellness_professional|store_owner",
+  "module": "Onboarding",
+  "moduleKey": null,
+  "screen": "Onboarding vendedor generico",
+  "route": "/vendor/onboarding",
+  "file": "pages/vendor/VendorOnboardingPage.tsx",
+  "status": "duplicated",
+  "usage": "vendor_profiles: 14 personal_trainer pending, 14 school pending",
+  "notes": "Para wellness duplica /onboarding/wellness sin campos clinicos. Los metodos de pago que guarda NO son los que lee el checkout (store_payment_settings).",
+  "tabs": [
+   {
+    "name": "Negocio / Pagos / Verificacion",
+    "actions": [
+     {
+      "label": "Activar y continuar",
+      "type": "button",
+      "file": "pages/vendor/VendorOnboardingPage.tsx",
+      "line": 293,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol)",
+      "reads": [],
+      "writes": [
+       "rpc enable_vendor_profile|enable_school_store",
+       "BFF PUT /vendor/profile/payment (sin res.ok)"
+      ],
+      "status": "partial",
+      "usage": ""
+     },
+     {
+      "label": "Subir documento de verificacion / Omitir",
+      "type": "upload",
+      "file": "pages/vendor/VendorOnboardingPage.tsx",
+      "line": 236,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol)",
+      "reads": [],
+      "writes": [
+       "storage vendor-docs",
+       "BFF PUT /vendor/profile/verification"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "wellness_professional|personal_trainer",
+  "module": "Suscriptores",
+  "moduleKey": null,
+  "screen": "Suscriptores recurrentes",
+  "route": "/vendor/subscribers",
+  "file": "pages/vendor/VendorSubscribersPage.tsx",
+  "status": "broken",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "Todos/Activos/Pausados/Suspendidos/Cancelados",
+    "actions": [
+     {
+      "label": "Listar",
+      "type": "fetch",
+      "file": "hooks/useVendorRecurringSubscribers.ts",
+      "line": 38,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol)",
+      "reads": [
+       "BFF /api/v1/recurring/vendor/subscriptions"
+      ],
+      "writes": [],
+      "status": "broken",
+      "usage": "BFF responde 410 recurring_v1_retired (bff/src/index.ts:405)"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "patient(athlete|parent)",
+  "module": "Salud (lado paciente)",
+  "moduleKey": null,
+  "screen": "Mis citas",
+  "route": "/wellness/appointments",
+  "file": "pages/wellness/MyAppointmentsPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "Proximas / Pasadas",
+    "actions": [
+     {
+      "label": "Cancelar cita / Videollamada / Buscar profesional",
+      "type": "button",
+      "file": "pages/wellness/MyAppointmentsPage.tsx",
+      "line": 169,
+      "gates": "ProtectedRoute",
+      "reads": [
+       "children",
+       "rpc get_my_appointments"
+      ],
+      "writes": [
+       "rpc cancel_my_appointment"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "patient(athlete|parent)",
+  "module": "Salud (lado paciente)",
+  "moduleKey": null,
+  "screen": "Mi salud",
+  "route": "/salud",
+  "file": "pages/clinical/MyHealthPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Otorgar/revocar consentimientos, marcar ejercicio hecho",
+      "type": "button",
+      "file": "pages/clinical/MyHealthPage.tsx",
+      "line": 62,
+      "gates": "ProtectedRoute",
+      "reads": [
+       "rpc get_my_health_summary"
+      ],
+      "writes": [
+       "rpc grant_clinical_consents",
+       "rpc revoke_clinical_consent",
+       "rpc log_exercise_done"
+      ],
+      "status": "works",
+      "usage": "0 pacientes => sin uso real"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "patient(athlete|parent)",
+  "module": "Salud (lado paciente)",
+  "moduleKey": null,
+  "screen": "Aceptar invitacion clinica",
+  "route": "/salud/invitacion/:token",
+  "file": "pages/clinical/ClinicalInviteAcceptPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Aceptar",
+      "type": "button",
+      "file": "pages/clinical/ClinicalInviteAcceptPage.tsx",
+      "line": 65,
+      "gates": "ProtectedRoute (redirectTo)",
+      "reads": [
+       "rpc get_clinical_invite",
+       "children"
+      ],
+      "writes": [
+       "rpc accept_clinical_invite"
+      ],
+      "status": "works",
+      "usage": "invites=0"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "school|coach",
+  "module": "Salud (lado escuela)",
+  "moduleKey": null,
+  "screen": "Disponibilidad medica de atletas",
+  "route": "/disponibilidad-medica",
+  "file": "pages/clinical/SchoolAvailabilityPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Ver disponibilidad",
+      "type": "fetch",
+      "file": "pages/clinical/SchoolAvailabilityPage.tsx",
+      "line": 55,
+      "gates": "ProtectedRoute[school,school_admin,coach,admin,super_admin]",
+      "reads": [
+       "rpc get_school_athlete_availability"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "store_owner",
+  "module": "Tienda",
+  "moduleKey": null,
+  "screen": "Dashboard vendedor",
+  "route": "/vendor/dashboard",
+  "file": "pages/vendor/VendorDashboardPage.tsx",
+  "status": "partial",
+  "usage": "products=6, orders=4 (ultimo 2026-10-03), store_owner perfiles=1 (ultimo login jul-2026)",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Nuevo producto",
+      "type": "button",
+      "file": "pages/vendor/VendorDashboardPage.tsx",
+      "line": 111,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol)",
+      "reads": [],
+      "writes": [],
+      "status": "partial",
+      "usage": "va a la lista, no a /new"
+     },
+     {
+      "label": "KPI Productos activos",
+      "type": "link",
+      "file": "pages/vendor/VendorDashboardPage.tsx",
+      "line": 94,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol)",
+      "reads": [
+       "BFF /vendor/stats (products.vendor_id legacy)"
+      ],
+      "writes": [],
+      "status": "partial",
+      "usage": "cuenta solo por vendor_id: 0 para tiendas por vendor_profile_id"
+     },
+     {
+      "label": "KPI Ingresos / Pedidos pagados 30d, Mas vendidos",
+      "type": "link",
+      "file": "pages/vendor/VendorDashboardPage.tsx",
+      "line": 142,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol)",
+      "reads": [
+       "BFF /vendor/products/insights (orders, order_items)"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Acceso rapido Promociones",
+      "type": "link",
+      "file": "pages/vendor/VendorDashboardPage.tsx",
+      "line": 207,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol)",
+      "reads": [],
+      "writes": [],
+      "status": "mock",
+      "usage": "abre placeholder /vendor/promotions"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "store_owner|school",
+  "module": "Tienda",
+  "moduleKey": null,
+  "screen": "Productos",
+  "route": "/vendor/products (+ alias /products, /categories, /promotions)",
+  "file": "pages/vendor/VendorProductsPage.tsx (StoreProductsPage.tsx es re-export)",
+  "status": "duplicated",
+  "usage": "products=6",
+  "notes": "Servida en 4 rutas. /categories y /promotions son alias engañosos (no hay CRUD de categorias ni promociones). Alias saltan VendorGuard.",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Nuevo producto / Crear producto",
+      "type": "link",
+      "file": "pages/vendor/VendorProductsPage.tsx",
+      "line": 60,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol) + StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Filtros busqueda/estado/categoria/stock",
+      "type": "control",
+      "file": "pages/vendor/VendorProductsPage.tsx",
+      "line": 69,
+      "gates": "StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [
+       "BFF GET /api/v1/vendor/products (products, product_variants)"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": "products=6"
+     },
+     {
+      "label": "Ajustar stock (StockAdjustDialog)",
+      "type": "dialog",
+      "file": "pages/vendor/VendorProductsPage.tsx",
+      "line": 148,
+      "gates": "StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [],
+      "writes": [
+       "BFF POST /vendor/products/:id/inventory -> rpc inventory_adjust"
+      ],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Editar",
+      "type": "link",
+      "file": "pages/vendor/VendorProductsPage.tsx",
+      "line": 151,
+      "gates": "StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Archivar (sin confirmacion)",
+      "type": "button",
+      "file": "pages/vendor/VendorProductsPage.tsx",
+      "line": 155,
+      "gates": "StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [],
+      "writes": [
+       "BFF DELETE /vendor/products/:id (soft)"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "store_owner|school",
+  "module": "Tienda",
+  "moduleKey": null,
+  "screen": "Asistente de producto",
+  "route": "/vendor/products/new | /vendor/products/:id/edit",
+  "file": "components/vendor/product-wizard/ProductWizard.tsx",
+  "status": "works",
+  "usage": "product_images=0, product_variants=3",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "Categoria / Detalles / Variantes / Imagenes",
+    "actions": [
+     {
+      "label": "Guardar borrador",
+      "type": "button",
+      "file": "components/vendor/product-wizard/ProductWizard.tsx",
+      "line": 675,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol) + StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [
+       "product_categories",
+       "product_brands",
+       "product_brand_categories"
+      ],
+      "writes": [
+       "BFF POST/PATCH /vendor/products",
+       "variants/bulk",
+       "storage product-images"
+      ],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Publicar",
+      "type": "button",
+      "file": "components/vendor/product-wizard/ProductWizard.tsx",
+      "line": 680,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol) + StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [],
+      "writes": [
+       "BFF POST /vendor/products/:id/publish (puede quedar pending_review)"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "store_owner|school",
+  "module": "Tienda",
+  "moduleKey": null,
+  "screen": "Inventario",
+  "route": "/inventory (+ alias /suppliers)",
+  "file": "pages/StoreInventoryPage.tsx",
+  "status": "duplicated",
+  "usage": "",
+  "notes": "/suppliers ('Proveedores') renderiza esta misma pagina: no existe modulo de proveedores de tienda.",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Reponer / Ajustar (producto y variante)",
+      "type": "dialog",
+      "file": "pages/StoreInventoryPage.tsx",
+      "line": 240,
+      "gates": "StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [
+       "BFF GET /vendor/products"
+      ],
+      "writes": [
+       "rpc inventory_adjust -> inventory_logs"
+      ],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Historial (Kardex)",
+      "type": "dialog",
+      "file": "pages/StoreInventoryPage.tsx",
+      "line": 243,
+      "gates": "StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [
+       "BFF GET /vendor/products/:id/inventory (inventory_logs)"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "store_owner|school",
+  "module": "Tienda",
+  "moduleKey": null,
+  "screen": "Pedidos del vendedor",
+  "route": "/orders (+ alias /customers)",
+  "file": "pages/StoreOrdersPage.tsx",
+  "status": "duplicated",
+  "usage": "orders=4",
+  "notes": "/customers ('Clientes') es alias: no hay vista de clientes. BFF marketplace-orders /vendor/mine y PATCH /vendor/:id/status muertos.",
+  "tabs": [
+   {
+    "name": "Todos / Por pagar / Por preparar / En curso / Entregados / Cerrados",
+    "actions": [
+     {
+      "label": "Ver comprobante",
+      "type": "button",
+      "file": "pages/StoreOrdersPage.tsx",
+      "line": 304,
+      "gates": "StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [
+       "BFF GET /store/vendor/orders/:id/receipt-url"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": "orders=4"
+     },
+     {
+      "label": "Aprobar pago / Rechazar comprobante",
+      "type": "button",
+      "file": "pages/StoreOrdersPage.tsx",
+      "line": 312,
+      "gates": "StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [],
+      "writes": [
+       "rpc approve_order_receipt / reject_order_receipt"
+      ],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Cobrar en efectivo (codigo 6 digitos)",
+      "type": "dialog",
+      "file": "pages/StoreOrdersPage.tsx",
+      "line": 339,
+      "gates": "StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [],
+      "writes": [
+       "rpc confirm_cash_pickup"
+      ],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Preparar / Listo / Enviado / Entregado / Cancelar",
+      "type": "dialog",
+      "file": "pages/StoreOrdersPage.tsx",
+      "line": 373,
+      "gates": "StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [
+       "orders",
+       "order_items",
+       "order_status_history"
+      ],
+      "writes": [
+       "rpc order_transition"
+      ],
+      "status": "works",
+      "usage": "order_status_history=3"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "store_owner",
+  "module": "Tienda",
+  "moduleKey": null,
+  "screen": "Reportes de tienda",
+  "route": "/store-reports",
+  "file": "pages/ReportsPage.tsx",
+  "status": "broken",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "Resumen / Documentos",
+    "actions": [
+     {
+      "label": "Cargar reporte",
+      "type": "fetch",
+      "file": "pages/ReportsPage.tsx",
+      "line": 249,
+      "gates": "ProtectedRoute[store_owner,admin] + StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [
+       "BFF /api/v1/reports/school/summary"
+      ],
+      "writes": [],
+      "status": "broken",
+      "usage": "es el reporte de ESCUELA; sin schoolId spinner infinito"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "store_owner",
+  "module": "Tienda",
+  "moduleKey": null,
+  "screen": "Promociones (placeholder)",
+  "route": "/vendor/promotions",
+  "file": "pages/vendor/VendorPromotionsPage.tsx",
+  "status": "mock",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Volver al dashboard",
+      "type": "link",
+      "file": "pages/vendor/VendorPromotionsPage.tsx",
+      "line": 88,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol) + StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [],
+      "writes": [],
+      "status": "mock",
+      "usage": "card 'Proximamente'"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "store_owner",
+  "module": "Tienda (oculto)",
+  "moduleKey": null,
+  "screen": "Inbox vendedor",
+  "route": "/vendor/inbox",
+  "file": "pages/vendor/VendorInboxPage.tsx",
+  "status": "hidden",
+  "usage": "",
+  "notes": "Sin entrada de menu para store_owner (getVendorNavGroup no se le muestra).",
+  "tabs": [
+   {
+    "name": "Resenas",
+    "actions": [
+     {
+      "label": "Responder resena",
+      "type": "form",
+      "file": "pages/vendor/VendorInboxPage.tsx",
+      "line": 137,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol) + StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [
+       "BFF GET /vendor/inbox"
+      ],
+      "writes": [
+       "BFF POST /reviews/:id/respond"
+      ],
+      "status": "works",
+      "usage": "product_reviews=0"
+     }
+    ]
+   },
+   {
+    "name": "Preguntas",
+    "actions": [
+     {
+      "label": "Responder pregunta",
+      "type": "form",
+      "file": "pages/vendor/VendorInboxPage.tsx",
+      "line": 184,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol) + StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [],
+      "writes": [
+       "BFF POST /questions/:id/answer"
+      ],
+      "status": "works",
+      "usage": "product_questions=0"
+     }
+    ]
+   },
+   {
+    "name": "Conversaciones",
+    "actions": [
+     {
+      "label": "Chat con comprador",
+      "type": "chat",
+      "file": "pages/vendor/VendorInboxPage.tsx",
+      "line": 78,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol) + StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [
+       "store_conversations",
+       "store_messages"
+      ],
+      "writes": [
+       "store_messages"
+      ],
+      "status": "works",
+      "usage": "store_messages=0"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "store_owner",
+  "module": "Tienda (oculto)",
+  "moduleKey": null,
+  "screen": "Liquidaciones",
+  "route": "/vendor/payouts",
+  "file": "pages/vendor/VendorPayoutsPage.tsx",
+  "status": "hidden",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Solicitar liquidacion / cuentas bancarias",
+      "type": "button",
+      "file": "pages/vendor/VendorPayoutsPage.tsx",
+      "line": 107,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol) + StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [
+       "rpc vendor_payout_summary",
+       "vendor_payouts",
+       "vendor_bank_accounts"
+      ],
+      "writes": [
+       "rpc request_payout",
+       "vendor_bank_accounts"
+      ],
+      "status": "partial",
+      "usage": "vendor_payouts=0; obsoleto bajo D-5 (cobra con sus llaves)"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "store_owner",
+  "module": "Tienda (oculto)",
+  "moduleKey": null,
+  "screen": "Envios",
+  "route": "/vendor/shipping",
+  "file": "pages/vendor/VendorShippingSettingsPage.tsx",
+  "status": "hidden",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Guardar ajustes de envio",
+      "type": "form",
+      "file": "pages/vendor/VendorShippingSettingsPage.tsx",
+      "line": 222,
+      "gates": "VendorGuard (vendor_profiles por user_id; sin rol) + StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [
+       "vendor_shipping_settings",
+       "shipping_carriers"
+      ],
+      "writes": [
+       "BFF PUT /vendor/shipping/settings"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "store_owner",
+  "module": "Cuenta",
+  "moduleKey": null,
+  "screen": "Facturacion (Mi plan)",
+  "route": "/mi-plan",
+  "file": "pages/MiPlanPage.tsx",
+  "status": "dead",
+  "usage": "",
+  "notes": "Entrada de menu muerta para wellness_professional, store_owner, organizer, admin.",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Ver plan",
+      "type": "page",
+      "file": "pages/MiPlanPage.tsx",
+      "line": 188,
+      "gates": "canManagePlan exige rol de entidad escuela",
+      "reads": [
+       "v_school_entitlements"
+      ],
+      "writes": [],
+      "status": "dead",
+      "usage": "store_owner/wellness/organizer/admin ven 'Esta seccion no es para tu cuenta'"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "school",
+  "module": "Tu tienda",
+  "moduleKey": null,
+  "screen": "Ajustes de la tienda de la escuela",
+  "route": "/tienda-escuela/ajustes",
+  "file": "pages/school/SchoolStoreSettingsPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "Cobros / Entrega",
+    "actions": [
+     {
+      "label": "Activar tienda",
+      "type": "button",
+      "file": "pages/school/SchoolStoreSettingsPage.tsx",
+      "line": 146,
+      "gates": "ProtectedRoute[school,school_admin,admin,super_admin]",
+      "reads": [],
+      "writes": [
+       "rpc enable_school_store"
+      ],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Guardar cobros (transferencia, efectivo, pasarelas) y entrega (sedes)",
+      "type": "form",
+      "file": "pages/school/SchoolStoreSettingsPage.tsx",
+      "line": 393,
+      "gates": "-",
+      "reads": [
+       "rpc store_admin_settings"
+      ],
+      "writes": [
+       "rpc set_store_payment_settings"
+      ],
+      "status": "works",
+      "usage": "store_payment_settings=4 (todas de escuelas; 0 de vendedores externos)"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "buyer(any)",
+  "module": "Tienda publica",
+  "moduleKey": null,
+  "screen": "Tienda de un vendedor (canonica)",
+  "route": "/tienda/:slug",
+  "file": "pages/TiendaPublicaPage.tsx",
+  "status": "works",
+  "usage": "store_slug_aliases=7",
+  "notes": "No muestra servicios aunque el BFF los devuelve.",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Agregar rapido / Elegir talla / Abrir carrito",
+      "type": "button",
+      "file": "pages/TiendaPublicaPage.tsx",
+      "line": 222,
+      "gates": "StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [
+       "BFF GET /marketplace/vendor/:slug (vendor_profiles, store_slug_aliases, products, service_listings)"
+      ],
+      "writes": [
+       "carrito localStorage"
+      ],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Contactar (chat)",
+      "type": "button",
+      "file": "pages/TiendaPublicaPage.tsx",
+      "line": 173,
+      "gates": "StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [
+       "store_conversations"
+      ],
+      "writes": [
+       "store_conversations",
+       "store_messages"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "buyer(any)",
+  "module": "Tienda publica",
+  "moduleKey": null,
+  "screen": "Producto en tienda",
+  "route": "/tienda/:slug/p/:productId",
+  "file": "pages/TiendaProductoPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Agregar / Comprar ahora",
+      "type": "button",
+      "file": "pages/TiendaProductoPage.tsx",
+      "line": 218,
+      "gates": "StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [
+       "catalogo BFF"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "buyer(any)",
+  "module": "Tienda publica",
+  "moduleKey": null,
+  "screen": "Carrito",
+  "route": "/carrito (+ /checkout redirige)",
+  "file": "pages/CarritoPage.tsx",
+  "status": "partial",
+  "usage": "carts=0",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Pagar por tienda",
+      "type": "button",
+      "file": "components/cart/CartContents.tsx",
+      "line": 144,
+      "gates": "StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [
+       "rpc quote_cart"
+      ],
+      "writes": [],
+      "status": "partial",
+      "usage": "items de /marketplace y /shop sin vendorProfileId caen en '__sin_tienda__' y no se pueden pagar"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "buyer(any)",
+  "module": "Tienda publica",
+  "moduleKey": null,
+  "screen": "Checkout de tienda",
+  "route": "/checkout/tienda/:vendorProfileId",
+  "file": "pages/StoreCheckoutPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Pagar",
+      "type": "button",
+      "file": "pages/StoreCheckoutPage.tsx",
+      "line": 500,
+      "gates": "ProtectedRoute + StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [
+       "vendor_profiles",
+       "school_branches",
+       "BFF /store/payment-methods/:vp"
+      ],
+      "writes": [
+       "BFF POST /marketplace/checkout/cart -> rpc create_cart_order",
+       "Wompi | Mercado Pago"
+      ],
+      "status": "works",
+      "usage": "orders=4"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "buyer(any)",
+  "module": "Tienda publica",
+  "moduleKey": null,
+  "screen": "Mis compras",
+  "route": "/mis-compras",
+  "file": "pages/MisComprasPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Ver pedido",
+      "type": "link",
+      "file": "pages/MisComprasPage.tsx",
+      "line": 71,
+      "gates": "ProtectedRoute + StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [
+       "BFF GET /marketplace/orders"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "buyer(any)",
+  "module": "Tienda publica",
+  "moduleKey": null,
+  "screen": "Detalle de compra",
+  "route": "/mis-compras/:orderId",
+  "file": "pages/MiCompraDetallePage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Generar codigo de retiro",
+      "type": "button",
+      "file": "pages/MiCompraDetallePage.tsx",
+      "line": 285,
+      "gates": "StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [],
+      "writes": [
+       "rpc regenerate_my_pickup_code"
+      ],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Subir comprobante",
+      "type": "upload",
+      "file": "pages/MiCompraDetallePage.tsx",
+      "line": 335,
+      "gates": "StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [],
+      "writes": [
+       "rpc submit_order_receipt"
+      ],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Pagar ahora / Ya lo recibi / Cancelar pedido",
+      "type": "button",
+      "file": "pages/MiCompraDetallePage.tsx",
+      "line": 384,
+      "gates": "StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [
+       "order_status_history",
+       "rpc store_transfer_accounts"
+      ],
+      "writes": [
+       "Wompi",
+       "rpc order_transition",
+       "rpc cancel_my_order"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "parent|athlete",
+  "module": "Tienda publica",
+  "moduleKey": null,
+  "screen": "Mi tienda (redirector)",
+  "route": "/mi-tienda",
+  "file": "pages/MiTiendaPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Redirige a /tienda/:slug de su escuela",
+      "type": "redirect",
+      "file": "pages/MiTiendaPage.tsx",
+      "line": 44,
+      "gates": "ProtectedRoute[parent,athlete] + StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [
+       "BFF /marketplace/school-store/:schoolId"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Marketplace",
+  "moduleKey": null,
+  "screen": "Marketplace multi-vendedor (legacy)",
+  "route": "/marketplace",
+  "file": "pages/MarketplacePage.tsx",
+  "status": "duplicated",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "Todo / Productos / Servicios",
+    "actions": [
+     {
+      "label": "Agregar al carrito",
+      "type": "button",
+      "file": "pages/MarketplacePage.tsx",
+      "line": 108,
+      "gates": "publico (Productos solo con store_enabled)",
+      "reads": [
+       "BFF GET /api/v1/marketplace (rpc search_marketplace)"
+      ],
+      "writes": [
+       "carrito sin vendorProfileId"
+      ],
+      "status": "broken",
+      "usage": "no llega a checkout; sin enlaces internos a /marketplace"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Marketplace",
+  "moduleKey": null,
+  "screen": "Detalle producto/servicio marketplace",
+  "route": "/marketplace/product/:id | /marketplace/:type/:id",
+  "file": "pages/MarketplaceDetailPage.tsx",
+  "status": "duplicated",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Agregar al carrito",
+      "type": "button",
+      "file": "pages/MarketplaceDetailPage.tsx",
+      "line": 263,
+      "gates": "StoreGate (producto)",
+      "reads": [
+       "BFF /marketplace/products|services/:id"
+      ],
+      "writes": [],
+      "status": "broken",
+      "usage": "sin vendorProfileId"
+     },
+     {
+      "label": "Ver perfil (/vendor/:slug)",
+      "type": "link",
+      "file": "pages/MarketplaceDetailPage.tsx",
+      "line": 285,
+      "gates": "-",
+      "reads": [],
+      "writes": [],
+      "status": "broken",
+      "usage": "ruta inexistente"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "any logged",
+  "module": "Marketplace",
+  "moduleKey": null,
+  "screen": "Shop (legacy)",
+  "route": "/shop",
+  "file": "pages/ShopPage.tsx",
+  "status": "duplicated",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Ir a pagar",
+      "type": "button",
+      "file": "pages/ShopPage.tsx",
+      "line": 358,
+      "gates": "StoreGate (store_enabled()=FALSE en BD hoy => bloqueado para todos)",
+      "reads": [
+       "products select * stock>0"
+      ],
+      "writes": [
+       "carrito propio duplicado"
+      ],
+      "status": "broken",
+      "usage": "solo enlazado desde DemoQuickLinks; no llega a checkout"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "super_admin",
+  "module": "Moderacion",
+  "moduleKey": null,
+  "screen": "Moderacion marketplace",
+  "route": "/admin/marketplace/moderation",
+  "file": "pages/admin/AdminMarketplaceModerationPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "Lee vendor_profiles directo saltando BFF /vendors/verification-queue (duplicado).",
+  "tabs": [
+   {
+    "name": "Productos",
+    "actions": [
+     {
+      "label": "Ver / Aprobar / Rechazar (motivo >=5)",
+      "type": "button",
+      "file": "pages/admin/AdminMarketplaceModerationPage.tsx",
+      "line": 186,
+      "gates": "strict admin|super_admin; BFF platform_admins",
+      "reads": [
+       "BFF GET /admin/marketplace/moderation-queue"
+      ],
+      "writes": [
+       "BFF POST /admin/products/:id/approve|reject"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   },
+   {
+    "name": "Vendors pendientes",
+    "actions": [
+     {
+      "label": "Ver documento / Verificar / Rechazar",
+      "type": "button",
+      "file": "pages/admin/AdminMarketplaceModerationPage.tsx",
+      "line": 601,
+      "gates": "strict",
+      "reads": [
+       "vendor_profiles",
+       "profiles",
+       "storage vendor-docs (firma en cliente)"
+      ],
+      "writes": [
+       "BFF POST /admin/vendors/:id/verify"
+      ],
+      "status": "works",
+      "usage": "vendor_profiles pending=30 (14 trainer, 14 school, 2 wellness)"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "super_admin",
+  "module": "Moderacion",
+  "moduleKey": null,
+  "screen": "Pagos a vendors",
+  "route": "/admin/payouts",
+  "file": "pages/admin/AdminPayoutsPage.tsx",
+  "status": "partial",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Marcar pagado / Retener / Liberar escrows",
+      "type": "button",
+      "file": "pages/admin/AdminPayoutsPage.tsx",
+      "line": 201,
+      "gates": "strict + requireStoreEnabled",
+      "reads": [
+       "BFF GET /admin/payouts (vendor_payouts)"
+      ],
+      "writes": [
+       "BFF payouts/*"
+      ],
+      "status": "partial",
+      "usage": "vendor_payouts=0"
+     },
+     {
+      "label": "Auto-generar payouts",
+      "type": "button",
+      "file": "pages/admin/AdminPayoutsPage.tsx",
+      "line": 151,
+      "gates": "strict",
+      "reads": [],
+      "writes": [
+       "BFF POST /admin/payouts/generate"
+      ],
+      "status": "broken",
+      "usage": "410 PAYOUTS_GENERATE_GONE"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "organizer",
+  "module": "Onboarding",
+  "moduleKey": null,
+  "screen": "Onboarding organizador",
+  "route": "/organizer/onboarding",
+  "file": "pages/organizer/OrganizerOnboardingPage.tsx",
+  "status": "broken",
+  "usage": "event_organizers=0, organizer perfiles=2 (ultimo login jul-2026), events con creator_role=organizer=1 (seed)",
+  "notes": "bank_data con llaves distintas a Settings. Nadie puede poner is_verified=true.",
+  "tabs": [
+   {
+    "name": "Organizacion / Pagos / Verificacion",
+    "actions": [
+     {
+      "label": "Guardar y continuar",
+      "type": "button",
+      "file": "pages/organizer/OrganizerOnboardingPage.tsx",
+      "line": 179,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [],
+      "writes": [
+       "BFF POST /api/v1/organizer/profile -> event_organizers"
+      ],
+      "status": "works",
+      "usage": "event_organizers=0"
+     },
+     {
+      "label": "Enviar para verificacion",
+      "type": "upload",
+      "file": "pages/organizer/OrganizerOnboardingPage.tsx",
+      "line": 194,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [],
+      "writes": [
+       "storage organizer-docs (NO EXISTE)"
+      ],
+      "status": "broken",
+      "usage": ""
+     },
+     {
+      "label": "Saltar por ahora / exito -> /organizer/home",
+      "type": "link",
+      "file": "pages/organizer/OrganizerOnboardingPage.tsx",
+      "line": 191,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [],
+      "writes": [],
+      "status": "broken",
+      "usage": "ruta inexistente -> NotFound"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "organizer",
+  "module": "Principal",
+  "moduleKey": null,
+  "screen": "Dashboard organizador",
+  "route": "/organizer/dashboard",
+  "file": "pages/organizer/OrganizerDashboardPage.tsx",
+  "status": "partial",
+  "usage": "event_organizers=0, organizer perfiles=2 (ultimo login jul-2026), events con creator_role=organizer=1 (seed)",
+  "notes": "El /dashboard generico del organizer es MOCK (useDashboardConfig.ts:408-445, stats en 0, link a /organizer/home).",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Crear Evento / Ver todos / fila / Ver publico",
+      "type": "link",
+      "file": "pages/organizer/OrganizerDashboardPage.tsx",
+      "line": 85,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [
+       "events (creator_id)",
+       "event_registrations"
+      ],
+      "writes": [],
+      "status": "partial",
+      "usage": "usa creator_id; Mis Eventos usa organizer_id (otro modelo)"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "organizer",
+  "module": "Principal",
+  "moduleKey": null,
+  "screen": "Crear evento (wizard 5 pasos)",
+  "route": "/organizer/create-event",
+  "file": "pages/organizer/CreateEventPage.tsx + components/organizer/wizard/*",
+  "status": "broken",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "Info / Categorias / Paquetes / Fechas",
+    "actions": [
+     {
+      "label": "Plantillas All-Star / Abierto 26, anadir categorias y fases",
+      "type": "button",
+      "file": "components/organizer/wizard/Step2Categories.tsx",
+      "line": 61,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [],
+      "writes": [
+       "localStorage sportmaps_event_wizard"
+      ],
+      "status": "partial",
+      "usage": "presets hardcodeados; borrador nunca se limpia"
+     }
+    ]
+   },
+   {
+    "name": "Pagos",
+    "actions": [
+     {
+      "label": "Finalizar y Crear Evento",
+      "type": "button",
+      "file": "components/organizer/wizard/Step5PaymentConfig.tsx",
+      "line": 125,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [],
+      "writes": [
+       "BFF POST /api/v1/events"
+      ],
+      "status": "broken",
+      "usage": "falla siempre: sin event_organizers, FK, creator_id NOT NULL, columnas inexistentes (bank_data, min_age, pkg_1_price...)"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "organizer",
+  "module": "Gestion",
+  "moduleKey": null,
+  "screen": "Mis eventos",
+  "route": "/organizer/events",
+  "file": "pages/organizer/OrganizerEventsPage.tsx",
+  "status": "broken",
+  "usage": "events=9 (8 de escuela)",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Listar / filtrar / Nuevo evento",
+      "type": "fetch",
+      "file": "pages/organizer/OrganizerEventsPage.tsx",
+      "line": 63,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [
+       "BFF GET /api/v1/events/mine"
+      ],
+      "writes": [],
+      "status": "broken",
+      "usage": "RC1: BFF filtra events.organizer_id = event_organizers.id pero FK apunta a profiles(id) => nunca coincide; usa status 'published' que el CHECK prohibe"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "organizer",
+  "module": "Gestion",
+  "moduleKey": null,
+  "screen": "Gestion de un evento",
+  "route": "/organizer/event/:id",
+  "file": "pages/organizer/EventManagementPage.tsx",
+  "status": "partial",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "Cabecera",
+    "actions": [
+     {
+      "label": "Cambiar estado",
+      "type": "button",
+      "file": "pages/organizer/EventManagementPage.tsx",
+      "line": 291,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [],
+      "writes": [
+       "BFF PATCH /events/:id/status"
+      ],
+      "status": "broken",
+      "usage": "RC1: BFF filtra events.organizer_id = event_organizers.id pero FK apunta a profiles(id) => nunca coincide + 'published'"
+     },
+     {
+      "label": "Switch Inscripciones abiertas",
+      "type": "switch",
+      "file": "pages/organizer/EventManagementPage.tsx",
+      "line": 354,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [],
+      "writes": [
+       "events (directo, RLS events_update_own)"
+      ],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Copiar enlace",
+      "type": "button",
+      "file": "pages/organizer/EventManagementPage.tsx",
+      "line": 357,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [],
+      "writes": [
+       "event_telemetry (falla silenciosa, RLS)"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   },
+   {
+    "name": "Inscripciones",
+    "actions": [
+     {
+      "label": "Aprobar / Rechazar / Ver comprobante",
+      "type": "button",
+      "file": "pages/organizer/EventManagementPage.tsx",
+      "line": 458,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [
+       "event_registrations"
+      ],
+      "writes": [
+       "event_registrations"
+      ],
+      "status": "partial",
+      "usage": "comprobante: URL publica de bucket privado = muerto; event_registrations=6"
+     }
+    ]
+   },
+   {
+    "name": "Delegaciones",
+    "actions": [
+     {
+      "label": "Aprobar / Rechazar delegacion",
+      "type": "button",
+      "file": "components/organizer/EventDelegationsTab.tsx",
+      "line": 205,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [
+       "BFF GET /events/:id/delegations"
+      ],
+      "writes": [
+       "BFF PATCH /events/:id/delegations/:delId"
+      ],
+      "status": "broken",
+      "usage": "RC1: BFF filtra events.organizer_id = event_organizers.id pero FK apunta a profiles(id) => nunca coincide; columnas total_amount/paid_amount no existen; status 'approved' no permitido"
+     }
+    ]
+   },
+   {
+    "name": "Editar",
+    "actions": [
+     {
+      "label": "Guardar cambios",
+      "type": "form",
+      "file": "pages/organizer/EventManagementPage.tsx",
+      "line": 538,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [],
+      "writes": [
+       "BFF PUT /events/:id"
+      ],
+      "status": "broken",
+      "usage": "RC1: BFF filtra events.organizer_id = event_organizers.id pero FK apunta a profiles(id) => nunca coincide"
+     }
+    ]
+   },
+   {
+    "name": "Documentos",
+    "actions": [
+     {
+      "label": "Seleccionar todo / Descargar ZIP",
+      "type": "button",
+      "file": "components/organizer/EventDocumentsTab.tsx",
+      "line": 295,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [
+       "BFF GET /events/:id/documents"
+      ],
+      "writes": [],
+      "status": "broken",
+      "usage": "RC1: BFF filtra events.organizer_id = event_organizers.id pero FK apunta a profiles(id) => nunca coincide; si pasara, expone todos los ninos de cada escuela"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "organizer",
+  "module": "Gestion",
+  "moduleKey": null,
+  "screen": "Calendario",
+  "route": "/organizer/calendar",
+  "file": "pages/organizer/OrganizerCalendarPage.tsx",
+  "status": "broken",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Mes anterior/Hoy/siguiente, click evento",
+      "type": "control",
+      "file": "pages/organizer/OrganizerCalendarPage.tsx",
+      "line": 132,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [
+       "BFF /events/mine"
+      ],
+      "writes": [],
+      "status": "broken",
+      "usage": "RC1: BFF filtra events.organizer_id = event_organizers.id pero FK apunta a profiles(id) => nunca coincide"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "organizer",
+  "module": "Gestion",
+  "moduleKey": null,
+  "screen": "Finanzas",
+  "route": "/organizer/finances",
+  "file": "pages/organizer/OrganizerFinancesPage.tsx",
+  "status": "broken",
+  "usage": "event_delegations=1",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Listar por evento",
+      "type": "fetch",
+      "file": "pages/organizer/OrganizerFinancesPage.tsx",
+      "line": 60,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [
+       "BFF GET /api/v1/organizer/finances"
+      ],
+      "writes": [],
+      "status": "broken",
+      "usage": "RC1: BFF filtra events.organizer_id = event_organizers.id pero FK apunta a profiles(id) => nunca coincide; RC3 columnas delegacion"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "organizer",
+  "module": "Gestion",
+  "moduleKey": null,
+  "screen": "Reportes",
+  "route": "/organizer/reports",
+  "file": "pages/organizer/OrganizerReportsPage.tsx",
+  "status": "duplicated",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Exportar CSV",
+      "type": "button",
+      "file": "pages/organizer/OrganizerReportsPage.tsx",
+      "line": 139,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [
+       "BFF /organizer/finances"
+      ],
+      "writes": [],
+      "status": "broken",
+      "usage": "duplica Finanzas; CSV siempre vacio"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "organizer",
+  "module": "Cuenta",
+  "moduleKey": null,
+  "screen": "Perfil organizador",
+  "route": "/organizer/profile",
+  "file": "pages/organizer/OrganizerProfilePage.tsx",
+  "status": "broken",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "General",
+    "actions": [
+     {
+      "label": "Guardar",
+      "type": "form",
+      "file": "pages/organizer/OrganizerProfilePage.tsx",
+      "line": 186,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [
+       "event_organizers"
+      ],
+      "writes": [
+       "BFF PUT /organizer/profile"
+      ],
+      "status": "broken",
+      "usage": "zod exige logo_url string y siempre es null => 400"
+     }
+    ]
+   },
+   {
+    "name": "Verificacion",
+    "actions": [
+     {
+      "label": "Subir documento",
+      "type": "upload",
+      "file": "pages/organizer/OrganizerProfilePage.tsx",
+      "line": 233,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [],
+      "writes": [
+       "storage organizer-docs (no existe)"
+      ],
+      "status": "broken",
+      "usage": ""
+     }
+    ]
+   },
+   {
+    "name": "Ajustes",
+    "actions": [
+     {
+      "label": "QR Smart + Guardar",
+      "type": "form",
+      "file": "pages/organizer/OrganizerProfilePage.tsx",
+      "line": 262,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [],
+      "writes": [
+       "BFF PUT"
+      ],
+      "status": "duplicated",
+      "usage": "duplica Settings > Preferencias; mismo 400"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "organizer",
+  "module": "Cuenta",
+  "moduleKey": null,
+  "screen": "Configuracion organizador",
+  "route": "/organizer/settings",
+  "file": "pages/organizer/OrganizerSettingsPage.tsx",
+  "status": "partial",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "Pagos",
+    "actions": [
+     {
+      "label": "Metodos de pago + Guardar",
+      "type": "form",
+      "file": "pages/organizer/OrganizerSettingsPage.tsx",
+      "line": 217,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [
+       "event_organizers"
+      ],
+      "writes": [
+       "BFF PUT {payment_methods}"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   },
+   {
+    "name": "Bancario",
+    "actions": [
+     {
+      "label": "Datos bancarios + Guardar",
+      "type": "form",
+      "file": "pages/organizer/OrganizerSettingsPage.tsx",
+      "line": 289,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [],
+      "writes": [
+       "BFF PUT {bank_data}"
+      ],
+      "status": "partial",
+      "usage": "llaves distintas al onboarding"
+     }
+    ]
+   },
+   {
+    "name": "Preferencias",
+    "actions": [
+     {
+      "label": "QR Smart",
+      "type": "switch",
+      "file": "pages/organizer/OrganizerSettingsPage.tsx",
+      "line": 320,
+      "gates": "OrganizerGuard (event_organizers.is_verified; NO organizer => spinner infinito)",
+      "reads": [],
+      "writes": [
+       "BFF PUT {qr_smart_enabled}"
+      ],
+      "status": "dead",
+      "usage": "nadie lee qr_smart_enabled"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Eventos",
+  "moduleKey": null,
+  "screen": "Evento publico",
+  "route": "/event/:slug",
+  "file": "pages/events/EventPublicPage.tsx",
+  "status": "partial",
+  "usage": "events=9",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "Informacion / Categorias y Precios / Reglas y Fechas",
+    "actions": [
+     {
+      "label": "Inscribirme / Inscribir delegacion",
+      "type": "button",
+      "file": "pages/events/EventPublicPage.tsx",
+      "line": 290,
+      "gates": "publico; RLS events_select_authenticated USING(true) deja leer borradores",
+      "reads": [
+       "events",
+       "event_categories_config",
+       "event_price_phases"
+      ],
+      "writes": [],
+      "status": "broken",
+      "usage": "destinos /school/enroll y /event/:id/register rotos"
+     },
+     {
+      "label": "Ver Manual y Reglamento PDF",
+      "type": "button",
+      "file": "pages/events/EventPublicPage.tsx",
+      "line": 311,
+      "gates": "-",
+      "reads": [],
+      "writes": [],
+      "status": "dead",
+      "usage": "sin onClick"
+     },
+     {
+      "label": "Compartir",
+      "type": "button",
+      "file": "pages/events/EventPublicPage.tsx",
+      "line": 123,
+      "gates": "-",
+      "reads": [],
+      "writes": [
+       "event_telemetry (falla)"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "athlete|parent|coach",
+  "module": "Eventos",
+  "moduleKey": null,
+  "screen": "Inscripcion individual a evento",
+  "route": "/event/:eventId/register",
+  "file": "pages/events/EventIndividualRegisterPage.tsx",
+  "status": "broken",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "Participante / Categoria / Paquete / Pago",
+    "actions": [
+     {
+      "label": "Enviar inscripcion",
+      "type": "button",
+      "file": "pages/events/EventIndividualRegisterPage.tsx",
+      "line": 547,
+      "gates": "auth en la practica",
+      "reads": [
+       "events",
+       "children"
+      ],
+      "writes": [
+       "BFF POST /events/:id/register"
+      ],
+      "status": "broken",
+      "usage": "exige status 'published' e inserta package_choice inexistente"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "athlete|parent",
+  "module": "Eventos",
+  "moduleKey": null,
+  "screen": "Mis inscripciones a eventos",
+  "route": "/my-event-registrations",
+  "file": "pages/events/MyEventRegistrationsPage.tsx",
+  "status": "broken",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Listar",
+      "type": "fetch",
+      "file": "pages/events/MyEventRegistrationsPage.tsx",
+      "line": 81,
+      "gates": "-",
+      "reads": [
+       "BFF /events/my-registrations/list"
+      ],
+      "writes": [],
+      "status": "broken",
+      "usage": "500 por package_choice"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Eventos",
+  "moduleKey": null,
+  "screen": "Resultados de torneo",
+  "route": "/tournaments/:eventId/results",
+  "file": "pages/events/TournamentResultsPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Ver tabla y partidos",
+      "type": "fetch",
+      "file": "lib/api/tournaments.ts",
+      "line": 0,
+      "gates": "publico",
+      "reads": [
+       "BFF /events/school-tournaments/:id/public-results (events, event_teams, tournament_matches)"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": "tournament_matches=5"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "parent|athlete",
+  "module": "Eventos",
+  "moduleKey": null,
+  "screen": "Inscripcion a liga interna",
+  "route": "/tournaments/:eventId/register",
+  "file": "pages/events/TournamentRegisterPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Inscribirme / Pagar / Ver resultados",
+      "type": "button",
+      "file": "pages/events/TournamentRegisterPage.tsx",
+      "line": 183,
+      "gates": "ProtectedRoute[parent,athlete]",
+      "reads": [
+       "BFF getForParticipant",
+       "children"
+      ],
+      "writes": [
+       "rpc register_for_internal_tournament",
+       "PaymentCheckoutModal"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "school",
+  "module": "Torneos (escuela)",
+  "moduleKey": "addon tournaments",
+  "screen": "Torneos de la escuela",
+  "route": "/school/tournaments | /new | /:id",
+  "file": "pages/school/SchoolTournamentsPage.tsx, CreateTournamentPage.tsx, SchoolTournamentDetailPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "Unico camino de torneos que funciona; duplica todo el modulo organizer.",
+  "tabs": [
+   {
+    "name": "Info / Categorias y Precios / Inscritos / Resultados",
+    "actions": [
+     {
+      "label": "Crear, publicar, delegaciones, fixtures, partidos, tabla",
+      "type": "mixed",
+      "file": "pages/school/SchoolTournamentDetailPage.tsx",
+      "line": 96,
+      "gates": "ProtectedRoute[school,admin,school_admin] + addon tournaments",
+      "reads": [
+       "BFF /events/school-tournaments/*"
+      ],
+      "writes": [
+       "events",
+       "event_*",
+       "tournament_matches"
+      ],
+      "status": "works",
+      "usage": "events escuela=8"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "school",
+  "module": "Torneos (escuela)",
+  "moduleKey": null,
+  "screen": "Inscribir delegacion a evento",
+  "route": "/school/enroll/:eventId",
+  "file": "pages/school/EventEnrollmentPage.tsx",
+  "status": "broken",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Enviar inscripcion",
+      "type": "button",
+      "file": "pages/school/EventEnrollmentPage.tsx",
+      "line": 64,
+      "gates": "ProtectedRoute[school,admin,school_admin]",
+      "reads": [
+       "BFF /events/:id/enroll-info"
+      ],
+      "writes": [
+       "BFF POST /events/:id/enroll (LEGACY)"
+      ],
+      "status": "broken",
+      "usage": "consulta schools.admin_user_id inexistente => 403; el handler correcto /school-tournaments/:id/enroll no se llama"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "school",
+  "module": "Torneos (escuela)",
+  "moduleKey": null,
+  "screen": "Mis delegaciones",
+  "route": "/school/delegations | /:id",
+  "file": "pages/school/SchoolDelegationsPage.tsx, SchoolDelegationDetailPage.tsx",
+  "status": "broken",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "Equipos / Documentos",
+    "actions": [
+     {
+      "label": "Listar / Registrar pago",
+      "type": "fetch",
+      "file": "pages/school/SchoolDelegationsPage.tsx",
+      "line": 0,
+      "gates": "ProtectedRoute[school,admin,school_admin]; BFF requireRole('school')",
+      "reads": [
+       "BFF /api/v1/school/delegations"
+      ],
+      "writes": [
+       "BFF POST /events/:eventId/delegations/mine/payment"
+      ],
+      "status": "broken",
+      "usage": "500 por total_amount/paid_amount; sin menu"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "facility_manager (NO EXISTE: ni enum user_role, ni CHECK school_members, ni codigo) -> la funcion la hacen owner/admin/school_admin",
+  "module": "Sedes e Instalaciones",
+  "moduleKey": "sedes_instalaciones",
+  "screen": "Instalaciones",
+  "route": "/facilities",
+  "file": "pages/SchoolFacilitiesPage.tsx",
+  "status": "partial",
+  "usage": "",
+  "notes": "Con 0 instalaciones no se ven las pestanas Reservas ni Clases de Prueba.",
+  "tabs": [
+   {
+    "name": "Instalaciones",
+    "actions": [
+     {
+      "label": "Agregar instalacion (FacilityFormDialog)",
+      "type": "dialog",
+      "file": "components/school/FacilityFormDialog.tsx",
+      "line": 100,
+      "gates": "ProtectedRoute[school,admin,school_admin,super_admin] + ModuleGate sedes_instalaciones",
+      "reads": [
+       "facilities"
+      ],
+      "writes": [
+       "facilities"
+      ],
+      "status": "partial",
+      "usage": "facilities=30 en 11 escuelas; form sin hourly_rate, branch_id ni status"
+     },
+     {
+      "label": "Copiar link publico /agendar/:slug",
+      "type": "button",
+      "file": "pages/SchoolFacilitiesPage.tsx",
+      "line": 516,
+      "gates": "-",
+      "reads": [
+       "schools.slug"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Configurar disponibilidad",
+      "type": "dialog",
+      "file": "pages/SchoolFacilitiesPage.tsx",
+      "line": 539,
+      "gates": "-",
+      "reads": [
+       "BFF /api/v1/facilities/:id/availability"
+      ],
+      "writes": [
+       "facility_availability"
+      ],
+      "status": "works",
+      "usage": "facility_availability=274"
+     },
+     {
+      "label": "Editar / Eliminar",
+      "type": "button",
+      "file": "pages/SchoolFacilitiesPage.tsx",
+      "line": 548,
+      "gates": "-",
+      "reads": [],
+      "writes": [
+       "facilities"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   },
+   {
+    "name": "Reservas",
+    "actions": [
+     {
+      "label": "Nueva reserva (OwnerReservationModal)",
+      "type": "dialog",
+      "file": "pages/SchoolFacilitiesPage.tsx",
+      "line": 601,
+      "gates": "solo si hay >=1 instalacion",
+      "reads": [],
+      "writes": [
+       "facility_reservations (precio siempre 0)"
+      ],
+      "status": "partial",
+      "usage": "facility_reservations=60, 0 en 30d, 3 escuelas"
+     },
+     {
+      "label": "Ver detalle / Editar / Reprogramar / Aprobar / Cancelar / Eliminar",
+      "type": "menu",
+      "file": "pages/SchoolFacilitiesPage.tsx",
+      "line": 697,
+      "gates": "BFF requireRole('school','school_admin')",
+      "reads": [
+       "facility_reservations",
+       "session_bookings"
+      ],
+      "writes": [
+       "BFF /reservations-admin/*",
+       "rpc session_booking_reschedule",
+       "session_bookings (Aprobar directo, salta BFF)"
+      ],
+      "status": "works",
+      "usage": "session_bookings=72"
+     },
+     {
+      "label": "Completar reserva",
+      "type": "action",
+      "file": "hooks/useFacilityReservations.ts",
+      "line": 367,
+      "gates": "-",
+      "reads": [],
+      "writes": [],
+      "status": "dead",
+      "usage": "exportado sin UI"
+     }
+    ]
+   },
+   {
+    "name": "Clases de Prueba",
+    "actions": [
+     {
+      "label": "Configurar / Agendar / Marcar realizada-no show-convertida / Reprogramar / Cancelar / Reenviar correo",
+      "type": "menu",
+      "file": "pages/SchoolFacilitiesPage.tsx",
+      "line": 783,
+      "gates": "-",
+      "reads": [
+       "BFF /api/v1/trial-classes/*"
+      ],
+      "writes": [
+       "trial_class_bookings",
+       "school_trial_class_settings",
+       "trial_class_categories"
+      ],
+      "status": "works",
+      "usage": "trial_class_bookings=2, settings=1"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "facility_manager (NO EXISTE: ni enum user_role, ni CHECK school_members, ni codigo) -> la funcion la hacen owner/admin/school_admin",
+  "module": "Sedes e Instalaciones",
+  "moduleKey": "sedes_sedes",
+  "screen": "Sedes",
+  "route": "/branches",
+  "file": "pages/SchoolBranchesManagementPage.tsx",
+  "status": "partial",
+  "usage": "",
+  "notes": "Sedes no se vinculan a instalaciones ni a torniquetes.",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Nueva sede / Editar (is_main no atomico)",
+      "type": "dialog",
+      "file": "pages/SchoolBranchesManagementPage.tsx",
+      "line": 239,
+      "gates": "ProtectedRoute[school,admin,school_admin,super_admin] + ModuleGate sedes_sedes",
+      "reads": [
+       "school_branches"
+      ],
+      "writes": [
+       "school_branches"
+      ],
+      "status": "partial",
+      "usage": "school_branches=427 en 371 escuelas (Sede Principal auto)"
+     },
+     {
+      "label": "Eliminar (window.confirm)",
+      "type": "button",
+      "file": "pages/SchoolBranchesManagementPage.tsx",
+      "line": 358,
+      "gates": "-",
+      "reads": [],
+      "writes": [
+       "school_branches"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "facility_manager (NO EXISTE: ni enum user_role, ni CHECK school_members, ni codigo) -> la funcion la hacen owner/admin/school_admin",
+  "module": "Sedes e Instalaciones",
+  "moduleKey": "sedes_control_acceso (+addon access_control)",
+  "screen": "Control de acceso (ZKTeco)",
+  "route": "/school/access-control",
+  "file": "pages/school/AccessControlPage.tsx",
+  "status": "works",
+  "usage": "Modulo con mas uso real de este mapa",
+  "notes": "Ingesta ADMS sin UI en bff/src/routes/access-adms.ts. BFF /access/enroll y /revoke sin uso.",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Actualizar (stats, eventos, dispositivos, vencidos)",
+      "type": "button",
+      "file": "pages/school/AccessControlPage.tsx",
+      "line": 544,
+      "gates": "ProtectedRoute[school,admin,school_admin,super_admin] + ModuleGate + addon (BFF NO valida addon)",
+      "reads": [
+       "BFF /api/v1/access/stats|events|devices|overdue"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": "access_events=14.144, 3.438 en 30d, 4 escuelas"
+     },
+     {
+      "label": "Configurar dispositivos",
+      "type": "dialog",
+      "file": "pages/school/AccessControlPage.tsx",
+      "line": 553,
+      "gates": "-",
+      "reads": [
+       "turnstile_devices"
+      ],
+      "writes": [
+       "turnstile_devices",
+       "device_commands"
+      ],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Vencidos: Bloquear / Restaurar",
+      "type": "button",
+      "file": "pages/school/AccessControlPage.tsx",
+      "line": 1080,
+      "gates": "-",
+      "reads": [],
+      "writes": [
+       "BFF /access/set-access-group -> device_commands"
+      ],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Abrir Entrada / Abrir Salida",
+      "type": "button",
+      "file": "pages/school/AccessControlPage.tsx",
+      "line": 701,
+      "gates": "-",
+      "reads": [],
+      "writes": [
+       "device_commands",
+       "access_events"
+      ],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Asignar PIN desconocido",
+      "type": "dialog",
+      "file": "pages/school/AccessControlPage.tsx",
+      "line": 802,
+      "gates": "-",
+      "reads": [
+       "BFF /access/members"
+      ],
+      "writes": [
+       "zk_user_mappings"
+      ],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Bloquear ahora (fila)",
+      "type": "button",
+      "file": "pages/school/AccessControlPage.tsx",
+      "line": 813,
+      "gates": "-",
+      "reads": [],
+      "writes": [
+       "device_commands"
+      ],
+      "status": "partial",
+      "usage": "sin .catch"
+     },
+     {
+      "label": "Banco de horas: corregir visitas / cobros por exceso",
+      "type": "section",
+      "file": "components/access/HourBankSchoolSection.tsx",
+      "line": 59,
+      "gates": "-",
+      "reads": [
+       "hour_bank_visits",
+       "hour_bank_overage_charges"
+      ],
+      "writes": [
+       "hour_bank_*"
+      ],
+      "status": "works",
+      "usage": "hour_bank_reservations=18"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "facility_manager (NO EXISTE: ni enum user_role, ni CHECK school_members, ni codigo) -> la funcion la hacen owner/admin/school_admin",
+  "module": "Finanzas",
+  "moduleKey": "finanzas_recepcion",
+  "screen": "Modo Recepcion (kiosko)",
+  "route": "/recepcion",
+  "file": "pages/recepcion/RecepcionPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Activar recepcion / Ajustes de voz / Probar anuncio / Salir",
+      "type": "button",
+      "file": "pages/recepcion/RecepcionPage.tsx",
+      "line": 237,
+      "gates": "ProtectedRoute[school,admin,school_admin,super_admin,reporter] + ModuleGate",
+      "reads": [
+       "notifications (realtime)",
+       "payments"
+      ],
+      "writes": [
+       "localStorage"
+      ],
+      "status": "works",
+      "usage": "solo anuncios; no es check-in"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "facility_manager (NO EXISTE: ni enum user_role, ni CHECK school_members, ni codigo) -> la funcion la hacen owner/admin/school_admin",
+  "module": "Recogida",
+  "moduleKey": null,
+  "screen": "Monitor de recogida",
+  "route": "/pickup",
+  "file": "pages/school/PickupMonitorPage.tsx",
+  "status": "mock",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Simular llegada / Marcar en puerta / Confirmar entrega",
+      "type": "button",
+      "file": "pages/school/PickupMonitorPage.tsx",
+      "line": 132,
+      "gates": "ProtectedRoute[school,admin]",
+      "reads": [],
+      "writes": [],
+      "status": "mock",
+      "usage": "MOCK_STUDENTS; sin tablas; sin menu"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Reservas publicas",
+  "moduleKey": null,
+  "screen": "Reserva de clase de cortesia (nombre engañoso: 'agendar instalacion')",
+  "route": "/agendar/:slug",
+  "file": "pages/booking/PublicFacilityBookingPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "No alquila instalaciones: reserva cortesias. Tablas sin CREATE TABLE versionado.",
+  "tabs": [
+   {
+    "name": "Bienvenida / Instalacion / Horarios / Email / Codigo / Exito",
+    "actions": [
+     {
+      "label": "Verificar email, OTP, confirmar",
+      "type": "flow",
+      "file": "pages/booking/PublicFacilityBookingPage.tsx",
+      "line": 552,
+      "gates": "publico + publicBookingLimiter",
+      "reads": [
+       "BFF /api/v1/public/booking/schools/:slug|slots"
+      ],
+      "writes": [
+       "public_booking_verifications",
+       "unregistered_athletes",
+       "enrollments",
+       "rpc public_booking_confirm_reservation -> session_bookings"
+      ],
+      "status": "works",
+      "usage": "public_booking_verifications=43 (ultimo 09-17)"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Reservas publicas",
+  "moduleKey": null,
+  "screen": "Clase de prueba publica",
+  "route": "/agendar-clase/:slug",
+  "file": "pages/booking/PublicTrialClassBookingPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "15 pasos (prueba / inscrito sin cuenta / con sesion)",
+    "actions": [
+     {
+      "label": "Verificar, elegir horario, confirmar",
+      "type": "flow",
+      "file": "pages/booking/PublicTrialClassBookingPage.tsx",
+      "line": 702,
+      "gates": "publico",
+      "reads": [
+       "rpc trial_class_public_get_slots"
+      ],
+      "writes": [
+       "rpc trial_class_public_create -> trial_class_bookings",
+       "session bookings por inscripcion"
+      ],
+      "status": "works",
+      "usage": "trial_class_bookings=2"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Reservas publicas",
+  "moduleKey": null,
+  "screen": "Formulario de prospecto + franja de cortesia",
+  "route": "/inscripcion/:slug",
+  "file": "pages/SchoolLeadFormPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "Tercer modelo de cortesia (leads+trial_slots), gestionado en WhatsAppPage > ClasesCortesia.",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Enviar",
+      "type": "form",
+      "file": "pages/SchoolLeadFormPage.tsx",
+      "line": 132,
+      "gates": "publico",
+      "reads": [
+       "rpc get_school_lead_landing_public",
+       "rpc list_open_trial_slots_public"
+      ],
+      "writes": [
+       "rpc submit_school_lead -> school_signup_leads, school_trial_slots"
+      ],
+      "status": "works",
+      "usage": "school_signup_leads=32, 28 en 30d"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "super_admin",
+  "module": "Plataforma",
+  "moduleKey": null,
+  "screen": "Logs de acceso (global)",
+  "route": "/admin/access-logs",
+  "file": "pages/AdminAccessLogsPage.tsx",
+  "status": "hidden",
+  "usage": "",
+  "notes": "Sin menu; solo enlazado desde /admin.",
+  "tabs": [
+   {
+    "name": "Eventos de acceso / Debug dispositivo",
+    "actions": [
+     {
+      "label": "Actualizar",
+      "type": "button",
+      "file": "pages/AdminAccessLogsPage.tsx",
+      "line": 94,
+      "gates": "strict admin|super_admin; posible 403 por gate platform_admins montado antes",
+      "reads": [
+       "BFF /api/v1/admin/access-logs/events|device-log (access_events, adms_device_log)"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "admin|super_admin",
+  "module": "Plataforma",
+  "moduleKey": null,
+  "screen": "Dashboard plataforma",
+  "route": "/admin",
+  "file": "pages/AdminPanelPage.tsx",
+  "status": "partial",
+  "usage": "super_admin=1 (login 10-09)",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Enlaces Soporte / Logs de acceso / Logs y actividad",
+      "type": "link",
+      "file": "pages/AdminPanelPage.tsx",
+      "line": 143,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [
+       "rpc admin_list_users",
+       "admin_list_schools_global",
+       "admin_global_counts"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Tarjeta 'Actividad hoy' (muestra payments_paid_30d) / 'Sistema Online'",
+      "type": "widget",
+      "file": "pages/AdminPanelPage.tsx",
+      "line": 107,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [],
+      "writes": [],
+      "status": "mock",
+      "usage": "mal etiquetada / hardcode"
+     },
+     {
+      "label": "Usuarios: Ver detalles / Desactivar cuenta",
+      "type": "menu",
+      "file": "pages/AdminPanelPage.tsx",
+      "line": 276,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [],
+      "writes": [],
+      "status": "dead",
+      "usage": "sin handler"
+     },
+     {
+      "label": "Escuelas: Ver todas / Gestionar; 6 botones Config/Seguridad",
+      "type": "button",
+      "file": "pages/AdminPanelPage.tsx",
+      "line": 295,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [],
+      "writes": [],
+      "status": "dead",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "admin|super_admin",
+  "module": "Plataforma",
+  "moduleKey": null,
+  "screen": "Logs y actividad",
+  "route": "/admin/activity-logs",
+  "file": "pages/AdminActivityLogsPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "Pagos",
+    "actions": [
+     {
+      "label": "Listar paginado",
+      "type": "table",
+      "file": "pages/AdminActivityLogsPage.tsx",
+      "line": 252,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [
+       "rpc admin_list_payments"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   },
+   {
+    "name": "Billing",
+    "actions": [
+     {
+      "label": "Listar",
+      "type": "table",
+      "file": "pages/AdminActivityLogsPage.tsx",
+      "line": 252,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [
+       "rpc admin_list_billing_events"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": "billing_events=0"
+     }
+    ]
+   },
+   {
+    "name": "Auditoria",
+    "actions": [
+     {
+      "label": "Listar",
+      "type": "table",
+      "file": "pages/AdminActivityLogsPage.tsx",
+      "line": 252,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [
+       "rpc admin_list_audit_logs"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   },
+   {
+    "name": "Analitica",
+    "actions": [
+     {
+      "label": "Listar",
+      "type": "table",
+      "file": "pages/AdminActivityLogsPage.tsx",
+      "line": 252,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [
+       "rpc admin_list_analytics_events"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": "analytics_events=0"
+     }
+    ]
+   },
+   {
+    "name": "Eventos",
+    "actions": [
+     {
+      "label": "Listar",
+      "type": "table",
+      "file": "pages/AdminActivityLogsPage.tsx",
+      "line": 252,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [
+       "rpc admin_list_event_telemetry"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": "event_telemetry=0 (RLS bloquea inserts)"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "admin|super_admin",
+  "module": "Plataforma",
+  "moduleKey": null,
+  "screen": "Analitica",
+  "route": "/admin/analytics",
+  "file": "pages/AdminAnalyticsPage.tsx",
+  "status": "mock",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "KPIs y tendencia",
+      "type": "widget",
+      "file": "pages/AdminAnalyticsPage.tsx",
+      "line": 81,
+      "gates": "ProtectedRoute NO strict [admin,school,super_admin] => owners/admins de escuela entran",
+      "reads": [
+       "enrollments",
+       "payments",
+       "orders",
+       "wellness_appointments",
+       "profiles",
+       "schools"
+      ],
+      "writes": [],
+      "status": "mock",
+      "usage": "monthlyTrend hardcode; wellness=count*80000; % hardcode; period sin efecto"
+     },
+     {
+      "label": "Exportar",
+      "type": "button",
+      "file": "pages/AdminAnalyticsPage.tsx",
+      "line": 205,
+      "gates": "ProtectedRoute NO strict [admin,school,super_admin] => owners/admins de escuela entran",
+      "reads": [],
+      "writes": [],
+      "status": "dead",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "admin|super_admin",
+  "module": "Gestion Global",
+  "moduleKey": null,
+  "screen": "Escuelas (global)",
+  "route": "/admin/schools",
+  "file": "pages/AdminSchoolsGlobalPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Buscar / filtro verificada / paginar",
+      "type": "control",
+      "file": "pages/AdminSchoolsGlobalPage.tsx",
+      "line": 106,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [
+       "rpc admin_list_schools_global"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": "solo lectura; sin acceso al panel de modulos ni verificacion"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "admin|super_admin",
+  "module": "Gestion Global",
+  "moduleKey": null,
+  "screen": "Integridad de inscripciones",
+  "route": "/admin/enrollment-integrity",
+  "file": "pages/AdminEnrollmentIntegrityPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Revisar ahora",
+      "type": "button",
+      "file": "pages/AdminEnrollmentIntegrityPage.tsx",
+      "line": 173,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [],
+      "writes": [
+       "rpc admin_run_enrollment_integrity_check"
+      ],
+      "status": "works",
+      "usage": "enrollment_integrity_findings=188"
+     },
+     {
+      "label": "Resuelto / Ignorar",
+      "type": "dialog",
+      "file": "pages/AdminEnrollmentIntegrityPage.tsx",
+      "line": 240,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [
+       "rpc admin_list_enrollment_integrity_findings"
+      ],
+      "writes": [
+       "rpc admin_resolve_enrollment_integrity_finding"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "admin|super_admin",
+  "module": "Gestion Global",
+  "moduleKey": "school_module_overrides",
+  "screen": "Suscripciones + PANEL DE MODULOS POR ESCUELA",
+  "route": "/admin/subscriptions",
+  "file": "pages/AdminSubscriptionsPage.tsx",
+  "status": "partial",
+  "usage": "",
+  "notes": "El panel de modulos vive aqui, NO en /admin/schools.",
+  "tabs": [
+   {
+    "name": "Lista de escuelas",
+    "actions": [
+     {
+      "label": "Seleccionar escuela (25 max, resto solo por busqueda)",
+      "type": "list",
+      "file": "pages/AdminSubscriptionsPage.tsx",
+      "line": 199,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [
+       "rpc admin_list_schools_global",
+       "v_school_entitlements",
+       "school_subscriptions",
+       "school_subscription_invoices",
+       "school_addons"
+      ],
+      "writes": [],
+      "status": "partial",
+      "usage": "school_subscriptions=220: 176 trial_expired, 27 grandfathered, 9 trialing, 8 active"
+     }
+    ]
+   },
+   {
+    "name": "Plan",
+    "actions": [
+     {
+      "label": "Cambiar plan",
+      "type": "select",
+      "file": "pages/AdminSubscriptionsPage.tsx",
+      "line": 739,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [],
+      "writes": [
+       "rpc admin_set_school_plan (siempre p_status active => termina el trial sin avisar)"
+      ],
+      "status": "partial",
+      "usage": ""
+     }
+    ]
+   },
+   {
+    "name": "Periodo de prueba",
+    "actions": [
+     {
+      "label": "1/2/3/6/12 meses, fecha exacta, +1 mes, Expirar ya, No bloquear, Tipo de cuenta",
+      "type": "button",
+      "file": "pages/AdminSubscriptionsPage.tsx",
+      "line": 792,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [],
+      "writes": [
+       "rpc admin_set_trial",
+       "admin_extend_trial",
+       "admin_expire_trial_now",
+       "admin_set_blocking_exempt",
+       "admin_set_account_type"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   },
+   {
+    "name": "Tipo de escuela / Cobros a familias",
+    "actions": [
+     {
+      "label": "Tipo de escuela; Activar cobros",
+      "type": "select",
+      "file": "pages/AdminSubscriptionsPage.tsx",
+      "line": 886,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [],
+      "writes": [
+       "rpc admin_set_school_type",
+       "admin_set_billing_enabled"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   },
+   {
+    "name": "Facturacion SportMaps",
+    "actions": [
+     {
+      "label": "Activar facturacion SaaS (+ envio de 1a factura)",
+      "type": "button",
+      "file": "pages/AdminSubscriptionsPage.tsx",
+      "line": 967,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [],
+      "writes": [
+       "rpc admin_set_saas_billing_enabled"
+      ],
+      "status": "works",
+      "usage": "school_subscription_invoices=9, 3 pagadas"
+     },
+     {
+      "label": "Ver PDF / Enviar / Marcar pagada",
+      "type": "button",
+      "file": "pages/AdminSubscriptionsPage.tsx",
+      "line": 1004,
+      "gates": "BFF platform-invoicing: send/mark-paid SOLO super_admin",
+      "reads": [],
+      "writes": [
+       "BFF /api/v1/platform/invoices/:id/*"
+      ],
+      "status": "partial",
+      "usage": "403 para rol admin"
+     }
+    ]
+   },
+   {
+    "name": "Precio negociado",
+    "actions": [
+     {
+      "label": "Guardar precio negociado",
+      "type": "button",
+      "file": "pages/AdminSubscriptionsPage.tsx",
+      "line": 1104,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [],
+      "writes": [
+       "rpc admin_set_school_custom_price"
+      ],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Quitar override",
+      "type": "button",
+      "file": "pages/AdminSubscriptionsPage.tsx",
+      "line": 1110,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [],
+      "writes": [
+       "rpc admin_set_school_custom_price"
+      ],
+      "status": "broken",
+      "usage": "lee el draft viejo del closure: vuelve a guardar el precio anterior"
+     }
+    ]
+   },
+   {
+    "name": "Modulos (add-ons)",
+    "actions": [
+     {
+      "label": "12 switches de addons (whitelabel enciende pwa_branding)",
+      "type": "switch",
+      "file": "pages/AdminSubscriptionsPage.tsx",
+      "line": 1134,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [
+       "school_addons"
+      ],
+      "writes": [
+       "rpc admin_set_school_addon"
+      ],
+      "status": "works",
+      "usage": "school_addons=260"
+     },
+     {
+      "label": "Precio mensual de adicionales",
+      "type": "button",
+      "file": "pages/AdminSubscriptionsPage.tsx",
+      "line": 1197,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [],
+      "writes": [
+       "rpc admin_set_school_addon (p_monthly_price_cents)"
+      ],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Generar iconos PWA",
+      "type": "button",
+      "file": "pages/AdminSubscriptionsPage.tsx",
+      "line": 1219,
+      "gates": "has_pwa_branding",
+      "reads": [],
+      "writes": [
+       "BFF POST /schools/:id/pwa-icons/regenerate"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   },
+   {
+    "name": "Modulos del menu",
+    "actions": [
+     {
+      "label": "Tri-estado Heredado/ON/OFF por modulo",
+      "type": "tristate",
+      "file": "pages/AdminSubscriptionsPage.tsx",
+      "line": 1277,
+      "gates": "ProtectedRoute strict [admin,super_admin]; rpc exige is_super_admin()",
+      "reads": [
+       "school_module_overrides"
+      ],
+      "writes": [
+       "rpc admin_set_school_module -> school_module_overrides"
+      ],
+      "status": "partial",
+      "usage": "17 overrides (todos OFF; ultimo 10-09). Grupo 'Comunicacion' falta en MODULE_GROUPS: comunicacion_whatsapp, documentos_recordatorios, documentos_plantillas_mensajes sin control"
+     }
+    ]
+   },
+   {
+    "name": "Catalogos piloto",
+    "actions": [
+     {
+      "label": "Articulos deportivos / Banco de horas / Cobros de torneo",
+      "type": "switch",
+      "file": "pages/AdminSubscriptionsPage.tsx",
+      "line": 1346,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [
+       "school_merchandise_items",
+       "school_tournament_items"
+      ],
+      "writes": [
+       "rpc admin_set_school_merchandise_enabled",
+       "admin_set_hours_plan_enabled",
+       "admin_set_school_tournament_charges_enabled"
+      ],
+      "status": "works",
+      "usage": "school_tournament_items=4"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "admin|super_admin",
+  "module": "Gestion Global",
+  "moduleKey": null,
+  "screen": "Usuarios (en realidad: usuarios de la escuela en contexto)",
+  "route": "/admin/users",
+  "file": "pages/AdminUsersPage.tsx",
+  "status": "broken",
+  "usage": "",
+  "notes": "Sin escuela en contexto: spinner infinito para el admin de plataforma.",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Invitar usuario",
+      "type": "dialog",
+      "file": "pages/AdminUsersPage.tsx",
+      "line": 266,
+      "gates": "ProtectedRoute NO strict [admin,school,super_admin] => owners/admins de escuela entran",
+      "reads": [
+       "school_members",
+       "school_branches",
+       "profiles"
+      ],
+      "writes": [
+       "rpc create_invitation | invitations"
+      ],
+      "status": "partial",
+      "usage": "campo Nombre nunca se envia"
+     },
+     {
+      "label": "Diagnosticar cuenta",
+      "type": "dialog",
+      "file": "pages/AdminUsersPage.tsx",
+      "line": 261,
+      "gates": "super_admin",
+      "reads": [
+       "BFF /api/v1/admin/support/user-state"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "admin|super_admin",
+  "module": "Gestion Global",
+  "moduleKey": null,
+  "screen": "Reportes (alias de ReportsPage de escuela)",
+  "route": "/admin/reports",
+  "file": "pages/ReportsPage.tsx",
+  "status": "duplicated",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "Resumen / Documentos",
+    "actions": [
+     {
+      "label": "Cargar",
+      "type": "fetch",
+      "file": "pages/ReportsPage.tsx",
+      "line": 249,
+      "gates": "ProtectedRoute NO strict [admin,school,super_admin] => owners/admins de escuela entran",
+      "reads": [
+       "BFF /reports/school/summary"
+      ],
+      "writes": [],
+      "status": "broken",
+      "usage": "exige schoolId"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "admin|super_admin",
+  "module": "Sistema",
+  "moduleKey": null,
+  "screen": "Configuracion (alias de SettingsPage)",
+  "route": "/admin/config",
+  "file": "pages/SettingsPage.tsx",
+  "status": "duplicated",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "perfil / notificaciones / privacidad / seguridad",
+    "actions": [
+     {
+      "label": "Ajustes personales",
+      "type": "form",
+      "file": "pages/SettingsPage.tsx",
+      "line": 53,
+      "gates": "ProtectedRoute NO strict [admin,school,super_admin] => owners/admins de escuela entran",
+      "reads": [
+       "profiles"
+      ],
+      "writes": [
+       "profiles"
+      ],
+      "status": "duplicated",
+      "usage": "no es configuracion de plataforma"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "super_admin",
+  "module": "Sistema",
+  "moduleKey": null,
+  "screen": "Parametros de nomina",
+  "route": "/admin/payroll-config",
+  "file": "pages/admin/PayrollConfigPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Agregar ano / Editar",
+      "type": "dialog",
+      "file": "pages/admin/PayrollConfigPage.tsx",
+      "line": 74,
+      "gates": "ProtectedRoute[super_admin] NO strict => owners pasan; RLS escribe solo super_admin (0 filas, falso 'guardado')",
+      "reads": [
+       "payroll_config"
+      ],
+      "writes": [
+       "payroll_config"
+      ],
+      "status": "partial",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "super_admin",
+  "module": "Sistema",
+  "moduleKey": null,
+  "screen": "Bandeja de soporte (SportBot + humano)",
+  "route": "/admin/support",
+  "file": "pages/AdminSupportInboxPage.tsx",
+  "status": "hidden",
+  "usage": "",
+  "notes": "Sin menu; solo enlace desde /admin.",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Refrescar / abrir ticket / responder / nota interna",
+      "type": "button",
+      "file": "pages/AdminSupportInboxPage.tsx",
+      "line": 232,
+      "gates": "strict super_admin; BFF requireSuperAdminStrict",
+      "reads": [
+       "BFF /api/v1/admin/support/tickets|messages"
+      ],
+      "writes": [
+       "BFF POST /api/v1/support/messages"
+      ],
+      "status": "partial",
+      "usage": "support_tickets=8 (5 bot_handled, 3 waiting_user); sin cerrar/asignar; tickets nunca salen"
+     },
+     {
+      "label": "Panel de diagnostico",
+      "type": "panel",
+      "file": "pages/AdminSupportInboxPage.tsx",
+      "line": 0,
+      "gates": "super_admin",
+      "reads": [
+       "BFF /admin/support/user-state"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "admin|super_admin",
+  "module": "Sin menu",
+  "moduleKey": null,
+  "screen": "Solicitudes de upgrade",
+  "route": "/admin/upgrade-requests",
+  "file": "pages/AdminUpgradeRequestsPage.tsx",
+  "status": "hidden",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "Pendientes / Contactados / Procesados / Rechazados / Todos",
+    "actions": [
+     {
+      "label": "WhatsApp / Marcar contactado / Procesar / Rechazar",
+      "type": "button",
+      "file": "pages/AdminUpgradeRequestsPage.tsx",
+      "line": 148,
+      "gates": "ProtectedRoute strict [admin,super_admin]",
+      "reads": [
+       "BFF /api/v1/upgrade-requests"
+      ],
+      "writes": [
+       "rpc rpc_process_upgrade_request"
+      ],
+      "status": "hidden",
+      "usage": "ruta huerfana; plan_upgrade_requests=0; contadores de pestanas inactivas en 0"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "admin|super_admin",
+  "module": "Sin menu",
+  "moduleKey": null,
+  "screen": "Clubes (duplica /branches)",
+  "route": "/admin/clubs",
+  "file": "pages/AdminClubsPage.tsx",
+  "status": "dead",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Nueva sede / card -> /branches",
+      "type": "dialog",
+      "file": "pages/AdminClubsPage.tsx",
+      "line": 113,
+      "gates": "ProtectedRoute NO strict [admin,school,super_admin] => owners/admins de escuela entran",
+      "reads": [
+       "school_branches",
+       "children",
+       "school_members",
+       "payments",
+       "teams (N+1)"
+      ],
+      "writes": [
+       "school_branches"
+      ],
+      "status": "duplicated",
+      "usage": "ruta huerfana"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "admin|super_admin",
+  "module": "Sin menu",
+  "moduleKey": null,
+  "screen": "Logs (alias de NotificationsPage)",
+  "route": "/admin/logs",
+  "file": "pages/NotificationsPage.tsx",
+  "status": "dead",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Notificaciones personales",
+      "type": "list",
+      "file": "pages/NotificationsPage.tsx",
+      "line": 0,
+      "gates": "ProtectedRoute NO strict [admin,school,super_admin] => owners/admins de escuela entran",
+      "reads": [
+       "notifications"
+      ],
+      "writes": [],
+      "status": "dead",
+      "usage": "ruta huerfana y engañosa"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "school|any",
+  "module": "Facturacion SaaS",
+  "moduleKey": null,
+  "screen": "Recibo de factura SaaS",
+  "route": "/facturacion/recibo/:invoiceId",
+  "file": "pages/SaasInvoiceReceiptPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Ver PDF",
+      "type": "button",
+      "file": "pages/SaasInvoiceReceiptPage.tsx",
+      "line": 155,
+      "gates": "ProtectedRoute + RLS",
+      "reads": [
+       "school_subscription_invoices",
+       "schools"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": "enlazado solo desde correo/push"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "school",
+  "module": "Facturacion SaaS",
+  "moduleKey": null,
+  "screen": "Mi plan",
+  "route": "/mi-plan",
+  "file": "pages/MiPlanPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Ver planes / Elegir plan / Actualizar pago / Contactar ventas",
+      "type": "link",
+      "file": "pages/MiPlanPage.tsx",
+      "line": 354,
+      "gates": "canManagePlan (entidad escuela)",
+      "reads": [
+       "v_school_entitlements",
+       "students stats"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": "todos los CTA salen a la landing externa con token; no lista facturas"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Auth",
+  "moduleKey": null,
+  "screen": "Login",
+  "route": "/login",
+  "file": "pages/LoginPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "Min 6 caracteres aqui vs 8 en registro.",
+  "tabs": [
+   {
+    "name": "Entrar / Olvide contrasena",
+    "actions": [
+     {
+      "label": "Entrar ahora",
+      "type": "form",
+      "file": "pages/LoginPage.tsx",
+      "line": 330,
+      "gates": "publico; con sesion -> redirectTo|/dashboard",
+      "reads": [
+       "rpc get_school_by_slug (tenant)"
+      ],
+      "writes": [
+       "auth signInWithPassword"
+      ],
+      "status": "works",
+      "usage": "login 30d: parent 181, athlete 18, school 16, coach 14"
+     },
+     {
+      "label": "Enviar instrucciones (reset)",
+      "type": "form",
+      "file": "pages/LoginPage.tsx",
+      "line": 408,
+      "gates": "-",
+      "reads": [],
+      "writes": [
+       "auth resetPasswordForEmail"
+      ],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Continuar con Google",
+      "type": "button",
+      "file": "components/auth/GoogleSignInButton.tsx",
+      "line": 19,
+      "gates": "-",
+      "reads": [],
+      "writes": [
+       "auth signInWithOAuth"
+      ],
+      "status": "works",
+      "usage": "needs_role_selection=true: 6 perfiles"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Auth",
+  "moduleKey": null,
+  "screen": "Registro",
+  "route": "/register",
+  "file": "pages/RegisterPage.tsx",
+  "status": "partial",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "Tarjetas de rol + formulario",
+    "actions": [
+     {
+      "label": "Crear mi cuenta",
+      "type": "form",
+      "file": "pages/RegisterPage.tsx",
+      "line": 912,
+      "gates": "publico; roles: athlete, parent, coach, school, wellness_professional, store_owner, personal_trainer (organizer solo por ?role=)",
+      "reads": [
+       "roles (lectura sin uso)",
+       "sports_categories",
+       "rpc get_invitation_details"
+      ],
+      "writes": [
+       "auth signUp -> trigger handle_new_user -> profiles (+schools)",
+       "rpc accept_invitation_pro",
+       "rpc complete_onboarding"
+      ],
+      "status": "partial",
+      "usage": "CRITICO: handle_new_user confia en metadata.role (super_admin->admin). Verificado en BD viva."
+     },
+     {
+      "label": "Registrarme con Google",
+      "type": "button",
+      "file": "pages/RegisterPage.tsx",
+      "line": 926,
+      "gates": "-",
+      "reads": [],
+      "writes": [
+       "auth OAuth"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Auth",
+  "moduleKey": null,
+  "screen": "Restablecer contrasena",
+  "route": "/reset-password",
+  "file": "pages/ResetPasswordPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Restablecer",
+      "type": "form",
+      "file": "pages/ResetPasswordPage.tsx",
+      "line": 233,
+      "gates": "token_hash o cualquier sesion activa",
+      "reads": [],
+      "writes": [
+       "auth updateUser"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "any logged",
+  "module": "Auth",
+  "moduleKey": null,
+  "screen": "Elegir rol (OAuth)",
+  "route": "/onboarding/role",
+  "file": "pages/OnboardingRolePage.tsx",
+  "status": "partial",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "8 roles",
+    "actions": [
+     {
+      "label": "Elegir rol",
+      "type": "button",
+      "file": "pages/OnboardingRolePage.tsx",
+      "line": 71,
+      "gates": "ProtectedRoute skipOnboardingCheck",
+      "reads": [],
+      "writes": [
+       "rpc complete_role_selection (allow-list de 8)"
+      ],
+      "status": "partial",
+      "usage": "rama organizer termina en /organizer/home 404"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Auth",
+  "moduleKey": null,
+  "screen": "No autorizado",
+  "route": "/unauthorized",
+  "file": "pages/UnauthorizedPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Volver al dashboard / Inicio",
+      "type": "link",
+      "file": "pages/UnauthorizedPage.tsx",
+      "line": 26,
+      "gates": "-",
+      "reads": [],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "any logged",
+  "module": "Auth",
+  "moduleKey": null,
+  "screen": "Cierre por inactividad",
+  "route": "(global)",
+  "file": "components/auth/IdleTimer.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Mantener sesion abierta",
+      "type": "dialog",
+      "file": "components/auth/IdleTimer.tsx",
+      "line": 198,
+      "gates": "10 min normal / 30 min trabajo activo; pausa con formularios sucios",
+      "reads": [],
+      "writes": [
+       "signOut + limpieza"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "school",
+  "module": "Onboarding",
+  "moduleKey": null,
+  "screen": "Crear escuela",
+  "route": "/setup/school",
+  "file": "pages/SchoolSetupPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Continuar al Dashboard",
+      "type": "form",
+      "file": "pages/SchoolSetupPage.tsx",
+      "line": 135,
+      "gates": "profile.role==='school' (school_admin/admin rebotan)",
+      "reads": [],
+      "writes": [
+       "schools",
+       "school_members (owner)",
+       "trigger handle_new_school"
+      ],
+      "status": "partial",
+      "usage": "school_type puede quedar ''"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "school",
+  "module": "Onboarding",
+  "moduleKey": null,
+  "screen": "Asistente de configuracion de escuela",
+  "route": "/onboarding/school",
+  "file": "pages/SchoolOnboardingPage.tsx + components/onboarding/SchoolOnboardingWizard.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "No duplica /setup/school: van en secuencia.",
+  "tabs": [
+   {
+    "name": "Sede / Modelo / Equipo / Plan / Entrenador / Atleta / Cobros",
+    "actions": [
+     {
+      "label": "Anterior / Saltar / Terminar despues / Siguiente",
+      "type": "button",
+      "file": "components/onboarding/SchoolOnboardingWizard.tsx",
+      "line": 1108,
+      "gates": "ProtectedRoute; rpc get_onboarding_status",
+      "reads": [
+       "school_branches"
+      ],
+      "writes": [
+       "schools",
+       "teams",
+       "offerings",
+       "offering_plans",
+       "school_staff",
+       "children",
+       "school_settings"
+      ],
+      "status": "works",
+      "usage": "Cobros no se puede 'Saltar'"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "athlete|parent|coach",
+  "module": "Onboarding",
+  "moduleKey": null,
+  "screen": "Onboarding atleta / padre / entrenador",
+  "route": "/onboarding/athlete | /onboarding/parent | /onboarding/coach",
+  "file": "pages/onboarding/AthleteOnboarding.tsx, ParentOnboarding.tsx, CoachOnboarding.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "2 pasos / wizard coach",
+    "actions": [
+     {
+      "label": "Finalizar",
+      "type": "button",
+      "file": "pages/onboarding/AthleteOnboarding.tsx",
+      "line": 111,
+      "gates": "ProtectedRoute; forzado desde /dashboard",
+      "reads": [
+       "profiles"
+      ],
+      "writes": [
+       "profiles",
+       "coach_profiles",
+       "rpc complete_onboarding"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "personal_trainer",
+  "module": "Onboarding",
+  "moduleKey": null,
+  "screen": "Onboarding entrenador personal",
+  "route": "/trainer/onboarding",
+  "file": "pages/trainer/TrainerOnboarding.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "6 pasos",
+    "actions": [
+     {
+      "label": "Completar",
+      "type": "button",
+      "file": "pages/trainer/TrainerOnboarding.tsx",
+      "line": 163,
+      "gates": "sin guard de rol; BFF requireTrainerAuth (403 a otros)",
+      "reads": [],
+      "writes": [
+       "BFF /api/v1/trainer/onboarding/*"
+      ],
+      "status": "works",
+      "usage": "personal_trainer=12, 0 login 30d"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Unirse",
+  "moduleKey": null,
+  "screen": "Unirse a equipo",
+  "route": "/join-team/:teamId",
+  "file": "pages/JoinTeamPage.tsx",
+  "status": "partial",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Registrar y reclamar hijo",
+      "type": "form",
+      "file": "pages/JoinTeamPage.tsx",
+      "line": 164,
+      "gates": "publico",
+      "reads": [
+       "rpc get_team_join_info",
+       "buscar_menor_por_documento_publico"
+      ],
+      "writes": [
+       "auth signUp parent",
+       "rpc claim_children_by_document"
+      ],
+      "status": "partial",
+      "usage": "con confirmacion de email el reclamo se pierde"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Unirse",
+  "moduleKey": null,
+  "screen": "Unirse a plan",
+  "route": "/join-plan/:planId",
+  "file": "pages/JoinPlanPage.tsx",
+  "status": "partial",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Registrar y reclamar",
+      "type": "form",
+      "file": "pages/JoinPlanPage.tsx",
+      "line": 110,
+      "gates": "publico",
+      "reads": [
+       "rpc get_plan_join_info",
+       "validate_doc_for_plan_join"
+      ],
+      "writes": [
+       "auth signUp",
+       "rpc claim_member_for_plan"
+      ],
+      "status": "partial",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Unirse",
+  "moduleKey": null,
+  "screen": "Inscripcion por QR",
+  "route": "/join/:slug",
+  "file": "pages/JoinSchoolPublicPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "menu / buscar / elegir / auth / pagar | hijo / listo",
+    "actions": [
+     {
+      "label": "Inscribir / Pagar / Soy atleta",
+      "type": "flow",
+      "file": "pages/JoinSchoolPublicPage.tsx",
+      "line": 479,
+      "gates": "publico",
+      "reads": [
+       "rpc get_join_qr_public",
+       "children",
+       "rpc get_qr_pay_targets"
+      ],
+      "writes": [
+       "rpc generate_qr_monthly_charge",
+       "rpc submit_qr_signup"
+      ],
+      "status": "works",
+      "usage": "school_join_qr_codes=12"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Landing",
+  "moduleKey": null,
+  "screen": "Inicio / Landing interna",
+  "route": "/",
+  "file": "pages/Index.tsx -> components/pages/Landing.tsx",
+  "status": "partial",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Ingresar / Registrarse / CTAs hero",
+      "type": "link",
+      "file": "components/pages/Landing.tsx",
+      "line": 282,
+      "gates": "con sesion -> /dashboard; tenant -> /login?t=",
+      "reads": [],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Enlaces /explore /shop /wellness",
+      "type": "link",
+      "file": "components/pages/Landing.tsx",
+      "line": 79,
+      "gates": "-",
+      "reads": [],
+      "writes": [],
+      "status": "partial",
+      "usage": "/shop y /wellness protegidos -> login"
+     },
+     {
+      "label": "FAQ y redes (href='#')",
+      "type": "link",
+      "file": "components/pages/Landing.tsx",
+      "line": 445,
+      "gates": "-",
+      "reads": [],
+      "writes": [],
+      "status": "dead",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Explorar",
+  "moduleKey": null,
+  "screen": "Explorar global (escuelas, eventos, entrenadores, servicios, productos)",
+  "route": "/explorar (+ /explore, /events)",
+  "file": "pages/ExplorarGlobalPage.tsx",
+  "status": "hidden",
+  "usage": "",
+  "notes": "SHOW_EXPLORE = import.meta.env.DEV: oculto en todos los despliegues (la ruta no esta gateada).",
+  "tabs": [
+   {
+    "name": "Grid / Mapa",
+    "actions": [
+     {
+      "label": "Reservar servicio",
+      "type": "dialog",
+      "file": "components/marketplace/ServiceBookingModal.tsx",
+      "line": 120,
+      "gates": "publico",
+      "reads": [
+       "service_listings",
+       "events",
+       "rpc search_schools",
+       "trainer_profiles",
+       "products (si store)"
+      ],
+      "writes": [
+       "rpc request_service_appointment"
+      ],
+      "status": "works",
+      "usage": ""
+     },
+     {
+      "label": "Inscribirse a evento",
+      "type": "button",
+      "file": "pages/ExplorarGlobalPage.tsx",
+      "line": 524,
+      "gates": "-",
+      "reads": [],
+      "writes": [],
+      "status": "broken",
+      "usage": "/events/:id/register no existe; login usa ?redirect= en vez de redirectTo"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Perfil publico de escuela",
+  "moduleKey": null,
+  "screen": "Detalle de escuela (canonico)",
+  "route": "/schools/:id",
+  "file": "pages/SchoolDetailPage.tsx",
+  "status": "partial",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "Programas / Reservas / Info / Resenas",
+    "actions": [
+     {
+      "label": "Inscribir / Reservar instalacion",
+      "type": "dialog",
+      "file": "pages/SchoolDetailPage.tsx",
+      "line": 760,
+      "gates": "publico",
+      "reads": [
+       "schools",
+       "offerings",
+       "teams",
+       "facilities"
+      ],
+      "writes": [
+       "facility_reservations (pending; muestra 15000 pero guarda 0)"
+      ],
+      "status": "partial",
+      "usage": "programas, instalaciones y resenas demo cuando no hay datos"
+     },
+     {
+      "label": "Compartir / Favorito",
+      "type": "button",
+      "file": "pages/SchoolDetailPage.tsx",
+      "line": 511,
+      "gates": "-",
+      "reads": [],
+      "writes": [],
+      "status": "dead",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Perfil publico de escuela",
+  "moduleKey": null,
+  "screen": "Perfil de escuela (BFF explorar)",
+  "route": "/escuela/:id",
+  "file": "pages/SchoolProfilePage.tsx",
+  "status": "dead",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Compartir / Favorito / contacto",
+      "type": "button",
+      "file": "pages/SchoolProfilePage.tsx",
+      "line": 286,
+      "gates": "publico",
+      "reads": [
+       "BFF /api/explorar/:id",
+       "/api/favoritos"
+      ],
+      "writes": [
+       "/api/favoritos/toggle"
+      ],
+      "status": "duplicated",
+      "usage": "nadie enlaza aqui"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Perfil publico de escuela",
+  "moduleKey": null,
+  "screen": "Pagina publica por slug (4 layouts)",
+  "route": "/s/:slug",
+  "file": "pages/PublicSchoolPage.tsx",
+  "status": "broken",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Inscribirse / Contactar / Solicitar reserva / Info",
+      "type": "button",
+      "file": "pages/PublicSchoolPage.tsx",
+      "line": 89,
+      "gates": "publico",
+      "reads": [
+       "schools",
+       "facilities"
+      ],
+      "writes": [],
+      "status": "mock",
+      "usage": "handleAction solo muestra toast 'Accion Demo'; es la URL que anuncia PublishedSuccessModal"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Ayuda",
+  "moduleKey": null,
+  "screen": "Centro de ayuda / articulo",
+  "route": "/ayuda | /ayuda/:slug",
+  "file": "pages/HelpCenterPage.tsx, HelpArticlePage.tsx",
+  "status": "hidden",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Categorias / buscar / articulos relacionados",
+      "type": "control",
+      "file": "pages/HelpCenterPage.tsx",
+      "line": 67,
+      "gates": "publico",
+      "reads": [
+       "BFF /api/v1/help/* (estatico, 43 articulos)"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": "solo enlazado desde respuestas del SportBot"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Publicas con token",
+  "moduleKey": null,
+  "screen": "Carnet digital",
+  "route": "/c/:qrToken",
+  "file": "pages/AthleteCardPublicPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Marcar asistencia (staff)",
+      "type": "button",
+      "file": "pages/AthleteCardPublicPage.tsx",
+      "line": 176,
+      "gates": "staff owner/admin/school_admin/coach",
+      "reads": [
+       "rpc verify_athlete_id_card_public"
+      ],
+      "writes": [
+       "BFF POST /attendance/checkin-by-card"
+      ],
+      "status": "works",
+      "usage": "athlete_id_cards=513"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Publicas con token",
+  "moduleKey": null,
+  "screen": "Cobro sin login",
+  "route": "/p/:token",
+  "file": "pages/CobroPublicoPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Pagar en linea / QR / factura",
+      "type": "button",
+      "file": "pages/CobroPublicoPage.tsx",
+      "line": 266,
+      "gates": "token",
+      "reads": [
+       "BFF /api/v1/public/cobro/:token"
+      ],
+      "writes": [
+       "Wompi"
+      ],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Publicas con token",
+  "moduleKey": null,
+  "screen": "Verificar constancia",
+  "route": "/cert/:folio",
+  "file": "pages/CertificateVerifyPublicPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Verificar",
+      "type": "fetch",
+      "file": "pages/CertificateVerifyPublicPage.tsx",
+      "line": 33,
+      "gates": "publico",
+      "reads": [
+       "rpc verify_athlete_certificate_public"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": "athlete_certificates=0"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Pagos",
+  "moduleKey": null,
+  "screen": "Resultado de pago Wompi",
+  "route": "/payment-result",
+  "file": "pages/PaymentResultPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Descargar recibo / Volver",
+      "type": "button",
+      "file": "pages/PaymentResultPage.tsx",
+      "line": 166,
+      "gates": "publico",
+      "reads": [
+       "Wompi API"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Pagos",
+  "moduleKey": null,
+  "screen": "Confirmacion de pago por link",
+  "route": "/pagos/confirmacion",
+  "file": "pages/PaymentConfirmationPage.tsx",
+  "status": "dead",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Consultar estado",
+      "type": "fetch",
+      "file": "pages/PaymentConfirmationPage.tsx",
+      "line": 82,
+      "gates": "publico",
+      "reads": [
+       "BFF /api/v1/payments/link/:token"
+      ],
+      "writes": [],
+      "status": "duplicated",
+      "usage": "sin referencias entrantes en el repo"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "parent",
+  "module": "Pagos",
+  "moduleKey": null,
+  "screen": "Checkout del acudiente",
+  "route": "/parent-checkout",
+  "file": "pages/ParentCheckoutPage.tsx",
+  "status": "partial",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Pagar",
+      "type": "button",
+      "file": "pages/ParentCheckoutPage.tsx",
+      "line": 1050,
+      "gates": "ProtectedRoute",
+      "reads": [
+       "payments",
+       "profiles",
+       "schools",
+       "school_settings",
+       "children",
+       "teams"
+      ],
+      "writes": [
+       "payments (update/insert desde cliente)",
+       "rpc notify_user",
+       "BFF sesion Wompi"
+      ],
+      "status": "partial",
+      "usage": "monto desde querystring; default 150000 'Mensualidad Octubre 2024'"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Encuestas",
+  "moduleKey": null,
+  "screen": "Encuesta publica",
+  "route": "/polls/v/:pollId",
+  "file": "pages/polls/PublicPollPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Confirmar",
+      "type": "button",
+      "file": "lib/api/polls.api.ts",
+      "line": 100,
+      "gates": "auth opcional",
+      "reads": [
+       "BFF /polls/:id/public"
+      ],
+      "writes": [
+       "BFF /polls/:id/confirm"
+      ],
+      "status": "works",
+      "usage": "attendance_polls=3"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Entrenador",
+  "moduleKey": null,
+  "screen": "Perfil publico del entrenador",
+  "route": "/entrenador/:userId",
+  "file": "pages/trainer/TrainerPublicProfile.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "WhatsApp",
+      "type": "link",
+      "file": "pages/trainer/TrainerPublicProfile.tsx",
+      "line": 239,
+      "gates": "publico",
+      "reads": [
+       "BFF /trainer/public/:id",
+       "coach_availability"
+      ],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Legales",
+  "moduleKey": null,
+  "screen": "Terminos / Privacidad / Eliminar cuenta",
+  "route": "/terminos-y-condiciones | /politica-de-privacidad | /eliminar-cuenta (+ /terms /privacy /delete-account)",
+  "file": "pages/TermsPage.tsx, PrivacyPage.tsx, AccountDeletionPage.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Eliminar cuenta (mailto)",
+      "type": "link",
+      "file": "pages/AccountDeletionPage.tsx",
+      "line": 84,
+      "gates": "publico",
+      "reads": [],
+      "writes": [],
+      "status": "works",
+      "usage": ""
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "public",
+  "module": "Sistema",
+  "moduleKey": null,
+  "screen": "404",
+  "route": "*",
+  "file": "pages/NotFound.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Volver al inicio",
+      "type": "link",
+      "file": "pages/NotFound.tsx",
+      "line": 0,
+      "gates": "-",
+      "reads": [],
+      "writes": [],
+      "status": "works",
+      "usage": "copy en ingles"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "role": "any logged (AuthLayout)",
+  "module": "SportBot / Soporte",
+  "moduleKey": null,
+  "screen": "Chat de soporte (SportBot)",
+  "route": "(boton flotante en AuthLayout)",
+  "file": "components/support/SupportChatButton.tsx + SupportChatModal.tsx",
+  "status": "works",
+  "usage": "",
+  "notes": "No disponible en publicas, onboarding, /recepcion ni /login. Hasta 3 llamadas LLM por mensaje (Groq por defecto).",
+  "tabs": [
+   {
+    "name": "-",
+    "actions": [
+     {
+      "label": "Abrir hilo / enviar mensaje",
+      "type": "chat",
+      "file": "components/support/SupportChatModal.tsx",
+      "line": 250,
+      "gates": "requireAuth; kill switch whatsapp_settings.ai_enabled (fail-open)",
+      "reads": [
+       "BFF GET /api/v1/support/thread (support_tickets, support_messages)"
+      ],
+      "writes": [
+       "rpc support_open_ticket",
+       "rpc support_post_message",
+       "notifications a super_admin",
+       "correo",
+       "bot: support_messages author bot, llm_usage"
+      ],
+      "status": "works",
+      "usage": "support_messages: 27 user, 25 bot, 5 agent (18/18 en 30d); 8 tickets"
+     },
+     {
+      "label": "Respuesta de agente humano",
+      "type": "poll",
+      "file": "components/support/SupportChatModal.tsx",
+      "line": 94,
+      "gates": "-",
+      "reads": [],
+      "writes": [],
+      "status": "partial",
+      "usage": "sin polling: solo aparece al reabrir"
+     }
+    ]
+   }
+  ]
+ }
+]

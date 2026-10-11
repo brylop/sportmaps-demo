@@ -63,9 +63,9 @@ export function BankCombobox({
           sideOffset={4}
         >
           <Command>
-            <CommandInput placeholder="Buscar banco..." className="text-sm h-[38px] w-full" />
+            <CommandInput placeholder="Buscar banco..." className="text-sm h-10 w-full" />
             <CommandEmpty>No se encontró el banco.</CommandEmpty>
-            <div className="max-h-[260px] overflow-y-auto">
+            <div className="max-h-64 overflow-y-auto">
               {COLOMBIAN_BANKS.map((g) => (
                 <CommandGroup key={g.group} heading={g.group}>
                   {g.options.map((o) => (

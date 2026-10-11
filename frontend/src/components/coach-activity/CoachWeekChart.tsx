@@ -128,7 +128,7 @@ export function CoachWeeksChart({ weekly, name }: { weekly: CoachWeekPoint[]; na
     <div className="rounded-xl border bg-card p-3 space-y-2">
       <h3 className="text-sm font-bold">¿Cómo le fue las últimas {weekly.length} semanas?</h3>
       <Legend />
-      <div className="h-[170px] w-full" role="img" aria-label={summary}>
+      <div className="h-chart-sm w-full" role="img" aria-label={summary}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ left: 0, right: 0, top: 18, bottom: 0 }} barGap={1}>
             <XAxis dataKey="label" interval={0} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={{ stroke: 'hsl(var(--border))' }} />

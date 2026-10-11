@@ -375,7 +375,7 @@ export function UnifiedExploreMap({
 
   return (
     <div className="relative rounded-xl overflow-hidden border border-border shadow-lg">
-      <div ref={mapContainerRef} className="h-[500px] w-full" />
+      <div ref={mapContainerRef} className="h-[50dvh] min-h-80 w-full" />
 
       {(isLoading || !isMapReady) && (
         <div className="absolute inset-0 bg-muted/60 flex items-center justify-center z-[500]">

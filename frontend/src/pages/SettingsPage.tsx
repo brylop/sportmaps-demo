@@ -64,7 +64,7 @@ export default function SettingsPage() {
           <div className="space-y-2">
             {[1, 2, 3, 4, 5].map(i => <div key={i} className="h-12 w-full bg-muted rounded-lg" />)}
           </div>
-          <div className="h-[400px] w-full bg-muted rounded-xl" />
+          <div className="h-96 w-full bg-muted rounded-xl" />
         </div>
       </div>
     );
@@ -230,7 +230,7 @@ export default function SettingsPage() {
           </aside>
 
           {/* Main Content Area */}
-          <main className="min-h-[600px]">
+          <main className="min-h-96">
             <TabsContent value="profile" className="mt-0">
               <ProfileSection data={data} saving={saving} onSave={updateProfile} />
             </TabsContent>

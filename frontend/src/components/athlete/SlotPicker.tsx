@@ -232,7 +232,7 @@ export function SlotPicker({ teamId, schoolId, bookingType, onSlotSelected }: Sl
               <button
                 key={date.toISOString()}
                 onClick={() => setSelectedDate(date)}
-                className={`flex flex-col items-center gap-1 px-4 py-3 rounded-xl border-2 transition-all min-w-[72px] ${
+                className={`flex flex-col items-center gap-1 px-4 py-3 rounded-xl border-2 transition-all min-w-16 ${
                   isSelected
                     ? 'border-primary bg-primary/10 text-primary'
                     : 'border-border hover:border-primary/50 hover:bg-accent'

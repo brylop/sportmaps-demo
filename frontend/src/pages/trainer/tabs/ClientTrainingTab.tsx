@@ -340,7 +340,7 @@ export function ClientTrainingTab({
                   <label className="text-xs font-bold uppercase">Calorías (opcional)</label>
                   <Input type="number" value={logForm.calories_burned} onChange={e => setLogForm({ ...logForm, calories_burned: e.target.value })} />
                 </div>
-                <Textarea placeholder="Notas..." value={logForm.notes} onChange={e => setLogForm({ ...logForm, notes: e.target.value })} className="min-h-[80px]" />
+                <Textarea placeholder="Notas..." value={logForm.notes} onChange={e => setLogForm({ ...logForm, notes: e.target.value })} className="min-h-20" />
                 <Button className="w-full font-bold h-11" onClick={handleSaveLog}>Guardar Sesión</Button>
               </div>
             </DialogContent>

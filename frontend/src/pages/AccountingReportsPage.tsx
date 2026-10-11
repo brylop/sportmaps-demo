@@ -196,7 +196,7 @@ export default function AccountingReportsPage() {
                             <CardDescription>Ingresos vs egresos por mes</CardDescription>
                         </CardHeader>
                         <CardContent>
-                            <ResponsiveContainer width="100%" height={300}>
+                            <div className="h-chart-lg"><ResponsiveContainer width="100%" height="100%">
                                 <BarChart data={report.monthly}>
                                     <CartesianGrid strokeDasharray="3 3" />
                                     <XAxis dataKey="month" fontSize={12} />
@@ -206,7 +206,7 @@ export default function AccountingReportsPage() {
                                     <Bar dataKey="ingresos" name="Ingresos" fill="#22c55e" />
                                     <Bar dataKey="egresos" name="Egresos" fill="#ef4444" />
                                 </BarChart>
-                            </ResponsiveContainer>
+                            </ResponsiveContainer></div>
                         </CardContent>
                     </Card>
 

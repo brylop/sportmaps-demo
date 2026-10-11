@@ -105,3 +105,130 @@ describe('ProtectedRoute', () => {
         expect(screen.getByText('Admin Content')).toBeInTheDocument();
     });
 });
+
+
+// ─── Membresía de escuela vs allowedRoles (2026-10-10) ───────────────────────
+// Antes, owner/admin/school_admin de CUALQUIER escuela saltaban allowedRoles:
+// entraban por URL a /admin/users, /admin/analytics, /pacientes… Ahora la
+// membresía solo cuenta en rutas que admiten administración de escuela.
+describe('ProtectedRoute — membresía de escuela respeta allowedRoles', () => {
+    const renderCon = (
+        ui: React.ReactNode,
+        ctx: { currentUserRole: string | null; schoolId: string | null },
+    ) => {
+        (useSchoolContext as any).mockReturnValue({
+            loading: false,
+            onboardingStatus: 'completed',
+            ...ctx,
+        });
+        return render(
+            <MemoryRouter initialEntries={['/']}>
+                <Routes>
+                    <Route path="/" element={ui} />
+                    <Route path="/unauthorized" element={<div>Unauthorized Page</div>} />
+                </Routes>
+            </MemoryRouter>
+        );
+    };
+    const sesion = (role: string) =>
+        (useAuth as any).mockReturnValue({ loading: false, user: { id: 'u1' }, profile: { role } });
+
+    it('dueño de escuela NO entra a una ruta /admin estricta', () => {
+        sesion('school');
+        renderCon(
+            <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                <div>Admin Content</div>
+            </ProtectedRoute>,
+            { currentUserRole: 'owner', schoolId: 's1' },
+        );
+        expect(screen.getByText('Unauthorized Page')).toBeInTheDocument();
+    });
+
+    it('admin de escuela (membresía admin) NO entra a /admin/users aunque fuera no estricta', () => {
+        sesion('school');
+        renderCon(
+            <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
+                <div>Admin Content</div>
+            </ProtectedRoute>,
+            { currentUserRole: 'admin', schoolId: 's1' },
+        );
+        expect(screen.getByText('Unauthorized Page')).toBeInTheDocument();
+    });
+
+    it('el super admin de plataforma (perfil) sí entra a la ruta estricta', () => {
+        sesion('super_admin');
+        renderCon(
+            <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                <div>Admin Content</div>
+            </ProtectedRoute>,
+            { currentUserRole: null, schoolId: null },
+        );
+        expect(screen.getByText('Admin Content')).toBeInTheDocument();
+    });
+
+    it('dueño con perfil personal_trainer sigue entrando a las rutas de SU escuela', () => {
+        sesion('personal_trainer');
+        renderCon(
+            <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                <div>School Content</div>
+            </ProtectedRoute>,
+            { currentUserRole: 'owner', schoolId: 's1' },
+        );
+        expect(screen.getByText('School Content')).toBeInTheDocument();
+    });
+
+    it('school_admin por membresía entra a una ruta que solo lista school', () => {
+        sesion('school_admin');
+        renderCon(
+            <ProtectedRoute allowedRoles={['school']}>
+                <div>School Content</div>
+            </ProtectedRoute>,
+            { currentUserRole: 'school_admin', schoolId: 's1' },
+        );
+        expect(screen.getByText('School Content')).toBeInTheDocument();
+    });
+
+    it('dueño de escuela NO entra a rutas clínicas del profesional de salud', () => {
+        sesion('school');
+        renderCon(
+            <ProtectedRoute allowedRoles={['wellness_professional']}>
+                <div>Pacientes</div>
+            </ProtectedRoute>,
+            { currentUserRole: 'owner', schoolId: 's1' },
+        );
+        expect(screen.getByText('Unauthorized Page')).toBeInTheDocument();
+    });
+
+    it('admin de escuela NO entra a rutas de tienda que solo listan store_owner/admin', () => {
+        sesion('school');
+        renderCon(
+            <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
+                <div>Proveedores</div>
+            </ProtectedRoute>,
+            { currentUserRole: 'admin', schoolId: 's1' },
+        );
+        expect(screen.getByText('Unauthorized Page')).toBeInTheDocument();
+    });
+
+    it("el 'owner' de onboarding sin escuela activa (perfil reporter) no cuenta como membresía", () => {
+        sesion('reporter');
+        renderCon(
+            <ProtectedRoute allowedRoles={['school', 'school_admin']}>
+                <div>School Content</div>
+            </ProtectedRoute>,
+            { currentUserRole: 'owner', schoolId: null },
+        );
+        expect(screen.getByText('Unauthorized Page')).toBeInTheDocument();
+    });
+
+    it('coach por membresía no entra a una ruta solo de escuela', () => {
+        sesion('coach');
+        renderCon(
+            <ProtectedRoute allowedRoles={['school', 'school_admin']}>
+                <div>School Content</div>
+            </ProtectedRoute>,
+            { currentUserRole: 'coach', schoolId: 's1' },
+        );
+        expect(screen.getByText('Unauthorized Page')).toBeInTheDocument();
+    });
+});

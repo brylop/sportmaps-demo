@@ -106,7 +106,7 @@ export default function EventPublicPage() {
   return (
     <div className="min-h-screen bg-slate-50 pb-12">
       {/* Hero Banner */}
-      <div className="relative h-[40vh] md:h-[50vh] bg-slate-900 overflow-hidden">
+      <div className="relative h-[40dvh] md:h-[50dvh] bg-slate-900 overflow-hidden">
         {event.image_url ? (
           <img src={event.image_url} alt={event.title} className="absolute inset-0 w-full h-full object-cover opacity-60" />
         ) : (

@@ -167,7 +167,7 @@ export default function AdminAnalyticsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
+      <div className="flex items-center justify-center min-h-96">
         <div className="loading-spinner h-10 w-10" />
       </div>
     );
@@ -188,7 +188,7 @@ export default function AdminAnalyticsPage() {
         </div>
         <div className="flex items-center gap-3">
           <Select value={period} onValueChange={setPeriod}>
-            <SelectTrigger className="w-[140px]">
+            <SelectTrigger className="w-36">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -304,7 +304,7 @@ export default function AdminAnalyticsPage() {
             <CardTitle className="text-lg">Ingresos por Categoría</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px]">
+            <div className="h-chart-lg">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
@@ -347,7 +347,7 @@ export default function AdminAnalyticsPage() {
             <CardTitle className="text-lg">Tendencia Mensual</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px]">
+            <div className="h-chart-lg">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={data?.monthlyTrend}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
@@ -392,7 +392,7 @@ export default function AdminAnalyticsPage() {
             <CardTitle className="text-lg">Actividad por Ciudad</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-[250px]">
+            <div className="h-chart">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={data?.topCities} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />

@@ -169,7 +169,7 @@ export function ProfileSection({ data, saving, onSave }: ProfileSectionProps) {
             </div>
             <div className="space-y-2 sm:col-span-2">
               <Label htmlFor="sports_interests">Intereses Deportivos (Máximo 5)</Label>
-              <div className="flex flex-wrap gap-2 mb-2 p-2 min-h-[42px] border rounded-md bg-muted/5">
+              <div className="flex flex-wrap gap-2 mb-2 p-2 min-h-11 border rounded-md bg-muted/5">
                 {formData.sports_interests && formData.sports_interests.length > 0 ? (
                   formData.sports_interests.map((sport) => (
                     <Badge key={sport} variant="secondary" className="gap-1 px-2 py-1">
@@ -213,7 +213,7 @@ export function ProfileSection({ data, saving, onSave }: ProfileSectionProps) {
                     <CommandInput placeholder="Buscar deporte..." />
                     <CommandList>
                       <CommandEmpty>No se encontró el deporte.</CommandEmpty>
-                      <CommandGroup className="max-h-[200px] overflow-auto">
+                      <CommandGroup className="max-h-48 overflow-auto">
                         {SPORTS_LIST.map((sport) => (
                           <CommandItem
                             key={sport}
@@ -254,7 +254,7 @@ export function ProfileSection({ data, saving, onSave }: ProfileSectionProps) {
               value={formData.bio}
               onChange={(e) => setFormData(prev => ({ ...prev, bio: e.target.value }))}
               placeholder="Cuéntanos un poco sobre ti..."
-              className="min-h-[100px] resize-none"
+              className="min-h-24 resize-none"
             />
           </div>
         </CardContent>

@@ -266,7 +266,7 @@ export default function StatsPage() {
             </CardHeader>
             <CardContent className="pt-4">
               {activityChartData.length > 0 ? (
-                <div className="h-[200px] w-full">
+                <div className="h-chart-sm w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={activityChartData} barSize={16} barGap={4}>
                       <defs>
@@ -417,7 +417,7 @@ export default function StatsPage() {
                   </div>
                     {!selectedExercise && (
                       <Select value={selectedExercise} onValueChange={setSelectedExercise}>
-                        <SelectTrigger className="w-full md:w-[240px] bg-background">
+                        <SelectTrigger className="w-full md:w-60 bg-background">
                           <SelectValue placeholder="O busca un ejercicio..." />
                         </SelectTrigger>
                         <SelectContent>
@@ -449,7 +449,7 @@ export default function StatsPage() {
               <CardContent>
                 <div className="bg-accent/10 rounded-2xl p-6 border border-border/20">
                   {evolutionData.length >= 2 ? (
-                    <div className="h-[220px] w-full">
+                    <div className="h-chart-sm w-full">
                       <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={evolutionData} margin={{ left: -20, right: 10, top: 10, bottom: 0 }}>
                           <defs>
@@ -496,13 +496,13 @@ export default function StatsPage() {
                       </ResponsiveContainer>
                     </div>
                   ) : selectedExercise ? (
-                    <div className="h-[220px] flex flex-col items-center justify-center text-muted-foreground text-center px-8">
+                    <div className="h-chart-sm flex flex-col items-center justify-center text-muted-foreground text-center px-8">
                        <TrendingUp className="h-10 w-10 mb-2 opacity-10" />
                        <p className="text-sm font-medium">Datos insuficientes</p>
                        <p className="text-xs opacity-60">Registra al menos 2 sesiones con este ejercicio para ver la tendencia.</p>
                     </div>
                   ) : (
-                    <div className="h-[220px] flex flex-col items-center justify-center text-muted-foreground text-center">
+                    <div className="h-chart-sm flex flex-col items-center justify-center text-muted-foreground text-center">
                        <BarChart3 className="h-10 w-10 mb-2 opacity-10" />
                        <p className="text-sm">Selecciona un ejercicio del menú anterior</p>
                     </div>
@@ -520,7 +520,7 @@ export default function StatsPage() {
                   <BarChart3 className="h-8 w-8 text-muted-foreground opacity-30" />
                 </div>
                 <h3 className="text-lg font-bold">Sin datos de rendimiento</h3>
-                <p className="text-sm text-muted-foreground max-w-[280px] mt-2">
+                <p className="text-sm text-muted-foreground max-w-72 mt-2">
                   Completa sesiones con tu entrenador o registra actividad libre para empezar a ver tus métricas.
                 </p>
                 <Button className="mt-8 rounded-full" asChild>

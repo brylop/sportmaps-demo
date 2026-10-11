@@ -254,7 +254,7 @@ const CoachRegister = ({ onNavigate }: CoachRegisterProps) => {
               id="biography"
               placeholder="Describe tu experiencia, logros, y metodología de entrenamiento..."
               {...experienceForm.register("biography")}
-              className="focus:border-primary focus:ring-primary min-h-[120px]"
+              className="focus:border-primary focus:ring-primary min-h-32"
             />
             <p className="text-xs text-muted-foreground">
               {experienceForm.watch("biography")?.length || 0}/500 caracteres

@@ -276,7 +276,7 @@ export function ExploreMapInteractive({ category, query, city, sport }: ExploreM
       </div>
 
       <div className="relative rounded-xl overflow-hidden border border-border shadow-lg">
-        <div className="h-[600px] w-full">
+        <div className="h-[60dvh] min-h-80 w-full">
           <MapContainer center={[4.6097, -74.0817]} zoom={11} style={{ height: '100%', width: '100%' }} scrollWheelZoom>
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -297,7 +297,7 @@ export function ExploreMapInteractive({ category, query, city, sport }: ExploreM
               return (
                 <Marker key={m.id} position={[m.lat, m.lng]} icon={icons[m.schoolType]}>
                   <Popup minWidth={240}>
-                    <div className="space-y-2 max-w-[260px]">
+                    <div className="space-y-2 max-w-64">
                       {m.cover_image_url && !isInfoOnly && (
                         <img
                           src={m.cover_image_url}

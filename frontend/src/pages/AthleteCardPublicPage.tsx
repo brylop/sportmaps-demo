@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Loader2, Download, AlertCircle, CheckCircle2, AlertTriangle, XCircle, LogIn, ShieldCheck } from 'lucide-react';
+import { Loader2, Download, AlertCircle, CheckCircle2, AlertTriangle, XCircle, LogIn, ShieldCheck, RotateCw, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
 import { AthleteIdCard, type CardData } from '@/components/cards/AthleteIdCard';
 import { useToast } from '@/hooks/use-toast';
+import { exportCardPng } from '@/lib/cards/cardExport';
+import { maskPrivateCardData, slugifyFileName } from '@/lib/cards/cardLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { bffClient, BFFError } from '@/lib/api/bffClient';
 import { type CheckInResponse, resolveOutcomeInfo, MARKED_PRESENT } from '@/lib/attendanceCheckInOutcomes';
@@ -21,10 +23,10 @@ const STAFF_ROLES = new Set(['owner', 'super_admin', 'admin', 'school_admin', 'c
 
 export default function AthleteCardPublicPage() {
   const { qrToken } = useParams<{ qrToken: string }>();
-  const cardRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<CardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [face, setFace] = useState<'front' | 'back'>('front');
   const { toast } = useToast();
   const { user, profile, loading: authLoading, signIn } = useAuth();
 
@@ -53,27 +55,28 @@ export default function AthleteCardPublicPage() {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
       setData({ found: false, status: 'error' } as CardData);
     } else {
-      setData(rpc as CardData);
+      let card = rpc as CardData;
+      // Sin sesión no se pinta nada privado aunque la RPC (versión vieja, sin
+      // 'viewer') lo mande. El arreglo de fondo está en la RPC.
+      if (card?.found && card.status === 'active' && card.viewer !== 'staff' && card.viewer !== 'guardian') {
+        const { data: sess } = await supabase.auth.getSession();
+        if (!sess.session || card.viewer === 'public') card = maskPrivateCardData(card);
+      }
+      setData(card);
     }
     setLoading(false);
   }
 
+  // PNG con frente y reverso a resolución de impresión (antes: una captura de
+  // pantalla de la cara visible, con el texto mochado y la foto en blanco).
   async function handleDownload() {
-    if (!cardRef.current) return;
+    if (!data || !qrToken) return;
     setDownloading(true);
     try {
-      const html2canvas = (await import('html2canvas')).default;
-      const canvas = await html2canvas(cardRef.current, {
-        backgroundColor: null,
-        scale: 3,
-        useCORS: true,
-        logging: false,
-      });
-      const url = canvas.toDataURL('image/png');
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `carnet-${qrToken?.slice(0, 8)}.png`;
-      a.click();
+      await exportCardPng(
+        { data, publicUrl: window.location.href },
+        `carnet-${slugifyFileName(data.athlete?.full_name, qrToken.slice(0, 8))}`,
+      );
     } catch (e: any) {
       toast({ title: 'No se pudo descargar', description: e?.message || 'Error', variant: 'destructive' });
     } finally {
@@ -140,24 +143,40 @@ export default function AthleteCardPublicPage() {
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-4 gap-6">
       <div className="text-center">
-        <h1 className="text-lg font-bold text-gray-800">Carnet verificado</h1>
+        <h1 className="text-lg font-bold text-gray-800">
+          {data.status === 'active' ? 'Carnet verificado' : data.status === 'revoked' ? 'Carnet revocado' : 'Carnet vencido'}
+        </h1>
         <p className="text-xs text-muted-foreground">
-          Verificación oficial de {data.school?.name}
+          {data.school?.name ? `Verificación oficial de ${data.school.name}` : "Verificación oficial SportMaps"}
         </p>
       </div>
 
-      <AthleteIdCard ref={cardRef} data={data} publicUrl={publicUrl} />
+      <AthleteIdCard data={data} publicUrl={publicUrl} face={face} />
 
       {data.status === 'active' && (
-        <Button
-          onClick={handleDownload}
-          disabled={downloading}
-          variant="outline"
-          className="gap-2"
-        >
-          {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-          Descargar PNG
-        </Button>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <Button variant="ghost" onClick={() => setFace((f) => (f === 'front' ? 'back' : 'front'))} className="gap-2">
+            <RotateCw className="h-4 w-4" />
+            {face === 'front' ? 'Ver reverso' : 'Ver frente'}
+          </Button>
+          <Button
+            onClick={handleDownload}
+            disabled={downloading}
+            variant="outline"
+            className="gap-2"
+          >
+            {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Descargar PNG
+          </Button>
+        </div>
+      )}
+
+      {data.status === 'active' && data.viewer === 'public' && (
+        <p className="max-w-sm text-center text-xs text-muted-foreground flex items-start gap-1.5">
+          <Lock className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          Vista pública: solo muestra la identidad y la vigencia. Los datos médicos, de emergencia y de pagos
+          los ven la escuela y el acudiente con su sesión iniciada.
+        </p>
       )}
 
       {data.status === 'active' && data.fee_status === 'overdue' && (

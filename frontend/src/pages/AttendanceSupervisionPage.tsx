@@ -1020,7 +1020,7 @@ export default function AttendanceSupervisionPage() {
                   <p className="text-xs font-medium">Sin reservas hoy</p>
                 </div>
               ) : (
-                <div className="space-y-2.5 max-h-[420px] overflow-y-auto pr-1 custom-scrollbar">
+                <div className="space-y-2.5 max-h-list overflow-y-auto pr-1 custom-scrollbar">
                   {bookings.map((b) => {
                     const current  = bookingAttendance[b.id];
                     const isSaving = savingBooking === b.id;
@@ -1250,7 +1250,7 @@ export default function AttendanceSupervisionPage() {
 
       {/* ══ MODAL DE ASISTENCIA ════════════════════════════════════════════════ */}
       <Dialog open={!!modalCtx && (modalCtx.type === 'team' || modalCtx.type === 'offering' || modalCtx.type === 'facility_session')} onOpenChange={(open) => !open && closeModal()}>
-        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0">
+        <DialogContent className="max-w-2xl max-h-[90dvh] flex flex-col p-0 gap-0">
 
           {/* Header */}
           <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
@@ -1545,7 +1545,7 @@ export default function AttendanceSupervisionPage() {
               <p className="text-xs">No hay bloques de horario para este día de la semana.</p>
             </div>
           ) : (
-            <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+            <div className="space-y-3 max-h-list overflow-y-auto pr-1">
               {facilityBlocks.map((block) => {
                 const session = facilitySessions.find(s => s.facility_availability_id === block.id);
                 const blockTimes = `${block.start_time.substring(0, 5)} - ${block.end_time.substring(0, 5)}`;
@@ -1682,7 +1682,7 @@ export default function AttendanceSupervisionPage() {
               Este plan tiene varios bloques hoy. Elige uno para marcar asistencia.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+          <div className="space-y-2 max-h-[50dvh] overflow-y-auto pr-1">
             {offeringPicker?.sessions.map((s) => (
               <div key={s.id}
                 onClick={() => {

@@ -466,7 +466,7 @@ export default function ReportsPage() {
               </CardHeader>
               <CardContent>
                 {occupancyData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={320}>
+                  <div className="h-chart-lg"><ResponsiveContainer width="100%" height="100%">
                     {occView === 'vertical' ? (
                       <BarChart data={occupancyData} margin={{ bottom: 20 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -496,9 +496,9 @@ export default function ReportsPage() {
                         <Bar dataKey="vacant" stackId="a" fill="#e5e7eb" name="Vacantes" radius={[0, 4, 4, 0]} />
                       </BarChart>
                     )}
-                  </ResponsiveContainer>
+                  </ResponsiveContainer></div>
                 ) : (
-                  <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-2">
+                  <div className="h-chart-lg flex flex-col items-center justify-center text-muted-foreground gap-2">
                     <Users className="w-10 h-10 opacity-30" />
                     <p className="text-sm">No hay programas o deportistas activos aún.</p>
                   </div>
@@ -522,7 +522,7 @@ export default function ReportsPage() {
               </CardHeader>
               <CardContent>
                 {revenueData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={300}>
+                  <div className="h-chart-lg"><ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
                         data={revenueData}
@@ -544,9 +544,9 @@ export default function ReportsPage() {
                       </Pie>
                       <Tooltip formatter={(value: number) => formatCurrency(value)} />
                     </PieChart>
-                  </ResponsiveContainer>
+                  </ResponsiveContainer></div>
                 ) : (
-                  <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-2">
+                  <div className="h-chart-lg flex flex-col items-center justify-center text-muted-foreground gap-2">
                     <DollarSign className="w-10 h-10 opacity-30" />
                     <p className="text-sm">No hay pagos registrados para mostrar distribución.</p>
                   </div>
@@ -571,7 +571,7 @@ export default function ReportsPage() {
             </CardHeader>
             <CardContent>
               {growthData.some((m) => m.nuevos > 0 || m.retiros > 0) ? (
-                <ResponsiveContainer width="100%" height={300}>
+                <div className="h-chart-lg"><ResponsiveContainer width="100%" height="100%">
                   <LineChart data={growthData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="month" />
@@ -592,9 +592,9 @@ export default function ReportsPage() {
                       name="Retiros"
                     />
                   </LineChart>
-                </ResponsiveContainer>
+                </ResponsiveContainer></div>
               ) : (
-                <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-2">
+                <div className="h-chart-lg flex flex-col items-center justify-center text-muted-foreground gap-2">
                   <TrendingUp className="w-10 h-10 opacity-30" />
                   <p className="text-sm">Registra deportistas para ver la tendencia de crecimiento.</p>
                 </div>

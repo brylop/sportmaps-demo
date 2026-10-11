@@ -394,7 +394,7 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
 
   // ── 2. Planes / Offerings ───────────────────────────────────────────────
   const { data: offerings = [], isLoading: loadingOfferings } = useQuery<OfferingItem[]>({
-    queryKey: ['school-offerings', schoolId],
+    queryKey: ['school-offerings', schoolId, isAdmin, staffId],
     queryFn: async () => {
       if (!schoolId) return [];
       const { data, error } = await supabase
@@ -404,7 +404,18 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
         .eq('is_active', true)
         .order('name');
       if (error) throw error;
-      return (data || []) as any as OfferingItem[];
+      const todas = (data || []) as any as OfferingItem[];
+      if (isAdmin) return todas;
+      // El coach ve solo las disciplinas que tiene asignadas (offering_coaches):
+      // desde 2026-09-18 el BFF (assertCoachHasOfferingAccess) responde 403 en
+      // las demás, así que listarlas solo ofrecía botones que fallan.
+      if (!staffId) return [];
+      const { data: asignadas } = await (supabase as any)
+        .from('offering_coaches')
+        .select('offering_id')
+        .eq('coach_id', staffId);
+      const propias = new Set(((asignadas ?? []) as { offering_id: string }[]).map((x) => x.offering_id));
+      return todas.filter((o) => propias.has(o.id));
     },
     enabled: !!schoolId,
   });
@@ -1279,7 +1290,7 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
                     <Users className="w-5 h-5 text-primary" />
                     <p className="font-bold text-sm tracking-tight">{combinedRoster.length} Atletas</p>
                   </div>
-                  <div className="h-4 w-[1px] bg-border" />
+                  <div className="h-4 w-px bg-border" />
                   <div className="flex items-center gap-2">
                     <Switch id="secondary-mode-coach" checked={isSecondary} onCheckedChange={setIsSecondary} />
                     <Label htmlFor="secondary-mode-coach" className="text-xs font-bold cursor-pointer uppercase tracking-wider text-muted-foreground">

@@ -18,6 +18,7 @@ import { studentsAPI, Student } from '@/lib/api/students';
 import { classesAPI } from '@/lib/api/classes';
 import { supabase } from '@/integrations/supabase/client';
 import { useEntitlements } from '@/hooks/useEntitlements';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 import * as AlertDialogPrimitive from '@radix-ui/react-alert-dialog';
 import {
     AlertDialog,
@@ -59,7 +60,10 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
     const [searchQuery, setSearchQuery] = useState('');
     const [teamFee, setTeamFee] = useState<number | null>(null);
     const { toast } = useToast();
-    const { allowSecondaryTeamEnrollment } = useEntitlements();
+    const { allowSecondaryTeamEnrollment, coachHideFinancialInfo } = useEntitlements();
+    // Besser (coach_hide_financial_info): el coach no ve montos en ninguna pantalla.
+    const { currentUserRole } = useSchoolContext();
+    const ocultarDinero = currentUserRole === 'coach' && coachHideFinancialInfo;
     // Atleta que YA está en otro equipo: en vez de dejar pasar el 409 del BFF
     // ("ya tiene una inscripción activa"), se le pregunta al usuario qué hacer.
     const [conflict, setConflict] = useState<{
@@ -385,7 +389,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                                     </Badge>
                                 </div>
                             )}
-                            {teamFee !== null && teamFee > 0 && (
+                            {!ocultarDinero && teamFee !== null && teamFee > 0 && (
                                 <div className="flex items-start gap-2 rounded-lg border border-amber-500/30
                                                 bg-amber-500/[0.07] px-3 py-2 mt-1">
                                     <Wallet
