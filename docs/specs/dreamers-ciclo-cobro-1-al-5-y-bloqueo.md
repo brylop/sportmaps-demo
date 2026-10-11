@@ -111,3 +111,13 @@
 - Inscripción ($120.000) y seguro ($150.000) existen como planes sueltos, no se pueden combinar con el plan del atleta (`allow_multiple_enrollments = false`) y nunca se han cobrado; solo PGP4x1 tiene `registration_fee` (en $0).
 - Eliminar el plan PGN12x3: bloqueado por una invitación aceptada que lo referencia (`nassud@gmail.com`).
 - Configuración de pagos de Dreamers (cuenta en campos legacy, `payment_accounts` vacío, `payment_setup_completed = false`), `NIV-7` (pronto pago), cargo por horas de más (F5) y lo demás de los spec de niveles.
+
+## Primer cobro (mes de alta) sin recargo — 2026-10-11
+
+Regla de Dreamers (`school_settings.late_fee_skip_signup_month = true`): la **primera mensualidad** del deportista (la del mes en que se inscribe) **vence el día de corte del mes siguiente** (el 5) y **nunca recibe recargo**. El recargo del 5 % arranca con la mensualidad siguiente, que se genera el 1 y vence el 5.
+
+- **Por qué:** el alta después del corte emitía el cobro con vencimiento = día del alta (`dueInEntryMonth`); con 0 días de gracia el cron de las 02:00 lo pasaba a `overdue` y le sumaba 5 % al día siguiente (Zoe Barrera y Avril Salomé Aguilar, 2026-10-10). Además `overdue` alimenta el bloqueo automático.
+- **Dónde vive:** migración `20261011101750` — trigger `trg_payments_primer_cobro_prox_corte` (mueve el vencimiento y el texto «vence día N» del concepto; un solo punto para todos los caminos de alta) y `apply_late_fees` (exenta del recargo al primer cobro vía `fn_is_first_monthly_charge`).
+- **«Primer cobro»:** primera mensualidad del atleta en la escuela, sin otra mensualidad no anulada de un período anterior. No exenta: cambio de plan a mitad de mes de quien ya pagaba, ni reingreso tras un descanso (ya tiene cobros previos).
+- **Otras escuelas:** el flag nace en `false`; sin cambio. No hay UI para el flag todavía (se cambia por SQL).
+
