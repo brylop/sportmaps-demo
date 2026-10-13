@@ -72,6 +72,19 @@ export interface PaymentAccount {
      * la dueña, solo para inscripciones. Ausente/vacía = vale para todo.
      */
     only_for?: PaymentChargeCategory[];
+    /**
+     * Cuenta que la escuela ACEPTA pero que va «por fuera de SportMaps» (p. ej.
+     * el Nequi de un entrenador para los torneos, 2026-10-13). Nunca se le
+     * muestra al acudiente ni se espeja a las columnas viejas; un comprobante a
+     * esta cuenta queda como informativo en la bandeja del bot, no como
+     * «destino ajeno».
+     */
+    fuera_de_sportmaps?: boolean;
+}
+
+/** ¿Se le puede mostrar al acudiente como medio de pago? */
+export function isVisibleToFamilies(account: Pick<PaymentAccount, 'fuera_de_sportmaps'>): boolean {
+    return account.fuera_de_sportmaps !== true;
 }
 
 /** ¿La llave sirve para pagar un cobro de esta categoría? Desconocida = solo las generales. */
@@ -253,6 +266,9 @@ export function parsePaymentAccounts(raw: unknown): PaymentAccount[] {
             // Solo `false` explícito oculta: un registro viejo sin la clave se muestra.
             active: row.active !== false,
             ...(onlyFor.length > 0 ? { only_for: onlyFor } : {}),
+            // Se conserva: si el parseo la descartara, guardar el panel la
+            // volvería una cuenta para pagar cualquier cobro.
+            ...(row.fuera_de_sportmaps === true ? { fuera_de_sportmaps: true } : {}),
         });
     }
     return out;
@@ -314,7 +330,9 @@ export function resolvePaymentAccounts(
     const accounts = keys.length > 0 ? parsed : [...legacyColumnsToAccounts(source), ...parsed];
     // Al acudiente solo se le muestran llaves para transferir; el link sale por
     // resolvePaymentLink como botón. El panel (onlyActive=false) ve todo.
-    return onlyActive ? accounts.filter(a => a.active && !isPaymentLink(a) && accountAppliesTo(a, category)) : accounts;
+    return onlyActive
+        ? accounts.filter(a => a.active && !isPaymentLink(a) && isVisibleToFamilies(a) && accountAppliesTo(a, category))
+        : accounts;
 }
 
 /**
@@ -327,7 +345,7 @@ export function resolvePaymentLink(
 ): string | null {
     if (!source) return null;
     const link = parsePaymentAccounts(source.payment_accounts)
-        .find(a => isPaymentLink(a) && a.active && accountAppliesTo(a, category) && isValidPaymentLinkUrl(a.value));
+        .find(a => isPaymentLink(a) && a.active && isVisibleToFamilies(a) && accountAppliesTo(a, category) && isValidPaymentLinkUrl(a.value));
     return link?.value ?? null;
 }
 
@@ -341,7 +359,7 @@ export function accountsToLegacyColumns(accounts: PaymentAccount[]): Required<Om
     // caminos que no conocen la restricción (bot, RPCs de pago) y la volverían
     // una llave para todo.
     const firstOf = (type: PaymentAccountType) =>
-        accounts.find(a => a.active && !(a.only_for && a.only_for.length > 0) && a.type === type && a.value.trim())?.value.trim() ?? null;
+        accounts.find(a => a.active && isVisibleToFamilies(a) && !(a.only_for && a.only_for.length > 0) && a.type === type && a.value.trim())?.value.trim() ?? null;
     // `payment_link` no tiene columna vieja y no se espeja: los lectores de las
     // columnas (bot viejo, RPCs) tratarían la URL como número de cuenta.
     return {

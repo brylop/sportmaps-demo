@@ -29,6 +29,14 @@ export interface CuentaDePago {
     active: boolean;
     /** null = vale para cualquier cobro. Si trae categorías, solo para esas. */
     onlyFor: CategoriaCobro[] | null;
+    /**
+     * `fuera_de_sportmaps: true` en el jsonb (2026-10-13). La escuela ACEPTA
+     * pagos a esta cuenta (p. ej. el Nequi de un entrenador para los torneos)
+     * pero van «por fuera de SportMaps»: no se le ofrece a la familia como
+     * medio de pago, no valida un comprobante como plata de la escuela y un
+     * comprobante a ella queda INFORMATIVO en la bandeja, no «destino ajeno».
+     */
+    fueraDeSportmaps: boolean;
 }
 
 const esCategoria = (v: unknown): v is CategoriaCobro =>
@@ -102,6 +110,7 @@ export function linkDePago(raw: unknown, categoria: CategoriaCobro | null): stri
     for (const { row, value } of filasCrudas(raw)) {
         if (String(row.type ?? '') !== TIPO_LINK_DE_PAGO) continue;
         if (row.active === false) continue;
+        if (row.fuera_de_sportmaps === true) continue;
         if (!cuentaAplicaA({ onlyFor: onlyForDe(row) }, categoria)) continue;
         if (!esUrlDeLinkDePago(value)) continue;
         return value;
@@ -126,6 +135,7 @@ export function parseCuentasDePago(raw: unknown): CuentaDePago[] {
             value,
             active: row.active !== false,
             onlyFor: onlyForDe(row),
+            fueraDeSportmaps: row.fuera_de_sportmaps === true,
         });
     }
     return out;

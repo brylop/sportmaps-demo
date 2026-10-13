@@ -68,6 +68,7 @@ import {
     soloSaludoOCortesia, intencionDeProspecto,
     type PuertaDeProspecto,
 } from './whatsapp-atencion.service';
+import { esMarcaNoFamilia } from './whatsapp-tipo-contacto';
 import { registrarLeadDeProspecto } from './whatsapp-prospecto-lead.service';
 import { conversacionTomada } from './whatsapp-tomada.service';
 import { invitacionPendienteVigente } from './whatsapp-invitacion-vigente.service';
@@ -4795,7 +4796,7 @@ export function retomaPermitida(op: {
 }): RetomaPermitida {
     const equipo = op.equipo ?? new Map<string, string>();
     const no = (motivo: string): RetomaPermitida => ({ permitida: false, motivo, pedidos: [] });
-    if (op.tipo === 'personal' || op.tipo === 'staff') return no('contacto_personal');
+    if (esMarcaNoFamilia(op.tipo) || op.tipo === 'staff') return no('contacto_personal');
     const ultimo = op.pendientes[op.pendientes.length - 1];
     if (!ultimo || !pedidoEscolarClaro(ultimo.text_body, equipo)) return no('ultimo_sin_pedido_escolar');
     if (op.tipo === 'desconocido') {

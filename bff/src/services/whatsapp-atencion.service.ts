@@ -26,6 +26,7 @@
 import { supabase } from '../config/supabase';
 import type { WhatsAppIntegration } from './whatsapp.service';
 import { conversacionTomada } from './whatsapp-tomada.service';
+import { FILTRO_SIN_MARCA_MANUAL, esMarcaNoFamilia, leerConMarca, type TipoMarcado } from './whatsapp-tipo-contacto';
 
 /**
  * - familia            → acudiente con cuenta de un atleta activo (por teléfono o por OTP)
@@ -33,10 +34,12 @@ import { conversacionTomada } from './whatsapp-tomada.service';
  * - ambiguo            → el número está en dos cuentas: lo resuelve un humano
  * - staff              → administra la escuela (owner/admin)
  * - desconocido        → nada de lo anterior: amigos, proveedores, prospectos
- * - personal           → la escuela lo marcó a mano como personal (manda sobre todo)
+ * - personal | negocio | otro_club | plataforma
+ *                      → la escuela lo marcó a mano como no-familia (manda sobre todo;
+ *                        ver whatsapp-tipo-contacto)
  */
 export type TipoDeContacto =
-    | 'familia' | 'familia_sin_cuenta' | 'ambiguo' | 'staff' | 'desconocido' | 'personal';
+    | 'familia' | 'familia_sin_cuenta' | 'ambiguo' | 'staff' | 'desconocido' | TipoMarcado;
 
 export const TIPOS_QUE_SE_ATIENDEN: ReadonlySet<TipoDeContacto> =
     new Set(['familia', 'familia_sin_cuenta', 'ambiguo']);
@@ -107,19 +110,43 @@ export async function clasificarContacto(
     conversationId: string | null,
     contactWaId: string,
 ): Promise<TipoDeContacto> {
+    return (await clasificarConMarca(integration, conversationId, contactWaId)).tipo;
+}
+
+/**
+ * Como `clasificarContacto`, más la bandera `tambien_familia`.
+ *
+ * - Marca manual SIN bandera → la marca (personal, negocio…): no es familia.
+ * - Marca manual CON bandera → se clasifica por teléfono SIN guardar (la marca
+ *   no se pisa). Si resulta familia, se devuelve ese tipo con
+ *   `tambienFamilia=true`: sus comprobantes se aplican en silencio. Si no,
+ *   la marca.
+ */
+export async function clasificarConMarca(
+    integration: WhatsAppIntegration,
+    conversationId: string | null,
+    contactWaId: string,
+): Promise<{ tipo: TipoDeContacto; tambienFamilia: boolean }> {
     // 1. Lo marcado a mano manda. Si la columna aún no existe, se ignora.
     if (conversationId) {
-        const { data, error } = await supabase
+        const { data } = await leerConMarca((cols) => supabase
             .from('whatsapp_conversations')
-            .select('contact_kind, identified, parent_id')
+            .select(cols)
             .eq('id', conversationId)
-            .maybeSingle();
-        if (!error && (data as any)?.contact_kind === 'personal') return 'personal';
+            .maybeSingle(), 'id');
+        const marca = (data as any)?.contact_kind;
+        if (esMarcaNoFamilia(marca)) {
+            if ((data as any)?.tambien_familia !== true) return { tipo: marca, tambienFamilia: false };
+            const real = await clasificarSinGuardar(integration, conversationId, contactWaId);
+            return TIPOS_QUE_SE_ATIENDEN.has(real)
+                ? { tipo: real, tambienFamilia: true }
+                : { tipo: marca, tambienFamilia: false };
+        }
     }
 
     const tipo = await clasificarSinGuardar(integration, conversationId, contactWaId);
     if (conversationId) await guardarTipo(conversationId, tipo);
-    return tipo;
+    return { tipo, tambienFamilia: false };
 }
 
 async function clasificarSinGuardar(
@@ -157,12 +184,12 @@ async function clasificarSinGuardar(
 }
 
 async function guardarTipo(conversationId: string, tipo: TipoDeContacto): Promise<void> {
-    // No pisa una marca manual de 'personal' (carrera con el buzón).
+    // No pisa una marca manual (personal, negocio…; carrera con el buzón).
     const { error } = await supabase
         .from('whatsapp_conversations')
         .update({ contact_kind: tipo })
         .eq('id', conversationId)
-        .or('contact_kind.is.null,contact_kind.neq.personal');
+        .or(FILTRO_SIN_MARCA_MANUAL);
     if (error && !avisoDeColumnaDado) {
         avisoDeColumnaDado = true;
         console.warn('[wa-atencion] no se pudo guardar contact_kind (¿falta la migración de Fase A?)',
@@ -177,7 +204,12 @@ let avisoDeColumnaDado = false;
  * - Bot apagado → nunca.
  * - Familias (con o sin cuenta, o ambiguas) → sí.
  * - Desconocidos → solo si la escuela lo pidió (`responder_desconocidos`).
- * - Staff y personal → nunca: es el equipo o la vida privada de la dueña.
+ * - Staff y marcas manuales (personal, negocio…) → nunca: es el equipo o la
+ *   vida privada de la dueña.
+ * - Marca manual con «también es familia» → el texto tampoco (`atender=false`):
+ *   es la vida privada de la dueña. Se devuelve el tipo de familia y
+ *   `tambienFamilia=true` para que el worker aplique sus comprobantes en
+ *   silencio, como con una conversación tomada.
  *
  * `atender=false` con `tipo='desconocido'` y el bot prendido NO es silencio
  * seguro: el webhook todavía le pasa el texto a `atenderDesconocido` (bot), que
@@ -188,21 +220,21 @@ export async function debeAtender(
     integration: WhatsAppIntegration,
     conversationId: string | null,
     contactWaId: string,
-): Promise<{ atender: boolean; tipo: TipoDeContacto; botEncendido: boolean; tomada: boolean }> {
-    const [ajustes, tipo, tomada] = await Promise.all([
+): Promise<{ atender: boolean; tipo: TipoDeContacto; botEncendido: boolean; tomada: boolean; tambienFamilia: boolean }> {
+    const [ajustes, { tipo, tambienFamilia }, tomada] = await Promise.all([
         ajustesDeAtencion(integration.id),
-        clasificarContacto(integration, conversationId, contactWaId),
+        clasificarConMarca(integration, conversationId, contactWaId),
         conversacionTomada(conversationId),
     ]);
     // Tomada por una persona desde el buzón (mejora 9): nada automático, sea
     // quien sea. `tipo` y `botEncendido` se devuelven igual: el worker de
     // comprobantes los usa para seguir APLICANDO el comprobante (sin escribirle
     // a la familia; ver whatsapp-tomada.service).
-    const atender = !tomada && ajustes.botEncendido && (
+    const atender = !tomada && !tambienFamilia && ajustes.botEncendido && (
         TIPOS_QUE_SE_ATIENDEN.has(tipo) ||
         (tipo === 'desconocido' && ajustes.responderDesconocidos)
     );
-    return { atender, tipo, botEncendido: ajustes.botEncendido, tomada };
+    return { atender, tipo, botEncendido: ajustes.botEncendido, tomada, tambienFamilia };
 }
 
 // ─── El desconocido que SÍ es de la escuela ──────────────────────────────────

@@ -20,6 +20,8 @@ const state = {
     yaPreguntado: false,
     /** Cuentas generales de la escuela (destino del comprobante). */
     cuentas: ['3001112222'] as string[],
+    /** Cuentas «por fuera de SportMaps» (2026-10-13). */
+    fuera: [] as string[],
     /** Pago de la familia con la misma imagen (dedup por hash). */
     mismaImagen: null as any,
     filaEsperando: null as any,
@@ -128,7 +130,9 @@ const extractReceiptMock = vi.fn();
 vi.mock('../services/ocr.service', () => ({ extractReceipt: (...a: any[]) => extractReceiptMock(...a) }));
 vi.mock('../services/enrollment-ocr.service', () => ({ extractEnrollmentForm: vi.fn() }));
 vi.mock('../services/receipt-context.service', () => ({
-    buildVerdictContext: vi.fn(() => Promise.resolve({ registeredAccounts: state.cuentas, restrictedAccounts: [] })),
+    buildVerdictContext: vi.fn(() => Promise.resolve({
+        registeredAccounts: state.cuentas, restrictedAccounts: [], cuentasFueraDeSportmaps: state.fuera,
+    })),
 }));
 vi.mock('../services/receipt-verdict', () => ({
     normalizeDestination: (d: any) => d,
@@ -193,6 +197,7 @@ beforeEach(() => {
     state.textos = [];
     state.yaPreguntado = false;
     state.cuentas = ['3001112222'];
+    state.fuera = [];
     state.mismaImagen = null;
     state.filaEsperando = null;
     extractReceiptMock.mockResolvedValue(comprobante(150000));
@@ -210,26 +215,30 @@ const SEG = { id: 'p-seg', amount: 35000, concept: 'Seguro de accidentes — PLA
 describe('pagos únicos del alta', () => {
     beforeEach(() => { pagosPendientesDeMock.mockResolvedValue([MEN, INS, SEG]); });
 
-    it('$515.000 cubre los tres → a la escuela para repartir, sin estampar ni pedir «sí»', async () => {
+    it('$515.000 cubre los tres → se aplica a los tres (2026-10-13): el principal lleva el comprobante, los demás quedan cubiertos', async () => {
         extractReceiptMock.mockResolvedValue(comprobante(515000));
         await runWhatsAppQueue();
-        expect(evaluatePaymentReceiptMock).not.toHaveBeenCalled();
+        // Se evalúa solo el principal (el más antiguo; aquí vencen el mismo día: el primero).
+        expect(evaluatePaymentReceiptMock).toHaveBeenCalledTimes(1);
+        expect(evaluatePaymentReceiptMock).toHaveBeenCalledWith('p-men', undefined);
+        expect(rpcMock).toHaveBeenCalledWith('wa_cubrir_cobros_con_comprobante', {
+            p_school_id: 'school-1', p_principal_id: 'p-men', p_cobros: ['p-ins', 'p-seg'],
+        });
         expect(updatesCola.find((u) => u.status === 'waiting_user')).toBeUndefined();
         expect(enviados()).toHaveLength(1);
-        expect(enviados()[0]).toContain('Cubre estos cobros');
         expect(enviados()[0]).toContain('Inscripción — PLAN RM MENSUAL');
         expect(enviados()[0]).toContain('Seguro de accidentes');
         expect(enviados()[0]).not.toMatch(/sí\*? para aplicarlo/);
-        expect(cierre()).toMatchObject({ status: 'ignored', result_type: 'escalated', matched_parent_id: 'parent-1' });
-        expect(cierre().error_message).toMatch(/^varios_cobros: un comprobante cubre 3 cobros/);
+        expect(cierre()).toMatchObject({ status: 'done', result_type: 'payment_receipt', result_ref_id: 'p-men' });
     });
 
-    it('pie «inscripción» y $515.000 → igual: varios cobros (no «otro concepto sin cobro»)', async () => {
+    it('pie «inscripción» y $515.000 → igual: los tres (no «otro concepto sin cobro»)', async () => {
         state.claim = [FILA('f1', { media_caption: 'inscripción' })];
         extractReceiptMock.mockResolvedValue(comprobante(515000));
         await runWhatsAppQueue();
-        expect(evaluatePaymentReceiptMock).not.toHaveBeenCalled();
-        expect(cierre().error_message).toMatch(/^varios_cobros/);
+        expect(evaluatePaymentReceiptMock).toHaveBeenCalledWith('p-men', undefined);
+        expect(rpcMock).toHaveBeenCalledWith('wa_cubrir_cobros_con_comprobante', expect.objectContaining({ p_principal_id: 'p-men' }));
+        expect(cierre()).toMatchObject({ status: 'done', result_type: 'payment_receipt' });
     });
 
     it('pie «seguro» + $35.000 → se aplica al seguro', async () => {
@@ -262,5 +271,39 @@ describe('pagos únicos del alta', () => {
         const botones = sendInteractiveButtonsMock.mock.calls[0][3] as any[];
         expect(botones.map((b) => b.title)).toEqual(['1. Oct $180.000', '2. Inscrip. $300.000', '3. Seguro $35.000']);
         expect(updatesCola.find((u) => u.status === 'waiting_user')).toBeTruthy();
+    });
+});
+
+describe('excedente y cuentas por fuera de SportMaps (2026-10-13)', () => {
+    it('pagó de más que la mensualidad → se aplica y se le dice que lo de más queda como saldo a favor', async () => {
+        pagosPendientesDeMock.mockResolvedValue([MEN]);
+        extractReceiptMock.mockResolvedValue(comprobante(200000));
+        await runWhatsAppQueue();
+        expect(evaluatePaymentReceiptMock).toHaveBeenCalledWith('p-men', undefined);
+        expect(enviados()[0]).toContain('lo apliqué a *Plan PGX');
+        expect(enviados()[0]).toContain('$20.000 de más');
+        expect(enviados()[0]).toContain('saldo a favor');
+        expect(cierre()).toMatchObject({ status: 'done', result_type: 'payment_receipt', result_ref_id: 'p-men' });
+    });
+
+    it('pagó de menos y la escuela no recibe abonos → como antes, a la escuela con huellas para la bandeja', async () => {
+        pagosPendientesDeMock.mockResolvedValue([MEN]);
+        extractReceiptMock.mockResolvedValue(comprobante(100000));
+        await runWhatsAppQueue();
+        expect(evaluatePaymentReceiptMock).not.toHaveBeenCalled();
+        expect(cierre()).toMatchObject({ status: 'ignored', result_type: 'escalated' });
+        expect(cierre().error_message).toMatch(/^monto_no_cuadra/);
+        expect(cierre().pregunta_ocr).toMatchObject({ ocr: { amount: 100000, reference: 'REF-EJEMPLO-1' } });
+        expect(cierre().pregunta_ocr.sha).toBeTruthy();
+    });
+
+    it('a la cuenta «por fuera de SportMaps» → informativo, no «destino ajeno»', async () => {
+        pagosPendientesDeMock.mockResolvedValue([MEN]);
+        state.fuera = ['3009998888'];
+        extractReceiptMock.mockResolvedValue(comprobante(180000, { destination: '3009998888' }));
+        await runWhatsAppQueue();
+        expect(evaluatePaymentReceiptMock).not.toHaveBeenCalled();
+        expect(enviados()[0]).toContain('por fuera de la app');
+        expect(cierre()).toMatchObject({ status: 'ignored', result_type: 'none', error_message: 'pago por fuera de SportMaps' });
     });
 });

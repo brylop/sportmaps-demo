@@ -33,6 +33,7 @@ import { buildVerdictContext } from '../services/receipt-context.service';
 import { normalizeDestination, normalizeReference, evaluateVerdict, destinationMatchesRegistered } from '../services/receipt-verdict';
 import { evaluatePaymentReceipt, redRejectionMessage } from '../services/receipt-approval.service';
 import { debeAtender, type TipoDeContacto } from '../services/whatsapp-atencion.service';
+import { esMarcaNoFamilia } from '../services/whatsapp-tipo-contacto';
 import { anunciaComprobante, normalizarFrase, PASOS_SIN_CUENTA, type ComprobanteAnunciado } from '../services/whatsapp-reglas-turno';
 import {
     pagosPendientesDe, resolverPago, describirPago, mensajeElegirPago,
@@ -56,6 +57,10 @@ import type { BotonInteractivo } from '../services/whatsapp.service';
 import {
     leerTextosDelComprobante, decidirCobroPorTexto, type CobroParcial,
 } from '../services/whatsapp-cobro-por-texto.service';
+import {
+    cargarRecargos, montoEsperado, textoExcedente, huellasDelComprobante, referenciasDelComprobante,
+    ordenarDelMasAntiguo, cubrirCobrosConComprobante,
+} from '../services/whatsapp-excedente.service';
 
 const BUCKET = 'payment-receipts';
 const LOTE = 10;
@@ -364,6 +369,9 @@ async function esperarAlUsuario(id: string, pregunta: {
                 sha: pregunta.sha,
                 storagePath: pregunta.storagePath,
                 parentId: pregunta.parentId,
+                // Para que la bandeja la cierre sola si la escuela decide el
+                // pago por otro lado (referencia alternativa del comprobante).
+                referencias: referenciasDelComprobante(pregunta.ocr),
                 ...(pregunta.tipo === 'deportista' ? { tipo: 'deportista' } : {}),
             },
             pregunta_at: new Date().toISOString(),
@@ -444,6 +452,13 @@ export type ResultadoEstampado =
 export async function estamparComprobante(
     ctx: Pick<ContextoAplicacion, 'schoolId' | 'storagePath' | 'sha' | 'ocr' | 'log' | 'queueId'>,
     pago: PagoPendiente,
+    /**
+     * Lo que el comprobante DEBE decir, si no es el valor del cobro: el monto
+     * con el recargo del enlace de pago, o la suma de los cobros que cubre
+     * (2026-10-13). Sin esto el veredicto marcaría MONTO_DIFIERE a un pago
+     * completo.
+     */
+    esperado?: number,
 ): Promise<ResultadoEstampado> {
     /**
      * El veredicto se calcula ACÁ y se persiste. No es opcional.
@@ -465,7 +480,7 @@ export async function estamparComprobante(
     const ctxPago = await buildVerdictContext(ctx.schoolId, {
         referenceNorm: normalizeReference(ctx.ocr.reference),
         imageSha256: ctx.sha,
-        expectedAmount: pago.amount,
+        expectedAmount: esperado ?? pago.amount,
         paymentId: pago.id,
     });
     const veredicto = evaluateVerdict(ctx.ocr, ctxPago);
@@ -526,8 +541,15 @@ export async function aplicarComprobante(
     ctx: ContextoAplicacion,
     pago: PagoPendiente,
     restantes: PagoPendiente[],
+    /**
+     * (2026-10-13) `esperado`: ver `estamparComprobante`. `cubre`: otros cobros
+     * que paga el MISMO comprobante (suma exacta); quedan en revisión con el
+     * mismo archivo ANTES de evaluar, para que la base no tome la suma como
+     * saldo a favor. `nota`: una línea más para la familia (excedente).
+     */
+    extra: { esperado?: number; cubre?: PagoPendiente[]; nota?: string } = {},
 ): Promise<void> {
-    const estampado = await estamparComprobante(ctx, pago);
+    const estampado = await estamparComprobante(ctx, pago, extra.esperado);
 
     if (!estampado.ok) {
         // 23505 sobre `uq_payments_school_ocr_reference` NO es un fallo: ver
@@ -558,22 +580,35 @@ export async function aplicarComprobante(
         return;
     }
 
+    const cubre = extra.cubre ?? [];
+    if (cubre.length) {
+        const r = await cubrirCobrosConComprobante(ctx.schoolId, pago.id, cubre.map((c) => c.id));
+        // Si falla, el principal queda con el comprobante entero: al aprobarlo,
+        // lo de más se vuelve saldo a favor y se descuenta de esos mismos
+        // cobros pendientes. No se pierde plata; queda en el log.
+        if (!r.ok) ctx.log?.warn?.({ queueId: ctx.queueId, paymentId: pago.id, err: r.error }, '[wa-queue] no se pudieron cubrir los otros cobros');
+    }
+
     const resultado = await evaluatePaymentReceipt(pago.id, ctx.log);
 
     // 8. Contarle al acudiente qué pasó, nombrando el pago para que pueda corregir.
     let respuesta: string;
+    const destino = cubre.length
+        ? [pago, ...cubre].map((c) => `*${describirPago(c)}*`).join(' y ')
+        : `*${describirPago(pago)}*`;
     if (resultado.action === 'approved') {
-        respuesta = `¡Listo! ✅ Apliqué tu pago a *${describirPago(pago)}*.`
+        respuesta = `¡Listo! ✅ Apliqué tu pago a ${destino}.`
             + (restantes.length ? '' : ' Queda al día.');
     } else if (resultado.action === 'rejected') {
         respuesta =
-            `Revisé tu comprobante para *${describirPago(pago)}* y no lo pude validar.\n\n` +
+            `Revisé tu comprobante para ${destino} y no lo pude validar.\n\n` +
             `${resultado.reason ?? ''}\n\nSi crees que hay un error, mándame el comprobante correcto por acá.`;
     } else {
         respuesta =
-            `Recibí tu comprobante y lo apliqué a *${describirPago(pago)}* 📄\n\n` +
+            `Recibí tu comprobante y lo apliqué a ${destino} 📄\n\n` +
             'La escuela lo está revisando y te confirma en poco tiempo.';
     }
+    if (extra.nota && resultado.action !== 'rejected') respuesta += `\n\n${extra.nota}`;
 
     // Lo que SIGUE debiendo. Sin esto, el acudiente que paga «lo pendiente»
     // se va convencido de que quedó al día y la escuela se entera cuando le
@@ -742,6 +777,37 @@ export async function destinoEsDeLaEscuela(
     return !(destino && cuentas.length > 0 && !destinationMatchesRegistered(destino, cuentas));
 }
 
+/** `error_message` de un comprobante a una cuenta «por fuera de SportMaps». La bandeja lo muestra como informativo. */
+export const MOTIVO_FUERA_DE_SPORTMAPS = 'pago por fuera de SportMaps';
+
+/** Lo que se le dice a la familia cuando el pago fue a una cuenta «por fuera de SportMaps». */
+export const TEXTO_FUERA_DE_SPORTMAPS =
+    'Recibí tu comprobante 📄 Ese pago se maneja directamente con la escuela, por fuera de la app, ' +
+    'así que no lo registro aquí.';
+
+/**
+ * ¿El dinero fue a una cuenta que la escuela acepta «por fuera de SportMaps»
+ * (`payment_accounts[].fuera_de_sportmaps`, 2026-10-13: el Nequi de un
+ * entrenador para los torneos)? Si el destino coincide también con una cuenta
+ * de la escuela, gana la de la escuela. Sin destino o sin esas cuentas: false.
+ */
+export async function destinoFueraDeSportmaps(
+    schoolId: string,
+    ocr: Awaited<ReturnType<typeof extractReceipt>>,
+): Promise<boolean> {
+    const destino = normalizeDestination(ocr.destination);
+    if (!destino) return false;
+    const ctx = await buildVerdictContext(schoolId, { referenceNorm: null, imageSha256: null });
+    const fuera = ctx.cuentasFueraDeSportmaps ?? [];
+    if (!fuera.length) return false;
+    const deLaEscuela = [
+        ...(ctx.registeredAccounts ?? []),
+        ...(ctx.restrictedAccounts ?? []).map((r) => r.value),
+    ];
+    if (deLaEscuela.length && destinationMatchesRegistered(destino, deLaEscuela)) return false;
+    return destinationMatchesRegistered(destino, fuera);
+}
+
 /**
  * Todo lo que pasa una vez que sabemos QUIÉN paga (`parentId`) y que el
  * archivo YA se leyó como comprobante (`ocr`). Compartida por el camino de
@@ -782,6 +848,15 @@ async function continuarComoComprobante(
     // ¿El dinero fue siquiera a la escuela? Va ANTES de mirar los pendientes
     // (decirle "no tienes pendientes" a quien mandó el comprobante de otra
     // cuenta es cierto pero inútil). La regla vive en `destinoEsDeLaEscuela`.
+    // Antes: ¿fue a una cuenta que la escuela acepta «por fuera de SportMaps»?
+    // Eso no es plata perdida ni un error de la familia: informativo.
+    if (await destinoFueraDeSportmaps(fila.school_id, ocr)) {
+        await responder(TEXTO_FUERA_DE_SPORTMAPS, 'fuera_de_sportmaps');
+        await cerrar(fila.id, 'ignored', {
+            result_type: 'none', matched_parent_id: parentId, error_message: MOTIVO_FUERA_DE_SPORTMAPS,
+        });
+        return;
+    }
     if (!(await destinoEsDeLaEscuela(fila.school_id, ocr))) {
         await responder(
             `Revisé tu comprobante y el dinero se envió a la cuenta *${ocr.destination}*, ` +
@@ -863,12 +938,18 @@ async function continuarComoComprobante(
     // monto cuadra (Dynasty 2026-10-09: «envío saldo sept 15 - oct 15 $80.000»
     // se estampó como pago nuevo en la mensualidad de $150.000). Ver
     // whatsapp-cobro-por-texto.service.
+    const montoLeido = typeof ocr.amount === 'number' && ocr.amount > 0 ? ocr.amount : null;
+    // Montos con el recargo del enlace de pago de cada cobro (2026-10-13).
+    const recargos = await cargarRecargos(fila.school_id, pendientes);
+    // Huellas para que la bandeja cierre sola la fila cuando se decida el pago.
+    const huellas = huellasDelComprobante({ sha: shaArchivo, ocr, storagePath, parentId });
     const porTexto = decidirCobroPorTexto({
         pendientes,
         parciales: await cobrosParcialesDe(fila.school_id, parentId, opts.llaves),
-        monto: typeof ocr.amount === 'number' && ocr.amount > 0 ? ocr.amount : null,
+        monto: montoLeido,
         lectura: leerTextosDelComprobante(fila.media_caption, await textosCercanos(fila), pendientes),
         permiteAbonos: await escuelaRecibeAbonos(fila.school_id),
+        recargos,
     });
     if (porTexto?.tipo === 'a_la_escuela') {
         await responder(porTexto.mensaje, 'comprobante_a_la_escuela');
@@ -876,6 +957,7 @@ async function continuarComoComprobante(
             result_type: 'escalated',
             matched_parent_id: parentId,
             error_message: `${porTexto.codigo}: ${porTexto.resumen}`,
+            ...(huellas ? { pregunta_ocr: huellas } : {}),
         });
         log?.info?.({ queueId: fila.id, codigo: porTexto.codigo, paymentId: porTexto.pagoId }, '[wa-queue] a la escuela por monto/texto');
         return;
@@ -889,6 +971,10 @@ async function continuarComoComprobante(
     if (porTexto?.tipo === 'aplicar') {
         log?.info?.({ queueId: fila.id, paymentId: porTexto.pago.id, motivo: porTexto.motivo }, '[wa-queue] cobro elegido por el texto/antigüedad');
     }
+    // Pagó de más: se toma igual; lo de más queda como saldo a favor al aprobar.
+    const notaExcedente = porTexto?.tipo === 'aplicar' && porTexto.motivo === 'excedente' && porTexto.excedente
+        ? textoExcedente(porTexto.excedente)
+        : undefined;
 
     // El monto no desempata: ¿la familia dijo a cuál iba? (P3)
     // (Si la pregunta la pidió el monto que no cuadra, la pista no la salta.)
@@ -926,19 +1012,23 @@ async function continuarComoComprobante(
 
     // UNA transferencia que suma exacto varios cobros (dos hijos; o mensualidad +
     // inscripción + seguro del alta, 2026-10-10). Un comprobante se estampa en
-    // UN cobro (`uq_payments_school_ocr_reference`), así que no hay cómo
-    // aplicarlo a los tres sin dejar dos «pendientes» pagados o estampar el
-    // total en uno solo. Antes se le pedía «sí» y ese «sí» no lo entendía nadie
-    // (`interpretarEleccion` lo repreguntaba). Ahora se dice la verdad y lo
-    // reparte la escuela, igual que la recuperación en lote («varios_cobros»).
+    // UN cobro (`uq_payments_school_ocr_reference`). Desde el 2026-10-13 se
+    // aplica a TODOS, empezando por el más antiguo: ese lleva la referencia, el
+    // sha y el veredicto (contra la suma), y los demás quedan en revisión con
+    // el mismo archivo y una nota (RPC wa_cubrir_cobros_con_comprobante, una
+    // transacción). La escuela los aprueba como siempre.
     if (match.tipo === 'combinacion') {
-        await responder(textoVariosCobros(ocr.amount ?? 0, match.pagos), 'varios_cobros');
-        await cerrar(fila.id, 'ignored', {
-            result_type: 'escalated',
-            matched_parent_id: parentId,
-            error_message: motivoVariosCobros(match.pagos),
+        const [principal, ...cubre] = ordenarDelMasAntiguo(match.pagos);
+        log?.info?.({ queueId: fila.id, cobros: match.pagos.map((p) => p.id) }, '[wa-queue] un comprobante, varios cobros: a todos');
+        await aplicarComprobante({
+            queueId: fila.id, schoolId: fila.school_id, parentId, storagePath, sha: shaArchivo, ocr,
+            responder,
+            alFallar,
+            log,
+        }, principal, pendientes.filter((x) => !match.pagos.some((m) => m.id === x.id)), {
+            esperado: match.pagos.reduce((s, p) => s + Number(p.amount), 0),
+            cubre,
         });
-        log?.info?.({ queueId: fila.id, cobros: match.pagos.map((p) => p.id) }, '[wa-queue] varios cobros: a la escuela');
         return;
     }
 
@@ -965,7 +1055,10 @@ async function continuarComoComprobante(
         responder,
         alFallar,
         log,
-    }, pago, pendientes.filter((x) => x.id !== pago.id));
+    }, pago, pendientes.filter((x) => x.id !== pago.id), {
+        esperado: montoEsperado(pago, montoLeido, recargos),
+        nota: notaExcedente,
+    });
 }
 
 /**
@@ -1278,8 +1371,9 @@ export function decidirAdjunto(a: {
     esStaffAdmin: boolean;
 }): DecisionDeAdjunto {
     if (!a.botEncendido) return 'bot_apagado';
-    // Lo marcado a mano como personal manda sobre todo, incluso sobre staff.
-    if (a.tipo === 'personal' || a.tipo === 'desconocido') return 'silencio';
+    // Lo marcado a mano como no-familia (personal, negocio, otro club,
+    // plataforma) manda sobre todo, incluso sobre staff.
+    if (esMarcaNoFamilia(a.tipo) || a.tipo === 'desconocido') return 'silencio';
     if (a.tipo === 'staff' || a.esStaffAdmin) return 'staff_admin';
     if (a.tipo === 'familia') return 'comprobante';
     if (a.tipo === 'familia_sin_cuenta') return 'escalar_sin_cuenta';
@@ -1601,15 +1695,17 @@ async function anotarAtletaDeLaFicha(fila: FilaCola): Promise<void> {
 export async function destinoDelComprobante(
     schoolId: string,
     ocr: Awaited<ReturnType<typeof extractReceipt>>,
-): Promise<'general' | 'restringida' | 'ajena' | null> {
+): Promise<'general' | 'restringida' | 'fuera_de_sportmaps' | 'ajena' | null> {
     const destino = normalizeDestination(ocr.destination);
     if (!destino) return null;
     const ctx = await buildVerdictContext(schoolId, { referenceNorm: null, imageSha256: null });
     const generales = ctx.registeredAccounts ?? [];
     const restringidas = (ctx.restrictedAccounts ?? []).map((r) => r.value);
-    if (!generales.length && !restringidas.length) return null;
+    const fuera = ctx.cuentasFueraDeSportmaps ?? [];
+    if (!generales.length && !restringidas.length && !fuera.length) return null;
     if (generales.length && destinationMatchesRegistered(destino, generales)) return 'general';
     if (restringidas.length && destinationMatchesRegistered(destino, restringidas)) return 'restringida';
+    if (fuera.length && destinationMatchesRegistered(destino, fuera)) return 'fuera_de_sportmaps';
     return 'ajena';
 }
 
@@ -1747,6 +1843,12 @@ async function comprobanteDeNumeroSinFicha(
     // Se le escribe solo si el dinero fue a una cuenta general de la escuela, o
     // si habla de un pago y el destino no es ajeno.
     const destino = pareceComprobanteDePago(ocr) ? await destinoDelComprobante(fila.school_id, ocr) : 'ajena';
+    if (destino === 'fuera_de_sportmaps') {
+        // Pago a una cuenta que la escuela acepta por fuera de la app: no se le
+        // contesta a un número sin ficha; queda informativo en la bandeja.
+        await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: MOTIVO_FUERA_DE_SPORTMAPS });
+        return;
+    }
     if (destino === 'ajena' || (destino !== 'general' && !hablaDePago)) { await silencio(); return; }
 
     const bajada = await bajarYGuardarArchivo(fila, wa, log);
@@ -2011,7 +2113,10 @@ async function procesarFilaInterna(
     // filtra por eso aunque el bot esté apagado) y, si reconoce al acudiente
     // por teléfono, vincula la conversación (`wa_identify_by_phone`).
     const atencion = await debeAtender(wa, conversationId, fila.wa_phone_number);
-    tomada = atencion.tomada === true;
+    // «También es familia» (marcado personal/negocio… pero acudiente): sus
+    // comprobantes se aplican igual que los de una conversación tomada, sin
+    // escribirle — es el WhatsApp personal de quien dirige la escuela.
+    tomada = atencion.tomada === true || atencion.tambienFamilia === true;
 
     // Solo se pregunta si administra la escuela cuando la respuesta puede
     // cambiar algo: familias que también son dueñas (ver `decidirAdjunto`).

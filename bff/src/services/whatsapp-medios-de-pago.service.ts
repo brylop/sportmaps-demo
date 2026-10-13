@@ -121,14 +121,15 @@ export async function mediosDePago(
         // Las restringidas que no aplican se marcan como vistas ANTES de leer las
         // columnas sueltas: si alguna espejara esa llave, no se cuela por ahí.
         for (const a of lista) {
-            if (!cuentaAplicaA(a, opts.categoria ?? null)) {
+            if (!cuentaAplicaA(a, opts.categoria ?? null) || a.fueraDeSportmaps) {
                 const clave = normalizeDestination(a.value);
                 if (clave) vistos.add(clave);
             }
         }
         for (const a of lista) {
             // `active: false` solo oculta la cuenta, no la borra.
-            if (!a.active || !cuentaAplicaA(a, opts.categoria ?? null)) continue;
+            // «Por fuera de SportMaps» (Nequi de un entrenador): nunca se ofrece.
+            if (!a.active || a.fueraDeSportmaps || !cuentaAplicaA(a, opts.categoria ?? null)) continue;
             // La clave del valor es `value` (mig 20260809095613). Antes se leía
             // `number`/`numero`, que no existen: ninguna llave de la lista llegaba
             // al bot y solo salían las columnas sueltas.
