@@ -70,6 +70,7 @@ const ETIQUETAS: Record<string, string> = {
     enviado_por_equipo: 'Lo envió alguien del equipo',
     aviso_no_entregado: 'No se le pudo avisar a la familia',
     sin_integracion: 'El canal ya no existe',
+    duplicado: 'Comprobante repetido (misma imagen)',
     otro: 'Sin clasificar',
 };
 
@@ -95,6 +96,7 @@ const GRUPO_DE: Record<string, GrupoBandeja> = {
     enviado_por_equipo: 'informativo',
     aviso_no_entregado: 'informativo',
     sin_integracion: 'informativo',
+    duplicado: 'informativo',
 };
 
 /** Códigos que escribe la recuperación (`recuperado: <código> — <motivo>`). */
@@ -116,6 +118,11 @@ export function motivoDeFila(fila: FilaCruda): { motivo: string; detalle: string
     if (em.startsWith('otro_concepto')) return { motivo: 'otro_concepto', detalle: em.replace(/^otro_concepto:\s*/, '') || null };
     if (em.startsWith('pregunta_vencida')) return { motivo: 'pregunta_vencida', detalle: em.replace(/^pregunta_vencida:\s*/, '') || null };
     if (em.startsWith('referencia ya usada')) return { motivo: 'ya_registrado', detalle: em };
+    // Códigos que escribe el worker con «código: detalle» (medido en Dynasty
+    // 2026-10-13: 6 «monto_no_cuadra» y 2 «sin_familia:» caían en «Sin clasificar»).
+    if (em.startsWith('monto_no_cuadra')) return { motivo: 'monto_distinto', detalle: em.replace(/^monto_no_cuadra:\s*/, '') || null };
+    if (em.startsWith('sin_familia:')) return { motivo: 'sin_familia', detalle: em.replace(/^sin_familia:\s*/, '') || null };
+    if (em.startsWith('comprobante ya recibido')) return { motivo: 'duplicado', detalle: null };
     if (em.startsWith('consulta_no_comprobante')
         || ['no es un comprobante', 'no_es_comprobante_sin_contexto', 'ni comprobante ni matrícula'].includes(em)) {
         return { motivo: 'no_es_comprobante', detalle: null };
@@ -201,4 +208,116 @@ export function resumenDeGrupos(clases: Clasificacion[]): Record<GrupoBandeja, n
     const r = { accion: 0, revisar: 0, informativo: 0, total: clases.length };
     for (const c of clases) r[c.grupo] += 1;
     return r;
+}
+
+// ─── Autocierre por la decisión sobre el pago (2026-10-13) ───────────────────
+//
+// Dynasty: 206 abiertas y 0 cerradas por la escuela. El barrido de arriba solo
+// cerraba `ya_registrado`. Una fila que pedía decidir (varios cobros, monto
+// distinto…) seguía abierta aunque la escuela YA hubiera aprobado o rechazado
+// ese comprobante desde Pagos (u otro camino): la bandeja quedaba como una
+// lista de pendientes que ya no lo eran. Ahora se cierra sola cuando el pago
+// enlazado a la fila tiene una decisión POSTERIOR a la llegada de la fila.
+//
+// Enlace fila → pago (de más a menos directo):
+//   · `result_ref_id`                         (lo deja el worker/recuperación)
+//   · `pregunta_ocr.sha` = receipt_image_sha256  (misma imagen)
+//   · `pregunta_ocr.ocr.reference` = ocr_reference / receipt_reference_norm
+// Nunca por «la familia tiene un pago aprobado esos días»: eso cerraría fotos
+// que no tenían nada que ver (medido: 20 de 196 en Dynasty, casi todas «no es
+// un comprobante»).
+
+/** Pago con lo necesario para saber si ya se decidió. */
+export interface PagoDecidible extends PagoMinimo {
+    approved_at?: string | null;
+    payment_date?: string | null;
+    updated_at?: string | null;
+    receipt_rejected_at?: string | null;
+    receipt_image_sha256?: string | null;
+    receipt_reference_norm?: string | null;
+}
+
+export interface FilaConEnlace extends FilaCruda {
+    created_at?: string | null;
+    pregunta_ocr?: any;
+}
+
+/** Estados que dejan el cobro vivo tras rechazar el comprobante (reject_payment_receipt). */
+const VIVOS_TRAS_RECHAZO = ['pending', 'overdue', 'partial'];
+
+export type DecisionDePago = 'aprobado' | 'rechazado';
+
+/**
+ * ¿Se decidió el pago DESPUÉS de que llegó la fila? Pura. Misma semántica que
+ * `desenlaceDelPago` del job de desenlaces: un rechazo se reconoce por
+ * `receipt_rejected_at` (o el viejo status 'rejected'); una aprobación, por el
+ * estado registrado con fecha de aprobación (o de pago) posterior.
+ */
+export function decisionDelPago(pago: PagoDecidible, filaCreadaEn: string | null | undefined): DecisionDePago | null {
+    const llegada = Date.parse(String(filaCreadaEn ?? ''));
+    if (!Number.isFinite(llegada)) return null;
+    // Margen: la fila se guarda unos segundos después de que entra el mensaje.
+    const desde = llegada - 5 * 60_000;
+    const despues = (s: string | null | undefined) => {
+        const t = Date.parse(String(s ?? ''));
+        return Number.isFinite(t) && t >= desde;
+    };
+    if ((ESTADOS_PAGO_REGISTRADO as readonly string[]).includes(pago.status) && pago.status !== 'awaiting_approval') {
+        return despues(pago.approved_at ?? pago.payment_date ?? pago.updated_at) ? 'aprobado' : null;
+    }
+    if (pago.status === 'rejected') return despues(pago.receipt_rejected_at ?? pago.updated_at) ? 'rechazado' : null;
+    if (VIVOS_TRAS_RECHAZO.includes(pago.status) && pago.receipt_rejected_at) {
+        return despues(pago.receipt_rejected_at) ? 'rechazado' : null;
+    }
+    return null;
+}
+
+/** sha y referencia que el worker guardó en `pregunta_ocr`. Pura. */
+export function huellasDeFila(f: FilaConEnlace): { sha: string | null; referencia: string | null } {
+    const p = f.pregunta_ocr ?? null;
+    const sha = typeof p?.sha === 'string' && p.sha ? p.sha : null;
+    const ref = p?.ocr?.reference ?? p?.ocr?.referencia ?? null;
+    return { sha, referencia: typeof ref === 'string' && ref.trim() ? ref.trim() : null };
+}
+
+/**
+ * Filas abiertas cuyo pago enlazado ya se decidió después de su llegada. Pura.
+ * No incluye las `ya_registrado` (las cierra `filasParaAutocierre`).
+ */
+export function filasParaAutocierrePorDecision(
+    schoolId: string,
+    filas: FilaConEnlace[],
+    pagos: PagoDecidible[],
+): { fila: FilaConEnlace; pago: PagoDecidible; decision: DecisionDePago }[] {
+    const deLaEscuela = pagos.filter((p) => p.school_id === schoolId);
+    const porId = new Map(deLaEscuela.map((p) => [p.id, p]));
+    const out: { fila: FilaConEnlace; pago: PagoDecidible; decision: DecisionDePago }[] = [];
+    for (const f of filas) {
+        if (estaCerrada(f.error_message)) continue;
+        if (!(ESTADOS_BANDEJA as readonly string[]).includes(f.status)) continue;
+        if (motivoDeFila(f).motivo === 'ya_registrado') continue;
+        const { sha, referencia } = huellasDeFila(f);
+        const candidatos: PagoDecidible[] = [];
+        if (f.result_ref_id && porId.has(f.result_ref_id)) candidatos.push(porId.get(f.result_ref_id)!);
+        if (sha) candidatos.push(...deLaEscuela.filter((p) => p.receipt_image_sha256 === sha));
+        if (referencia) {
+            candidatos.push(...deLaEscuela.filter((p) => p.ocr_reference === referencia || p.receipt_reference_norm === referencia));
+        }
+        for (const pago of candidatos) {
+            const decision = decisionDelPago(pago, f.created_at);
+            if (decision) { out.push({ fila: f, pago, decision }); break; }
+        }
+    }
+    return out;
+}
+
+/** Cuántas cerró la escuela y cuántas se cerraron solas, a partir de su `error_message`. Pura. */
+export function contarCierres(mensajes: (string | null | undefined)[]): { escuela: number; automaticas: number; total: number } {
+    let escuela = 0, automaticas = 0;
+    for (const m of mensajes) {
+        if (!estaCerrada(m)) continue;
+        if (/^cerrado_escuela:\s*resuelto_auto\b/.test(String(m))) automaticas++;
+        else escuela++;
+    }
+    return { escuela, automaticas, total: escuela + automaticas };
 }

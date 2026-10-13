@@ -13,6 +13,15 @@
  *  · «Marcar resuelto» y «Descartar», con motivo. No tocan pagos: si había que
  *    aplicar el comprobante, se aplica en Pagos y aquí se marca resuelto.
  *  · Lo que ya estaba registrado se cierra solo al abrir la bandeja.
+ *
+ * 2026-10-13 (Dynasty: 206 abiertas, 0 cerradas por la escuela). El cierre
+ * funcionaba, pero era de a una y con motivo escrito, sobre una lista donde la
+ * mayoría eran fotos de contactos que no son familias. Ahora:
+ *  · «Descartar las N» / «Marcar las N resueltas» por sección, con un solo
+ *    motivo (POST /bandeja/cerrar-lote).
+ *  · Se cierran solas también las que la escuela ya aprobó o rechazó en Pagos
+ *    (cualquier camino), no solo las «ya registradas».
+ *  · Conteos arriba: cuántas quedan por grupo y cuántas se cerraron en 30 días.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -49,6 +58,7 @@ export interface FilaDeBandeja {
     archivo_url: string | null;
 }
 export interface ResumenBandeja { accion: number; revisar: number; informativo: number; total: number }
+export interface CierresRecientes { escuela: number; automaticas: number; total: number }
 
 const SECCIONES: { grupo: Grupo; titulo: string; ayuda: string }[] = [
     { grupo: 'accion', titulo: 'Requiere tu acción',
@@ -79,20 +89,24 @@ export function BandejaComprobantes({ schoolId, onVerChat, onCambio }: {
     const [filas, setFilas] = useState<FilaDeBandeja[]>([]);
     const [resumen, setResumen] = useState<ResumenBandeja | null>(null);
     const [cargando, setCargando] = useState(true);
-    const [cierre, setCierre] = useState<{ fila: FilaDeBandeja; accion: 'resuelto' | 'descartado' } | null>(null);
+    // Cierre de una fila o de una sección entera (lote).
+    const [cierre, setCierre] = useState<{ filas: FilaDeBandeja[]; accion: 'resuelto' | 'descartado'; lote: boolean } | null>(null);
+    const [cierres, setCierres] = useState<CierresRecientes | null>(null);
     const [motivo, setMotivo] = useState('');
     const [guardando, setGuardando] = useState(false);
 
     const cargar = useCallback(async () => {
         setCargando(true);
         try {
-            const r = await bffClient.get<{ filas: FilaDeBandeja[]; resumen: ResumenBandeja; cerradas_solas: number }>(
-                `/api/v1/whatsapp/${schoolId}/bandeja`);
+            const r = await bffClient.get<{
+                filas: FilaDeBandeja[]; resumen: ResumenBandeja; cerradas_solas: number; cierres_30d?: CierresRecientes | null;
+            }>(`/api/v1/whatsapp/${schoolId}/bandeja`);
             setFilas(r.filas ?? []);
             setResumen(r.resumen ?? null);
+            setCierres(r.cierres_30d ?? null);
             if (r.resumen) onCambio?.(r.resumen);
             if ((r.cerradas_solas ?? 0) > 0) {
-                toast({ title: `${r.cerradas_solas} se cerraron solas`, description: 'Ya estaban registradas en Pagos.' });
+                toast({ title: `${r.cerradas_solas} se cerraron solas`, description: 'Ya estaban registradas, aprobadas o rechazadas en Pagos.' });
             }
         } catch (e: any) {
             toast({ title: 'No se pudo cargar la bandeja', description: e?.message, variant: 'destructive' });
@@ -106,7 +120,11 @@ export function BandejaComprobantes({ schoolId, onVerChat, onCambio }: {
     useEffect(() => { void cargar(); }, [cargar]);
 
     const abrirCierre = (fila: FilaDeBandeja, accion: 'resuelto' | 'descartado') => {
-        setCierre({ fila, accion });
+        setCierre({ filas: [fila], accion, lote: false });
+        setMotivo('');
+    };
+    const abrirCierreLote = (deEsta: FilaDeBandeja[], accion: 'resuelto' | 'descartado') => {
+        setCierre({ filas: deEsta, accion, lote: true });
         setMotivo('');
     };
 
@@ -114,9 +132,21 @@ export function BandejaComprobantes({ schoolId, onVerChat, onCambio }: {
         if (!cierre || motivo.trim().length < 3) return;
         setGuardando(true);
         try {
-            await bffClient.post(`/api/v1/whatsapp/${schoolId}/bandeja/${cierre.fila.id}/cerrar`,
-                { accion: cierre.accion, motivo: motivo.trim() });
-            const restantes = filas.filter((f) => f.id !== cierre.fila.id);
+            let cerradas: Set<string>;
+            if (cierre.lote) {
+                // De a 300 (el tope del BFF por llamada).
+                cerradas = new Set();
+                for (let i = 0; i < cierre.filas.length; i += 300) {
+                    const r = await bffClient.post<{ cerradas: string[] }>(`/api/v1/whatsapp/${schoolId}/bandeja/cerrar-lote`,
+                        { ids: cierre.filas.slice(i, i + 300).map((f) => f.id), accion: cierre.accion, motivo: motivo.trim() });
+                    for (const id of r.cerradas ?? []) cerradas.add(id);
+                }
+            } else {
+                await bffClient.post(`/api/v1/whatsapp/${schoolId}/bandeja/${cierre.filas[0].id}/cerrar`,
+                    { accion: cierre.accion, motivo: motivo.trim() });
+                cerradas = new Set([cierre.filas[0].id]);
+            }
+            const restantes = filas.filter((f) => !cerradas.has(f.id));
             setFilas(restantes);
             const nuevo: ResumenBandeja = {
                 accion: restantes.filter((f) => f.grupo === 'accion').length,
@@ -126,7 +156,10 @@ export function BandejaComprobantes({ schoolId, onVerChat, onCambio }: {
             };
             setResumen(nuevo);
             onCambio?.(nuevo);
-            toast({ title: cierre.accion === 'resuelto' ? 'Marcado como resuelto' : 'Descartado' });
+            setCierres((c) => (c ? { ...c, escuela: c.escuela + cerradas.size, total: c.total + cerradas.size } : c));
+            toast({ title: cierre.lote
+                ? `${cerradas.size} ${cerradas.size === 1 ? 'cerrada' : 'cerradas'}`
+                : cierre.accion === 'resuelto' ? 'Marcado como resuelto' : 'Descartado' });
             setCierre(null);
         } catch (e: any) {
             toast({ title: 'No se pudo guardar', description: e?.message, variant: 'destructive' });
@@ -149,7 +182,7 @@ export function BandejaComprobantes({ schoolId, onVerChat, onCambio }: {
                             <FileText className="h-5 w-5" /> PDF
                         </a>
                     ) : (
-                        <span className="text-[10px] text-muted-foreground text-center px-1">Sin archivo</span>
+                        <span className="text-xs text-muted-foreground text-center px-1">Sin archivo</span>
                     )}
                 </div>
                 <div className="flex-1 min-w-0 space-y-1">
@@ -166,7 +199,7 @@ export function BandejaComprobantes({ schoolId, onVerChat, onCambio }: {
                     {!f.archivo_url && f.grupo !== 'informativo' && (
                         <p className="text-xs text-muted-foreground">El archivo no se guardó: míralo en el chat.</p>
                     )}
-                    <div className="flex flex-wrap gap-2 pt-1">
+                    <div className="flex flex-wrap gap-2 pt-1 [&>button]:min-h-touch md:[&>button]:min-h-0">
                         {f.conversacion_id && (
                             <Button size="sm" variant="outline" onClick={() => onVerChat(f.conversacion_id!)}>
                                 <MessageSquare className="h-3.5 w-3.5 mr-1" /> Ver chat
@@ -195,8 +228,20 @@ export function BandejaComprobantes({ schoolId, onVerChat, onCambio }: {
                 </div>
                 <CardDescription>
                     Lo que llegó por el chat y el asistente no pudo aplicar solo. Marcar resuelto o descartar no
-                    cambia ningún pago: si hay que registrarlo, hazlo en Pagos.
+                    cambia ningún pago: si hay que registrarlo, hazlo en Pagos. Lo que se aprueba o rechaza en Pagos
+                    sale de aquí solo.
                 </CardDescription>
+                {resumen && (
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1 text-xs text-muted-foreground" data-testid="conteos-bandeja">
+                        <span><strong className="text-foreground">{resumen.accion}</strong> requieren tu acción</span>
+                        <span><strong className="text-foreground">{resumen.revisar}</strong> para revisar</span>
+                        <span><strong className="text-foreground">{resumen.informativo}</strong> informativas</span>
+                        {cierres && (
+                            <span>Cerradas en 30 días: <strong className="text-foreground">{cierres.escuela}</strong> por la escuela
+                                {' · '}<strong className="text-foreground">{cierres.automaticas}</strong> solas</span>
+                        )}
+                    </div>
+                )}
             </CardHeader>
             <CardContent className="space-y-6">
                 {cargando && !resumen ? (
@@ -217,21 +262,36 @@ export function BandejaComprobantes({ schoolId, onVerChat, onCambio }: {
                                 <Badge variant={s.grupo === 'accion' ? 'default' : 'secondary'}>{deEsta.length}</Badge>
                             </div>
                         );
+                        // Lo que no pide nada se descarta junto; lo que tiene plata
+                        // de por medio se marca resuelto (después de aplicarlo en Pagos).
+                        const accionLote: 'resuelto' | 'descartado' = s.grupo === 'accion' ? 'resuelto' : 'descartado';
+                        const botonLote = deEsta.length > 1 && (
+                            <Button size="sm" variant="outline" className="min-h-touch md:min-h-0"
+                                    onClick={() => abrirCierreLote(deEsta, accionLote)}>
+                                {accionLote === 'resuelto'
+                                    ? <><CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Marcar las {deEsta.length} resueltas</>
+                                    : <><XCircle className="h-3.5 w-3.5 mr-1" /> Descartar las {deEsta.length}</>}
+                            </Button>
+                        );
                         if (s.grupo === 'informativo') {
                             return (
                                 <Collapsible key={s.grupo}>
-                                    <CollapsibleTrigger className="flex w-full items-center justify-between gap-2 text-left">
+                                    <CollapsibleTrigger className="flex w-full min-h-touch items-center justify-between gap-2 text-left md:min-h-0">
                                         {encabezado}
                                         <ChevronDown className="h-4 w-4 text-muted-foreground" />
                                     </CollapsibleTrigger>
                                     <p className="text-xs text-muted-foreground mt-1">{s.ayuda}</p>
+                                    {botonLote && <div className="mt-2">{botonLote}</div>}
                                     <CollapsibleContent>{deEsta.map(fila)}</CollapsibleContent>
                                 </Collapsible>
                             );
                         }
                         return (
                             <section key={s.grupo}>
-                                {encabezado}
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    {encabezado}
+                                    {botonLote}
+                                </div>
                                 <p className="text-xs text-muted-foreground mt-1">{s.ayuda}</p>
                                 <div>{deEsta.map(fila)}</div>
                             </section>
@@ -241,11 +301,15 @@ export function BandejaComprobantes({ schoolId, onVerChat, onCambio }: {
             </CardContent>
 
             <Dialog open={!!cierre} onOpenChange={(v) => { if (!v) setCierre(null); }}>
-                <DialogContent>
+                <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-modal">
                     <DialogHeader>
-                        <DialogTitle>{cierre?.accion === 'resuelto' ? 'Marcar resuelto' : 'Descartar'}</DialogTitle>
+                        <DialogTitle>
+                            {cierre?.lote
+                                ? `${cierre.accion === 'resuelto' ? 'Marcar resueltos' : 'Descartar'} ${cierre.filas.length} comprobantes`
+                                : cierre?.accion === 'resuelto' ? 'Marcar resuelto' : 'Descartar'}
+                        </DialogTitle>
                         <DialogDescription>
-                            Sale de la bandeja. No cambia ningún pago.
+                            {cierre?.lote ? 'Salen todos de la bandeja con el mismo motivo.' : 'Sale de la bandeja.'} No cambia ningún pago.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-2">

@@ -35,7 +35,7 @@ import { AsyncLocalStorage } from 'async_hooks';
 import { supabase } from '../config/supabase';
 import { emailClient } from '../utils/emailClient';
 import { chatWithTools, type LlmTool, type LlmMessage, type LlmFalla } from './llm.service';
-import { filtrarSalidaDelModelo, sinEmojisDeDeporte } from './whatsapp-salida-segura';
+import { filtrarSalidaDelModelo, prometeConsultarSinDatos, sinEmojisDeDeporte } from './whatsapp-salida-segura';
 import {
     clasificarUrgencia, incidenciaUrgente, avisarEscalacionAlEquipo, PLAZO_ESCALACION_MIN,
     escalacionesSinRevisar, respondioUnaPersona, reservarRevision, plazoVencido, textoSinRespuesta,
@@ -3549,7 +3549,12 @@ async function entregarTextoDelModelo(
         anexo?: AnexoConsentimiento | null;
     },
 ): Promise<'enviado' | 'respaldo' | 'escalado'> {
-    const f = filtrarSalidaDelModelo(texto, NOMBRES_DE_HERRAMIENTAS);
+    let f = filtrarSalidaDelModelo(texto, NOMBRES_DE_HERRAMIENTAS);
+    // Turno de redactar que solo promete consultar (sin datos): va el respaldo
+    // determinista, que sí trae los datos. Ver prometeConsultarSinDatos.
+    if (f.texto && opciones.respaldo && prometeConsultarSinDatos(f.texto)) {
+        f = { ...f, texto: null, alterado: true, motivos: [...f.motivos, 'promesa_sin_datos'] };
+    }
     const ctx = f.alterado ? { ...context, salida_filtrada: f.motivos } : context;
     if (f.alterado) {
         console.warn('[whatsapp-bot] salida del modelo filtrada', { conversationId, motivos: f.motivos,

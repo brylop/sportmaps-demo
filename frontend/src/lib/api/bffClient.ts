@@ -179,6 +179,24 @@ export const bffClient = {
     delete: <T>(path: string, headers?: Record<string, string>, authMode: AuthMode = 'required') =>
         request<T>('DELETE', path, undefined, headers, authMode),
 
+    /**
+     * GET de un archivo (foto, audio, PDF) con la sesión. Un `<img src>` no
+     * manda el Authorization, así que los adjuntos privados (p. ej. los de
+     * WhatsApp, que el BFF baja de Meta) se piden como Blob y se muestran con
+     * `URL.createObjectURL`. Error: BFFError con el `error`/`detalle` del JSON.
+     */
+    getBlob: async (path: string): Promise<Blob> => {
+        const headers = await buildHeaders(undefined, 'required');
+        delete headers['Content-Type'];
+        const response = await fetch(`${BFF_URL}${path}`, { method: 'GET', headers });
+        if (!response.ok) {
+            let cuerpo: any = null;
+            try { cuerpo = await response.json(); } catch { /* no era JSON */ }
+            throw new BFFError(response.status, cuerpo?.detalle ?? cuerpo?.error ?? `Error ${response.status}`, cuerpo);
+        }
+        return response.blob();
+    },
+
     request,
 };
 

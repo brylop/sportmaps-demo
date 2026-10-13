@@ -12,7 +12,7 @@
  *  · Configuración: modo, IA y horario de atención.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { bffClient } from '@/lib/api/bffClient';
@@ -124,6 +124,18 @@ export default function WhatsAppPage() {
     const [guardando, setGuardando] = useState(false);
     const [pestana, setPestana] = useState(pestanaInicial);
     const [respondiendo, setRespondiendo] = useState(false);
+    const tiraPestanas = useRef<HTMLDivElement>(null);
+
+    // El «Chat» de la barra de abajo enlaza a ?tab=conversaciones: si ya se
+    // está en /whatsapp, el cambio de query tiene que mover la pestaña.
+    const tabDeUrl = searchParams.get('tab');
+    useEffect(() => { if (tabDeUrl) setPestana(tabDeUrl); }, [tabDeUrl]);
+
+    // En el celular las pestañas se deslizan: la elegida (y su contador) se trae a la vista.
+    useEffect(() => {
+        const activa = tiraPestanas.current?.querySelector<HTMLElement>('[role="tab"][data-state="active"]');
+        activa?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    }, [pestana]);
 
     const cargar = useCallback(async () => {
         if (!schoolId) return;
@@ -271,18 +283,22 @@ export default function WhatsAppPage() {
     }
 
     return (
-        <div className="p-6 space-y-6">
-            <div className="flex items-start justify-between gap-4">
-                <div>
-                    <h1 className="text-2xl font-bold flex items-center gap-2">
-                        <MessageSquare className="h-6 w-6" /> WhatsApp
+        // Celular: el layout ya pone 12 px a los lados; con px-1 queda el margen
+        // de 16 px del estándar (antes p-6 + layout = ~36 px por lado).
+        <div className="px-1 sm:px-0 space-y-4 md:space-y-6">
+            <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                    <h1 className="text-xl md:text-2xl font-bold flex items-center gap-2">
+                        <MessageSquare className="h-5 w-5 md:h-6 md:w-6" /> WhatsApp
                     </h1>
-                    <p className="text-muted-foreground">
+                    <p className="text-sm md:text-base text-muted-foreground truncate">
                         {estado?.integracion?.display_phone_number ?? 'Sin número'} · canal de atención y cobranza
                     </p>
                 </div>
-                <Button variant="outline" onClick={() => void cargar()} disabled={cargando}>
-                    <RefreshCw className={`h-4 w-4 mr-2 ${cargando ? 'animate-spin' : ''}`} /> Actualizar
+                <Button variant="outline" onClick={() => void cargar()} disabled={cargando}
+                        className="shrink-0 w-touch h-touch p-0 md:w-auto md:h-10 md:px-4" aria-label="Actualizar">
+                    <RefreshCw className={`h-4 w-4 md:mr-2 ${cargando ? 'animate-spin' : ''}`} />
+                    <span className="hidden md:inline">Actualizar</span>
                 </Button>
             </div>
 
@@ -381,29 +397,33 @@ export default function WhatsAppPage() {
             )}
 
             <Tabs value={pestana} onValueChange={setPestana}>
-                {/* Con ocho pestañas la fila no cabe en un celular: se desliza de lado. */}
-                <TabsList className="w-full justify-start overflow-x-auto">
-                    <TabsTrigger value="resumen">Resumen</TabsTrigger>
-                    <TabsTrigger value="metricas">
-                        <BarChart3 className="h-4 w-4 mr-1" /> Métricas
+                {/* Con ocho pestañas la fila no cabe en un celular: se desliza de lado,
+                    sin barra y con los bordes desvanecidos. Lo del día a día va primero
+                    (Conversaciones y Bandeja, con su contador), para que se vea sin deslizar. */}
+                <TabsList ref={tiraPestanas} className="w-full justify-start h-tabs md:h-10 scroll-fade-x">
+                    <TabsTrigger value="resumen" className="h-full">Resumen</TabsTrigger>
+                    <TabsTrigger value="conversaciones" className="h-full">
+                        <MessageSquare className="h-4 w-4 mr-1.5" />
+                        {/* «Chats» en el celular: así la Bandeja y su contador caben sin deslizar. */}
+                        <span className="md:hidden">Chats</span><span className="hidden md:inline">Conversaciones</span>
                     </TabsTrigger>
-                    <TabsTrigger value="conversaciones">
-                        <MessageSquare className="h-4 w-4 mr-1.5" /> Conversaciones
-                    </TabsTrigger>
-                    <TabsTrigger value="cortesias">
-                        <CalendarCheck className="h-4 w-4 mr-1" /> Clases de cortesía
-                    </TabsTrigger>
-                    <TabsTrigger value="plantillas">
-                        <FileText className="h-4 w-4 mr-1" /> Plantillas
-                    </TabsTrigger>
-                    <TabsTrigger value="bandeja">
+                    <TabsTrigger value="bandeja" className="h-full">
                         <Inbox className="h-4 w-4 mr-1" /> Bandeja
                         {pendientesBandeja > 0 && <Badge variant="secondary" className="ml-2">{pendientesBandeja}</Badge>}
                     </TabsTrigger>
-                    <TabsTrigger value="horarios">
+                    <TabsTrigger value="cortesias" className="h-full">
+                        <CalendarCheck className="h-4 w-4 mr-1" /> Clases de cortesía
+                    </TabsTrigger>
+                    <TabsTrigger value="plantillas" className="h-full">
+                        <FileText className="h-4 w-4 mr-1" /> Plantillas
+                    </TabsTrigger>
+                    <TabsTrigger value="metricas" className="h-full">
+                        <BarChart3 className="h-4 w-4 mr-1" /> Métricas
+                    </TabsTrigger>
+                    <TabsTrigger value="horarios" className="h-full">
                         <Clock className="mr-1 h-3.5 w-3.5" /> Horarios
                     </TabsTrigger>
-                    <TabsTrigger value="config">
+                    <TabsTrigger value="config" className="h-full">
                         <Settings className="h-4 w-4 mr-1" /> Configuración
                     </TabsTrigger>
                 </TabsList>
