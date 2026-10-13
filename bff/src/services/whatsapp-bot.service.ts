@@ -35,7 +35,7 @@ import { AsyncLocalStorage } from 'async_hooks';
 import { supabase } from '../config/supabase';
 import { emailClient } from '../utils/emailClient';
 import { chatWithTools, type LlmTool, type LlmMessage, type LlmFalla } from './llm.service';
-import { filtrarSalidaDelModelo, sinEmojisDeDeporte } from './whatsapp-salida-segura';
+import { filtrarSalidaDelModelo, prometeConsultarSinDatos, sinEmojisDeDeporte } from './whatsapp-salida-segura';
 import {
     clasificarUrgencia, incidenciaUrgente, avisarEscalacionAlEquipo, PLAZO_ESCALACION_MIN,
     escalacionesSinRevisar, respondioUnaPersona, reservarRevision, plazoVencido, textoSinRespuesta,
@@ -47,7 +47,7 @@ import {
     sendTextMessage, sendInteractiveButtons, sendCtaUrl, sendImage, aFormatoWhatsApp, markAsRead,
     type WhatsAppIntegration, type BotonInteractivo,
 } from './whatsapp.service';
-import { conEnlacesDePago, conTipoDeCobro, lineaPagar, botonPagarUnico } from './whatsapp-enlaces-de-pago.service';
+import { conEnlacesDePago, conTipoDeCobro, lineaPagar, botonPagarUnico, TEXTO_BOTON_IR_A_PAGAR } from './whatsapp-enlaces-de-pago.service';
 import { resumenDeDeuda } from './tipo-de-cobro';
 import { esSalienteAutomatico } from './whatsapp-buzon';
 import { avisarEscalamientoPorCorreo } from './avisos-correo.service';
@@ -85,6 +85,7 @@ import {
     vocativosDelEquipo, esCierreSuelto, esAutoRespuesta, rutaSinModelo, humanoReciente,
     preguntaAbierta, pasoEnVentana, normalizarFrase, esHumanoDeLaEscuela, ecoDeAudios, PASOS_SIN_CUENTA, VOCATIVOS_GENERICOS,
     decidirRetoma, RETOMA_VENTANA_HORAS, PASO_RETOMA_SIN_RESPUESTA, recortarEmojis,
+    adjuntoEnLaRafaga, hablaDePagoOEstado,
     type FilaReciente, type ComprobanteAnunciado,
 } from './whatsapp-reglas-turno';
 import { atenderAusenciaEnBot } from './whatsapp-ausencias.service';
@@ -277,7 +278,8 @@ async function cuerpoDelTurno(
     //     identificación no la deja llegar a 2.5. Por audio no (mueve plata).
     if (!conv.identified && text && ctx.origen !== 'audio' && await hayPreguntaDeCobroAbierta(integration, contactWaId)) {
         const resuelta = await resolverRespuestaDeCobro(integration, contactWaId, textoDeEleccion(botonId, text),
-            (texto, paso) => deliver(integration, conversationId, contactWaId, texto, { step: paso })).catch(() => false);
+            responderDeCobro(integration, conversationId, contactWaId),
+            pasarCobroALaEscuela(integration, conversationId, contactWaId)).catch(() => false);
         if (resuelta) return;
     }
 
@@ -414,7 +416,8 @@ async function cuerpoDelTurno(
     }
     const respondio = await resolverRespuestaDeCobro(
         integration, contactWaId, textoDeEleccion(botonId, text),
-        (texto, paso) => deliver(integration, conversationId, contactWaId, texto, { step: paso }),
+        responderDeCobro(integration, conversationId, contactWaId),
+        pasarCobroALaEscuela(integration, conversationId, contactWaId),
     );
     if (respondio) return;
 
@@ -479,6 +482,19 @@ async function cuerpoDelTurno(
     }
     if (pedido?.tipo === 'vocativo') {
         await dejarMensajeALaPersona(integration, conversationId, contactWaId, pedido.nombre);
+        return;
+    }
+
+    // 2.75. UNA sola respuesta por comprobante (Dynasty 2026-10-09): imagen +
+    //       «Buen día» → el modelo contestó con el estado de cuenta («Recibí tu
+    //       imagen… ¿Cuál cobro quieres pagar?») y, en el mismo minuto, la cola
+    //       preguntó a cuál cobro aplicarlo. Si la ráfaga trae un archivo que la
+    //       cola va a procesar (o está procesando), lo que sea saludo o tema de
+    //       pagos lo contesta SOLO la cola. Lo demás («¿a qué hora es el
+    //       entreno?») sigue su curso.
+    if (!botonId && (adjuntoEnLaRafaga(recientes, waMessageId) || await comprobanteEnColaDe(integration, contactWaId))
+        && callarPorComprobanteEnCola(rafaga, await vocativosDeEscuela(integration.school_id))) {
+        console.info('[whatsapp-bot] comprobante en la cola: la respuesta es suya; el turno se calla', { conversationId });
         return;
     }
 
@@ -723,6 +739,55 @@ export function comprobanteEnCurso(
         && Date.parse(String(f?.created_at ?? '')) >= ahora - 3 * 60_000);
 }
 
+/**
+ * ¿Lo que escribió con el archivo es algo que contesta la cola? Saludo,
+ * cortesía, nada, o tema de pagos/estado de cuenta. Pura.
+ */
+export function callarPorComprobanteEnCola(rafaga: string, equipo: ReadonlyMap<string, string> = new Map()): boolean {
+    const lineas = String(rafaga ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
+    if (!lineas.length) return true;
+    return lineas.every((l) => hablaDePagoOEstado(l) || !!anunciaComprobante(l) || yaPagoYReclama(l)
+        || esCierreSuelto(l, equipo) || saludoSinContenido(l, equipo));
+}
+
+/** ¿Hay un archivo de este contacto pendiente o en proceso en la cola (< 3 min)? Nunca lanza. */
+async function comprobanteEnColaDe(integration: WhatsAppIntegration, contactWaId: string): Promise<boolean> {
+    try {
+        const { data } = await supabase.from('whatsapp_inbound_queue')
+            .select('status, created_at')
+            .eq('integration_id', integration.id)
+            .eq('wa_phone_number', contactWaId)
+            .in('status', ['pending', 'processing'])
+            .gte('created_at', new Date(Date.now() - 3 * 60_000).toISOString())
+            .limit(5);
+        return comprobanteEnCurso(Array.isArray(data) ? data as any[] : []);
+    } catch {
+        return false;
+    }
+}
+
+/** El `responder` de la pregunta «¿a cuál cobro?»: pasa los botones a `deliver`. */
+function responderDeCobro(integration: WhatsAppIntegration, conversationId: string, contactWaId: string) {
+    return (texto: string, paso: string, botones?: BotonInteractivo[]) =>
+        deliver(integration, conversationId, contactWaId, texto, { step: paso },
+            botones?.length ? { botones } : undefined);
+}
+
+/**
+ * La familia discute el valor de su mensualidad o dice que ya pagó un mes que
+ * figura pendiente: a la escuela con el resumen (motivo de la escalación, que
+ * es lo que ve el buzón y el correo). A la familia se le dice UNA vez
+ * `mensajeFamilia`; con null, solo se avisa a la escuela.
+ */
+function pasarCobroALaEscuela(integration: WhatsAppIntegration, conversationId: string, contactWaId: string) {
+    return ({ resumen, mensajeFamilia }: { resumen: string; mensajeFamilia: string | null }) =>
+        escalate(integration, conversationId, contactWaId, `revisar_plan_y_pagos: ${resumen}`, {
+            urgencia: 'normal',
+            mensaje: mensajeFamilia ?? undefined,
+            callarALaFamilia: mensajeFamilia === null,
+        });
+}
+
 async function responderYaPague(
     integration: WhatsAppIntegration,
     conversationId: string,
@@ -934,7 +999,7 @@ async function ejecutarAccionDeBoton(
             { integrationId: integration.id, waPhone: contactWaId });
         const anexo = await anexoDeConsentimiento(integration, conversationId, contactWaId, parentId);
         const m = conAnexoDeConsentimiento(fallbackMediosDePago(medios),
-            { step: 'get_payment_methods', via: 'boton' }, undefined, anexo);
+            { step: 'get_payment_methods', via: 'boton' }, botonIrAPagar(medios), anexo);
         await deliver(integration, conversationId, contactWaId, m.texto, m.context, m.conBotones);
         return;
     }
@@ -2138,7 +2203,8 @@ export async function atenderDesconocido(
     //     comprobante que mandó desde este número sin ficha.
     if (text && await hayPreguntaDeCobroAbierta(integration, contactWaId)) {
         const resuelta = await resolverRespuestaDeCobro(integration, contactWaId, textoDeEleccion(botonId, text),
-            (texto, paso) => deliver(integration, conversationId, contactWaId, texto, { step: paso })).catch(() => false);
+            responderDeCobro(integration, conversationId, contactWaId),
+            pasarCobroALaEscuela(integration, conversationId, contactWaId)).catch(() => false);
         if (resuelta) return 'pregunta_de_comprobante';
     }
 
@@ -3297,8 +3363,8 @@ Reglas estrictas:
   la URL completa y tal cual (sin acortarla ni ponerla entre corchetes). Ahi la
   familia ve la transferencia, el QR y el pago en linea. Nunca inventes un enlace
   para un pago que no lo trae.
-- Si el pago trae enlace_instrucciones (link con el monto exacto, que vence), repite
-  esa frase tal cual junto al enlace, sin agregar promesas que ella no haga.
+- Si el pago trae enlace_instrucciones (como se paga con ese enlace), repite esa
+  frase tal cual junto al enlace, sin agregar promesas que ella no haga.
 - «Cuanto cuesta la mensualidad?» de alguien YA inscrito es una pregunta sobre SU
   cobro, no sobre la lista de precios: usa get_payment_status y dile su monto. Es la
   pregunta mas comun de todas y contestarle «no tengo ese dato» teniendolo delante es
@@ -3483,7 +3549,12 @@ async function entregarTextoDelModelo(
         anexo?: AnexoConsentimiento | null;
     },
 ): Promise<'enviado' | 'respaldo' | 'escalado'> {
-    const f = filtrarSalidaDelModelo(texto, NOMBRES_DE_HERRAMIENTAS);
+    let f = filtrarSalidaDelModelo(texto, NOMBRES_DE_HERRAMIENTAS);
+    // Turno de redactar que solo promete consultar (sin datos): va el respaldo
+    // determinista, que sí trae los datos. Ver prometeConsultarSinDatos.
+    if (f.texto && opciones.respaldo && prometeConsultarSinDatos(f.texto)) {
+        f = { ...f, texto: null, alterado: true, motivos: [...f.motivos, 'promesa_sin_datos'] };
+    }
     const ctx = f.alterado ? { ...context, salida_filtrada: f.motivos } : context;
     if (f.alterado) {
         console.warn('[whatsapp-bot] salida del modelo filtrada', { conversationId, motivos: f.motivos,
@@ -3650,7 +3721,7 @@ async function handleIntent(
         } catch (err) {
             anotarFallasDelModelo(fallasDeError(err));
             const anexo = await anexoDeConsentimiento(integration, conversationId, contactWaId, parentId);
-            const m = conAnexoDeConsentimiento(fallbackMediosDePago(medios), { step: 'medios_fallback' }, undefined, anexo);
+            const m = conAnexoDeConsentimiento(fallbackMediosDePago(medios), { step: 'medios_fallback' }, botonIrAPagar(medios), anexo);
             await deliver(integration, conversationId, contactWaId, m.texto, m.context, m.conBotones);
             return;
         }
@@ -3665,7 +3736,7 @@ async function handleIntent(
         await entregarTextoDelModelo(integration, conversationId, contactWaId,
             final.text || fallbackMediosDePago(medios),
             { step: 'get_payment_methods', provider: final.provider },
-            { textoFamilia: text, respaldo: fallbackMediosDePago(medios),
+            { textoFamilia: text, respaldo: fallbackMediosDePago(medios), conBotones: botonIrAPagar(medios),
                 anexo: await anexoDeConsentimiento(integration, conversationId, contactWaId, parentId) });
         return;
     }
@@ -3755,12 +3826,17 @@ function fallbackMediosDePago(m: Awaited<ReturnType<typeof mediosDePago>> & { co
             const monto = c.monto != null ? ` — ${new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(c.monto)}` : '';
             lineas.push(`• ${c.tipo_cobro ?? c.concepto ?? 'Cobro'}${monto}`);
             if (c.tipo_cobro && c.concepto && c.concepto !== c.tipo_cobro) lineas.push(`   ${c.concepto.slice(0, 80)}`);
-            lineas.push(`   Pagar: ${c.enlace_pago}`);
-            if (c.enlace_instrucciones) lineas.push(`   (${c.enlace_instrucciones})`);
+            if (c.enlace_pago !== m.enlace_para_pagar) {
+                lineas.push(`   Pagar: ${c.enlace_pago}`);
+                if (c.enlace_instrucciones) lineas.push(`   (${c.enlace_instrucciones})`);
+            }
         }
         lineas.push('');
     }
-    if (m.enlace_para_pagar) {
+    if (m.enlace_para_pagar && cobros.some((c) => c.enlace_pago === m.enlace_para_pagar)) {
+        lineas.push(`*Para pagar:* toca «${TEXTO_BOTON_IR_A_PAGAR}» (${m.enlace_para_pagar}), escribe el valor de tu cobro y, al terminar, mándame la foto del comprobante por aquí.`);
+        lineas.push('');
+    } else if (m.enlace_para_pagar) {
         lineas.push(`*En línea:* ${m.enlace_para_pagar}`);
         // Con link de pago (Wompi/MP de la escuela) va también qué hacer con él:
         // la familia paga por fuera de SportMaps y, si no manda el comprobante, el
@@ -4202,6 +4278,11 @@ export interface ConBotones {
     imagen?: string | null;
 }
 
+/** «Ir a pagar» con el link de pago propio de la escuela (Dynasty, 2026-10-13). */
+function botonIrAPagar(m: { link_de_pago?: string | null } | null | undefined): ConBotones | undefined {
+    return m?.link_de_pago ? { botones: [], cta: { texto: TEXTO_BOTON_IR_A_PAGAR, url: m.link_de_pago } } : undefined;
+}
+
 /** «Pagar» como botón URL cuando hay UN solo cobro pendiente con enlace. */
 function conBotonPagar(pagos: unknown): ConBotones | undefined {
     const cta = botonPagarUnico(pagos as any);
@@ -4329,6 +4410,10 @@ async function escalate(
         urgencia?: Urgencia;
         categoria?: CategoriaUrgente | null;
         tema?: TemaEscalacion;
+        /** Lo que se le dice a la familia EN VEZ del aviso de siempre («Voy a pasar tu caso…»). */
+        mensaje?: string;
+        /** Solo la escuela: a la familia no se le dice nada (ya se le contestó otra cosa). */
+        callarALaFamilia?: boolean;
     } = {},
 ): Promise<void> {
     // Urgencia (2026-10-06, `62db6756`): incidencia en la sede o la clase,
@@ -4370,6 +4455,12 @@ async function escalate(
 
     if (decision === 'nada') {
         console.info('[whatsapp-bot] escalación ya abierta; no se repite', { conversationId, reason });
+        if (opciones.callarALaFamilia) return;
+        if (opciones.mensaje) {
+            await deliver(integration, conversationId, contactWaId, opciones.mensaje,
+                { step: 'escalacion_abierta_detalle', reason });
+            return;
+        }
         if (opciones.antes) {
             await deliver(integration, conversationId, contactWaId, opciones.antes,
                 { step: 'escalacion_abierta_detalle', reason });
@@ -4394,8 +4485,14 @@ async function escalate(
 
     // Ya se le dijo «Dejo tu mensaje para …» en este turno, o la escalación
     // abierta sube a retiro: a la familia no se le repite «Voy a pasar tu caso».
-    if (decision === 'solo_equipo') {
+    if (decision === 'solo_equipo' || opciones.callarALaFamilia) {
         console.info('[whatsapp-bot] escalación solo al equipo', { conversationId, reason, tema });
+        if (opciones.callarALaFamilia) return;
+        if (opciones.mensaje) {
+            await deliver(integration, conversationId, contactWaId, opciones.mensaje,
+                { step: 'escalacion_abierta_detalle', reason });
+            return;
+        }
         if (opciones.antes) {
             await deliver(integration, conversationId, contactWaId, opciones.antes,
                 { step: 'escalacion_abierta_detalle', reason });
@@ -4409,7 +4506,8 @@ async function escalate(
     // puede cumplir.
     const horario = await estadoDeHorario(integration.id);
     // `antes`: lo que se le dice primero (el reclamo de valor muestra los cobros).
-    const aviso = urgente ? mensajeDeEscalamientoUrgente(clasif.categoria)
+    const aviso = opciones.mensaje ? opciones.mensaje
+        : urgente ? mensajeDeEscalamientoUrgente(clasif.categoria)
         : retiro ? MENSAJE_ESCALACION_RETIRO
         : mensajeDeEscalamiento(horario);
     await deliver(integration, conversationId, contactWaId,

@@ -115,6 +115,38 @@ jobs:
           fail_ci_if_error: false
 
 # =============================================================================
+# JOB 2b: BFF (servidor + bot de WhatsApp) — tipos y tests
+# Informativo al arrancar (continue-on-error): hasta 2026-10-09 el CI solo
+# probaba el frontend. Cuando quede verde estable, quitar continue-on-error.
+# =============================================================================
+  bff:
+    name: 🛰️ BFF — tipos y tests
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: ./bff
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: bff/package-lock.json
+      - run: npm ci
+      - name: 🔷 TypeScript (bff)
+        run: node node_modules/typescript/bin/tsc --noEmit
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+      - name: 🧪 Tests (bff)
+        if: always()
+        run: npx vitest run
+        env:
+          SUPABASE_URL: 'https://mock.supabase.co'
+          SUPABASE_SERVICE_ROLE_KEY: 'mock-service-role-key'
+          SUPABASE_ANON_KEY: 'mock-anon-key'
+
+# =============================================================================
 # JOB 3: E2E Tests (Playwright) — Solo en PRs a main/develop
 # =============================================================================
   e2e:

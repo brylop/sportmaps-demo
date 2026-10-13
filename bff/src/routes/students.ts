@@ -11,6 +11,7 @@ import {
     accionCobroDePlan,
     INACTIVE_ATHLETE_ERROR,
     PLAN_PERIOD_CHARGE_FILTER,
+    repricePendingCharges,
 } from '../services/enrollmentBilling';
 import { previewPlanChange, applyPlanChangeEffects } from '../services/planChange.service';
 
@@ -1155,9 +1156,12 @@ router.put(
               // con payment_cutoff_day); cambiar una cuota no es motivo para
               // mover la fecha de pago de una familia.
               if (teamFee !== null) {
-                await applyAthleteFilter(
-                  supabase.from('payments').update({ amount: teamFee, updated_at: new Date().toISOString() })
-                    .eq('school_id', schoolId).eq('team_id', oldTeamId || enrollment.team_id).eq('status', 'pending')
+                await repricePendingCharges(
+                  applyAthleteFilter(
+                    supabase.from('payments').select('id, discount_pct, sibling_discount_applied, amount')
+                      .eq('school_id', schoolId).eq('team_id', oldTeamId || enrollment.team_id).eq('status', 'pending')
+                  ),
+                  teamFee,
                 );
               }
             }
@@ -1286,10 +1290,15 @@ router.put(
               // efecto era que cada edición movía el vencimiento del alumno
               // (por eso convivían cobros del mismo agosto venciendo 29 y 30).
               if (planFee !== null) {
-                await applyAthleteFilter(
-                  supabase.from('payments').update({ amount: planFee, updated_at: new Date().toISOString() })
-                    .eq('school_id', schoolId).eq('offering_plan_id', oldPlanId || enrollment.offering_plan_id).eq('status', 'pending')
-                    .or(PLAN_PERIOD_CHARGE_FILTER) // B4: no tocar inscripción/seguro/excedente
+                // El descuento de cada cobro viaja con él (payments.discount_pct): no
+                // se pisa con la cuota completa del plan.
+                await repricePendingCharges(
+                  applyAthleteFilter(
+                    supabase.from('payments').select('id, discount_pct, sibling_discount_applied, amount')
+                      .eq('school_id', schoolId).eq('offering_plan_id', oldPlanId || enrollment.offering_plan_id).eq('status', 'pending')
+                      .or(PLAN_PERIOD_CHARGE_FILTER) // B4: no tocar inscripción/seguro/excedente
+                  ),
+                  planFee,
                 );
               }
             }

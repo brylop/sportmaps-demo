@@ -324,9 +324,21 @@ interface PagoDesenlace {
     receipt_rejected_at?: string | null;
     payment_category?: string | null;
     payment_type?: string | null;
+    payment_channel?: string | null;
 }
 
-const COLUMNAS_PAGO = 'id, status, amount, concept, payment_category, payment_type, rejection_reason, school_id, parent_id, child_id, unregistered_athlete_id';
+/**
+ * ¿El cobro se pagó EN LÍNEA (webhook de Wompi / Mercado Pago, que estampan
+ * `payment_channel = 'online'`)? Que el bot haya mandado un link no basta: en
+ * Dynasty (2026-10-11/12) los tres cobros con link que terminaron pagados los
+ * registró la escuela en efectivo o por transferencia, y la familia leyó
+ * «Recibimos tu pago en línea». Pura.
+ */
+export function pagadoEnLinea(pago: { payment_channel?: string | null }): boolean {
+    return String(pago.payment_channel ?? '').toLowerCase() === 'online';
+}
+
+const COLUMNAS_PAGO = 'id, status, amount, concept, payment_category, payment_type, payment_channel, rejection_reason, school_id, parent_id, child_id, unregistered_athlete_id';
 /** Con la migración 20261008165728: la marca del rechazo del comprobante. */
 const COLUMNAS_PAGO_CON_RECHAZO = `${COLUMNAS_PAGO}, receipt_rejected_at`;
 let sinMarcaDeRechazo = false;
@@ -485,7 +497,7 @@ export async function runWhatsAppPaymentOutcome(log?: Logger): Promise<{ avisado
 
         const monto = cop(Number(pago.amount));
         let texto: string;
-        if (desenlace === 'paid' && porLink) {
+        if (desenlace === 'paid' && porLink && pagadoEnLinea(pago)) {
             texto = `¡Listo! ✅ Recibimos tu pago en línea de *${monto}* por *${pago.concept}*.`
                 + cierreDelAvisoDePago(await otrosPendientesDeLaFamilia(pago));
         } else if (desenlace === 'paid') {

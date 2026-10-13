@@ -404,6 +404,9 @@ export function buildAltaPayments(p: {
       period_year:      r.periodYear,
       period_month:     r.periodMonth,
       payment_category: 'mensualidad',
+      // El descuento viaja con el cobro (el precio de lista de cada fila parcial
+      // no es la cuota completa, así que solo se guarda el %).
+      ...(p.discountPct ? { discount_pct: p.discountPct } : {}),
     }));
   }
 
@@ -422,6 +425,15 @@ export function buildAltaPayments(p: {
     // uniq_payment_active_period_* y se puede duplicar el mes.
     period_year:  payCalc.periodYear,
     period_month: payCalc.periodMonth,
+    // El descuento viaja con el cobro: lo leen el pago manual y cualquier recálculo
+    // posterior (cambio de cuota, reversa). `amount` ya viene descontado.
+    ...(p.discountPct
+      ? {
+          discount_pct: p.discountPct,
+          // Precio de lista del mismo período (con el mismo prorrateo, sin descuento).
+          list_amount: calcFirstPayment(p.startDate, p.baseFee, p.cycleType, p.cutoffDay).amount,
+        }
+      : {}),
   }];
 }
 

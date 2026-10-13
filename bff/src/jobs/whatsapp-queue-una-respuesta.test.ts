@@ -41,7 +41,7 @@ const updatesCola: any[] = [];
 function makeChain(result: any, table?: string) {
     const chain: any = {
         select: () => chain, eq: () => chain, in: () => chain, or: () => chain, gte: () => chain,
-        lte: () => chain, ilike: () => chain, limit: () => chain, order: () => chain, neq: () => chain,
+        lte: () => chain, ilike: () => chain, limit: () => chain, order: () => chain, neq: () => chain, is: () => chain,
         insert: () => chain, upsert: () => chain,
         update: (v: any) => { if (table === 'whatsapp_inbound_queue') updatesCola.push(v); return chain; },
         maybeSingle: () => Promise.resolve(result),
@@ -459,5 +459,120 @@ describe('auditoría 2026-10-07 (…0340): la MISMA foto dos veces', () => {
         await conImagenYaRecibida(true, () => runWhatsAppQueue());
         expect(enviados()).toHaveLength(0);
         expect(updatesCola.find((u) => u.status === 'ignored')).toMatchObject({ result_ref_id: 'p-oct' });
+    });
+});
+
+// ─── «No es un comprobante» solo con contexto de pago (2026-10-09) ──────────
+//
+// En 7 días el aviso salió 11 veces y ninguna con texto de pago (fotos del
+// entrenamiento, etc.). Datos inventados: ninguna conversación real.
+
+describe('no es comprobante: solo se responde si hay contexto de pago', () => {
+    const FOTO_ENTRENAMIENTO = {
+        isReceipt: false, isTransactionList: false, amount: null, bank: null,
+        destination: null, reference: null, rawText: null, provider: 'gemini',
+    };
+    const QR_DE_PAGO = {
+        isReceipt: false, isTransactionList: false, amount: null, bank: 'Nequi',
+        destination: '3001234567', reference: null, rawText: 'Escanea este código QR para pagar', provider: 'gemini',
+    };
+    const cierre = () => updatesCola.find((u) => u.status === 'ignored');
+
+    it('familia: foto del entrenamiento sin texto → 0 mensajes, ignored no_es_comprobante_sin_contexto', async () => {
+        extractReceiptMock.mockResolvedValue(FOTO_ENTRENAMIENTO);
+        await runWhatsAppQueue();
+        expect(mensajesDelBot()).toBe(0);
+        expect(cierre()).toMatchObject({ result_type: 'none', error_message: 'no_es_comprobante_sin_contexto' });
+        // El archivo queda guardado para el buzón.
+        expect(updatesCola.some((u) => typeof u.storage_path === 'string')).toBe(true);
+    });
+
+    it('familia: foto con charla que no habla de pagos → 0 mensajes', async () => {
+        state.textos = [{ text_body: 'Qué buen entrenamiento el de hoy' }];
+        extractReceiptMock.mockResolvedValue(FOTO_ENTRENAMIENTO);
+        await runWhatsAppQueue();
+        expect(mensajesDelBot()).toBe(0);
+        expect(cierre()).toMatchObject({ error_message: 'no_es_comprobante_sin_contexto' });
+    });
+
+    it('familia: pie «aquí el pago de octubre» y no es comprobante → 1 mensaje «no es un comprobante»', async () => {
+        state.claim = [FILA('f1', { media_caption: 'aquí el pago de octubre' })];
+        extractReceiptMock.mockResolvedValue(FOTO_ENTRENAMIENTO);
+        await runWhatsAppQueue();
+        expect(mensajesDelBot()).toBe(1);
+        expect(enviados()[0]).toContain('no es un comprobante de pago');
+        expect(cierre()).toMatchObject({ error_message: 'no es un comprobante' });
+    });
+
+    it('familia: texto de pago en los ±10 min («ya te transferí») → 1 mensaje', async () => {
+        state.textos = [{ text_body: 'Ya te transferí' }];
+        extractReceiptMock.mockResolvedValue(FOTO_ENTRENAMIENTO);
+        await runWhatsAppQueue();
+        expect(mensajesDelBot()).toBe(1);
+        expect(enviados()[0]).toContain('no es un comprobante de pago');
+    });
+
+    it('familia: QR de pago sin texto → 1 mensaje (la lectura muestra la llave)', async () => {
+        extractReceiptMock.mockResolvedValue(QR_DE_PAGO);
+        await runWhatsAppQueue();
+        expect(mensajesDelBot()).toBe(1);
+        expect(enviados()[0]).toContain('no es un comprobante de pago');
+        expect(extractReceiptMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('familia sin cuenta con ficha: foto del entrenamiento sin texto → 0 mensajes', async () => {
+        state.atencion = { atender: true, tipo: 'familia_sin_cuenta', botEncendido: true };
+        state.ninos = [{ id: 'c1', parent_phone_temp: '3001234567' }];
+        extractReceiptMock.mockResolvedValue(FOTO_ENTRENAMIENTO);
+        await runWhatsAppQueue();
+        expect(mensajesDelBot()).toBe(0);
+        expect(cierre()).toMatchObject({ result_type: 'none', error_message: 'no_es_comprobante_sin_contexto' });
+    });
+
+    it('familia sin cuenta con ficha: QR de pago sin texto → 1 mensaje', async () => {
+        state.atencion = { atender: true, tipo: 'familia_sin_cuenta', botEncendido: true };
+        state.ninos = [{ id: 'c1', parent_phone_temp: '3001234567' }];
+        extractReceiptMock.mockResolvedValue(QR_DE_PAGO);
+        await runWhatsAppQueue();
+        expect(mensajesDelBot()).toBe(1);
+        expect(enviados()[0]).toContain('no es un comprobante de pago');
+    });
+
+    it('familia sin cuenta SIN ficha: foto del entrenamiento sin texto → 0 mensajes (no se abre consulta)', async () => {
+        state.atencion = { atender: true, tipo: 'familia_sin_cuenta', botEncendido: true };
+        extractReceiptMock.mockResolvedValue(FOTO_ENTRENAMIENTO);
+        await runWhatsAppQueue();
+        expect(mensajesDelBot()).toBe(0);
+        expect(cierre()).toMatchObject({ result_type: 'none', error_message: 'no_es_comprobante_sin_contexto' });
+    });
+
+    it('desconocido: foto del entrenamiento sin texto → 0 mensajes (como antes)', async () => {
+        state.atencion = { atender: false, tipo: 'desconocido', botEncendido: true };
+        extractReceiptMock.mockResolvedValue(FOTO_ENTRENAMIENTO);
+        await runWhatsAppQueue();
+        expect(mensajesDelBot()).toBe(0);
+    });
+});
+
+describe('contexto de pago — las reglas puras', () => {
+    it('textos: hablan de pago o no', async () => {
+        const { textosConContextoDePago } = await import('./whatsapp-queue.job');
+        for (const t of ['aquí el pago de octubre', 'Pagué la mensualidad', 'consigné por Bancolombia',
+            'te mando la llave Bre-B', 'el QR para pagar', 'cuota de noviembre', 'Mes octubre', 'por Daviplata']) {
+            expect(textosConContextoDePago([t])).toBe(true);
+        }
+        for (const t of ['Qué buen entrenamiento', 'mira la foto del partido', 'gracias profe', 'página', null, '']) {
+            expect(textosConContextoDePago([t])).toBe(false);
+        }
+    });
+
+    it('lectura: pantalla bancaria / QR / llave sí; foto cualquiera no', async () => {
+        const { lecturaSugierePantallaDePago } = await import('./whatsapp-queue.job');
+        expect(lecturaSugierePantallaDePago({ isReceipt: false, bank: 'Nequi' } as any)).toBe(true);
+        expect(lecturaSugierePantallaDePago({ isReceipt: false, destination: '@llave123' } as any)).toBe(true);
+        expect(lecturaSugierePantallaDePago({ isReceipt: false, rawText: 'Escanea el código QR' } as any)).toBe(true);
+        expect(lecturaSugierePantallaDePago({ isReceipt: false, bank: 'Otro', rawText: 'Club 2026 Sub 13' } as any)).toBe(false);
+        expect(lecturaSugierePantallaDePago({ isReceipt: false, bank: null, destination: null, rawText: null } as any)).toBe(false);
+        expect(lecturaSugierePantallaDePago(null)).toBe(false);
     });
 });

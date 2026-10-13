@@ -455,14 +455,30 @@ describe('runWhatsAppQueue — adjunto con consulta', () => {
         expect(ultimoCierre()).toMatchObject({ status: 'ignored', result_type: 'none' });
     });
 
-    it('familia sin cuenta, la imagen NO es comprobante (isReceipt=false): consulta', async () => {
+    it('familia sin cuenta, la imagen NO es comprobante (isReceipt=false) y nada habla de pagar: silencio (2026-10-09)', async () => {
         state.atencion = { atender: true, tipo: 'familia_sin_cuenta', botEncendido: true };
         extractReceiptMock.mockResolvedValue({ isReceipt: false, isTransactionList: false, provider: 'gemini' });
 
         await runWhatsAppQueue();
 
+        expect(sendTextMessageMock).not.toHaveBeenCalled();
+        expect(abrirConsultaMock).not.toHaveBeenCalled();
+        // El archivo queda guardado: la escuela lo ve en el buzón.
+        expect(downloadMediaMock).toHaveBeenCalled();
+        expect(ultimoCierre()).toMatchObject({ status: 'ignored', result_type: 'none', error_message: 'no_es_comprobante_sin_contexto' });
+    });
+
+    it('familia sin cuenta, la imagen NO es comprobante pero habla de un pago: consulta', async () => {
+        state.atencion = { atender: true, tipo: 'familia_sin_cuenta', botEncendido: true };
+        state.mensajes = [{ text_body: 'aquí el pago de octubre' }];
+        extractReceiptMock.mockResolvedValue({ isReceipt: false, isTransactionList: false, provider: 'gemini' });
+
+        await runWhatsAppQueue();
+
+        expect(sendTextMessageMock).toHaveBeenCalledTimes(1);
         expect(textosEnviados()[0]).not.toMatch(/comprobante/i);
         expect(ultimoCierre()).toMatchObject({ status: 'ignored', result_type: 'none' });
+        expect(ultimoCierre().error_message).toMatch(/^consulta_no_comprobante/);
     });
 
     it('familia sin cuenta, OCR caído y sin reclamo: sigue como antes (escalated a la escuela)', async () => {

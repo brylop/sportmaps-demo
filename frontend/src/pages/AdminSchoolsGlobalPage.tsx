@@ -12,7 +12,9 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
-import { Building, Search, Loader2, ChevronLeft, ChevronRight, School } from 'lucide-react';
+import { Building, Search, Loader2, ChevronLeft, ChevronRight, School, CreditCard } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { PaymentProvidersAdmin } from '@/components/admin/PaymentProvidersAdmin';
 import { toast } from '@/hooks/use-toast';
 import { StatFilterBar } from '@/components/common/StatFilterBar';
 import { TableRefreshBar } from '@/components/common/TableRefreshBar';
@@ -38,6 +40,10 @@ export default function AdminSchoolsGlobalPage() {
     const [debouncedSearch, setDebouncedSearch] = useState('');
     const [verifiedFilter, setVerifiedFilter] = useState<'all' | 'verified' | 'pending'>('all');
     const [page, setPage] = useState(0);
+    // Pasarela de pago de una escuela (2026-10-13). El staff de plataforma no es
+    // miembro de las escuelas, así que en Finanzas › Pagos no le sale la sección
+    // de cuenta propia. El BFF autoriza por platform_admins (isAdminGlobal).
+    const [pasarelaDe, setPasarelaDe] = useState<GlobalSchool | null>(null);
 
     useEffect(() => {
         const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -160,6 +166,7 @@ export default function AdminSchoolsGlobalPage() {
                                     <TableHead className="text-right">Sedes</TableHead>
                                     <TableHead>Registro</TableHead>
                                     <TableHead>Estado</TableHead>
+                                    <TableHead className="text-right">Pagos</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -185,6 +192,13 @@ export default function AdminSchoolsGlobalPage() {
                                             <Badge variant={s.verified ? 'default' : 'secondary'}>
                                                 {s.verified ? 'Verificada' : 'Pendiente'}
                                             </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                            <Button variant="outline" size="sm" className="gap-1"
+                                                    onClick={() => setPasarelaDe(s)}>
+                                                <CreditCard className="h-4 w-4" />
+                                                Pasarela
+                                            </Button>
                                         </TableCell>
                                     </TableRow>
                                 ))}
@@ -225,6 +239,19 @@ export default function AdminSchoolsGlobalPage() {
                     </TableRefreshBar>
                 </CardContent>
             </Card>
+
+            <Dialog open={!!pasarelaDe} onOpenChange={(o) => { if (!o) setPasarelaDe(null); }}>
+                <DialogContent className="max-w-modal-lg max-h-sheet overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>Pasarela de pago — {pasarelaDe?.name}</DialogTitle>
+                        <DialogDescription>
+                            Cuenta propia de la escuela (Wompi o MercadoPago). Las llaves se cifran en el
+                            servidor y no se vuelven a mostrar.
+                        </DialogDescription>
+                    </DialogHeader>
+                    {pasarelaDe && <PaymentProvidersAdmin schoolId={pasarelaDe.id} />}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

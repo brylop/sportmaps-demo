@@ -124,7 +124,7 @@ export function motivoDeFila(fila: FilaCruda): { motivo: string; detalle: string
     if (em.startsWith('sin_familia:')) return { motivo: 'sin_familia', detalle: em.replace(/^sin_familia:\s*/, '') || null };
     if (em.startsWith('comprobante ya recibido')) return { motivo: 'duplicado', detalle: null };
     if (em.startsWith('consulta_no_comprobante')
-        || ['no es un comprobante', 'ni comprobante ni matrícula'].includes(em)) {
+        || ['no es un comprobante', 'no_es_comprobante_sin_contexto', 'ni comprobante ni matrícula'].includes(em)) {
         return { motivo: 'no_es_comprobante', detalle: null };
     }
     if (em === 'listado de movimientos') return { motivo: 'es_listado', detalle: null };

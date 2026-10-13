@@ -310,19 +310,30 @@ describe('(b) número sin ficha', () => {
 });
 
 describe('(c) varios cobros pendientes', () => {
+    // Dos deportistas con el mismo monto: no se adivina de cuál es (regla de la
+    // escuela, 2026-09-15). Del MISMO deportista va al más antiguo (abajo).
+    const OCT_HERMANO = { ...OCT, id: 'p-oct-2', child_id: 'c2', atleta: 'Tomás Peña' };
+
     it('la pregunta sale con botones: concepto + monto', async () => {
-        pagosPendientesDeMock.mockResolvedValue([SEP, OCT]);
+        pagosPendientesDeMock.mockResolvedValue([SEP, OCT_HERMANO]);
         await runWhatsAppQueue();
         expect(sendInteractiveButtonsMock).toHaveBeenCalledTimes(1);
         const botones = sendInteractiveButtonsMock.mock.calls[0][3] as any[];
-        expect(botones.map((b) => b.title)).toEqual(['1. Sep $150.000', '2. Oct $150.000']);
-        expect(updatesCola.find((u) => u.status === 'waiting_user').pregunta_opciones.map((p: any) => p.id)).toEqual(['p-sep', 'p-oct']);
+        expect(botones.map((b) => b.title)).toEqual(['1. Laura $150.000', '2. Tomás $150.000']);
+        expect(updatesCola.find((u) => u.status === 'waiting_user').pregunta_opciones.map((p: any) => p.id)).toEqual(['p-sep', 'p-oct-2']);
+    });
+
+    it('mismo deportista, mismo monto y sin pista: al vencido MÁS ANTIGUO, sin preguntar', async () => {
+        pagosPendientesDeMock.mockResolvedValue([SEP, OCT]);
+        await runWhatsAppQueue();
+        expect(sendInteractiveButtonsMock).not.toHaveBeenCalled();
+        expect(evaluatePaymentReceiptMock).toHaveBeenCalledWith('p-sep', undefined);
     });
 
     it('familia sin cuenta con dos cobros de la ficha → también con botones', async () => {
         state.atencion = { atender: true, tipo: 'familia_sin_cuenta', botEncendido: true };
-        fichasPorTelefonoMock.mockResolvedValue({ childIds: ['c1'], unregisteredIds: [] });
-        pendientesPorLlavesMock.mockResolvedValue([SEP, OCT]);
+        fichasPorTelefonoMock.mockResolvedValue({ childIds: ['c1', 'c2'], unregisteredIds: [] });
+        pendientesPorLlavesMock.mockResolvedValue([SEP, OCT_HERMANO]);
         await runWhatsAppQueue();
         expect(sendInteractiveButtonsMock).toHaveBeenCalledTimes(1);
         expect(updatesCola.find((u) => u.status === 'waiting_user').pregunta_ocr.parentId).toBeNull();
@@ -340,5 +351,40 @@ describe('(d) sin cobros pendientes', () => {
     it('nada coincide → el mensaje de siempre', async () => {
         await runWhatsAppQueue();
         expect(enviados()[0]).toContain('no tienes cobros pendientes');
+    });
+});
+
+// ─── Monto que no cuadra, escuela sin abonos (Dynasty 2026-10-09, inventado) ─
+
+describe('(e) el pie dice «saldo» y el monto no cuadra con ningún cobro', () => {
+    it('no se estampa en la mensualidad en silencio: a la escuela con el resumen y UNA respuesta', async () => {
+        state.atencion = { atender: true, tipo: 'familia_sin_cuenta', botEncendido: true };
+        fichasPorTelefonoMock.mockResolvedValue({ childIds: ['c1'], unregisteredIds: [] });
+        state.claim = [FILA('f1', { media_caption: 'Hola profe, envío el saldo\nago 20 - sep 20\n$70.000 gracias' })];
+        extractReceiptMock.mockResolvedValue(comprobante(70000));
+        pendientesPorLlavesMock.mockResolvedValue([OCT]);
+        await runWhatsAppQueue();
+        expect(evaluatePaymentReceiptMock).not.toHaveBeenCalled();
+        expect(enviados()).toHaveLength(1);
+        expect(enviados()[0]).toContain('No coincide con el valor de *Mensualidad 10/2026');
+        const c = cierre();
+        expect(c).toMatchObject({ status: 'ignored', result_type: 'escalated' });
+        expect(c.error_message).toMatch(/^monto_no_cuadra: La familia mandó un comprobante de \$70\.000/);
+        expect(c.error_message).toContain('envío el saldo');
+    });
+
+    it('el monto no cuadra y hay varios cobros: se pregunta a cuál (con botones), no se aplica', async () => {
+        pagosPendientesDeMock.mockResolvedValue([SEP, OCT]);
+        extractReceiptMock.mockResolvedValue(comprobante(120000));
+        await runWhatsAppQueue();
+        expect(evaluatePaymentReceiptMock).not.toHaveBeenCalled();
+        expect(sendInteractiveButtonsMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('el pie nombra el mes y el monto cuadra: va a ese mes aunque haya uno más viejo', async () => {
+        state.claim = [FILA('f1', { media_caption: 'pago de octubre' })];
+        pagosPendientesDeMock.mockResolvedValue([SEP, OCT]);
+        await runWhatsAppQueue();
+        expect(evaluatePaymentReceiptMock).toHaveBeenCalledWith('p-oct', undefined);
     });
 });
