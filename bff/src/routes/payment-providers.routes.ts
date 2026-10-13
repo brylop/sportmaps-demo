@@ -20,6 +20,7 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
+import { esAdminDePlataforma } from '../middlewares/requirePlatformAdmin';
 import { requireAuth, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { encryptSecret } from '../utils/payment-crypto';
 
@@ -438,16 +439,12 @@ async function hasGatewayAddon(schoolId: string, provider: 'wompi' | 'mercadopag
 }
 
 async function isAdminGlobal(userId: string): Promise<boolean> {
-    const { data } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', userId)
-        .maybeSingle();
-    // 'super_admin' es estrictamente superior a 'admin'; excluirlo era un
-    // descuido — el resto del producto trata a los dos como staff de
-    // plataforma (ver AppSidebar). Sin esto, el super admin ve el formulario
-    // de pasarelas y recibe 403 al guardar.
-    return data?.role === 'admin' || data?.role === 'super_admin';
+    // Staff de plataforma = fila activa en platform_admins (misma fuente que
+    // is_super_admin()). Antes leía profiles.role IN ('admin','super_admin'), y
+    // handle_new_user copiaba raw_user_meta_data.role al perfil: registrarse con
+    // {role:'super_admin'} dejaba profiles.role='admin' y con eso se reescribía
+    // la pasarela (llaves y cuenta destino) de CUALQUIER escuela.
+    return esAdminDePlataforma(userId);
 }
 
 async function isSchoolAuthorized(userId: string, schoolId: string): Promise<boolean> {

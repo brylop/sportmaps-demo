@@ -264,9 +264,9 @@ export default function TrainerOnboarding() {
                     </PopoverTrigger>
                     <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
                       <Command>
-                        <CommandInput placeholder="Filtrar por nombre..." className="text-sm h-[38px] w-full" />
+                        <CommandInput placeholder="Filtrar por nombre..." className="text-sm h-10 w-full" />
                         <CommandEmpty>No se encontró el deporte.</CommandEmpty>
-                        <CommandGroup className="max-h-[300px] overflow-y-auto">
+                        <CommandGroup className="max-h-72 overflow-y-auto">
                           {allSports.map((s) => (
                             <CommandItem
                               key={s.id}

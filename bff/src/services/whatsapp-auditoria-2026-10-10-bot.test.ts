@@ -212,4 +212,20 @@ describe('5. caché de prompt: la segunda llamada manda las mismas herramientas'
         expect(segunda.toolChoice).toBe('none');
         expect(primera.toolChoice ?? 'auto').toBe('auto');
     });
+
+    // Auditoría 2026-10-13: con las herramientas a la vista y tool_choice
+    // 'none', 2 de 8 estados de pago salieron como «Voy a consultar…» y nada más.
+    it('2.ª llamada que solo promete consultar → sale el respaldo con los datos', async () => {
+        base({ identified: true });
+        h.chatWithTools
+            .mockResolvedValueOnce({ toolCalls: [{ name: 'get_payment_status', args: {} }], provider: 'test' })
+            .mockResolvedValueOnce({ text: 'Buenos días 👋 Voy a consultar el estado de tus pagos.', provider: 'test' });
+        await runBotTurn(INTEGRATION, CONV, TEL, 'buenos días, cuánto debo', 'wamid.in3');
+        const out = enviados();
+        expect(out).toHaveLength(1);
+        expect(out[0].texto).not.toMatch(/voy a consultar/i);
+        expect(out[0].texto).toMatch(/170\.000/);
+        const payload = h.state.rpcCalls.find((c) => c.fn === 'wa_record_outbound_message')?.args?.p_payload;
+        expect(payload?.salida_filtrada).toContain('promesa_sin_datos');
+    });
 });

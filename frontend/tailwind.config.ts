@@ -15,9 +15,87 @@ export default {
         "2xl": "1400px",
       },
     },
+    /*
+     * `text-input` es el token de TAMAÑO de fuente de campos (16px, ver
+     * fontSize abajo). Como existe el color shadcn `input` (borde de campos),
+     * `text-input` generaría TAMBIÉN `color: hsl(var(--input))` y pintaría el
+     * texto del color del borde. Se quita `input` solo de los colores de texto
+     * (`border-input`, `ring-input`, `bg-input` siguen funcionando).
+     */
+    textColor: ({ theme }) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { input, ...colors } = theme("colors");
+      return colors;
+    },
     extend: {
       fontFamily: {
         poppins: ['Poppins', 'sans-serif'],
+      },
+      /*
+       * ── TOKENS DE TAMAÑO ─────────────────────────────────────────────────
+       * Fuente única de verdad de anchos, altos y espacios estructurales.
+       * Documentados en docs/design-tokens.md y espejados en
+       * src/lib/designTokens.ts. Los breakpoints (sm 640 · md 768 · lg 1024 ·
+       * xl 1280) son los de Tailwind por defecto y NO se tocan.
+       * Valores en rem (1rem = 16px); el equivalente en px va en comentario.
+       */
+      maxWidth: {
+        "page-narrow": "40rem", // 640px — formularios, ajustes, una sola columna
+        page: "60rem", // 960px — página de contenido estándar
+        "page-wide": "75rem", // 1200px — tablas y tableros
+        "modal-sm": "26.25rem", // 420px — confirmaciones
+        modal: "40rem", // 640px — modal con formulario
+        "modal-lg": "60rem", // 960px — modal con tabla o detalle
+        "prose-ui": "65ch", // largo de línea legible para texto corrido
+      },
+      minHeight: {
+        touch: "2.75rem", // 44px — objetivo táctil mínimo
+        header: "3.5rem", // 56px — barra superior
+        tabs: "2.75rem", // 44px — tira de pestañas táctil
+        nav: "var(--bottom-nav-h)", // 64px en móvil, 0 en md+
+      },
+      minWidth: {
+        touch: "2.75rem", // 44px
+        header: "3.5rem", // 56px
+        nav: "var(--bottom-nav-h)",
+      },
+      height: {
+        touch: "2.75rem", // 44px
+        header: "3.5rem", // 56px
+        tabs: "2.75rem", // 44px — TabsList táctil en móvil (h-tabs md:h-10)
+        nav: "var(--bottom-nav-h)",
+        "screen-d": "100dvh", // alto real del viewport (sin barras del navegador)
+        sheet: "85dvh", // bottom sheet en móvil
+        "chart-sm": "12rem", // 192px
+        chart: "16rem", // 256px
+        "chart-lg": "20rem", // 320px
+        media: "14rem", // 224px — miniaturas / portadas
+        list: "60dvh", // áreas con scroll interno
+      },
+      maxHeight: {
+        "screen-d": "100dvh",
+        sheet: "85dvh",
+        "chart-sm": "12rem",
+        chart: "16rem",
+        "chart-lg": "20rem",
+        media: "14rem",
+        list: "60dvh",
+      },
+      width: {
+        touch: "2.75rem", // 44px — botón de ícono cuadrado (w-touch h-touch)
+        sidebar: "15.5rem", // 248px — sidebar de escritorio expandida
+        "sidebar-collapsed": "4rem", // 64px — sidebar colapsada (solo íconos)
+      },
+      fontSize: {
+        // 16px: iOS Safari hace zoom al enfocar campos con fuente < 16px.
+        // text-xs (12px) sigue siendo el mínimo para cualquier texto.
+        input: ["1rem", { lineHeight: "1.5rem" }],
+      },
+      spacing: {
+        gutter: "1rem", // 16px — margen lateral de página en móvil
+        "nav-safe": "calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px))",
+        "safe-b": "env(safe-area-inset-bottom, 0px)",
+        "safe-t": "env(safe-area-inset-top, 0px)",
       },
       colors: {
         border: "hsl(var(--border))",

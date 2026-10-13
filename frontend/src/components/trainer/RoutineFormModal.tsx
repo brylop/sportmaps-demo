@@ -201,14 +201,16 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading, co
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) markClean(); onClose(); }}>
-      <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col p-0 overflow-hidden border-primary/20 shadow-2xl">
-        <DialogHeader className="p-6 border-b shrink-0 bg-primary/5">
+      {/* Móvil: pantalla completa (h-screen-d = 100dvh) con pie fijo. Desde sm,
+          el modal centrado de siempre (max-h-sheet = 85dvh). */}
+      <DialogContent className="h-screen-d max-h-screen-d w-full max-w-full rounded-none sm:h-auto sm:max-h-sheet sm:max-w-4xl sm:rounded-lg flex flex-col gap-0 p-0 pt-safe-t sm:pt-0 overflow-hidden border-primary/20 shadow-2xl">
+        <DialogHeader className="px-4 py-4 pr-12 sm:p-6 border-b shrink-0 bg-primary/5 text-left">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-primary/10 rounded-xl">
               <Dumbbell className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <DialogTitle className="text-xl">
+              <DialogTitle className="text-lg sm:text-xl">
                 {routine ? 'Editar Rutina' : 'Nueva Rutina'}
               </DialogTitle>
               <p className="text-xs text-muted-foreground mt-0.5">
@@ -218,16 +220,17 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading, co
           </div>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 overflow-y-auto">
-          <div className="p-6">
+        <ScrollArea className="flex-1 min-h-0 overflow-y-auto">
+          <div className="p-4 sm:p-6">
             {step === 1 ? (
-              <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-5 sm:space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="name" className="text-xs font-bold uppercase tracking-wider">Nombre de la Rutina *</Label>
                     <Input 
                       id="name" 
-                      placeholder="Ej: Full Body Hipertrofia" 
+                      placeholder="Ej: Full Body Hipertrofia"
+                      className="h-touch md:h-10"
                       value={formData.name}
                       onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     />
@@ -238,7 +241,7 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading, co
                       value={formData.category} 
                       onValueChange={(val) => setFormData({ ...formData, category: val })}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger className="h-touch md:h-10">
                         <SelectValue placeholder="Selecciona categoría" />
                       </SelectTrigger>
                       <SelectContent>
@@ -248,9 +251,9 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading, co
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
                   <div className="space-y-2">
-                    <Label htmlFor="minutes" className="text-xs font-bold uppercase tracking-wider">Tiempo Estimado (min)</Label>
+                    <Label htmlFor="minutes"className="text-xs font-bold uppercase tracking-wider">Tiempo Estimado (min)</Label>
                     <NumberStepper 
                       value={formData.estimated_minutes}
                       onChange={(val) => setFormData({ ...formData, estimated_minutes: val === '' ? 0 : val })}
@@ -266,7 +269,7 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading, co
                       value={formData.difficulty} 
                       onValueChange={(val) => setFormData({ ...formData, difficulty: val })}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger className="h-touch md:h-10">
                         <SelectValue placeholder="Selecciona dificultad" />
                       </SelectTrigger>
                       <SelectContent>
@@ -303,21 +306,25 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading, co
                       </Tooltip>
                     </TooltipProvider>
                   </div>
+                  {/* El tooltip no abre con el dedo: en móvil la ayuda va visible. */}
+                  <p className="text-xs text-muted-foreground md:hidden">
+                    Te permiten filtrar y encontrar rutinas rápido (ej: Explosividad, Recuperación).
+                  </p>
                   <div className="flex gap-2">
-                    <Input 
+                    <Input
                       placeholder="Presiona Enter para agregar" 
                       value={tagInput}
                       onChange={(e) => setTagInput(e.target.value)}
                       onKeyDown={(e) => { if(e.key === 'Enter') { e.preventDefault(); handleAddTag(); } }}
-                      className="bg-background"
+                      className="bg-background h-touch md:h-10"
                     />
-                    <Button type="button" variant="secondary" onClick={handleAddTag}>Agregar</Button>
+                    <Button type="button" variant="secondary" className="h-touch md:h-10 shrink-0" onClick={handleAddTag}>Agregar</Button>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {formData.tags.map((tag: string) => (
                       <Badge key={tag} className="gap-1 bg-background text-foreground hover:bg-background border">
                         {tag}
-                        <button onClick={() => removeTag(tag)} className="hover:text-destructive">×</button>
+                        <button type="button" aria-label={`Quitar ${tag}`} onClick={() => removeTag(tag)} className="-my-1 -mr-1 flex h-8 w-8 items-center justify-center hover:text-destructive md:m-0 md:h-auto md:w-auto">×</button>
                       </Badge>
                     ))}
                   </div>
@@ -325,12 +332,13 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading, co
 
                 {/* ── Contexto PT: switch clásico "Guardar como plantilla" ── */}
                 {!isSchoolContext && (
-                  <div className="flex items-center justify-between p-4 bg-primary/5 rounded-xl border border-primary/10">
+                  <div className="flex items-center justify-between gap-4 p-4 bg-primary/5 rounded-xl border border-primary/10">
                     <div className="space-y-0.5">
                       <Label className="text-sm font-bold">Guardar como plantilla</Label>
                       <p className="text-xs text-muted-foreground">Estará disponible en tu biblioteca para usar con otros clientes.</p>
                     </div>
-                    <Switch 
+                    <Switch
+                      className="shrink-0"
                       checked={formData.is_template} 
                       onCheckedChange={(val) => setFormData({ ...formData, is_template: val })}
                     />
@@ -339,9 +347,9 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading, co
 
                 {/* ── Contexto Gimnasio: visibilidad para atletas ── */}
                 {isSchoolContext && (
-                  <div className="flex items-center justify-between p-4 bg-muted/20 rounded-xl border border-border/40">
+                  <div className="flex items-center justify-between gap-4 p-4 bg-muted/20 rounded-xl border border-border/40">
                     <div className="space-y-0.5 flex items-center gap-2">
-                      <Eye className="h-4 w-4 text-muted-foreground" />
+                      <Eye className="h-4 w-4 shrink-0 text-muted-foreground" />
                       <div>
                         <Label className="text-sm font-bold">Visible para atletas</Label>
                         <p className="text-xs text-muted-foreground">
@@ -351,6 +359,7 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading, co
                       </div>
                     </div>
                     <Switch
+                      className="shrink-0"
                       checked={formData.visible_to_athletes}
                       onCheckedChange={(val) => setFormData({ ...formData, visible_to_athletes: val })}
                     />
@@ -358,7 +367,7 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading, co
                 )}
               </div>
             ) : (
-              <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
+              <div className="space-y-6 sm:space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
                 <div className="space-y-4">
                   <div className="flex items-center gap-2 mb-2">
                     <Badge variant="outline" className="rounded-full h-6 w-6 p-0 flex items-center justify-center font-bold">1</Badge>
@@ -481,7 +490,7 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading, co
 
                           {/* Selector de analyzer — solo si el toggle está activo */}
                           {block.analyzer_required && (
-                            <div className="mt-3 flex items-center gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                            <div className="mt-3 flex flex-wrap items-center gap-3 animate-infade-in slide-in-from-top-1 duration-200">
                               <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground shrink-0 whitespace-nowrap">
                                 Tipo de análisis
                               </Label>
@@ -530,7 +539,7 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading, co
                   />
                 </div>
 
-                <div className="p-6 bg-gradient-to-br from-orange-500/10 to-orange-500/5 rounded-2xl border border-orange-500/20 space-y-4 shadow-sm">
+                <div className="p-4 sm:p-6 bg-gradient-to-br from-orange-500/10to-orange-500/5 rounded-2xl border border-orange-500/20 space-y-4 shadow-sm">
                    <div className="flex items-center justify-between">
                      <div className="flex items-center gap-3">
                        <div className="p-3 bg-orange-500/20 rounded-xl">
@@ -561,30 +570,34 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading, co
           </div>
         </ScrollArea>
 
-        <DialogFooter className="p-6 border-t bg-muted/20 shrink-0">
-          <div className="flex justify-between w-full">
-            <Button variant="ghost" onClick={() => { markClean(); onClose(); }} disabled={isLoading} className="font-bold">Cancelar</Button>
-            
-            <div className="flex gap-2">
+        {/* Pie: en 390px el paso 2 tenía 3 botones (~460px) y "Guardar" quedaba
+            fuera de pantalla. En móvil "Cancelar" se va en el paso 2 (está la X)
+            y los botones reparten el ancho. */}
+        <DialogFooter className="px-4 py-3 sm:p-6 border-t bg-muted/20 shrink-0">
+          <div className="flex items-center gap-2 w-full sm:justify-between">
+            <Button variant="ghost" onClick={() => { markClean(); onClose(); }} disabled={isLoading} className={`font-bold h-touch md:h-10 ${step === 2 ? 'hidden sm:inline-flex' : ''}`}>Cancelar</Button>
+
+            <div className="flex flex-1 gap-2 sm:flex-none">
               {step === 1 ? (
-                <Button 
-                  onClick={() => setStep(2)} 
+                <Button
+                  onClick={() => setStep(2)}
                   disabled={!formData.name.trim()}
-                  className="gap-2"
+                  className="gap-2 flex-1 h-touch md:h-10 sm:flex-none"
                 >
                   Continuar al Diseño
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               ) : (
                 <>
-                  <Button variant="outline" onClick={() => setStep(1)} className="gap-2">
+                  <Button variant="outline" onClick={() => setStep(1)} className="gap-2 shrink-0 h-touch md:h-10">
                     <ChevronLeft className="h-4 w-4" />
-                    Volver a Info
+                    <span className="sm:hidden">Atrás</span>
+                    <span className="hidden sm:inline">Volver a Info</span>
                   </Button>
-                  <Button 
-                    onClick={handleSubmit} 
+                  <Button
+                    onClick={handleSubmit}
                     disabled={isLoading || formData.blocks.length === 0}
-                    className="gap-2 bg-primary hover:bg-primary/90"
+                    className="gap-2 flex-1 h-touch md:h-10 sm:flex-none bg-primary hover:bg-primary/90"
                   >
                     {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                     {routine ? 'Guardar Cambios' : 'Crear Rutina Total'}

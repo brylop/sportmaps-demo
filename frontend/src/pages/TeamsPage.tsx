@@ -60,6 +60,14 @@ import { canManageCharges } from '@/lib/cobrosYPagos';
 import { useToast } from '@/hooks/use-toast';
 import { studentsAPI } from '@/lib/api/students';
 import { Mail, Phone, User, Copy, Banknote } from 'lucide-react';
+import {
+  canCreateTeam,
+  canArchiveOrDeleteTeam,
+  athleteInTeams,
+  fetchCoachTeams,
+  fetchAthleteIdsInTeams,
+  fetchCoachScopeSettings,
+} from '@/lib/coachTeamScope';
 
 interface TeamWithRelations {
   id: string;
@@ -98,6 +106,28 @@ export default function TeamsPage() {
   // «Cobrar a este equipo» (docs/specs/cobros-multiples.md §10.1): mismo modal en modo varios.
   const canChargeTeam = isCobrosYPagosEnabled() && canManageCharges(currentUserRole);
   const [chargeTeamId, setChargeTeamId] = useState<string | null>(null);
+
+  // Alcance del coach (mig 20261010201426): crea solo con coach_can_create_teams,
+  // archiva/borra solo ahí y sobre equipos donde es el principal, y en
+  // «Deportistas» ve solo a los de sus equipos.
+  const isCoach = currentUserRole === 'coach';
+  const { data: coachScopeSettings } = useQuery({
+    queryKey: ['coach-scope-settings', schoolId],
+    queryFn: () => fetchCoachScopeSettings(schoolId as string),
+    enabled: !!schoolId && isCoach,
+  });
+  const { data: coachTeams } = useQuery({
+    queryKey: ['coach-teams', schoolId],
+    queryFn: () => fetchCoachTeams(schoolId as string),
+    enabled: !!schoolId && isCoach,
+  });
+  const teamScopeCtx = {
+    role: currentUserRole,
+    coachCanCreateTeams: coachScopeSettings?.coachCanCreateTeams === true,
+  };
+  const puedeCrearEquipo = canCreateTeam(teamScopeCtx);
+  const puedeArchivarOBorrar = (team: TeamWithRelations) =>
+    canArchiveOrDeleteTeam(teamScopeCtx, !!coachTeams?.staffId && team.coach_id === coachTeams.staffId);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('name');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -226,10 +256,21 @@ export default function TeamsPage() {
   });
 
   // Fetch school students for the detailed list view
+  // El coach ve solo a los deportistas de SUS equipos (antes: toda la escuela,
+  // con teléfono y correo de cada acudiente). Falla cerrado: sin ficha de
+  // staff, lista vacía.
   const { data: schoolStudents = [], isLoading: studentsLoading } = useQuery({
-    queryKey: ['school-students', schoolId, activeBranchId],
-    queryFn: () => schoolId ? studentsAPI.getSchoolView(schoolId) : Promise.resolve([]),
-    enabled: statusFilter === 'with_students' && !!schoolId,
+    queryKey: ['school-students', schoolId, activeBranchId, isCoach ? coachTeams?.teamIds?.join(',') ?? 'pend' : 'todos'],
+    queryFn: async () => {
+      if (!schoolId) return [];
+      const rows = await studentsAPI.getSchoolView(schoolId);
+      if (!isCoach) return rows;
+      const teamIds = new Set(coachTeams?.teamIds ?? []);
+      if (teamIds.size === 0) return [];
+      const inscritos = await fetchAthleteIdsInTeams([...teamIds]);
+      return (rows as any[]).filter((r) => athleteInTeams(r, teamIds, inscritos));
+    },
+    enabled: statusFilter === 'with_students' && !!schoolId && (!isCoach || !!coachTeams),
   });
 
   // Calculate Stats
@@ -369,7 +410,14 @@ export default function TeamsPage() {
   };
 
   // Menú de acciones (⋯) reutilizable en tabla y grid.
-  const renderActionsMenu = (team: TeamWithRelations) => (
+  // Archivar/reactivar/eliminar: administración (antes los veía cualquiera con
+  // teams:edit, coach incluido). El coach solo con coach_can_create_teams y
+  // sobre equipos donde es el principal — lo mismo que ya permitía la base.
+  const renderActionsMenu = (team: TeamWithRelations) => {
+    const gestiona = puedeArchivarOBorrar(team);
+    const cobra = canChargeTeam && team.status !== 'inactive';
+    if (!gestiona && !cobra) return null;
+    return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="h-8 w-8" title="Más acciones">
@@ -383,7 +431,7 @@ export default function TeamsPage() {
             Cobrar a este equipo
           </DropdownMenuItem>
         )}
-        {team.status === 'inactive' ? (
+        {gestiona && (team.status === 'inactive' ? (
           <DropdownMenuItem onClick={() => handleReactivate(team)}>
             <RotateCcw className="h-4 w-4 mr-2" />
             Reactivar
@@ -393,17 +441,20 @@ export default function TeamsPage() {
             <Archive className="h-4 w-4 mr-2" />
             Archivar
           </DropdownMenuItem>
+        ))}
+        {gestiona && (
+          <DropdownMenuItem
+            className="text-destructive focus:text-destructive"
+            onClick={() => setTeamToDelete(team)}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Eliminar permanente
+          </DropdownMenuItem>
         )}
-        <DropdownMenuItem
-          className="text-destructive focus:text-destructive"
-          onClick={() => setTeamToDelete(team)}
-        >
-          <Trash2 className="h-4 w-4 mr-2" />
-          Eliminar permanente
-        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
-  );
+    );
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-10">
@@ -435,12 +486,12 @@ export default function TeamsPage() {
             <RefreshCcw className="h-4 w-4 mr-2" />
             Actualizar
           </Button>
-          <PermissionGate permission="teams:create">
+          {puedeCrearEquipo && (
             <Button className="gap-2 bg-primary hover:bg-primary/90" onClick={() => setIsModalOpen(true)}>
               <Plus className="h-4 w-4" />
               Nuevo Equipo
             </Button>
-          </PermissionGate>
+          )}
         </div>
       </div>
 
@@ -482,7 +533,7 @@ export default function TeamsPage() {
 
           <div className="flex gap-2">
             <Select value={sortBy} onValueChange={setSortBy}>
-              <SelectTrigger className="w-[180px] h-10">
+              <SelectTrigger className="w-44 h-10">
                 <SelectValue placeholder="Ordenar por" />
               </SelectTrigger>
               <SelectContent>
@@ -553,12 +604,12 @@ export default function TeamsPage() {
                       ? 'Aún no estás asignado a ningún equipo. Pídele al administrador que te asigne a un equipo desde "Editar Equipo".'
                       : 'Aún no has creado ningún equipo en esta sede o para tu perfil.'}
             </p>
-            <PermissionGate permission="teams:create">
+            {puedeCrearEquipo && (
               <Button className="gap-2 scale-110" onClick={() => setIsModalOpen(true)}>
                 <Plus className="h-4 w-4" />
                 Crear Primer Equipo
               </Button>
-            </PermissionGate>
+            )}
           </CardContent>
         </Card>
       ) : statusFilter === 'with_students' ? (
@@ -635,7 +686,7 @@ export default function TeamsPage() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <div className="flex flex-wrap gap-1 max-w-[140px]">
+                            <div className="flex flex-wrap gap-1 max-w-36">
                               {(student as any).team_name
                                 ? String((student as any).team_name).split(',').map((prog: string, i: number) => (
                                   <Badge
@@ -667,7 +718,7 @@ export default function TeamsPage() {
                               {student.parent_email && (
                                 <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                                   <Mail className="h-3 w-3" />
-                                  <span className="truncate max-w-[120px]">{student.parent_email}</span>
+                                  <span className="truncate max-w-32">{student.parent_email}</span>
                                 </div>
                               )}
                             </div>
@@ -692,7 +743,7 @@ export default function TeamsPage() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30">
-                  <TableHead className="w-[200px]">Equipo / Deporte</TableHead>
+                  <TableHead className="w-52">Equipo / Deporte</TableHead>
                   <TableHead className="hidden md:table-cell">Programa / Nivel</TableHead>
                   <TableHead className="hidden lg:table-cell">Sede</TableHead>
                   <TableHead>Entrenador</TableHead>
@@ -735,10 +786,10 @@ export default function TeamsPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className="flex flex-wrap gap-1 max-w-[150px]">
+                      <div className="flex flex-wrap gap-1 max-w-40">
                         {team.team_coaches && team.team_coaches.length > 0 ? (
                           team.team_coaches.map((tc: any) => (
-                            <Badge key={tc.coach?.id} variant="secondary" className="text-[10px] py-0 h-5 bg-orange-50 text-orange-700 border-orange-100 truncate max-w-[130px]">
+                            <Badge key={tc.coach?.id} variant="secondary" className="text-[10px] py-0 h-5 bg-orange-50 text-orange-700 border-orange-100 truncate max-w-32">
                               {tc.coach?.full_name}
                             </Badge>
                           ))

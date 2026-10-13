@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { promises as dns } from 'dns';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole } from '../middlewares/authMiddleware';
+import { esAdminDePlataforma } from '../middlewares/requirePlatformAdmin';
 import { requireCsrfHeader } from '../middlewares/csrfHeader';
 
 const router = Router();
@@ -45,7 +46,9 @@ router.post(
     domainLimiter,
     async (req: Request, res: Response) => {
         const schoolId = req.params.id;
-        const isPrivileged = ['super_admin', 'admin', 'owner'].includes(req.role);
+        // Solo plataforma salta el match de escuela. 'owner'/'admin' son roles de
+        // MEMBRESÍA: con ellos un dueño gestionaba dominios de CUALQUIER escuela.
+        const isPrivileged = req.role === 'super_admin' && await esAdminDePlataforma(req.user.id);
         if (!isPrivileged && req.schoolId !== schoolId) {
             return res.status(403).json({ error: 'forbidden' });
         }
@@ -95,7 +98,9 @@ router.get(
     requireRole('owner', 'admin', 'school_admin', 'school'),
     async (req: Request, res: Response) => {
         const schoolId = req.params.id;
-        const isPrivileged = ['super_admin', 'admin', 'owner'].includes(req.role);
+        // Solo plataforma salta el match de escuela. 'owner'/'admin' son roles de
+        // MEMBRESÍA: con ellos un dueño gestionaba dominios de CUALQUIER escuela.
+        const isPrivileged = req.role === 'super_admin' && await esAdminDePlataforma(req.user.id);
         if (!isPrivileged && req.schoolId !== schoolId) {
             return res.status(403).json({ error: 'forbidden' });
         }
@@ -132,7 +137,9 @@ router.post(
     async (req: Request, res: Response) => {
         const schoolId = req.params.id;
         const domainId = req.params.did;
-        const isPrivileged = ['super_admin', 'admin', 'owner'].includes(req.role);
+        // Solo plataforma salta el match de escuela. 'owner'/'admin' son roles de
+        // MEMBRESÍA: con ellos un dueño gestionaba dominios de CUALQUIER escuela.
+        const isPrivileged = req.role === 'super_admin' && await esAdminDePlataforma(req.user.id);
         if (!isPrivileged && req.schoolId !== schoolId) {
             return res.status(403).json({ error: 'forbidden' });
         }
@@ -212,7 +219,9 @@ router.delete(
     async (req: Request, res: Response) => {
         const schoolId = req.params.id;
         const domainId = req.params.did;
-        const isPrivileged = ['super_admin', 'admin', 'owner'].includes(req.role);
+        // Solo plataforma salta el match de escuela. 'owner'/'admin' son roles de
+        // MEMBRESÍA: con ellos un dueño gestionaba dominios de CUALQUIER escuela.
+        const isPrivileged = req.role === 'super_admin' && await esAdminDePlataforma(req.user.id);
         if (!isPrivileged && req.schoolId !== schoolId) {
             return res.status(403).json({ error: 'forbidden' });
         }

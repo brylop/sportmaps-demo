@@ -243,7 +243,7 @@ export default function SchoolBranchesManagementPage() {
                             Nueva Sede
                         </Button>
                     </DialogTrigger>
-                    <DialogContent className="sm:max-w-[500px]">
+                    <DialogContent className="sm:max-w-lg">
                         <DialogHeader>
                             <DialogTitle>Crear Nueva Sede</DialogTitle>
                             <DialogDescription>
@@ -372,7 +372,7 @@ export default function SchoolBranchesManagementPage() {
 
             {/* Edit Modal */}
             <Dialog open={!!editingBranch} onOpenChange={(open) => { if (!open) { setEditingBranch(null); resetForm(); } }}>
-                <DialogContent className="sm:max-w-[500px]">
+                <DialogContent className="sm:max-w-lg">
                     <DialogHeader>
                         <DialogTitle>Editar Sede</DialogTitle>
                         <DialogDescription>

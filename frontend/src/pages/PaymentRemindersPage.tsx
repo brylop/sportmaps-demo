@@ -425,7 +425,7 @@ export default function PaymentRemindersPage() {
 
                 {planOptions.length > 0 && (
                     <Select value={filterPlan} onValueChange={setFilterPlan}>
-                        <SelectTrigger className="w-[200px]">
+                        <SelectTrigger className="w-52">
                             <SelectValue placeholder="Plan" />
                         </SelectTrigger>
                         <SelectContent>
@@ -441,7 +441,7 @@ export default function PaymentRemindersPage() {
                 <div className="flex items-center gap-1.5 ml-auto">
                     <FileText className="h-4 w-4 text-muted-foreground" />
                     <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
-                        <SelectTrigger className="w-[220px]">
+                        <SelectTrigger className="w-56">
                             <SelectValue placeholder="Plantilla" />
                         </SelectTrigger>
                         <SelectContent>

@@ -111,7 +111,7 @@ export default function MessagesDetailPage() {
         Volver a mensajes
       </Button>
 
-      <Card className="h-[600px] flex flex-col">
+      <Card className="h-[calc(100dvh-12rem)] max-h-[37.5rem] flex flex-col">
         <CardHeader className="border-b">
           <CardTitle className="flex items-center gap-2">
             <Avatar>

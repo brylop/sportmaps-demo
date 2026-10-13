@@ -128,7 +128,7 @@ export default function AdminMarketplaceModerationPage() {
                 <TabsContent value="products" className="space-y-4 mt-4">
                     <div className="flex justify-end">
                         <Select value={statusFilter} onValueChange={(v: any) => setStatusFilter(v)}>
-                            <SelectTrigger className="w-[200px]"><SelectValue /></SelectTrigger>
+                            <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="pending_review">Pendientes</SelectItem>
                                 <SelectItem value="rejected">Rechazados</SelectItem>
@@ -418,7 +418,7 @@ function VendorVerificationQueue() {
         <div className="space-y-4">
             <div className="flex justify-end">
                 <Select value={vendorFilter} onValueChange={(v: any) => setVendorFilter(v)}>
-                    <SelectTrigger className="w-[260px]"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="w-64"><SelectValue /></SelectTrigger>
                     <SelectContent>
                         <SelectItem value="pending_with_doc">Pendientes con doc cargado</SelectItem>
                         <SelectItem value="pending_no_doc">Pendientes sin doc cargado</SelectItem>

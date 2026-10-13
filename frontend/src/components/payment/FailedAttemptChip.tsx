@@ -66,7 +66,7 @@ export function FailedAttemptChip({ reason, at, showReason, requiresReview, clas
   );
 
   const detalle = showReason && (failure.bankMessage || failure.ambiguous) ? (
-    <span className="mt-0.5 block max-w-[220px] text-[10px] leading-snug text-muted-foreground">
+    <span className="mt-0.5 block max-w-56 text-[10px] leading-snug text-muted-foreground">
       {failure.bankMessage
         ?? 'La pasarela no confirmó el resultado. Verificá antes de volver a cobrar.'}
     </span>
@@ -78,7 +78,7 @@ export function FailedAttemptChip({ reason, at, showReason, requiresReview, clas
   const conTooltip = (
     <Tooltip>
       <TooltipTrigger asChild>{chip}</TooltipTrigger>
-      <TooltipContent className="max-w-[260px] text-xs">
+      <TooltipContent className="max-w-64 text-xs">
         {failure.bankMessage && <p>{failure.bankMessage}</p>}
         {failure.ambiguous && (
           <p className="mt-1 font-semibold">

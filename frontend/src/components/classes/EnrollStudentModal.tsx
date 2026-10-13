@@ -206,7 +206,7 @@ export function EnrollStudentModal({ open, onClose, onSuccess, classItem }: Enro
                                                             )}
                                                         </div>
                                                         <div className="flex items-center gap-2 text-xs sm:text-sm text-muted-foreground mt-1 flex-wrap">
-                                                            {student.email && <span className="truncate max-w-[150px] sm:max-w-none">{student.email}</span>}
+                                                            {student.email && <span className="truncate max-w-36 sm:max-w-none">{student.email}</span>}
                                                             {student.grade && <span className="shrink-0">• {student.grade}</span>}
                                                         </div>
                                                     </div>

@@ -443,6 +443,62 @@ export async function emitEnrollmentFees(opts: {
     return cancelWaivedFeeRows({ schoolId: opts.schoolId, paymentIds: ids, waivers: opts.waivers, log: opts.log });
 }
 
+/**
+ * Monto de un cobro cuando la cuota cambia, RESPETANDO el descuento que ese cobro
+ * ya trae (payments.discount_pct, puesto al registrar al estudiante). Sin
+ * descuento, el monto es la cuota tal cual.
+ */
+export function amountWithDiscount(fee: number, discountPct: number | string | null | undefined): number {
+    const pct = Number(discountPct) || 0;
+    return pct > 0 && pct < 100 ? Math.round(fee * (1 - pct / 100)) : fee;
+}
+
+/**
+ * % de descuento que un cobro ya trae: el guardado al registrar al estudiante
+ * (`discount_pct`) o, si no hay, el implícito del descuento por hermanos
+ * (`sibling_discount_applied` es un VALOR, no un porcentaje: se deduce de
+ * descuento / (monto + descuento), el mismo cálculo que hizo open_month).
+ */
+export function impliedDiscountPct(row: {
+    discount_pct?: number | string | null;
+    sibling_discount_applied?: number | string | null;
+    amount?: number | string | null;
+}): number {
+    const explicit = Number(row.discount_pct) || 0;
+    if (explicit > 0) return explicit;
+    const sib = Number(row.sibling_discount_applied) || 0;
+    const amount = Number(row.amount) || 0;
+    return sib > 0 && amount > 0 ? (sib / (amount + sib)) * 100 : 0;
+}
+
+/**
+ * Reescribe el monto de los cobros pendientes a la cuota nueva sin perder el
+ * descuento de cada uno. `rows` es la consulta ya filtrada (atleta, plan/equipo,
+ * estado pendiente) que devuelve `id, discount_pct`.
+ *
+ * Antes la rama «mismo plan/equipo» de PUT /students/:id hacía un UPDATE masivo
+ * `amount = cuota` y el descuento horneado en el monto se perdía en silencio
+ * (caso Zoe Barrera, Dreamers, 2026-10-10: $232.750 → $245.000 dos minutos
+ * después de registrarla, antes del pago manual).
+ */
+export async function repricePendingCharges(
+    rows: PromiseLike<{ data: any[] | null }>,
+    fee: number,
+): Promise<void> {
+    const { data } = await rows;
+    for (const row of data ?? []) {
+        const pct = impliedDiscountPct(row);
+        await supabase
+            .from('payments')
+            .update({
+                amount: amountWithDiscount(fee, pct),
+                ...(Number(row.discount_pct) > 0 ? { list_amount: fee } : {}),
+                updated_at: new Date().toISOString(),
+            })
+            .eq('id', row.id);
+    }
+}
+
 /** Anula los cobros pendientes de un plan concreto (cambio o baja de plan). */
 export async function cancelPendingPlanPayments(opts: {
     schoolId: string;

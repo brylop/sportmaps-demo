@@ -104,16 +104,16 @@ export default function AttendanceMonthCard() {
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <div className="h-[200px] flex items-center justify-center text-muted-foreground">
+          <div className="h-chart-sm flex items-center justify-center text-muted-foreground">
             <Loader2 className="h-6 w-6 animate-spin" />
           </div>
         ) : error ? (
-          <div className="h-[200px] flex flex-col items-center justify-center text-muted-foreground gap-2">
+          <div className="h-chart-sm flex flex-col items-center justify-center text-muted-foreground gap-2">
             <AlertTriangle className="w-8 h-8 opacity-40" />
             <p className="text-sm">No se pudo cargar la asistencia de {monthLabel(month).toLowerCase()}.</p>
           </div>
         ) : !hasData ? (
-          <div className="h-[200px] flex flex-col items-center justify-center text-muted-foreground gap-2">
+          <div className="h-chart-sm flex flex-col items-center justify-center text-muted-foreground gap-2">
             <Users className="w-10 h-10 opacity-30" />
             <p className="text-sm">Sin listas de asistencia en {monthLabel(month).toLowerCase()}.</p>
           </div>

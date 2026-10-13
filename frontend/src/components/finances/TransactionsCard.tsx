@@ -142,7 +142,7 @@ export function TransactionsCard({ payments, onRefresh, refreshing }: Transactio
           placeholder="Buscar deportista, acudiente o concepto..."
           value={txSearch}
           onChange={(e) => setTxSearch(e.target.value)}
-          className="w-full sm:w-[260px] h-9"
+          className="w-full sm:w-64 h-9"
         />
       </div>
       {/* Filtro por origen en tarjetas. Solo se muestran los orígenes que

@@ -43,7 +43,7 @@ export function ReviewList({ productId, productName, productCategorySlug, produc
 
                         <div className="flex items-center gap-2">
                             <Select value={sort} onValueChange={(v: ReviewSort) => setSort(v)}>
-                                <SelectTrigger className="w-[160px] h-9 text-sm"><SelectValue /></SelectTrigger>
+                                <SelectTrigger className="w-40 h-9 text-sm"><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="recent">Más recientes</SelectItem>
                                     <SelectItem value="helpful">Más útiles</SelectItem>

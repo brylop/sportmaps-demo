@@ -470,7 +470,7 @@ export default function StoreCheckoutPage() {
 
       {/* Mercado Pago: Brick con la llave del vendedor */}
       <Dialog open={!!mpOrder} onOpenChange={(v) => { if (!v && mpOrder) navigate(`/mis-compras/${mpOrder.orderId}`, { replace: true }); }}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-lg max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Pagar con Mercado Pago</DialogTitle>
             <DialogDescription>Total {mpOrder ? formatCurrency(mpOrder.grossAmount) : ''} · pedido {mpOrder?.reference}</DialogDescription>

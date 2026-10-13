@@ -159,7 +159,7 @@ export default function AdminPayoutsPage() {
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
                     <CardTitle className="text-base">Lista de payouts</CardTitle>
                     <Select value={statusFilter} onValueChange={setStatusFilter}>
-                        <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
                         <SelectContent>
                             <SelectItem value="pending">Pendientes</SelectItem>
                             <SelectItem value="scheduled">Programados</SelectItem>

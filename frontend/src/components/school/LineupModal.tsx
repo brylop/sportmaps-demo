@@ -437,7 +437,7 @@ function PitchPin({
           <span
             onClick={(e) => { e.stopPropagation(); setEditingLabel(true); }}
             title="Tocar para renombrar (ej. Lateral derecho)"
-            className="text-[10px] font-bold text-white bg-black/60 backdrop-blur-sm rounded-full px-2 py-0.5 leading-tight max-w-[84px] truncate cursor-text shadow"
+            className="text-[10px] font-bold text-white bg-black/60 backdrop-blur-sm rounded-full px-2 py-0.5 leading-tight max-w-20 truncate cursor-text shadow"
           >
             {state.slot_label}
           </span>
@@ -781,7 +781,7 @@ export function LineupModal({ open, onClose, teamId, teamName, sourceType, sourc
           empate de especificidad. Un estilo inline sí le gana a cualquier
           clase sin tener que tocar ese componente compartido. */}
       <DialogContent
-        className="w-[92vw] max-w-[1000px] p-0 flex flex-col gap-0"
+        className="w-[92vw] max-w-modal-lg p-0 flex flex-col gap-0"
         style={{ height: '90vh', maxHeight: '90vh', overflow: 'hidden' }}
       >
         <DialogHeader className="px-6 pt-6 pb-2 shrink-0">
@@ -818,7 +818,7 @@ export function LineupModal({ open, onClose, teamId, teamName, sourceType, sourc
                 exclusivamente para la cancha. */}
             <div className="flex-1 min-h-0 flex flex-col gap-3 px-6 py-4">
               <div className="shrink-0 flex flex-wrap items-end gap-3">
-                <div className="flex items-end gap-2 flex-1 min-w-[220px] max-w-sm">
+                <div className="flex items-end gap-2 flex-1 min-w-56 max-w-sm">
                   <div className="flex-1 space-y-1.5">
                     <Label className="text-xs">Formación</Label>
                     {customFormation ? (
@@ -901,7 +901,7 @@ export function LineupModal({ open, onClose, teamId, teamName, sourceType, sourc
                     columna mide lo que mide el botón nomás. En desktop el
                     botón ni se muestra (md:hidden) y el contenido siempre
                     está visible (md:flex, sin importar rosterPanelOpen). */}
-                <div className="order-2 md:order-none max-h-[360px] md:max-h-none md:h-full min-h-0 flex flex-col gap-2 md:gap-4 shrink-0 md:w-[260px] md:border-r md:pr-4">
+                <div className="order-2 md:order-none max-h-96 md:max-h-none md:h-full min-h-0 flex flex-col gap-2 md:gap-4 shrink-0 md:w-64 md:border-r md:pr-4">
                   <button
                     type="button"
                     onClick={() => setRosterPanelOpen((v) => !v)}
@@ -945,7 +945,7 @@ export function LineupModal({ open, onClose, teamId, teamName, sourceType, sourc
                       </div>
                     </div>
 
-                    <div className="shrink-0 max-h-[160px] md:max-h-[35%] min-h-0 flex flex-col gap-2 border-t pt-3 overflow-y-auto custom-scrollbar">
+                    <div className="shrink-0 max-h-40 md:max-h-[35%] min-h-0 flex flex-col gap-2 border-t pt-3 overflow-y-auto custom-scrollbar">
                       <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground shrink-0">Banco</p>
                       <DroppableBench>
                         {benchPlayers.length === 0 ? (
@@ -1006,7 +1006,7 @@ export function LineupModal({ open, onClose, teamId, teamName, sourceType, sourc
                       ventana real en vez de quedar fija en 340px, que era
                       lo que hacía que varias líneas de formación se
                       pisaran entre sí. */}
-                  <div className="flex-1 min-h-[240px] flex items-center justify-center shrink-0">
+                  <div className="flex-1 min-h-60 flex items-center justify-center shrink-0">
                     <div
                       ref={pitchRef}
                       className="relative rounded-xl overflow-hidden h-full max-w-full border border-white/20 shadow-md bg-green-950"

@@ -118,7 +118,7 @@ export function TrainerFeedbackModal({
               placeholder="Ej: Buena ejecución en sentadilla, trabajar en la postura durante el press..."
               value={note}
               onChange={e => setNote(e.target.value)}
-              className="min-h-[100px] resize-none"
+              className="min-h-24 resize-none"
             />
             <p className="text-[10px] text-muted-foreground">
               El cliente verá este mensaje en su historial de sesiones.

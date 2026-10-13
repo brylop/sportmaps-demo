@@ -190,11 +190,11 @@ export default function MembershipsPage() {
                                 value={busqueda}
                                 onChange={(e) => setBusqueda(e.target.value)}
                                 placeholder="Nombre o documento"
-                                className="pl-8 h-9 w-[220px]"
+                                className="pl-8 h-9 w-56"
                             />
                         </div>
                         <Select value={filtro} onValueChange={(v) => setFiltro(v as typeof filtro)}>
-                            <SelectTrigger className="h-9 w-[170px]"><SelectValue /></SelectTrigger>
+                            <SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="todos">Todos</SelectItem>
                                 <SelectItem value="sin">Sin membresía</SelectItem>
@@ -297,7 +297,7 @@ function DialogoMembresia({
 
     return (
         <Dialog open onOpenChange={(o) => !o && onCerrar()}>
-            <DialogContent className="sm:max-w-[460px]">
+            <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle>{membresia ? 'Editar membresía' : 'Registrar membresía'}</DialogTitle>
                     <DialogDescription>{atleta.full_name}</DialogDescription>
@@ -466,7 +466,7 @@ function DialogoImportar({
 
     return (
         <Dialog open={abierto} onOpenChange={(o) => !o && onCerrar()}>
-            <DialogContent className="sm:max-w-[640px]">
+            <DialogContent className="sm:max-w-modal">
                 <DialogHeader>
                     <DialogTitle>Cargar membresías desde archivo</DialogTitle>
                     <DialogDescription>

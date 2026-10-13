@@ -299,11 +299,17 @@ const cop = (n: number) =>
  * proveedor que cobra.
  *
  * Transitorio: la red, el 429 y los 5xx. Todo lo demás —mime rechazado, archivo
- * muy grande, token que no desencripta, media que ya expiró (4xx)— no mejora
- * reintentando.
+ * muy grande, media que ya expiró (4xx)— no mejora reintentando.
+ *
+ * El token que no desencripta SÍ se reintenta: no depende del archivo sino de
+ * QUÉ proceso tomó la fila. La cola es una sola para todos los BFF (una
+ * Supabase compartida), y un consumidor con otra WHATSAPP_TOKEN_ENC_KEY —o sin
+ * ella— la cerraba en `failed` sin bajar el archivo, aunque prod sí podía
+ * (Dynasty 10-10/11: 4 comprobantes perdidos intercalados con éxitos). Falla
+ * antes de llamar a Meta, así que reintentar no cuesta nada.
  */
 export function esTransitorio(error: string): boolean {
-    if (error === 'network_error' || error === '') return true;
+    if (error === 'network_error' || error === '' || error === 'token_decrypt_failed') return true;
     const m = error.match(/_(\d{3})(?::|$)/);
     if (m) {
         const codigo = Number(m[1]);

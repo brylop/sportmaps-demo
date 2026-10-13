@@ -171,7 +171,7 @@ export function AltaFirstChargeCard({
             </label>
           </div>
           {discountEnabled && (
-            <div className="flex-1 max-w-[160px]">
+            <div className="flex-1 max-w-40">
               <NumberStepper
                 value={discountPct || ''}
                 onChange={(val) => handleDiscountPctChange(String(val))}

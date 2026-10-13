@@ -138,7 +138,7 @@ export function AthleteVisibleRoutines({ childId }: AthleteVisibleRoutinesProps)
                 </div>
               </div>
 
-              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1">
                   <Clock className="h-3 w-3" /> {routine.estimated_minutes || 45} min
                 </span>
@@ -156,16 +156,18 @@ export function AthleteVisibleRoutines({ childId }: AthleteVisibleRoutinesProps)
 
       {/* modal de detalle de la rutina */}
       <Dialog open={!!selectedRoutine} onOpenChange={() => setSelectedRoutine(null)}>
-        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col p-0 overflow-hidden rounded-3xl border-primary/20">
+        {/* Móvil: pantalla completa (h-screen-d) con el pie de "Asignar" fijo.
+            Desde sm, el modal de siempre (max-h-sheet). */}
+        <DialogContent className="h-screen-d max-h-screen-d w-full max-w-full rounded-none sm:h-auto sm:max-h-sheet sm:max-w-2xl sm:rounded-3xl flex flex-col gap-0 p-0 pt-safe-t sm:pt-0 overflow-hidden border-primary/20">
           {selectedRoutine && (
             <>
-              <DialogHeader className="p-6 border-b shrink-0 bg-primary/5">
+              <DialogHeader className="px-4 py-4 pr-12 sm:p-6 border-b shrink-0 bg-primary/5 text-left">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-primary/10 rounded-xl">
                     <Dumbbell className="h-5 w-5 text-primary" />
                   </div>
-                  <div>
-                    <DialogTitle className="text-xl font-black tracking-tight">{selectedRoutine.name}</DialogTitle>
+                  <div className="min-w-0">
+                    <DialogTitle className="text-lg sm:text-xl font-black tracking-tight">{selectedRoutine.name}</DialogTitle>
                     <DialogDescription className="text-xs font-bold uppercase tracking-wider mt-0.5 text-primary">
                       {selectedRoutine.category} · {selectedRoutine.difficulty}
                     </DialogDescription>
@@ -173,8 +175,8 @@ export function AthleteVisibleRoutines({ childId }: AthleteVisibleRoutinesProps)
                 </div>
               </DialogHeader>
 
-              <ScrollArea className="flex-1 overflow-y-auto">
-                <div className="p-6 space-y-6">
+              <ScrollArea className="flex-1 min-h-0 overflow-y-auto">
+                <div className="p-4 sm:p-6 space-y-5 sm:space-y-6">
                   {selectedRoutine.description && (
                     <div className="space-y-1.5">
                       <h5 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Descripción</h5>
@@ -188,7 +190,7 @@ export function AthleteVisibleRoutines({ childId }: AthleteVisibleRoutinesProps)
                       <span className="text-xs text-muted-foreground font-bold uppercase">Duración</span>
                       <span className="text-lg font-black">{selectedRoutine.estimated_minutes || 45} min</span>
                     </div>
-                    <div className="h-10 w-[1px] bg-border/60 self-center" />
+                    <div className="h-10 w-px bg-border/60 self-center" />
                     <div className="flex-1 flex flex-col items-center justify-center p-2 text-center">
                       <Flame className="h-5 w-5 text-orange-500 mb-1" />
                       <span className="text-xs text-muted-foreground font-bold uppercase">Calorías</span>
@@ -255,15 +257,15 @@ export function AthleteVisibleRoutines({ childId }: AthleteVisibleRoutinesProps)
                     type="date"
                     value={assignDate}
                     onChange={(e) => setAssignDate(e.target.value)}
-                    className="h-9 flex-1"
+                    className="h-touch md:h-9 flex-1 min-w-0"
                   />
                 </div>
                 <div className="w-full flex gap-2">
-                  <Button variant="outline" className="flex-1 font-bold" onClick={() => setSelectedRoutine(null)}>
+                  <Button variant="outline" className="sm:flex-1 shrink-0 h-touch md:h-10 font-bold" onClick={() => setSelectedRoutine(null)}>
                     Cerrar
                   </Button>
                   <Button
-                    className="flex-1 font-bold gap-2 bg-primary hover:bg-primary/90"
+                    className="flex-1 min-w-0 h-touch md:h-10 font-bold gap-2 bg-primary hover:bg-primary/90"
                     onClick={handleAssign}
                     disabled={assigning}
                   >

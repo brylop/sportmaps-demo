@@ -143,7 +143,7 @@ function PanelDeporte({ sport, eje }: { sport: string; eje: string }) {
                             value={nombre}
                             onChange={(e) => setNombre(e.target.value)}
                             placeholder={eje === 'age' ? 'Sub-19' : 'Nombre'}
-                            className="w-[180px] h-9"
+                            className="w-44 h-9"
                         />
                     </div>
                     {pideRango && (
@@ -152,13 +152,13 @@ function PanelDeporte({ sport, eje }: { sport: string; eje: string }) {
                                 <Label className="text-xs">
                                     {eje === 'age' ? 'Edad desde' : eje === 'weight' ? 'Kg desde' : 'Nivel desde'}
                                 </Label>
-                                <Input type="number" value={min} onChange={(e) => setMin(e.target.value)} className="w-[110px] h-9" />
+                                <Input type="number" value={min} onChange={(e) => setMin(e.target.value)} className="w-28 h-9" />
                             </div>
                             <div className="space-y-1">
                                 <Label className="text-xs">
                                     {eje === 'age' ? 'Edad hasta' : eje === 'weight' ? 'Kg hasta' : 'Nivel hasta'}
                                 </Label>
-                                <Input type="number" value={max} onChange={(e) => setMax(e.target.value)} className="w-[110px] h-9" />
+                                <Input type="number" value={max} onChange={(e) => setMax(e.target.value)} className="w-28 h-9" />
                             </div>
                         </>
                     )}

@@ -51,9 +51,9 @@ export function EpsCombobox({
         sideOffset={4}
       >
         <Command>
-          <CommandInput placeholder="Buscar EPS..." className="text-sm h-[38px] w-full" />
+          <CommandInput placeholder="Buscar EPS..." className="text-sm h-10 w-full" />
           <CommandEmpty>No se encontró la EPS.</CommandEmpty>
-          <div className="max-h-[260px] overflow-y-auto">
+          <div className="max-h-64 overflow-y-auto">
             <CommandGroup>
               {COLOMBIAN_EPS.map((o) => (
                 <CommandItem

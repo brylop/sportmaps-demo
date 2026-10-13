@@ -18,6 +18,16 @@
 
 @layer base {
   :root {
+    /*
+     * Tokens de tamaño estructurales (ver docs/design-tokens.md).
+     * --bottom-nav-h = alto de MobileBottomNav (h-16). La barra se oculta en
+     * md+ (`md:hidden`), así que ahí vale 0 y `pb-nav-safe`/`min-h-nav` no
+     * reservan espacio en escritorio.
+     */
+    --bottom-nav-h: 4rem; /* 64px */
+    --header-h: 3.5rem; /* 56px */
+    --touch: 2.75rem; /* 44px */
+
     /* SportMaps Brand Identity */
     --background: 0 0% 100%;
     --foreground: 119 60% 10%;
@@ -171,12 +181,75 @@
 }
 
 @layer base {
+  @media (min-width: 768px) {
+    :root {
+      --bottom-nav-h: 0px; /* MobileBottomNav es md:hidden */
+    }
+  }
+
+  html {
+    /* Evita que iOS agrande el texto al rotar a horizontal. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  /*
+   * iOS Safari hace zoom al enfocar un campo con fuente < 16px. Solo en
+   * pantallas < md, para no cambiar el aspecto de escritorio.
+   */
+  @media (max-width: 767.98px) {
+    input,
+    select,
+    textarea {
+      font-size: max(16px, 1em);
+    }
+  }
+
+  /*
+   * Scrollbars uniformes y delgadas en toda la app (token: docs/design-tokens.md).
+   * Firefox usa scrollbar-width/color; Chrome/Edge/Safari los pseudo-elementos.
+   * `.custom-scrollbar` queda como alias histórico (ya es el estilo global).
+   */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.5);
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
   * {
     @apply border-border;
   }
 
   body {
     @apply bg-background text-foreground font-poppins antialiased;
+    /* Nitidez del texto (reporte de "se ve pixelado"). `antialiased` ya pone
+       los dos font-smoothing; se dejan explícitos por si alguien quita la clase. */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
     /* Evita el "rubber-band"/pull-to-refresh nativo del navegador arrastrando la página entera cuando un panel interno llega a su tope de scroll */
     overscroll-behavior: contain;
   }
@@ -238,6 +311,31 @@
     padding-top: env(safe-area-inset-top, 0px);
   }
 
+  /*
+   * Oculta la barra de scroll pero deja deslizar (tiras horizontales de
+   * pestañas/filtros). `scrollbar-hide` es alias: ya se usaba en el código
+   * sin estar definido.
+   */
+  .scrollbar-none,
+  .scrollbar-hide {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar,
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /*
+   * Opcional junto a `overflow-x-auto scrollbar-none`: desvanece los bordes
+   * izquierdo/derecho para insinuar que hay más contenido al deslizar.
+   */
+  .scroll-fade-x {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 1rem, #000 calc(100% - 1rem), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 1rem, #000 calc(100% - 1rem), transparent);
+  }
+
   .text-gradient-brand {
     background: linear-gradient(135deg, hsl(119 60% 32%), hsl(35 97% 55%));
     -webkit-background-clip: text;
@@ -247,6 +345,15 @@
 
   .bg-gradient-brand {
     background: linear-gradient(135deg, hsl(119 60% 32%), hsl(35 97% 55%));
+  }
+}
+
+@layer components {
+  /* TabsList (src/components/ui/tabs.tsx): centrado "seguro" — si la tira
+     desborda, arranca desde la izquierda en vez de cortar la primera pestaña. */
+  .tabs-list {
+    justify-content: center;
+    justify-content: safe center;
   }
 }
 
@@ -307,32 +414,7 @@
 }
 
 /* Custom UI Additions */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
-}
-
-::-webkit-scrollbar,
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track,
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb,
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background-color: hsl(var(--muted-foreground) / 0.3);
-  border-radius: 9999px;
-}
-
-::-webkit-scrollbar-thumb:hover,
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background-color: hsl(var(--muted-foreground) / 0.5);
-}
+/* Scrollbars: viven en @layer base (ver arriba) para que `scrollbar-none` las pise. */
 
 .no-spinners::-webkit-outer-spin-button,
 .no-spinners::-webkit-inner-spin-button,

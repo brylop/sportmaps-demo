@@ -25,7 +25,7 @@ export function PublicSchoolClassicLayout({ school, facilities, slug, onAction }
     return (
         <div className="min-h-screen bg-gray-50 pb-20" data-layout="classic">
             {/* Hero Section */}
-            <div className="relative h-[400px] w-full overflow-hidden">
+            <div className="relative h-media md:h-96 w-full overflow-hidden">
                 <div className="absolute inset-0 bg-black/60 z-10" />
                 {/* Sin portada cargada iba `src={undefined}` → icono de imagen rota.
                     Ahora hay respaldo y onError para que el hero nunca se vea partido. */}

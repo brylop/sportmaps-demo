@@ -262,7 +262,7 @@ export default function MyAppointmentsPage() {
       )}
 
       <Dialog open={!!cancelling} onOpenChange={(o) => !o && setCancelling(null)}>
-        <DialogContent className="sm:max-w-[440px]">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Cancelar cita</DialogTitle>
             <DialogDescription>

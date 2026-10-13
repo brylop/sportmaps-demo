@@ -134,7 +134,7 @@ export default function AttendancePage() {
           </p>
         </div>
 
-        <Card className="border-primary/20 bg-primary/5 min-w-[280px]">
+        <Card className="border-primary/20 bg-primary/5 md:min-w-72">
           <CardContent className="p-3 flex items-center gap-3">
             <div className="h-10 w-10 rounded-xl bg-primary/20 flex items-center justify-center text-primary">
               <User className="h-5 w-5" />

@@ -222,7 +222,7 @@ export function CompleteSessionModal({ open, onClose, plan, onCompleted, isLoadi
                                     <div className="col-span-5 flex gap-1">
                                       <Input placeholder={block.weight} value={set.weight} onChange={(e) => updateSetResult(index, sIdx, { weight: e.target.value })} className="h-8 text-xs bg-background/50 border-none focus-visible:ring-1 focus-visible:ring-primary/30 font-bold flex-1" />
                                       <Select value={set.weight_unit || result.weight_unit || 'kg'} onValueChange={(val) => updateSetResult(index, sIdx, { weight_unit: val })}>
-                                        <SelectTrigger className="w-[50px] h-8 text-[9px] font-black px-1 border-none bg-background/30"><SelectValue /></SelectTrigger>
+                                        <SelectTrigger className="w-12 h-8 text-[9px] font-black px-1 border-none bg-background/30"><SelectValue /></SelectTrigger>
                                         <SelectContent>
                                           <SelectItem value="kg" className="text-[9px]">KG</SelectItem>
                                           <SelectItem value="lb" className="text-[9px]">LB</SelectItem>
@@ -285,7 +285,7 @@ export function CompleteSessionModal({ open, onClose, plan, onCompleted, isLoadi
               <Label className="text-xs font-bold uppercase tracking-wider">Nota de Rendimiento / Feedback</Label>
               <Textarea 
                 placeholder="¿Cómo se sintió el cliente? ¿Hubo mejoras? Ej: Logró completar todas las series con mejor técnica." 
-                className="min-h-[100px] resize-none"
+                className="min-h-24 resize-none"
                 value={results.performance_note}
                 onChange={(e) => setResults({ ...results, performance_note: e.target.value })}
               />

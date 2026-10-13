@@ -1071,11 +1071,11 @@ export default function ParentCheckoutPage() {
             </DialogDescription>
           </DialogHeader>
           
-          <div className="bg-white p-4 rounded-xl border shadow-inner flex items-center justify-center max-w-full max-h-[60vh] overflow-hidden">
+          <div className="bg-white p-4 rounded-xl border shadow-inner flex items-center justify-center max-w-full max-h-list overflow-hidden">
             <img 
               src={bankDetails?.payment_qr_url || ''} 
               alt="Código QR de Pago Completo" 
-              className="max-w-full max-h-[50vh] object-contain rounded-lg transition-transform duration-300 hover:scale-105"
+              className="max-w-full max-h-[50dvh] object-contain rounded-lg transition-transform duration-300 hover:scale-105"
             />
           </div>
           

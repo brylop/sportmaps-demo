@@ -25,7 +25,7 @@ export function SessionCapacityBar({ current, max, showLabel = true, className =
 
     return (
         <div className={`flex items-center gap-2 ${className}`}>
-            <div className="h-2 flex-1 rounded-full bg-muted overflow-hidden min-w-[60px]">
+            <div className="h-2 flex-1 rounded-full bg-muted overflow-hidden min-w-16">
                 <div
                     className={`h-full rounded-full transition-all duration-300 ${color}`}
                     style={{ width: `${Math.min(pct, 100)}%` }}

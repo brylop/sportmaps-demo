@@ -123,13 +123,13 @@ export default function TrainerRoutines() {
             <Dumbbell className="h-6 w-6 text-primary" />
           </div>
           <div>
-            <h1 className="text-3xl font-black tracking-tighter">Mis Rutinas</h1>
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tighter">Mis Rutinas</h1>
             <p className="text-xs text-muted-foreground font-bold uppercase tracking-widest opacity-80">Biblioteca de entrenamientos reutilizables</p>
           </div>
         </div>
         <Button 
           onClick={() => { setEditingRoutine(null); setIsModalOpen(true); }} 
-          className="gap-2 bg-primary shadow-lg shadow-primary/20 h-12 px-6 font-bold"
+          className="w-full md:w-auto gap-2 bg-primary shadow-lg shadow-primary/20 h-12 px-6 font-bold"
         >
           <Plus className="h-5 w-5" />
           NUEVA RUTINA
@@ -155,7 +155,8 @@ export default function TrainerRoutines() {
               #{selectedTag}
               <button 
                 onClick={() => setSelectedTag(null)} 
-                className="font-bold hover:text-destructive text-sm"
+                aria-label="Quitar filtro"
+                className="-mr-2 flex h-touch w-8 items-center justify-center font-bold hover:text-destructive text-sm"
               >
                 ×
               </button>
@@ -163,10 +164,12 @@ export default function TrainerRoutines() {
           )}
         </div>
         
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="bg-muted/20 p-1 h-11 border border-border/40">
+        {/* Las categorías son dinámicas (pueden ser 7+): en móvil la fila se
+            desliza en horizontal en vez de recortarse. */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full max-w-full overflow-x-auto">
+          <TabsList className="h-auto w-max bg-muted/20 p-1 border border-border/40 md:h-11">
             {categories.map(cat => (
-              <TabsTrigger key={cat} value={cat} className="rounded-md px-4 font-black text-[10px] uppercase tracking-widest">
+              <TabsTrigger key={cat} value={cat} className="min-h-touch rounded-md px-3 font-black text-xs uppercase tracking-wider md:min-h-0 md:px-4 md:text-[10px] md:tracking-widest">
                 {cat}
               </TabsTrigger>
             ))}
@@ -197,7 +200,7 @@ export default function TrainerRoutines() {
           </Button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
           {filteredRoutines.map(routine => (
             <RoutineCard 
               key={routine.id}

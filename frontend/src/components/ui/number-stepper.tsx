@@ -69,7 +69,8 @@ export function NumberStepper({
                     inputMode="numeric"
                     pattern="[0-9]*"
                     className={cn(
-                        "border-0 bg-transparent text-center font-bold text-sm focus-visible:ring-0 focus-visible:ring-offset-0 h-full no-spinners w-full px-2",
+                        // text-input (16px) en móvil: con text-sm iOS hacía zoom al tocar el campo.
+                        "border-0 bg-transparent text-center font-bold text-input md:text-sm focus-visible:ring-0 focus-visible:ring-offset-0 h-full no-spinners w-full px-2",
                         unit ? "pr-6" : "px-2"
                     )}
                     value={displayValue}

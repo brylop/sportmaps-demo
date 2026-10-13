@@ -143,7 +143,7 @@ export default function MessagesPage() {
 
       {/* Messages Layout - Only shown when there are messages */}
       {!isLoading && hasMessages && (
-        <div className="grid md:grid-cols-3 gap-4 h-[calc(100vh-240px)]">
+        <div className="grid md:grid-cols-3 gap-4 h-[calc(100dvh-15rem)]">
           {/* Contacts List */}
           <Card className="md:col-span-1">
             <CardHeader className="pb-3">
@@ -158,7 +158,7 @@ export default function MessagesPage() {
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              <ScrollArea className="h-[calc(100vh-340px)]">
+              <ScrollArea className="h-[calc(100dvh-21.25rem)]">
                 <div className="space-y-1 p-2">
                   {conversations.map((conv) => (
                     <button

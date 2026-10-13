@@ -262,7 +262,7 @@ export function ChildSelectorModal({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[440px]">
+            <DialogContent className="sm:max-w-modal-sm">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2 text-xl">
                         <Users className="h-5 w-5 text-primary" />

@@ -73,13 +73,13 @@ export function PhoneInput({ value, onChange, placeholder, className, disabled, 
             role="combobox"
             aria-expanded={open}
             disabled={disabled}
-            className="w-[90px] h-full rounded-none border-r border-border/40 px-3 hover:bg-primary/10 transition-colors"
+            className="w-24 h-full rounded-none border-r border-border/40 px-3 hover:bg-primary/10 transition-colors"
           >
             <span className="text-lg mr-1.5">{selectedCountry.flag}</span>
             <span className="text-xs font-bold text-muted-foreground">{selectedCountry.value}</span>
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[200px] p-0" align="start">
+        <PopoverContent className="w-52 p-0" align="start">
           <Command>
             <CommandInput placeholder="Buscar país..." />
             <CommandList>

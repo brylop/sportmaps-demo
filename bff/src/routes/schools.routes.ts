@@ -17,6 +17,7 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, auditLog } from '../middlewares/authMiddleware';
+import { esAdminDePlataforma } from '../middlewares/requirePlatformAdmin';
 import { requireCsrfHeader } from '../middlewares/csrfHeader';
 import { validateLogoUrl } from '../utils/logoValidator';
 import { invalidateBrandingCache } from '../utils/schoolBrandingResolver';
@@ -91,7 +92,9 @@ router.put(
         // Forzar coincidencia entre param y header x-school-id resuelto por requireAuth.
         // Anti-IDOR: super-admin puede cambiar otra escuela enviando x-school-id especifico,
         // resto debe match exacto. requireAuth ya garantiza membership en req.schoolId.
-        const isPrivileged = req.role === 'super_admin' || req.role === 'admin' || req.role === 'owner';
+        // Solo plataforma salta el match de escuela. 'owner'/'admin' son roles de
+        // MEMBRESÍA: con ellos un dueño editaba/leía la marca de CUALQUIER escuela.
+        const isPrivileged = req.role === 'super_admin' && await esAdminDePlataforma(req.user.id);
         if (!isPrivileged && req.schoolId !== schoolIdParam) {
             req.log?.warn(
                 { userId: req.user?.id, role: req.role, paramSchool: schoolIdParam, sessionSchool: req.schoolId },
@@ -324,7 +327,9 @@ router.get(
     requireRole('owner', 'admin', 'school_admin', 'school'),
     async (req: Request, res: Response) => {
         const schoolIdParam = req.params.id;
-        const isPrivileged = req.role === 'super_admin' || req.role === 'admin' || req.role === 'owner';
+        // Solo plataforma salta el match de escuela. 'owner'/'admin' son roles de
+        // MEMBRESÍA: con ellos un dueño editaba/leía la marca de CUALQUIER escuela.
+        const isPrivileged = req.role === 'super_admin' && await esAdminDePlataforma(req.user.id);
         if (!isPrivileged && req.schoolId !== schoolIdParam) {
             return res.status(403).json({ error: 'forbidden' });
         }

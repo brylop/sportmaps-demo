@@ -170,7 +170,7 @@ function EditConfigDialog({ config, onClose, onSaved }: { config: Config; onClos
 
     return (
         <Dialog open onOpenChange={(v) => !v && onClose()}>
-            <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogContent className="max-w-2xl max-h-sheet overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>Parámetros {config.year}</DialogTitle>
                     <DialogDescription>Porcentajes en decimal (0.04 = 4%). Solo super admin.</DialogDescription>

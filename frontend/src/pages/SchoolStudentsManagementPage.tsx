@@ -70,6 +70,7 @@ import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 import { useNavigate } from 'react-router-dom';
 import { comprimirParaSubir } from '@/lib/imageCompression';
 import { fichaVaAlAcudiente, invitacionParaAtleta } from '@/lib/invitations/contactoFicha';
+import { fetchCoachTeams } from '@/lib/coachTeamScope';
 
 const studentSchema = z.object({
   full_name:        z.string().min(2, 'Nombre completo es requerido').max(100),
@@ -359,17 +360,14 @@ export default function SchoolStudentsManagementPage() {
   const [coachId, setCoachId] = useState<string | undefined>(undefined);
   const [coachIdResolved, setCoachIdResolved] = useState(false);
   useEffect(() => {
-    if (profile?.role === 'coach' && profile?.email && schoolId) {
-      supabase
-        .from('school_staff')
-        .select('id')
-        .eq('email', profile.email)
-        .eq('school_id', schoolId)
-        .maybeSingle()
-        .then(({ data }) => {
-          if (data) setCoachId(data.id);
-          setCoachIdResolved(true);
-        });
+    if (profile?.role === 'coach' && schoolId) {
+      // Por coach_auth_id y, si la ficha no está vinculada, por correo sin
+      // distinguir mayúsculas (antes: `eq('email')` exacto). Sin ficha el coach
+      // NO cae a la lista de toda la escuela: ver isCoachSinFicha abajo.
+      fetchCoachTeams(schoolId).then(({ staffId }) => {
+        if (staffId) setCoachId(staffId);
+        setCoachIdResolved(true);
+      });
     } else {
       setCoachIdResolved(true);
     }
@@ -605,6 +603,9 @@ export default function SchoolStudentsManagementPage() {
     queryFn: async () => {
       if (!schoolId) return [];
       let data;
+      // Falla cerrado: un coach sin ficha de staff en esta escuela no ve a
+      // nadie (antes caía al else y cargaba TODA la escuela con contactos).
+      if (profile?.role === 'coach' && !coachId) return [];
       if (coachId) {
         const [{ data: legacyTeams }, { data: junctionTeams }] = await Promise.all([
           supabase.from('teams').select('id').eq('school_id', schoolId).eq('coach_id', coachId),
@@ -1449,7 +1450,7 @@ export default function SchoolStudentsManagementPage() {
           {/* Filtros dinámicos: las opciones se derivan de los atletas de la pestaña */}
           <div className="mt-3 flex flex-col sm:flex-row gap-2">
             <Select value={teamFilter} onValueChange={setTeamFilter}>
-              <SelectTrigger className="sm:w-[220px]">
+              <SelectTrigger className="sm:w-56">
                 <SelectValue placeholder="Equipo" />
               </SelectTrigger>
               <SelectContent>
@@ -1464,7 +1465,7 @@ export default function SchoolStudentsManagementPage() {
             </Select>
 
             <Select value={planFilter} onValueChange={setPlanFilter}>
-              <SelectTrigger className="sm:w-[220px]">
+              <SelectTrigger className="sm:w-56">
                 <SelectValue placeholder="Plan" />
               </SelectTrigger>
               <SelectContent>
@@ -1634,7 +1635,7 @@ export default function SchoolStudentsManagementPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[50px]">
+                      <TableHead className="w-12">
                         <Checkbox checked={filteredStudents.length > 0 && selectedStudentIds.length === filteredStudents.length} onCheckedChange={() => toggleSelectAll()} />
                       </TableHead>
                       <TableHead>Nombre</TableHead>
@@ -1778,7 +1779,7 @@ export default function SchoolStudentsManagementPage() {
       />
 
       <Dialog open={dialogOpen} onOpenChange={(o) => { if (!o) setDupAviso(null); setDialogOpen(o); }}>
-        <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[95vw] max-w-2xl max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingStudent ? `Editar ${editingAthleteType === 'child' ? 'Menor' : 'Atleta'} — ${editingStudent.full_name}` : 'Agregar Nuevo Atleta'}</DialogTitle>
             <DialogDescription>
@@ -2247,7 +2248,7 @@ export default function SchoolStudentsManagementPage() {
           y documentos cargados. Funciona para child / adult / unregistered.
           ─────────────────────────────────────────────────────────────── */}
       <Dialog open={!!viewingStudent} onOpenChange={(o) => !o && setViewingStudent(null)}>
-        <DialogContent className="w-[95vw] max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[95vw] max-w-3xl max-h-[90dvh] overflow-y-auto">
           {viewingStudent && (() => {
             const s = viewingStudent;
             const athleteType = getAthleteType(s);

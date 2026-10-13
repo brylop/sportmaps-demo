@@ -129,8 +129,8 @@ export function SchoolMap({ branches, accent = "#6366f1" }: SchoolMapProps) {
   // Sin coordenadas válidas
   if (validBranches.length === 0) {
     return (
-      <div style={{
-        height: 200, borderRadius: 12,
+      <div className="h-48" style={{
+        borderRadius: 12,
         background: "#0f172a", border: "1px solid #1e293b",
         display: "flex", flexDirection: "column",
         alignItems: "center", justifyContent: "center", gap: 8,
@@ -149,8 +149,8 @@ export function SchoolMap({ branches, accent = "#6366f1" }: SchoolMapProps) {
   return (
     <div
       ref={containerRef}
+      className="h-72"
       style={{
-        height: 300,
         borderRadius: 12,
         overflow: "hidden",
         border: `1px solid ${accent}44`,
