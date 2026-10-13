@@ -717,16 +717,18 @@ async function confirmar(ctx: CtxVenta, almacen: AlmacenVenta, d: DatosVenta): P
         .catch(() => ({ ok: false, code: 'error', error: '' }) as LinkWompiConMonto);
 
     if (link.ok) {
+        // Enlace corto (2026-10-13): la página del cobro, no la URL firmada de Wompi.
+        const enlace = link.paginaCobro ?? link.url;
         const avisa = await (ctx.registrarAviso ?? ((id: string) => registrarAvisoPorDefecto(ctx, id)))(paymentId)
             .catch(() => false);
         await almacen.guardar(ctx.conversationId, 'venta_esperando_pago', {
             ...d, idempotency_key: clave, payment_id: paymentId,
-            link_url: link.url, link_expires_at: link.venceEn, total: link.total,
+            link_url: enlace, link_expires_at: link.venceEn, total: link.total,
         }, VIGENCIA_ESPERANDO_PAGO_MS);
         await ctx.enviar(
-            antes + textoLink({ url: link.url, total: link.total, base: link.base, recargo: link.recargo, minutos: link.minutos, avisa }),
+            antes + textoLink({ url: enlace, total: link.total, base: link.base, recargo: link.recargo, minutos: link.minutos, avisa }),
             'venta_link_enviado',
-            { cta: { texto: 'Pagar', url: link.url } },
+            { cta: { texto: 'Pagar', url: enlace } },
         );
         return true;
     }

@@ -140,12 +140,20 @@ export async function conEnlacesDePago<T extends PagoConEnlace>(
         // escuela no tiene pago en línea (Dynasty hoy: 'sin_pago_en_linea') o
         // algo falla, la página del cobro /p/:token como siempre.
         const enlaces = new Map<number, {
-            url: string; minutos: number | null; avisa?: boolean; total?: number; recargo?: number;
+            url: string; minutos: number | null; avisa?: boolean; total?: number; recargo?: number; pagina?: boolean;
         }>();
         await Promise.all([...ids].map(async ([i, id]) => {
             const wompi = await crearLinkWompiConMonto(id).catch(() => null);
             if (wompi?.ok && wompi.url) {
                 const avisa = aviso ? await registrarAviso(aviso, schoolId, id) : false;
+                // Enlace corto (2026-10-13): la página del cobro y no la URL firmada
+                // de Wompi (~400 caracteres que vencían en 1 hora). Ahí «Pagar en
+                // línea» arma el mismo checkout con el monto exacto y la misma
+                // referencia, así que el pago se sigue aplicando solo.
+                if (wompi.paginaCobro) {
+                    enlaces.set(i, { url: wompi.paginaCobro, minutos: null, pagina: true, avisa, total: wompi.total, recargo: wompi.recargo });
+                    return;
+                }
                 enlaces.set(i, { url: wompi.url, minutos: wompi.minutos, avisa, total: wompi.total, recargo: wompi.recargo });
                 return;
             }
@@ -155,6 +163,12 @@ export async function conEnlacesDePago<T extends PagoConEnlace>(
         return lista.map((p, i) => {
             const e = enlaces.get(i);
             if (!e) return p;
+            if (e.pagina) {
+                return { ...p, enlace_pago: e.url, enlace_avisa: e.avisa === true,
+                    enlace_total: e.total ?? null, enlace_recargo: e.recargo ?? null,
+                    enlace_instrucciones: instruccionesDeLaPaginaDeCobro(e.avisa === true,
+                        { total: e.total, recargo: e.recargo }) };
+            }
             return e.minutos
                 ? { ...p, enlace_pago: e.url, enlace_vence_min: e.minutos, enlace_avisa: e.avisa === true,
                     enlace_total: e.total ?? null, enlace_recargo: e.recargo ?? null,
@@ -236,6 +250,23 @@ export function instruccionesDelLinkConMonto(
         (avisa ? ' y te aviso por aquí.' : '.');
 }
 
+/**
+ * Lo que acompaña a la página del cobro cuando la escuela tiene pago en línea.
+ * Sin plazo: la página arma el checkout al tocar «Pagar en línea». Pura.
+ */
+export function instruccionesDeLaPaginaDeCobro(
+    avisa = false,
+    montos?: { total?: number | null; recargo?: number | null },
+): string {
+    const recargo = Number(montos?.recargo ?? 0);
+    const total = Number(montos?.total ?? 0);
+    const valor = recargo > 0 && total > 0
+        ? `El pago en línea es de ${cop(total)} (incluye ${cop(recargo)} de recargo). `
+        : '';
+    return `${valor}Ahí puedes pagar en línea o ver los datos para transferir; si pagas en línea, el pago queda aplicado solo` +
+        (avisa ? ' y te aviso por aquí.' : '.');
+}
+
 /** Registra el aviso de desenlace del pago por link. Import diferido: el job importa servicios del bot. Nunca lanza. */
 async function registrarAviso(aviso: { integrationId: string; waPhone: string }, schoolId: string, paymentId: string): Promise<boolean> {
     try {
@@ -252,9 +283,12 @@ async function registrarAviso(aviso: { integrationId: string; waPhone: string },
 /** «Pagar: <url>» para el texto del mensaje, o null. */
 export function lineaPagar(p: PagoConEnlace | null | undefined): string | null {
     if (!p?.enlace_pago) return null;
-    return p.enlace_vence_min
-        ? `   Pagar: ${p.enlace_pago}\n   (${instruccionesDelLinkConMonto(p.enlace_vence_min, p.enlace_avisa === true,
-            { total: p.enlace_total, recargo: p.enlace_recargo })})`
+    if (p.enlace_vence_min) {
+        return `   Pagar: ${p.enlace_pago}\n   (${instruccionesDelLinkConMonto(p.enlace_vence_min, p.enlace_avisa === true,
+            { total: p.enlace_total, recargo: p.enlace_recargo })})`;
+    }
+    return p.enlace_instrucciones
+        ? `   Pagar: ${p.enlace_pago}\n   (${p.enlace_instrucciones})`
         : `   Pagar: ${p.enlace_pago}`;
 }
 
