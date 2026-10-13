@@ -47,7 +47,7 @@ import {
     sendTextMessage, sendInteractiveButtons, sendCtaUrl, sendImage, aFormatoWhatsApp, markAsRead,
     type WhatsAppIntegration, type BotonInteractivo,
 } from './whatsapp.service';
-import { conEnlacesDePago, conTipoDeCobro, lineaPagar, botonPagarUnico } from './whatsapp-enlaces-de-pago.service';
+import { conEnlacesDePago, conTipoDeCobro, lineaPagar, botonPagarUnico, TEXTO_BOTON_IR_A_PAGAR } from './whatsapp-enlaces-de-pago.service';
 import { resumenDeDeuda } from './tipo-de-cobro';
 import { esSalienteAutomatico } from './whatsapp-buzon';
 import { avisarEscalamientoPorCorreo } from './avisos-correo.service';
@@ -999,7 +999,7 @@ async function ejecutarAccionDeBoton(
             { integrationId: integration.id, waPhone: contactWaId });
         const anexo = await anexoDeConsentimiento(integration, conversationId, contactWaId, parentId);
         const m = conAnexoDeConsentimiento(fallbackMediosDePago(medios),
-            { step: 'get_payment_methods', via: 'boton' }, undefined, anexo);
+            { step: 'get_payment_methods', via: 'boton' }, botonIrAPagar(medios), anexo);
         await deliver(integration, conversationId, contactWaId, m.texto, m.context, m.conBotones);
         return;
     }
@@ -3721,7 +3721,7 @@ async function handleIntent(
         } catch (err) {
             anotarFallasDelModelo(fallasDeError(err));
             const anexo = await anexoDeConsentimiento(integration, conversationId, contactWaId, parentId);
-            const m = conAnexoDeConsentimiento(fallbackMediosDePago(medios), { step: 'medios_fallback' }, undefined, anexo);
+            const m = conAnexoDeConsentimiento(fallbackMediosDePago(medios), { step: 'medios_fallback' }, botonIrAPagar(medios), anexo);
             await deliver(integration, conversationId, contactWaId, m.texto, m.context, m.conBotones);
             return;
         }
@@ -3736,7 +3736,7 @@ async function handleIntent(
         await entregarTextoDelModelo(integration, conversationId, contactWaId,
             final.text || fallbackMediosDePago(medios),
             { step: 'get_payment_methods', provider: final.provider },
-            { textoFamilia: text, respaldo: fallbackMediosDePago(medios),
+            { textoFamilia: text, respaldo: fallbackMediosDePago(medios), conBotones: botonIrAPagar(medios),
                 anexo: await anexoDeConsentimiento(integration, conversationId, contactWaId, parentId) });
         return;
     }
@@ -3826,12 +3826,17 @@ function fallbackMediosDePago(m: Awaited<ReturnType<typeof mediosDePago>> & { co
             const monto = c.monto != null ? ` — ${new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(c.monto)}` : '';
             lineas.push(`• ${c.tipo_cobro ?? c.concepto ?? 'Cobro'}${monto}`);
             if (c.tipo_cobro && c.concepto && c.concepto !== c.tipo_cobro) lineas.push(`   ${c.concepto.slice(0, 80)}`);
-            lineas.push(`   Pagar: ${c.enlace_pago}`);
-            if (c.enlace_instrucciones) lineas.push(`   (${c.enlace_instrucciones})`);
+            if (c.enlace_pago !== m.enlace_para_pagar) {
+                lineas.push(`   Pagar: ${c.enlace_pago}`);
+                if (c.enlace_instrucciones) lineas.push(`   (${c.enlace_instrucciones})`);
+            }
         }
         lineas.push('');
     }
-    if (m.enlace_para_pagar) {
+    if (m.enlace_para_pagar && cobros.some((c) => c.enlace_pago === m.enlace_para_pagar)) {
+        lineas.push(`*Para pagar:* toca «${TEXTO_BOTON_IR_A_PAGAR}» (${m.enlace_para_pagar}), escribe el valor de tu cobro y, al terminar, mándame la foto del comprobante por aquí.`);
+        lineas.push('');
+    } else if (m.enlace_para_pagar) {
         lineas.push(`*En línea:* ${m.enlace_para_pagar}`);
         // Con link de pago (Wompi/MP de la escuela) va también qué hacer con él:
         // la familia paga por fuera de SportMaps y, si no manda el comprobante, el
@@ -4271,6 +4276,11 @@ export interface ConBotones {
      * rechaza, sale lo mismo sin foto.
      */
     imagen?: string | null;
+}
+
+/** «Ir a pagar» con el link de pago propio de la escuela (Dynasty, 2026-10-13). */
+function botonIrAPagar(m: { link_de_pago?: string | null } | null | undefined): ConBotones | undefined {
+    return m?.link_de_pago ? { botones: [], cta: { texto: TEXTO_BOTON_IR_A_PAGAR, url: m.link_de_pago } } : undefined;
 }
 
 /** «Pagar» como botón URL cuando hay UN solo cobro pendiente con enlace. */

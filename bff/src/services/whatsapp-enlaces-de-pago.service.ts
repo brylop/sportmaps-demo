@@ -25,12 +25,16 @@ import { emitirTokenCobro } from './cobro-enlace-publico.service';
 import { crearLinkWompiConMonto } from './wompi-link-con-monto.service';
 import { appPublica, enlaceDeCobro } from '../utils/url-publica-familias';
 import { etiquetaDelCobro, type CobroClasificable } from './tipo-de-cobro';
+import { linkDePago } from './payment-accounts';
 
 /** Máximo de enlaces por mensaje: más que eso es un muro de URLs. */
 export const MAX_ENLACES_POR_MENSAJE = 5;
 
 /** Texto del botón URL (Meta corta en 20 caracteres). */
 export const TEXTO_BOTON_PAGAR = 'Pagar';
+
+/** Botón del link de pago propio de la escuela (Dynasty, 2026-10-13). */
+export const TEXTO_BOTON_IR_A_PAGAR = 'Ir a pagar';
 
 export interface PagoConEnlace {
     concept?: string | null;
@@ -53,6 +57,12 @@ export interface PagoConEnlace {
     enlace_total?: number | null;
     /** El recargo en línea (online_fee_pct) incluido en `enlace_total`; 0 = sin recargo. */
     enlace_recargo?: number | null;
+    /**
+     * true = `enlace_pago` es el link de pago PROPIO de la escuela (Wompi/MP),
+     * donde la familia escribe el valor. No se aplica solo: la escuela lo
+     * concilia con el comprobante que la familia manda por WhatsApp.
+     */
+    enlace_de_la_escuela?: boolean | null;
     /**
      * Nombre humano del cobro («Mensualidad octubre 2026», «Inscripción»,
      * «Seguro de accidentes»…), solo en los pendientes. Ver `conTipoDeCobro`.
@@ -135,6 +145,16 @@ export async function conEnlacesDePago<T extends PagoConEnlace>(
 
         const ids = emparejarIds(lista, data as FilaCobro[]);
         if (!ids.size) return lista;
+        // Link de pago propio de la escuela (2026-10-13, decisión de Dynasty):
+        // si existe, es EL camino. La familia escribe el valor, sin recargo, y
+        // manda el comprobante. No se genera el link de la app.
+        const propio = await linkPropioDeLaEscuela(schoolId);
+        if (propio) {
+            return lista.map((p, i) => (ids.has(i)
+                ? { ...p, enlace_pago: propio, enlace_de_la_escuela: true,
+                    enlace_instrucciones: instruccionesDelLinkDeLaEscuela(p.amount) }
+                : p));
+        }
         // Primero el link de Wompi con el monto exacto (eb1e833d): la familia no
         // escribe el valor y, al aprobarse, el pago queda aplicado solo. Si la
         // escuela no tiene pago en línea (Dynasty hoy: 'sin_pago_en_linea') o
@@ -180,6 +200,25 @@ export async function conEnlacesDePago<T extends PagoConEnlace>(
         console.warn('[whatsapp-enlaces-de-pago] sin enlaces', { error: e?.message });
         return lista;
     }
+}
+
+/** El link de pago propio y activo de la escuela (payment_accounts), o null. Nunca lanza. */
+async function linkPropioDeLaEscuela(schoolId: string): Promise<string | null> {
+    try {
+        const { data } = await supabase.from('school_settings')
+            .select('payment_accounts').eq('school_id', schoolId).limit(1);
+        const fila = Array.isArray(data) ? (data[0] as any) : null;
+        return fila ? linkDePago(fila.payment_accounts, null) : null;
+    } catch {
+        return null;
+    }
+}
+
+/** «Toca «Ir a pagar», escribe $150.000 y …». Pura. */
+export function instruccionesDelLinkDeLaEscuela(monto: unknown): string {
+    const n = Number(monto);
+    const valor = Number.isFinite(n) && n > 0 ? cop(n) : 'el valor de tu cobro';
+    return `Toca «${TEXTO_BOTON_IR_A_PAGAR}», escribe ${valor} y, al terminar, mándame la foto del comprobante por aquí para que la escuela lo aplique.`;
 }
 
 /** Cuánto hacia atrás cuenta un comprobante de la cola como «en camino». */
@@ -299,6 +338,10 @@ export function lineaPagar(p: PagoConEnlace | null | undefined): string | null {
  */
 export function botonPagarUnico(pagos: PagoConEnlace[] | null | undefined): { texto: string; url: string } | null {
     const pendientes = (Array.isArray(pagos) ? pagos : []).filter((p) => p?.debe_pagarse === true);
+    // El link propio de la escuela es el mismo para todos los cobros: un botón
+    // sirve aunque haya varios pendientes.
+    const propio = pendientes.find((p) => p.enlace_de_la_escuela === true && p.enlace_pago);
+    if (propio) return { texto: TEXTO_BOTON_IR_A_PAGAR, url: propio.enlace_pago! };
     if (pendientes.length !== 1 || !pendientes[0].enlace_pago) return null;
     return { texto: TEXTO_BOTON_PAGAR, url: pendientes[0].enlace_pago };
 }
