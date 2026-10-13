@@ -171,7 +171,7 @@ export default function CertificateTemplatesPage() {
 
       {/* Editor dialog */}
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editing?.id ? 'Editar plantilla' : 'Nueva plantilla'}</DialogTitle>
             <DialogDescription>
@@ -212,7 +212,7 @@ export default function CertificateTemplatesPage() {
               <div>
                 <Label>Cuerpo (con variables)</Label>
                 <Textarea
-                  className="min-h-[180px] font-mono text-sm"
+                  className="min-h-44 font-mono text-sm"
                   value={editing.body_template}
                   onChange={(e) => setEditing({ ...editing, body_template: e.target.value })}
                 />

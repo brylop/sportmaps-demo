@@ -329,7 +329,9 @@ describe('F2 — confirmar, link y desenlace', () => {
         expect(r.salidas).toHaveLength(1);
         const m = r.salidas[0];
         expect(m.paso).toBe('venta_link_enviado');
-        expect(m.cta).toBe(link.ok && link.url);
+        // Enlace corto (2026-10-13): la página del cobro, no la URL firmada de Wompi.
+        expect(m.cta).toBe(link.ok && link.paginaCobro);
+        expect(m.texto).not.toContain('checkout.wompi.co');
         expect(m.texto).toContain('Aquí está tu link de pago por *$26.250*');
         expect(m.texto).toContain('Tienes 1 hora para pagar; cuando se apruebe te aviso por aquí.');
         // El total que dice el bot es el del link (con el recargo), no el de lista.

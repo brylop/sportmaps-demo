@@ -76,7 +76,7 @@ export default function TrainerClients() {
       </div>
 
       <Tabs defaultValue="active" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 max-w-[400px]">
+        <TabsList className="grid w-full grid-cols-2 max-w-sm">
           <TabsTrigger value="active" className="gap-2">
             <Users className="h-4 w-4" />
             Activos

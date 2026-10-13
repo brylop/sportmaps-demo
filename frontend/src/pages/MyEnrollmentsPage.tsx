@@ -272,7 +272,7 @@ export default function MyEnrollmentsPage() {
                       {child.full_name.charAt(0)}
                     </AvatarFallback>
                   </Avatar>
-                  <span className="text-sm font-bold truncate max-w-[120px]">{child.full_name}</span>
+                  <span className="text-sm font-bold truncate max-w-32">{child.full_name}</span>
                 </button>
               ))}
             </div>
@@ -559,7 +559,7 @@ export default function MyEnrollmentsPage() {
       )}
 
       <AlertDialog open={!!cancelingBookingId} onOpenChange={(open) => !open && setCancelingBookingId(null)}>
-        <AlertDialogContent className="sm:max-w-[400px]">
+        <AlertDialogContent className="sm:max-w-modal-sm">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 text-destructive">
               <XCircle className="h-5 w-5" />
@@ -737,7 +737,7 @@ function ScheduleClassModal({ enrollment, facilities, childId, onClose }: {
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-xl max-h-[88vh] flex flex-col gap-0 p-0 overflow-hidden">
+      <DialogContent className="sm:max-w-xl max-h-[88dvh] flex flex-col gap-0 p-0 overflow-hidden">
         <DialogTitle className="sr-only">Gestión de Clases</DialogTitle>
 
         {/* ✅ FIX: displayName en lugar de teamName */}
@@ -1922,6 +1922,7 @@ function MyBookingsTab({ hasSecondary, secLabel, filter = 'all', childId, allBoo
 
   return (
     <>
+      {/* left-[19px] a propósito: centra la línea bajo los íconos h-10 del timeline */}
       <div className="space-y-8 relative before:absolute before:left-[19px] before:top-4 before:bottom-4 before:w-px before:bg-border/40">
         {sortedDays.map(dateStr => {
           const day = parseISO(dateStr);
@@ -2090,7 +2091,7 @@ function FacilityReserveModal({ facility, enrollment, childId, onClose }: {
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden">
+      <DialogContent className="sm:max-w-md max-h-sheet flex flex-col gap-0 p-0 overflow-hidden">
         <DialogTitle className="sr-only">Reservar {facility.name}</DialogTitle>
         <div className="px-6 pt-5 pb-3 border-b border-border/30">
           <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Instalación</p>

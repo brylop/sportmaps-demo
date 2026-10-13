@@ -38,6 +38,9 @@ import {
     TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ImageUpload } from '@/components/common/ImageUpload';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useEntitlements } from '@/hooks/useEntitlements';
+import { buildTeamWritePayload, fetchCoachTeams, isSchoolAdminRole, type TeamFormValues } from '@/lib/coachTeamScope';
 
 /**
  * Nombre legible del grupo de categorias que trae el catalogo. Las llaves son
@@ -75,6 +78,19 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
     const queryClient = useQueryClient();
     const { toast } = useToast();
     const { sports: sportConfigs } = useSchoolFeatures();
+
+    // Alcance del coach (mig 20261010201426): edita datos deportivos de SUS
+    // equipos; precio, estado, sede y entrenadores son de administración.
+    const { currentUserRole } = useSchoolContext();
+    const { coachHideFinancialInfo } = useEntitlements();
+    const isAdmin = isSchoolAdminRole(currentUserRole);
+    const [ownStaffId, setOwnStaffId] = useState<string | null>(null);
+    useEffect(() => {
+        if (!open || isAdmin || !schoolId) return;
+        let vivo = true;
+        fetchCoachTeams(schoolId).then((r) => { if (vivo) setOwnStaffId(r.staffId); });
+        return () => { vivo = false; };
+    }, [open, isAdmin, schoolId]);
 
     // Catalogo de deportes desde la BD; la constante queda de respaldo.
     const { sports: catalogo, nombres: SPORTS_LIST } = useSportsCatalog();
@@ -405,35 +421,45 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                 }
             }
 
-            const teamData = {
-                name: formData.name,
-                description: formData.description,
-                sport: formData.sport,
-                level: formData.level,
-                max_students: formData.max_students === '' ? null : Number(formData.max_students),
-                location: formData.location,
-                price_monthly: formData.price_monthly === '' ? 0 : Number(formData.price_monthly),
-                coach_id: formData.coach_ids.length > 0 ? formData.coach_ids[0] : null, // Set first as main
-                branch_id: formData.branch_ids.length > 0 ? formData.branch_ids[0] : (branchId || null), // Update branch_id for backward compatibility
-                school_id: schoolId,
-                status: formData.status,
-                image_url: formData.image_url || null,
-            };
+            // Administración manda todo y sincroniza entrenadores/sedes. El coach
+            // solo datos deportivos (precio, estado, sede y entrenadores son de
+            // administración: RLS + trigger de mig 20261010201426). Antes el
+            // coach que creaba en Carmel veía "Error de operación" porque el
+            // sync de team_coaches que le niega la RLS fallaba después de crear.
+            const { payload: teamData, syncRelations } = buildTeamWritePayload(formData as TeamFormValues, {
+                isAdmin,
+                isCreate: !team?.id,
+                schoolId,
+                branchId,
+                ownStaffId,
+            });
+
+            if (!isAdmin && !team?.id && !ownStaffId) {
+                toast({
+                    title: 'No encontramos tu ficha de entrenador',
+                    description: 'Pídele a la administración que te vincule como entrenador de la escuela antes de crear equipos.',
+                    variant: 'destructive',
+                });
+                setCreating(false);
+                return;
+            }
 
             if (team?.id) {
                 // Update existing team
-                const { error } = await supabase
+                const { error } = await (supabase as any)
                     .from('teams')
                     .update(teamData)
                     .eq('id', team.id);
 
                 if (error) throw error;
 
-                // Sync coaches and branches
-                await Promise.all([
-                    syncTeamCoaches(team.id, formData.coach_ids),
-                    syncTeamBranches(team.id, formData.branch_ids)
-                ]);
+                // Sync coaches and branches (solo administración)
+                if (syncRelations) {
+                    await Promise.all([
+                        syncTeamCoaches(team.id, formData.coach_ids),
+                        syncTeamBranches(team.id, formData.branch_ids)
+                    ]);
+                }
 
                 toast({
                     title: '¡Equipo actualizado!',
@@ -441,7 +467,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                 });
             } else {
                 // Create new team
-                const { data: createdTeam, error } = await supabase
+                const { data: createdTeam, error } = await (supabase as any)
                     .from('teams')
                     .insert({
                         ...teamData,
@@ -452,7 +478,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
 
                 if (error) throw error;
 
-                if (createdTeam) {
+                if (createdTeam && syncRelations) {
                     await Promise.all([
                         syncTeamCoaches(createdTeam.id, formData.coach_ids),
                         syncTeamBranches(createdTeam.id, formData.branch_ids)
@@ -578,7 +604,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                             </Select>
                         </div>
                         <div className="space-y-2">
-                            <div className="flex items-center justify-between gap-2 min-h-[20px]">
+                            <div className="flex items-center justify-between gap-2 min-h-5">
                                 <Label htmlFor="level">Categoria</Label>
                                 {/* Escuelas de un solo deporte administran sus categorias
                                     aca; las multideporte, en "Deportes y categorias".
@@ -650,19 +676,19 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                                             value={catNombre}
                                             onChange={(e) => setCatNombre(e.target.value)}
                                             placeholder={ejeDeporte === 'age' ? 'Sub-19' : 'Nombre'}
-                                            className="h-8 w-[130px] text-sm"
+                                            className="h-8 w-32 text-sm"
                                         />
                                         {(ejeDeporte === 'age' || ejeDeporte === 'weight' || ejeDeporte === 'level') && (
                                             <>
                                                 <Input
                                                     type="number" value={catMin}
                                                     onChange={(e) => setCatMin(e.target.value)}
-                                                    placeholder="desde" className="h-8 w-[72px] text-sm"
+                                                    placeholder="desde" className="h-8 w-20 text-sm"
                                                 />
                                                 <Input
                                                     type="number" value={catMax}
                                                     onChange={(e) => setCatMax(e.target.value)}
-                                                    placeholder="hasta" className="h-8 w-[72px] text-sm"
+                                                    placeholder="hasta" className="h-8 w-20 text-sm"
                                                 />
                                             </>
                                         )}
@@ -708,6 +734,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                         />
                     </div>
 
+                    {isAdmin && (
                     <div className="space-y-3">
                         <div className="space-y-2">
                             <Label>Entrenadores Asignados</Label>
@@ -794,6 +821,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                             </div>
                         )}
                     </div>
+                    )}
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div className="space-y-2">
@@ -804,6 +832,10 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                                 min={1}
                             />
                         </div>
+                        {/* Precio: lo fija la administración (alimenta la mensualidad en
+                            open_month). El coach lo ve solo lectura, y ni eso si la
+                            escuela activó coach_hide_financial_info (Besser). */}
+                        {isAdmin ? (
                         <div className="space-y-2">
                             <Label htmlFor="price_monthly">Precio Mensual</Label>
                             <NumberStepper
@@ -814,6 +846,15 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                                 unit="$"
                             />
                         </div>
+                        ) : !coachHideFinancialInfo && team?.id ? (
+                        <div className="space-y-2">
+                            <Label>Precio Mensual</Label>
+                            <p className="text-sm py-2 text-muted-foreground" data-testid="precio-solo-lectura">
+                                ${Number(formData.price_monthly || 0).toLocaleString('es-CO')} · lo define la administración
+                            </p>
+                        </div>
+                        ) : null}
+                        {isAdmin && (
                         <div className="space-y-2">
                             <Label htmlFor="status">Estado</Label>
                             <Select
@@ -829,6 +870,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                                 </SelectContent>
                             </Select>
                         </div>
+                        )}
                     </div>
 
                     <div className="space-y-3">
@@ -839,7 +881,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                                     <Loader2 className="h-4 w-4 animate-spin text-primary mr-2" />
                                     <span className="text-sm text-muted-foreground">Cargando sedes...</span>
                                 </div>
-                            ) : branchesList.length === 0 ? (
+                            ) : branchesList.length === 0 || !isAdmin ? (
                                 <Input
                                     id="location"
                                     placeholder="Nombre de la cancha o lugar de entrenamiento"
@@ -880,7 +922,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                             )}
                         </div>
 
-                        {formData.branch_ids.length > 0 && (
+                        {isAdmin && formData.branch_ids.length > 0 && (
                             <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border/50">
                                 {formData.branch_ids.map(id => {
                                     const b = branchesList.find(s => s.id === id);

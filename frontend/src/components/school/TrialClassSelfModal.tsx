@@ -359,7 +359,7 @@ export function TrialClassSelfModal({ open, onOpenChange, facilities, children, 
                 No hay horarios donde coincidan la instalación y el entrenador elegidos.
               </div>
             ) : (
-              <div className="space-y-4 max-h-[360px] overflow-y-auto pr-1">
+              <div className="space-y-4 max-h-96 overflow-y-auto pr-1">
                 {Object.entries(slotsByDate).map(([date, daySlots]) => (
                   <div key={date} className="space-y-2">
                     <p className="text-xs font-bold uppercase tracking-wider text-primary capitalize">

@@ -493,7 +493,7 @@ function AuditTab({ fromIso, toIso, schoolId }: { fromIso: string; toIso: string
                   </TableCell>
                   <TableCell className="text-xs font-mono">{r.table_name}</TableCell>
                   <TableCell><Badge variant="outline" className="text-xs">{r.action}</Badge></TableCell>
-                  <TableCell className="text-xs font-mono truncate max-w-[200px]">{r.record_id}</TableCell>
+                  <TableCell className="text-xs font-mono truncate max-w-52">{r.record_id}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -556,7 +556,7 @@ function AnalyticsTab({ fromIso, toIso }: { fromIso: string; toIso: string }) {
                     {r.user_role ? <span className="text-muted-foreground"> ({r.user_role})</span> : null}
                   </TableCell>
                   <TableCell className="text-xs font-mono">{r.event_type}</TableCell>
-                  <TableCell className="text-xs truncate max-w-[280px]">{r.page_url || '—'}</TableCell>
+                  <TableCell className="text-xs truncate max-w-72">{r.page_url || '—'}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

@@ -514,3 +514,32 @@ permiso del tool, aunque se aprobara en el chat. `CREATE OR REPLACE FUNCTION` (m
 primera **y además conserva el ACL** (`service_role` solo) y no deja ventana sin función. Usar
 `CREATE OR REPLACE` siempre que la firma y el tipo de retorno no cambien; el `DROP` solo si de verdad
 cambian. Para una migración grande, partirla (aditiva primero, reemplazos después) la hace revisable.
+
+### El descuento del alta vivía solo en `amount` y se perdía al guardar el editor de atletas
+
+**Caso real (Dreamers, 2026-10-10):** Zoe Barrera se registró con 5 % de descuento (insertada a $232.750).
+Dos minutos después un `UPDATE` del BFF dejó el cobro en $245.000 —el precio del plan— y el pago manual se
+registró sin descuento. La traza está en `audit_logs` (INSERT $232.750 → UPDATE `profile_id` nulo $245.000 → pago).
+
+**Causa:** el descuento solo estaba "horneado" en `payments.amount` y en el texto del concepto («… (Desc. 5%)»).
+La rama «mismo plan/equipo» de `PUT /students/:id` reescribía el monto de los cobros pendientes a la cuota
+completa y no sabía que ese cobro tenía un descuento. El modal de pago manual tampoco lo conocía.
+
+**Arreglo (migración `20261010140353`):** `payments.discount_pct` y `payments.list_amount`, escritos por
+`create_enrollment_with_payments`. `repricePendingCharges()` (enrollmentBilling) recalcula respetando el % de
+cada cobro, y el modal muestra «lista − descuento = valor» y pide confirmar si se registra un monto distinto.
+**Regla:** cualquier código que recalcule o reverse un cobro con descuento debe volver a aplicarlo. Los cobros
+anteriores a la migración se rellenaron leyendo el «(Desc. X%)» del concepto, solo los pendientes.
+
+### Registrar un pago manual con un rol que no es owner/admin «funcionaba» sin registrar nada
+
+**Causa:** la policy `Payments: update admin` solo deja actualizar cobros a `owner` / `admin` / `school_admin`.
+El modal «Registrar pago manual» (`RegisterCashPaymentModal`) se muestra a cualquiera que no sea `coach`
+(`canManageStudents = role !== 'coach'`), así que un `staff` (secretaría) hacía el UPDATE, RLS lo filtraba a
+**0 filas sin error** y el modal anunciaba «Cobro registrado». Verificado en vivo el 2026-10-10 con una sesión
+simulada de un `staff` de Dreamers (0 filas) frente a la del owner (1 fila).
+
+**Arreglo:** el UPDATE individual ahora pide `.select('id')` y falla con un mensaje claro si no afectó filas; el
+pago de varios cobros va por la RPC `register_manual_payments` (migración `20261010143350`), atómica y con la
+misma regla de autorización (`is_school_admin` o super admin, escuela operativa, cobros pendientes/atrasados de
+un mismo deportista, máx. 50). Ampliar el permiso a `staff` es una decisión de producto aparte: hoy NO puede.

@@ -207,7 +207,7 @@ export default function CoachTeamPostTrainingReportPage() {
 
       <Card>
         <CardContent className="pt-6 flex flex-wrap gap-3 items-end">
-          <div className="flex-1 min-w-[200px]">
+          <div className="flex-1 min-w-48">
             <label className="text-sm font-medium mb-1 block">Equipo</label>
             <Select value={selectedTeamId} onValueChange={setSelectedTeamId} disabled={teamsLoading}>
               <SelectTrigger><SelectValue placeholder="Elige un equipo" /></SelectTrigger>

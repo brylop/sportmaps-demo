@@ -29,6 +29,16 @@
  *  - **El número también es el WhatsApp personal de la dueña** (Coexistence).
  *    Una conversación se puede marcar como personal (desde la fila o desde el
  *    hilo) para que salga a «Personal y otros» y el asistente nunca le conteste.
+ *
+ * Fase 1 del rediseño (2026-10-13, docs/specs/comunicaciones-inventario.md):
+ *  - La búsqueda va al servidor (todas las conversaciones: nombre, teléfono,
+ *    deportista y texto). Antes filtraba las 200 más recientes y decía «usa la
+ *    búsqueda para el resto», que era falso.
+ *  - Los adjuntos se ven (foto, nota de voz, PDF) en vez de «(image)».
+ *  - Con la ventana cerrada hay «Enviar plantilla» (antes, callejón sin salida).
+ *  - Escritorio: el panel mide el alto que queda en la ventana; el compositor
+ *    siempre a la vista y sin la burbuja de soporte encima. Celular: el hilo es
+ *    pantalla completa con su flecha atrás y el compositor fijo abajo.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -45,9 +55,14 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { bffClient } from '@/lib/api/bffClient';
 import { useToast } from '@/hooks/use-toast';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { useAltoDisponible } from '@/hooks/useAltoDisponible';
+import { useOcultarFabSoporte } from '@/lib/supportFab';
+import { AdjuntoDelMensaje, type MedioDelMensaje } from './AdjuntoDelMensaje';
+import { EnviarPlantilla } from './EnviarPlantilla';
 import {
     MessageSquare, Send, Bot, User, Clock, Loader2, ChevronLeft, ChevronDown, ChevronRight, Sparkles, X,
-    EyeOff, Eye, CheckCircle2, Hand, Unlock, Search, MoreVertical, RefreshCw, MessageCircle,
+    EyeOff, Eye, CheckCircle2, Hand, Unlock, Search, MoreVertical, RefreshCw, MessageCircle, FileText,
 } from 'lucide-react';
 
 interface UltimoMensaje {
@@ -82,6 +97,8 @@ export interface Conversacion {
      * tentativa: si llega un objeto, la conversación es prospecto.
      */
     prospecto?: { estado?: string | null; interes?: string | null } | null;
+    /** Solo en resultados de búsqueda: por qué apareció. */
+    coincidencia?: { tipo: 'nombre' | 'telefono' | 'deportista' | 'mensaje'; texto: string | null } | null;
 }
 
 interface Toma { tomada_por: string; tomada_por_nombre: string | null; tomada_hasta: string }
@@ -197,6 +214,8 @@ interface Mensaje {
     id: string; direction: string; type: string; text_body: string | null;
     status: string | null; ai_generated: boolean | null; created_at: string;
     error_detail: string | null;
+    /** Adjunto (foto, audio, documento…). Ausente en backends viejos. */
+    media?: MedioDelMensaje | null;
 }
 interface Borrador {
     id: string; proposed_text: string; edited_text: string | null;
@@ -282,16 +301,49 @@ function quien(m: Mensaje, tipo?: TipoDeContacto | null): { texto: string; icono
 }
 
 /** «Asistente: …» / «Tú: …» delante del último mensaje si salió de la escuela. */
+/** Lo que se lee en la lista cuando el mensaje es un adjunto sin texto. */
+const TIPO_LEGIBLE: Record<string, string> = {
+    image: '📷 Foto', audio: '🎤 Audio', video: '🎬 Video', document: '📄 Documento', sticker: 'Sticker',
+    interactive: 'Respuesta a un botón', button: 'Respuesta a un botón', template: 'Plantilla',
+    reaction: 'Reacción', location: '📍 Ubicación', contacts: 'Contacto', unsupported: 'Mensaje no compatible',
+};
+export const tipoLegible = (t: string) => TIPO_LEGIBLE[t] ?? 'Mensaje';
+
 function resumenUltimo(c: Conversacion): string {
     const u = c.ultimo_mensaje;
     if (!u) return '(sin mensajes)';
-    const cuerpo = u.text_body ?? `(${u.type})`;
+    const cuerpo = u.text_body ?? tipoLegible(u.type);
     if (u.direction !== 'outbound') return cuerpo;
     return `${u.ai_generated ? 'Asistente' : 'Escuela'}: ${cuerpo}`;
 }
 
+
+/** Debajo del último mensaje, en un resultado de búsqueda: por qué apareció. */
+function TextoCoincidencia({ c }: { c: Conversacion }) {
+    const co = c.coincidencia;
+    if (!co) return null;
+    const texto = co.tipo === 'deportista' ? `Deportista: ${co.texto ?? ''}`
+        : co.tipo === 'mensaje' ? `«${co.texto ?? ''}»`
+        : co.tipo === 'telefono' ? 'Coincide el teléfono' : null;
+    if (!texto) return null;
+    return <p className="mt-0.5 text-xs text-primary/90 line-clamp-2" data-testid="coincidencia">{texto}</p>;
+}
+
+/** Espera a que la persona deje de escribir antes de ir al servidor. */
+function useDebounced<T>(valor: T, ms: number): T {
+    const [v, setV] = useState(valor);
+    useEffect(() => {
+        const t = setTimeout(() => setV(valor), ms);
+        return () => clearTimeout(t);
+    }, [valor, ms]);
+    return v;
+}
+
+interface RespuestaBusqueda { total: number; hay_mas: boolean; conversaciones: Conversacion[] }
+
 export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: string; conversacionInicial?: string | null }) {
     const { toast } = useToast();
+    const esCelular = useIsMobile();
     const [lista, setLista] = useState<Conversacion[]>([]);
     const [cargandoLista, setCargandoLista] = useState(true);
     const [abierta, setAbierta] = useState<Conversacion | null>(null);
@@ -314,7 +366,22 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
     const [accionando, setAccionando] = useState(false);
     // Sin la migración de «tomar» el BFF manda toma_disponible=false: el botón se deshabilita.
     const [tomaDisponible, setTomaDisponible] = useState(true);
+    const [plantillaAbierta, setPlantillaAbierta] = useState(false);
+    // Búsqueda en el servidor (todas las conversaciones), paginada.
+    const [resultados, setResultados] = useState<Conversacion[]>([]);
+    const [totalBusqueda, setTotalBusqueda] = useState(0);
+    const [hayMas, setHayMas] = useState(false);
+    const [buscando, setBuscando] = useState(false);
+    /** El servidor no tiene la búsqueda (BFF viejo): se busca en lo cargado y se dice. */
+    const [busquedaLocal, setBusquedaLocal] = useState(false);
     const finDelHilo = useRef<HTMLDivElement>(null);
+    const raiz = useRef<HTMLDivElement>(null);
+    const listaRef = useRef<HTMLDivElement>(null);
+
+    // Escritorio: el panel ocupa lo que queda de la ventana (compositor a la vista).
+    const alto = useAltoDisponible(raiz, !esCelular);
+    // La burbuja de soporte tapaba «Enviar»: mientras el buzón está montado, no se ve.
+    useOcultarFabSoporte(true);
 
     const setBandeja = (b: Bandeja) => {
         setBandejaState(b);
@@ -323,6 +390,7 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
         setLimiteCerradas(POR_PAGINA);
         // En Prospectos el lead con ventana cerrada sigue importando: se ve de una.
         setVerCerradas(b === 'prospectos');
+        listaRef.current?.scrollTo?.({ top: 0 });
     };
 
     // Se pide todo de una vez (el BFF entrega las 200 más recientes) y las
@@ -375,25 +443,54 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
     const prospectosSinResponder = useMemo(
         () => visiblesBase.filter((c) => esProspecto(c) && sinResponder(c)).length, [visiblesBase]);
 
-    // La búsqueda mira TODO (incluidas las ocultas), sin importar la bandeja:
+    // ── Búsqueda ──
+    // Va al servidor y mira TODAS las conversaciones (incluidas las ocultas y
+    // las que no entran en las 200 más recientes), sin importar la bandeja:
     // quien busca un nombre no sabe en qué bandeja quedó.
     const q = normalizar(busqueda.trim());
     const qDigitos = busqueda.replace(/\D/g, '');
-    const filtradas = useMemo(() => {
-        const base = q
-            ? lista.filter((c) =>
-                normalizar(c.contact_name).includes(q)
-                || (qDigitos.length >= 3 && c.contact_wa_id.includes(qDigitos))
-                || normalizar(c.ultimo_mensaje?.text_body).includes(q))
-            : visiblesBase.filter((c) => enBandeja(c, bandeja));
-        return [...base].sort(porUrgencia);
-    }, [q, qDigitos, lista, visiblesBase, enBandeja, bandeja]);
+    const qServidor = useDebounced(busqueda.trim(), 350);
+    const buscandoAlgo = q.length > 0;
+
+    const buscarEnServidor = useCallback(async (termino: string, offset: number) => {
+        setBuscando(true);
+        try {
+            const r = await bffClient.get<RespuestaBusqueda>(
+                `/api/v1/whatsapp/${schoolId}/buzon/buscar?q=${encodeURIComponent(termino)}&offset=${offset}&limite=${POR_PAGINA}`);
+            setResultados((prev) => (offset === 0 ? r.conversaciones ?? [] : [...prev, ...(r.conversaciones ?? [])]));
+            setTotalBusqueda(r.total ?? 0);
+            setHayMas(Boolean(r.hay_mas));
+            setBusquedaLocal(false);
+        } catch (e: any) {
+            // BFF sin la ruta (404): se cae a lo cargado y se dice. Otro error: se avisa.
+            if (e?.status === 404) setBusquedaLocal(true);
+            else toast({ title: 'No se pudo buscar', description: e?.message, variant: 'destructive' });
+        } finally {
+            setBuscando(false);
+        }
+    }, [schoolId, toast]);
+
+    useEffect(() => {
+        if (qServidor.length < 2) {
+            // Funcional: no re-renderiza si ya estaba vacío.
+            setResultados((r) => (r.length ? [] : r)); setTotalBusqueda(0); setHayMas(false);
+            return;
+        }
+        void buscarEnServidor(qServidor, 0);
+    }, [qServidor, buscarEnServidor]);
+
+    const resultadosLocales = useMemo(() => (!q ? [] : lista.filter((c) =>
+        normalizar(c.contact_name).includes(q)
+        || (qDigitos.length >= 3 && c.contact_wa_id.includes(qDigitos))
+        || normalizar(c.ultimo_mensaje?.text_body).includes(q)).sort(porUrgencia)), [q, qDigitos, lista]);
+
+    const filtradas = useMemo(
+        () => [...visiblesBase.filter((c) => enBandeja(c, bandeja))].sort(porUrgencia),
+        [visiblesBase, enBandeja, bandeja]);
 
     // Ventana cerrada = solo se puede escribir con plantilla: grupo aparte.
     const abiertas = useMemo(() => filtradas.filter((c) => c.ventana_abierta), [filtradas]);
     const cerradas = useMemo(() => filtradas.filter((c) => !c.ventana_abierta), [filtradas]);
-
-    useEffect(() => { setLimite(POR_PAGINA); setLimiteCerradas(POR_PAGINA); }, [q]);
 
     // El detalle no trae `contact_kind` ni `pendiente`: los toma de la lista
     // cada vez que se recarga, para que el encabezado no quede viejo.
@@ -409,7 +506,7 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
 
     // Al abrir o recibir mensajes, el hilo baja al último.
     useEffect(() => {
-        if (!cargandoHilo) finDelHilo.current?.scrollIntoView({ block: 'end' });
+        if (!cargandoHilo) finDelHilo.current?.scrollIntoView?.({ block: 'end' });
     }, [mensajes, cargandoHilo]);
 
     const abrir = useCallback(async (c: Conversacion) => {
@@ -479,6 +576,7 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
     /** Cambia una conversación en la lista y, si es la abierta, también en el hilo. */
     const parchar = (id: string, cambio: Partial<Conversacion>) => {
         setLista((l) => l.map((c) => (c.id === id ? { ...c, ...cambio } : c)));
+        setResultados((l) => l.map((c) => (c.id === id ? { ...c, ...cambio } : c)));
         setAbierta((a) => (a && a.id === id ? { ...a, ...cambio } : a));
     };
 
@@ -565,7 +663,7 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                 tabIndex={0}
                 onClick={() => void abrir(c)}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void abrir(c); } }}
-                className={`group relative w-full text-left rounded-lg border p-3 pr-10 transition-colors cursor-pointer
+                className={`group relative w-full text-left rounded-lg border p-3 pr-12 transition-colors cursor-pointer
                             hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring
                             ${abierta?.id === c.id ? 'bg-muted border-primary/40' : ''}
                             ${atenuada && abierta?.id !== c.id ? 'opacity-75' : ''}`}
@@ -574,22 +672,23 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                     <span className={`text-sm truncate ${sinResponder(c) ? 'font-semibold' : 'font-medium'}`}>
                         {c.contact_name || c.contact_wa_id}
                     </span>
-                    <span className="text-[11px] text-muted-foreground shrink-0">{cuando(c.last_message_at)}</span>
+                    <span className="text-xs text-muted-foreground shrink-0">{cuando(c.last_message_at)}</span>
                 </div>
                 <p className="text-xs text-muted-foreground truncate mt-0.5">{resumenUltimo(c)}</p>
+                <TextoCoincidencia c={c} />
                 <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                     {sinResponder(c) && (
-                        <Badge variant="destructive" className="text-[10px]">Sin responder</Badge>
+                        <Badge variant="destructive" className="text-xs">Sin responder</Badge>
                     )}
                     {c.borradores_pendientes > 0 && (
-                        <Badge variant="secondary" className="text-[10px]">
+                        <Badge variant="secondary" className="text-xs">
                             <Sparkles className="h-2.5 w-2.5 mr-1" />
                             {c.borradores_pendientes} por aprobar
                         </Badge>
                     )}
                     <EtiquetaTipo c={c} />
                     {c.toma && (
-                        <Badge variant="outline" className="text-[10px] border-blue-300 text-blue-700 dark:text-blue-400"
+                        <Badge variant="outline" className="text-xs border-blue-300 text-blue-700 dark:text-blue-400"
                                title={textoDeToma(c.toma)}>
                             <Hand className="h-2.5 w-2.5 mr-1" />
                             Atendida por {c.toma.tomada_por_nombre || 'la escuela'}
@@ -597,24 +696,24 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                     )}
                     {/* Con contact_kind ya se sabe quién es; "Sin identificar" sobra. */}
                     {!c.identified && !c.contact_kind && !c.es_prospecto && (
-                        <Badge variant="outline" className="text-[10px]">Sin identificar</Badge>
+                        <Badge variant="outline" className="text-xs">Sin identificar</Badge>
                     )}
                     {/* Un prospecto sin respuesta es un lead que se enfría: su ventana se ve siempre. */}
                     <ChipVentana c={c} destacar={esProspecto(c) && sinResponder(c)} />
                     {c.prospecto?.interes && (
-                        <span className="text-[10px] text-muted-foreground truncate max-w-[10rem]" title={c.prospecto.interes}>
+                        <span className="text-xs text-muted-foreground truncate max-w-[10rem]" title={c.prospecto.interes}>
                             {c.prospecto.interes}
                         </span>
                     )}
                 </div>
 
                 {/* Acciones rápidas: siempre visibles en el celular, al pasar el mouse en escritorio. */}
-                <div className="absolute right-1.5 top-1.5" onClick={(e) => e.stopPropagation()}
+                <div className="absolute right-1 top-1" onClick={(e) => e.stopPropagation()}
                      onKeyDown={(e) => e.stopPropagation()}>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon" aria-label="Acciones de la conversación"
-                                    className="h-8 w-8 md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100
+                                    className="w-touch h-touch md:h-8 md:w-8 md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100
                                                data-[state=open]:opacity-100">
                                 <MoreVertical className="h-4 w-4" />
                             </Button>
@@ -654,188 +753,257 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
     };
 
     const cargarMas = (restan: number, onClick: () => void) => restan > 0 && (
-        <Button variant="ghost" size="sm" className="w-full text-xs" onClick={onClick}>
+        <Button variant="ghost" size="sm" className="w-full text-xs min-h-touch md:min-h-0" onClick={onClick}>
             Cargar más ({restan} restantes)
         </Button>
     );
 
-    return (
-        <div className="grid md:grid-cols-[minmax(300px,380px)_1fr] gap-4 md:h-[calc(100dvh-12rem)] md:min-h-[540px]">
-            {/* ── Lista ── */}
-            <div className={`min-w-0 flex-col md:flex md:min-h-0 ${abierta ? 'hidden' : 'flex'}`}>
-                <div className="space-y-2 pb-2">
-                    <div className="flex gap-2">
-                        <div className="relative flex-1 min-w-0">
-                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                            <Input
-                                value={busqueda}
-                                onChange={(e) => setBusqueda(e.target.value)}
-                                placeholder="Buscar nombre, teléfono o mensaje"
-                                className="pl-8 pr-8 h-9 text-sm"
-                                aria-label="Buscar conversaciones"
-                            />
-                            {busqueda && (
-                                <button type="button" onClick={() => setBusqueda('')} aria-label="Limpiar búsqueda"
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                                    <X className="h-4 w-4" />
-                                </button>
-                            )}
-                        </div>
-                        <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" aria-label="Actualizar"
-                                disabled={cargandoLista} onClick={() => void cargarLista()}>
-                            <RefreshCw className={`h-4 w-4 ${cargandoLista ? 'animate-spin' : ''}`} />
-                        </Button>
-                    </div>
-
-                    {!q && (
-                        <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Bandejas">
-                            {bandejasVisibles.map((b) => {
-                                const activa = bandeja === b.id;
-                                const n = conteos[b.id];
-                                return (
-                                    <button
-                                        key={b.id}
-                                        type="button"
-                                        role="tab"
-                                        aria-selected={activa}
-                                        onClick={() => { setBandeja(b.id); }}
-                                        className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors
-                                                    ${activa
-                                                        ? 'bg-primary text-primary-foreground border-primary'
-                                                        : 'bg-background hover:bg-muted text-foreground'}
-                                                    ${b.id === 'otros' && !activa ? 'text-muted-foreground' : ''}`}
-                                    >
-                                        {b.texto}
-                                        {!cargandoLista && b.id === 'prospectos' && prospectosSinResponder > 0 && (
-                                            <span className={`tabular-nums rounded-full px-1.5 text-[10px] leading-4 font-semibold
-                                                ${activa ? 'bg-primary-foreground text-primary' : 'bg-destructive text-destructive-foreground'}`}
-                                                  title={`${prospectosSinResponder} sin responder`}
-                                                  aria-label={`${prospectosSinResponder} sin responder`}>
-                                                {prospectosSinResponder} sin resp.
-                                            </span>
-                                        )}
-                                        {!cargandoLista && (
-                                            <span className={`tabular-nums rounded-full px-1.5 text-[10px] leading-4
-                                                ${activa ? 'bg-primary-foreground/20'
-                                                    : b.urgente && n > 0 ? 'bg-destructive text-destructive-foreground'
-                                                    : 'bg-muted text-muted-foreground'}`}>
-                                                {n}
-                                            </span>
-                                        )}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    )}
-
-                    {q ? (
-                        <p className="text-xs text-muted-foreground px-1">
-                            {filtradas.length} resultado{filtradas.length === 1 ? '' : 's'} en todas las conversaciones.
-                        </p>
-                    ) : bandeja === 'responder' ? (
-                        <p className="text-xs text-muted-foreground px-1">
-                            Familias y prospectos que escribieron y nadie les ha respondido. Primero las que
-                            se quedan sin ventana de 24 h.
-                        </p>
-                    ) : bandeja === 'prospectos' ? (
-                        <p className="text-xs text-muted-foreground px-1">
-                            Números nuevos que piden información: posibles inscripciones. Respóndeles antes de
-                            que se cierre la ventana de 24 h; después solo se les puede escribir con plantilla.
-                            Si alguno es un contacto tuyo, márcalo como personal desde los tres puntos.
-                        </p>
-                    ) : bandeja === 'otros' ? (
-                        <p className="text-xs text-muted-foreground px-1">
-                            Personas del equipo, lo que marcaste como personal y números sin clasificar. El
-                            asistente no les responde.
-                        </p>
-                    ) : null}
-                </div>
-
-                <div className="space-y-2 md:flex-1 md:min-h-0 md:overflow-y-auto md:pr-1">
-                    {cargandoLista && !lista.length && (
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground py-10 justify-center">
-                            <Loader2 className="h-4 w-4 animate-spin" /> Cargando conversaciones…
-                        </div>
-                    )}
-                    {!(cargandoLista && !lista.length) && !filtradas.length && (
-                        <div className="text-center py-12 text-sm text-muted-foreground">
-                            {bandeja === 'responder' && !q
-                                ? <CheckCircle2 className="h-8 w-8 mx-auto mb-3 text-green-600 opacity-70" />
-                                : <MessageSquare className="h-8 w-8 mx-auto mb-3 opacity-40" />}
-                            {q ? 'Nada coincide con la búsqueda.' : vacio[bandeja]}
-                            {!q && bandeja !== 'todas' && (
-                                <div>
-                                    <Button variant="link" size="sm" onClick={() => setBandeja('todas')}>
-                                        Ver todas las conversaciones
-                                    </Button>
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {abiertas.slice(0, limite).map(fila)}
-                    {cargarMas(abiertas.length - limite, () => setLimite((n) => n + POR_PAGINA))}
-
-                    {cerradas.length > 0 && (
-                        <div className="pt-2">
-                            <button
-                                type="button"
-                                onClick={() => setVerCerradas((v) => !v)}
-                                aria-expanded={verCerradas || (!!q && cerradas.length > 0)}
-                                className="flex w-full items-center gap-1.5 px-1 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
-                            >
-                                {(verCerradas || q) ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                                Ventana cerrada · solo plantilla ({cerradas.length})
+    // ── La lista ──
+    const panelLista = (
+        <div className={`min-w-0 flex-col md:flex md:min-h-0 ${abierta && esCelular ? 'hidden' : 'flex'}`}>
+            <div className="space-y-2 pb-2">
+                <div className="flex gap-2">
+                    <div className="relative flex-1 min-w-0">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                        <Input
+                            value={busqueda}
+                            onChange={(e) => setBusqueda(e.target.value)}
+                            placeholder="Buscar nombre, teléfono, deportista o mensaje"
+                            className="pl-8 pr-8 h-touch md:h-9 text-input md:text-sm"
+                            aria-label="Buscar conversaciones"
+                        />
+                        {busqueda && (
+                            <button type="button" onClick={() => setBusqueda('')} aria-label="Limpiar búsqueda"
+                                    className="absolute right-0 top-1/2 -translate-y-1/2 w-touch h-touch md:w-8 md:h-8 flex items-center justify-center text-muted-foreground hover:text-foreground">
+                                <X className="h-4 w-4" />
                             </button>
-                            {(verCerradas || !!q) && (
-                                <div className="space-y-2 mt-1">
-                                    {cerradas.slice(0, limiteCerradas).map(fila)}
-                                    {cargarMas(cerradas.length - limiteCerradas, () => setLimiteCerradas((n) => n + POR_PAGINA))}
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {!q && !cargandoLista && (ocultas > 0 || (total !== null && total > lista.length)) && (
-                        <div className="pt-2 pb-1 px-1 text-[11px] text-muted-foreground space-y-1">
-                            {ocultas > 0 && (
-                                <button type="button" className="underline-offset-2 hover:underline"
-                                        onClick={() => setVerOcultas((v) => !v)}>
-                                    {verOcultas
-                                        ? 'Ocultar las conversaciones sin mensajes de la persona'
-                                        : `Mostrar ${ocultas} conversación${ocultas === 1 ? '' : 'es'} sin mensajes de la persona`}
-                                </button>
-                            )}
-                            {total !== null && total > lista.length && (
-                                <p>Se muestran las {lista.length} más recientes de {total}. Usa la búsqueda para el resto.</p>
-                            )}
-                        </div>
-                    )}
+                        )}
+                    </div>
+                    <Button variant="outline" size="icon" className="w-touch h-touch md:h-9 md:w-9 shrink-0" aria-label="Actualizar"
+                            disabled={cargandoLista} onClick={() => void cargarLista()}>
+                        <RefreshCw className={`h-4 w-4 ${cargandoLista ? 'animate-spin' : ''}`} />
+                    </Button>
                 </div>
+
+                {!buscandoAlgo && (
+                    // Una sola fila que se desliza: en el celular eran 3 filas de chips
+                    // y la primera conversación aparecía a mitad de pantalla.
+                    <div className="flex gap-1.5 overflow-x-auto scrollbar-none scroll-fade-x whitespace-nowrap -mx-1 px-1"
+                         role="tablist" aria-label="Bandejas">
+                        {bandejasVisibles.map((b) => {
+                            const activa = bandeja === b.id;
+                            const n = conteos[b.id];
+                            return (
+                                <button
+                                    key={b.id}
+                                    type="button"
+                                    role="tab"
+                                    aria-selected={activa}
+                                    onClick={() => { setBandeja(b.id); }}
+                                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 min-h-touch md:min-h-0 md:py-1 text-xs transition-colors
+                                                ${activa
+                                                    ? 'bg-primary text-primary-foreground border-primary'
+                                                    : 'bg-background hover:bg-muted text-foreground'}
+                                                ${b.id === 'otros' && !activa ? 'text-muted-foreground' : ''}`}
+                                >
+                                    {b.texto}
+                                    {!cargandoLista && b.id === 'prospectos' && prospectosSinResponder > 0 && (
+                                        <span className={`tabular-nums rounded-full px-1.5 text-xs leading-4 font-semibold
+                                            ${activa ? 'bg-primary-foreground text-primary' : 'bg-destructive text-destructive-foreground'}`}
+                                              title={`${prospectosSinResponder} sin responder`}
+                                              aria-label={`${prospectosSinResponder} sin responder`}>
+                                            {prospectosSinResponder} sin resp.
+                                        </span>
+                                    )}
+                                    {!cargandoLista && (
+                                        <span className={`tabular-nums rounded-full px-1.5 text-xs leading-4
+                                            ${activa ? 'bg-primary-foreground/20'
+                                                : b.urgente && n > 0 ? 'bg-destructive text-destructive-foreground'
+                                                : 'bg-muted text-muted-foreground'}`}>
+                                            {n}
+                                        </span>
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
+
+                {buscandoAlgo ? (
+                    <p className="text-xs text-muted-foreground px-1" role="status" data-testid="resumen-busqueda">
+                        {busquedaLocal
+                            ? `${resultadosLocales.length} resultado${resultadosLocales.length === 1 ? '' : 's'} entre las ${lista.length} conversaciones más recientes (el servidor no tiene la búsqueda completa).`
+                            : busqueda.trim().length < 2 ? 'Escribe al menos 2 letras o 3 números.'
+                            : buscando && !resultados.length ? 'Buscando en todas las conversaciones…'
+                            : `${totalBusqueda} resultado${totalBusqueda === 1 ? '' : 's'} en todas las conversaciones.`}
+                    </p>
+                ) : bandeja === 'responder' ? (
+                    <p className="hidden md:block text-xs text-muted-foreground px-1">
+                        Familias y prospectos que escribieron y nadie les ha respondido. Primero las que
+                        se quedan sin ventana de 24 h.
+                    </p>
+                ) : bandeja === 'prospectos' ? (
+                    <p className="hidden md:block text-xs text-muted-foreground px-1">
+                        Números nuevos que piden información: posibles inscripciones. Respóndeles antes de
+                        que se cierre la ventana de 24 h; después solo se les puede escribir con plantilla.
+                        Si alguno es un contacto tuyo, márcalo como personal desde los tres puntos.
+                    </p>
+                ) : bandeja === 'otros' ? (
+                    <p className="hidden md:block text-xs text-muted-foreground px-1">
+                        Personas del equipo, lo que marcaste como personal y números sin clasificar. El
+                        asistente no les responde.
+                    </p>
+                ) : null}
             </div>
 
-            {/* ── Hilo ── */}
-            {abierta ? (
-                <div className="border rounded-lg flex flex-col min-h-[420px] md:min-h-0 min-w-0">
-                    <div className="border-b p-3 space-y-2">
-                        <div className="flex items-center gap-2">
-                            <Button variant="ghost" size="sm" className="md:hidden -ml-2" onClick={() => setAbierta(null)}
-                                    aria-label="Volver a la lista">
-                                <ChevronLeft className="h-4 w-4" />
+            <div ref={listaRef} className="space-y-2 md:flex-1 md:min-h-0 md:overflow-y-auto md:pr-1">
+                {buscandoAlgo ? (
+                    <>
+                        {(busquedaLocal ? resultadosLocales : resultados).map(fila)}
+                        {!busquedaLocal && hayMas && (
+                            <Button variant="ghost" size="sm" className="w-full text-xs min-h-touch md:min-h-0" disabled={buscando}
+                                    onClick={() => void buscarEnServidor(qServidor, resultados.length)}>
+                                {buscando && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                                Cargar más ({totalBusqueda - resultados.length} restantes)
                             </Button>
-                            <div className="min-w-0 flex-1">
-                                <p className="font-medium text-sm truncate">
-                                    {abierta.contact_name || abierta.contact_wa_id}
-                                </p>
-                                <p className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
-                                    <span>{abierta.contact_wa_id}</span>
-                                    {abierta.ventana_vence !== undefined && <ChipVentana c={abierta} />}
-                                </p>
+                        )}
+                        {!buscando && busqueda.trim().length >= 2 && !(busquedaLocal ? resultadosLocales : resultados).length && (
+                            <div className="text-center py-12 text-sm text-muted-foreground">
+                                <MessageSquare className="h-8 w-8 mx-auto mb-3 opacity-40" />
+                                Nada coincide con la búsqueda.
                             </div>
-                            <EtiquetaTipo c={abierta} />
-                        </div>
-                        {/* Acciones: botones anchos en el celular, que se tocan con el dedo. */}
-                        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+                        )}
+                    </>
+                ) : (
+                    <>
+                        {cargandoLista && !lista.length && (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground py-10 justify-center">
+                                <Loader2 className="h-4 w-4 animate-spin" /> Cargando conversaciones…
+                            </div>
+                        )}
+                        {!(cargandoLista && !lista.length) && !filtradas.length && (
+                            <div className="text-center py-12 text-sm text-muted-foreground">
+                                {bandeja === 'responder'
+                                    ? <CheckCircle2 className="h-8 w-8 mx-auto mb-3 text-green-600 opacity-70" />
+                                    : <MessageSquare className="h-8 w-8 mx-auto mb-3 opacity-40" />}
+                                {vacio[bandeja]}
+                                {bandeja !== 'todas' && (
+                                    <div>
+                                        <Button variant="link" size="sm" onClick={() => setBandeja('todas')}>
+                                            Ver todas las conversaciones
+                                        </Button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {abiertas.slice(0, limite).map(fila)}
+                        {cargarMas(abiertas.length - limite, () => setLimite((n) => n + POR_PAGINA))}
+
+                        {cerradas.length > 0 && (
+                            <div className="pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setVerCerradas((v) => !v)}
+                                    aria-expanded={verCerradas}
+                                    className="flex w-full items-center gap-1.5 px-1 min-h-touch md:min-h-0 md:py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+                                >
+                                    {verCerradas ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                                    Ventana cerrada · solo plantilla ({cerradas.length})
+                                </button>
+                                {verCerradas && (
+                                    <div className="space-y-2 mt-1">
+                                        {cerradas.slice(0, limiteCerradas).map(fila)}
+                                        {cargarMas(cerradas.length - limiteCerradas, () => setLimiteCerradas((n) => n + POR_PAGINA))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {!cargandoLista && (ocultas > 0 || (total !== null && total > lista.length)) && (
+                            <div className="pt-2 pb-1 px-1 text-xs text-muted-foreground space-y-1">
+                                {ocultas > 0 && (
+                                    <button type="button" className="underline-offset-2 hover:underline min-h-touch md:min-h-0 text-left"
+                                            onClick={() => setVerOcultas((v) => !v)}>
+                                        {verOcultas
+                                            ? 'Ocultar las conversaciones sin mensajes de la persona'
+                                            : `Mostrar ${ocultas} conversación${ocultas === 1 ? '' : 'es'} sin mensajes de la persona`}
+                                    </button>
+                                )}
+                                {total !== null && total > lista.length && (
+                                    <p data-testid="nota-recientes">
+                                        Las bandejas cuentan las {lista.length} conversaciones más recientes de {total}.
+                                        La búsqueda revisa todas.
+                                    </p>
+                                )}
+                            </div>
+                        )}
+                    </>
+                )}
+            </div>
+        </div>
+    );
+
+    // ── El hilo ──
+    const menuHilo = abierta && (
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="w-touch h-touch shrink-0" aria-label="Más acciones">
+                    <MoreVertical className="h-5 w-5" />
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-60">
+                {abierta.toma ? (
+                    <DropdownMenuItem disabled={accionando || !tomaDisponible} onSelect={() => void cambiarToma(abierta, false)}>
+                        <Unlock className="h-4 w-4 mr-2" /> Soltar (el asistente vuelve)
+                    </DropdownMenuItem>
+                ) : (
+                    <DropdownMenuItem disabled={accionando || !tomaDisponible} onSelect={() => void cambiarToma(abierta, true)}>
+                        <Hand className="h-4 w-4 mr-2" /> Tomar (el asistente calla)
+                    </DropdownMenuItem>
+                )}
+                <DropdownMenuItem disabled={accionando}
+                                  onSelect={() => esPersonal ? void cambiarPersonal(abierta, false) : setConfirmarPersonal(abierta)}>
+                    {esPersonal
+                        ? <><Eye className="h-4 w-4 mr-2" /> Quitar marca de personal</>
+                        : <><EyeOff className="h-4 w-4 mr-2" /> Es personal</>}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem disabled={accionando || abierta.status === 'closed'} onSelect={() => void cerrar()}>
+                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                    {abierta.status === 'closed' ? 'Cerrada' : 'Dar por atendida'}
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
+    );
+
+    const panelHilo = abierta ? (
+        <div data-testid="hilo"
+             className={esCelular
+                 // Celular: pantalla completa por encima del encabezado y la barra de abajo.
+                 ? 'fixed inset-0 z-50 flex flex-col bg-background pt-safe-t'
+                 : 'border rounded-lg flex flex-col md:min-h-0 min-w-0 overflow-hidden'}>
+            <div className="border-b px-gutter py-2 md:p-3 space-y-2 shrink-0">
+                <div className="flex items-center gap-1 md:gap-2">
+                    {esCelular && (
+                        <Button variant="ghost" size="icon" className="w-touch h-touch -ml-2 shrink-0" onClick={() => setAbierta(null)}
+                                aria-label="Volver a la lista">
+                            <ChevronLeft className="h-5 w-5" />
+                        </Button>
+                    )}
+                    <div className="min-w-0 flex-1">
+                        <p className="font-medium text-sm truncate">
+                            {abierta.contact_name || abierta.contact_wa_id}
+                        </p>
+                        <p className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
+                            <span>{abierta.contact_wa_id}</span>
+                            {abierta.ventana_vence !== undefined && <ChipVentana c={abierta} />}
+                        </p>
+                    </div>
+                    <EtiquetaTipo c={abierta} />
+                    {/* Escritorio: las tres acciones a la vista, en una sola línea. */}
+                    {!esCelular && (
+                        <div className="flex shrink-0 items-center gap-1.5">
                             {abierta.toma ? (
                                 <Button variant="outline" size="sm" disabled={accionando || !tomaDisponible}
                                         onClick={() => void cambiarToma(abierta, false)}>
@@ -849,73 +1017,85 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                                     <Hand className="h-3.5 w-3.5 mr-1" /> Tomar
                                 </Button>
                             )}
-                            <Button
-                                variant="outline" size="sm" disabled={accionando}
-                                onClick={() => esPersonal ? void cambiarPersonal(abierta, false) : setConfirmarPersonal(abierta)}
-                            >
+                            <Button variant="outline" size="sm" disabled={accionando}
+                                    onClick={() => esPersonal ? void cambiarPersonal(abierta, false) : setConfirmarPersonal(abierta)}>
                                 {esPersonal
                                     ? <><Eye className="h-3.5 w-3.5 mr-1" /> Quitar personal</>
                                     : <><EyeOff className="h-3.5 w-3.5 mr-1" /> Es personal</>}
                             </Button>
-                            <Button
-                                variant="outline" size="sm" className="col-span-2 sm:col-span-1"
-                                disabled={accionando || abierta.status === 'closed'}
-                                onClick={() => void cerrar()}
-                            >
+                            <Button variant="outline" size="sm" disabled={accionando || abierta.status === 'closed'}
+                                    onClick={() => void cerrar()}>
                                 {accionando
                                     ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
                                     : <CheckCircle2 className="h-3.5 w-3.5 mr-1" />}
                                 {abierta.status === 'closed' ? 'Cerrada' : 'Dar por atendida'}
                             </Button>
                         </div>
-                        {esPersonal && (
-                            <p className="text-xs text-muted-foreground">
-                                Conversación personal: el asistente no le responde. Contéstala desde tu celular.
-                            </p>
-                        )}
-                        {abierta.toma && (
-                            <p className="text-xs text-blue-700 dark:text-blue-400 flex items-center gap-1">
-                                <Hand className="h-3 w-3 shrink-0" />
-                                {textoDeToma(abierta.toma)}. El asistente no le escribe nada automático
-                                (los comprobantes se aplican igual, sin avisarle).
-                            </p>
-                        )}
-                    </div>
+                    )}
+                    {esCelular && menuHilo}
+                </div>
+                {esPersonal && (
+                    <p className="text-xs text-muted-foreground">
+                        Conversación personal: el asistente no le responde. Contéstala desde tu celular.
+                    </p>
+                )}
+                {abierta.toma && (
+                    <p className="text-xs text-blue-700 dark:text-blue-400 flex items-center gap-1">
+                        <Hand className="h-3 w-3 shrink-0" />
+                        {textoDeToma(abierta.toma)}. El asistente no le escribe nada automático
+                        (los comprobantes se aplican igual, sin avisarle).
+                    </p>
+                )}
+            </div>
 
-                    <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3 max-h-[55vh] md:max-h-none">
-                        {cargandoHilo && (
-                            <p className="text-sm text-muted-foreground text-center py-6">
-                                <Loader2 className="h-4 w-4 animate-spin inline mr-2" />Cargando…
-                            </p>
-                        )}
-                        {!cargandoHilo && !mensajes.length && (
-                            <p className="text-sm text-muted-foreground text-center py-6">Sin mensajes todavía.</p>
-                        )}
-                        {mensajes.map((m) => {
-                            const qn = quien(m, abierta.contact_kind);
-                            const mio = m.direction === 'outbound';
-                            return (
-                                <div key={m.id} className={`flex ${mio ? 'justify-end' : 'justify-start'}`}>
-                                    <div className={`max-w-[85%] rounded-lg px-3 py-2 ${mio ? 'bg-primary/10' : 'bg-muted'}`}>
-                                        <div className="flex items-center gap-1 text-[10px] text-muted-foreground mb-1">
-                                            {qn.icono} {qn.texto} · {hora(m.created_at)}
-                                        </div>
-                                        <p className="text-sm whitespace-pre-wrap break-words">
-                                            {m.text_body ?? <span className="italic opacity-70">({m.type})</span>}
-                                        </p>
-                                        {m.error_detail && (
-                                            <p className="text-[11px] text-destructive mt-1">{m.error_detail}</p>
-                                        )}
-                                    </div>
+            <div className="flex-1 min-h-0 overflow-y-auto px-gutter py-3 md:p-3 space-y-3" data-testid="mensajes">
+                {cargandoHilo && (
+                    <p className="text-sm text-muted-foreground text-center py-6">
+                        <Loader2 className="h-4 w-4 animate-spin inline mr-2" />Cargando…
+                    </p>
+                )}
+                {!cargandoHilo && !mensajes.length && (
+                    <p className="text-sm text-muted-foreground text-center py-6">Sin mensajes todavía.</p>
+                )}
+                {mensajes.map((m) => {
+                    const qn = quien(m, abierta.contact_kind);
+                    const mio = m.direction === 'outbound';
+                    const medio = m.media ?? null;
+                    return (
+                        <div key={m.id} className={`flex ${mio ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-[85%] rounded-lg px-3 py-2 space-y-1.5 ${mio ? 'bg-primary/10' : 'bg-muted'}`}>
+                                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                    {qn.icono} {qn.texto} · {hora(m.created_at)}
+                                    {m.type === 'template' && <span>· plantilla</span>}
                                 </div>
-                            );
-                        })}
-                        <div ref={finDelHilo} />
-                    </div>
+                                {medio && (
+                                    <AdjuntoDelMensaje schoolId={schoolId} conversacionId={abierta.id} mensajeId={m.id} medio={medio} />
+                                )}
+                                {m.text_body ? (
+                                    <p className="text-sm whitespace-pre-wrap break-words">
+                                        {medio?.tipo === 'audio' && (
+                                            <span className="block text-xs text-muted-foreground">Transcripción:</span>
+                                        )}
+                                        {m.text_body}
+                                    </p>
+                                ) : !medio && (
+                                    <p className="text-sm italic opacity-70">{tipoLegible(m.type)}</p>
+                                )}
+                                {m.error_detail && (
+                                    <p className="text-xs text-destructive">{m.error_detail}</p>
+                                )}
+                            </div>
+                        </div>
+                    );
+                })}
+                <div ref={finDelHilo} />
+            </div>
 
-                    {/* Borradores del modo asistido */}
+            {/* Borradores del modo asistido: con scroll propio para que no empujen el compositor fuera. */}
+            {borradores.length > 0 && (
+                <div className="shrink-0 max-h-[40%] overflow-y-auto border-t">
                     {borradores.map((b) => (
-                        <div key={b.id} className="border-t bg-muted/30 p-3 space-y-2">
+                        <div key={b.id} className="bg-muted/30 px-gutter py-3 md:p-3 space-y-2 border-b last:border-b-0">
                             <p className="text-xs font-medium text-foreground flex items-center gap-1">
                                 <Sparkles className="h-3 w-3" /> El asistente propone responder
                                 {b.llm_provider && <span className="text-muted-foreground">· {b.llm_provider}</span>}
@@ -924,7 +1104,7 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                                 defaultValue={b.edited_text ?? b.proposed_text}
                                 rows={3}
                                 id={`draft-${b.id}`}
-                                className="text-sm"
+                                className="text-input md:text-sm"
                             />
                             <div className="flex gap-2 flex-wrap">
                                 <Button size="sm" disabled={enviando} onClick={() => {
@@ -941,45 +1121,77 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                             </div>
                         </div>
                     ))}
-
-                    {/* Responder — solo si la ventana está abierta */}
-                    <div className="border-t p-3">
-                        {abierta.ventana_abierta ? (
-                            <div className="flex gap-2">
-                                <Textarea
-                                    value={texto}
-                                    onChange={(e) => setTexto(e.target.value)}
-                                    placeholder="Escribe tu respuesta…"
-                                    rows={2}
-                                    className="text-sm"
-                                />
-                                <Button onClick={() => void responder()} disabled={enviando || !texto.trim()}
-                                        aria-label="Enviar">
-                                    {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                                </Button>
-                            </div>
-                        ) : (
-                            <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 text-sm">
-                                <p className="font-medium text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
-                                    <Clock className="h-4 w-4" /> Ventana de 24 horas cerrada
-                                </p>
-                                <p className="text-muted-foreground mt-1">
-                                    Pasaron más de 24 horas desde el último mensaje de esta persona. WhatsApp
-                                    no permite responder con texto libre: hay que enviarle una plantilla
-                                    aprobada. Si te escribe de nuevo, la ventana se reabre.
-                                </p>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            ) : (
-                <div className="hidden md:flex flex-col items-center justify-center gap-2 border rounded-lg text-sm text-muted-foreground">
-                    <MessageSquare className="h-8 w-8 opacity-40" />
-                    {conteos.responder > 0
-                        ? `Tienes ${conteos.responder} conversación${conteos.responder === 1 ? '' : 'es'} por responder. Elige una de la lista.`
-                        : 'Elige una conversación'}
                 </div>
             )}
+
+            {/* Compositor: siempre abajo y a la vista (en el celular, sobre el safe area). */}
+            <div className={`border-t px-gutter pt-2 md:p-3 shrink-0 bg-background ${esCelular ? 'pb-[max(0.5rem,env(safe-area-inset-bottom))]' : ''}`}
+                 data-testid="compositor">
+                {abierta.ventana_abierta ? (
+                    <div className="flex items-end gap-2">
+                        <Button type="button" variant="ghost" size="icon" className="w-touch h-touch md:h-10 md:w-10 shrink-0"
+                                aria-label="Enviar plantilla" title="Enviar una plantilla aprobada"
+                                onClick={() => setPlantillaAbierta(true)}>
+                            <FileText className="h-4 w-4" />
+                        </Button>
+                        <Textarea
+                            value={texto}
+                            onChange={(e) => setTexto(e.target.value)}
+                            placeholder="Escribe tu respuesta…"
+                            rows={2}
+                            className="text-input md:text-sm min-h-touch"
+                        />
+                        <Button onClick={() => void responder()} disabled={enviando || !texto.trim()}
+                                className="w-touch h-touch md:h-10 md:w-10 shrink-0 p-0" aria-label="Enviar">
+                            {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                        </Button>
+                    </div>
+                ) : (
+                    <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 text-sm space-y-2">
+                        <p className="font-medium text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                            <Clock className="h-4 w-4 shrink-0" /> Ventana de 24 horas cerrada
+                        </p>
+                        <p className="text-muted-foreground">
+                            Pasaron más de 24 horas desde su último mensaje: WhatsApp solo deja escribirle con
+                            una plantilla aprobada. Si te escribe de nuevo, la ventana se reabre.
+                        </p>
+                        <Button size="sm" className="min-h-touch md:min-h-0" onClick={() => setPlantillaAbierta(true)}
+                                disabled={esPersonal}
+                                title={esPersonal ? 'Es una conversación personal: el canal de la escuela no le escribe' : undefined}>
+                            <FileText className="h-4 w-4 mr-1.5" /> Enviar plantilla
+                        </Button>
+                        {esPersonal && (
+                            <p className="text-xs text-muted-foreground">Es personal: el canal de la escuela no le escribe.</p>
+                        )}
+                    </div>
+                )}
+            </div>
+
+            <EnviarPlantilla
+                schoolId={schoolId}
+                conversacionId={abierta.id}
+                contacto={abierta.contact_name}
+                abierto={plantillaAbierta}
+                onAbiertoChange={setPlantillaAbierta}
+                onEnviada={() => { void abrir(abierta); void cargarLista(); }}
+            />
+        </div>
+    ) : (
+        <div className="hidden md:flex flex-col items-center justify-center gap-2 border rounded-lg text-sm text-muted-foreground">
+            <MessageSquare className="h-8 w-8 opacity-40" />
+            {conteos.responder > 0
+                ? `Tienes ${conteos.responder} conversación${conteos.responder === 1 ? '' : 'es'} por responder. Elige una de la lista.`
+                : 'Elige una conversación'}
+        </div>
+    );
+
+    return (
+        <div ref={raiz}
+             // Escritorio: el alto lo mide useAltoDisponible (encabezado, avisos y pestañas descontados).
+             style={!esCelular && alto ? { height: alto } : undefined}
+             className="md:grid md:grid-cols-[minmax(18.75rem,23.75rem)_1fr] gap-4 md:min-h-0">
+            {panelLista}
+            {panelHilo}
 
             <AlertDialog open={!!confirmarPersonal} onOpenChange={(v) => { if (!accionando && !v) setConfirmarPersonal(null); }}>
                 <AlertDialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-md">

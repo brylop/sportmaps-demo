@@ -110,7 +110,7 @@ export function OfferingCoachesPanel({ offeringId }: { offeringId: string }) {
       {/* Contenedor Grilla con Scroll */}
       <div className="relative">
         <div className={`
-          grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[220px] overflow-y-auto pr-1 custom-scrollbar
+          grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-1 custom-scrollbar
           ${assigned.length === 0 ? 'flex items-center justify-center p-8 bg-muted/10 rounded-2xl border-2 border-dashed border-muted-foreground/5' : ''}
         `}>
           {assigned.length === 0 ? (

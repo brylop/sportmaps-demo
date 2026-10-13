@@ -174,7 +174,7 @@ export function HourBankOverageCharges() {
 
         {charges.map((c) => (
           <div key={c.id} className="flex flex-wrap items-center gap-2 py-2 border-t border-border/30">
-            <div className="flex-1 min-w-[180px]">
+            <div className="flex-1 min-w-44">
               <div className="text-sm font-medium">{c.athlete_name}</div>
               <div className="text-xs text-muted-foreground">
                 {monthLabel(c.period_start)}{c.plan_name ? ` · ${c.plan_name}` : ''} · usó {hours(c.consumed_minutes)} de {hours(c.included_minutes)}

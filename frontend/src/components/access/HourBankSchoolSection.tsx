@@ -75,7 +75,7 @@ function CorrectVisitRow({ visit, onDone }: { visit: PendingVisit; onDone: () =>
   return (
     <div className="flex flex-wrap items-center gap-2 py-2 border-b border-border/30 last:border-0">
       <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
-      <span className="text-xs flex-1 min-w-[120px]">
+      <span className="text-xs flex-1 min-w-28">
         Entrada: {new Date(visit.started_at).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })}
         {visit.auto_closed && <Badge variant="outline" className="ml-2 text-[9px]">auto-cerrada</Badge>}
       </span>

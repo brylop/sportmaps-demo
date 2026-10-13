@@ -35,7 +35,7 @@ import { AsyncLocalStorage } from 'async_hooks';
 import { supabase } from '../config/supabase';
 import { emailClient } from '../utils/emailClient';
 import { chatWithTools, type LlmTool, type LlmMessage, type LlmFalla } from './llm.service';
-import { filtrarSalidaDelModelo, sinEmojisDeDeporte } from './whatsapp-salida-segura';
+import { filtrarSalidaDelModelo, prometeConsultarSinDatos, sinEmojisDeDeporte } from './whatsapp-salida-segura';
 import {
     clasificarUrgencia, incidenciaUrgente, avisarEscalacionAlEquipo, PLAZO_ESCALACION_MIN,
     escalacionesSinRevisar, respondioUnaPersona, reservarRevision, plazoVencido, textoSinRespuesta,
@@ -47,7 +47,7 @@ import {
     sendTextMessage, sendInteractiveButtons, sendCtaUrl, sendImage, aFormatoWhatsApp, markAsRead,
     type WhatsAppIntegration, type BotonInteractivo,
 } from './whatsapp.service';
-import { conEnlacesDePago, conTipoDeCobro, lineaPagar, botonPagarUnico } from './whatsapp-enlaces-de-pago.service';
+import { conEnlacesDePago, conTipoDeCobro, lineaPagar, botonPagarUnico, TEXTO_BOTON_IR_A_PAGAR } from './whatsapp-enlaces-de-pago.service';
 import { resumenDeDeuda } from './tipo-de-cobro';
 import { esSalienteAutomatico } from './whatsapp-buzon';
 import { avisarEscalamientoPorCorreo } from './avisos-correo.service';
@@ -999,7 +999,7 @@ async function ejecutarAccionDeBoton(
             { integrationId: integration.id, waPhone: contactWaId });
         const anexo = await anexoDeConsentimiento(integration, conversationId, contactWaId, parentId);
         const m = conAnexoDeConsentimiento(fallbackMediosDePago(medios),
-            { step: 'get_payment_methods', via: 'boton' }, undefined, anexo);
+            { step: 'get_payment_methods', via: 'boton' }, botonIrAPagar(medios), anexo);
         await deliver(integration, conversationId, contactWaId, m.texto, m.context, m.conBotones);
         return;
     }
@@ -3363,8 +3363,8 @@ Reglas estrictas:
   la URL completa y tal cual (sin acortarla ni ponerla entre corchetes). Ahi la
   familia ve la transferencia, el QR y el pago en linea. Nunca inventes un enlace
   para un pago que no lo trae.
-- Si el pago trae enlace_instrucciones (link con el monto exacto, que vence), repite
-  esa frase tal cual junto al enlace, sin agregar promesas que ella no haga.
+- Si el pago trae enlace_instrucciones (como se paga con ese enlace), repite esa
+  frase tal cual junto al enlace, sin agregar promesas que ella no haga.
 - «Cuanto cuesta la mensualidad?» de alguien YA inscrito es una pregunta sobre SU
   cobro, no sobre la lista de precios: usa get_payment_status y dile su monto. Es la
   pregunta mas comun de todas y contestarle «no tengo ese dato» teniendolo delante es
@@ -3549,7 +3549,12 @@ async function entregarTextoDelModelo(
         anexo?: AnexoConsentimiento | null;
     },
 ): Promise<'enviado' | 'respaldo' | 'escalado'> {
-    const f = filtrarSalidaDelModelo(texto, NOMBRES_DE_HERRAMIENTAS);
+    let f = filtrarSalidaDelModelo(texto, NOMBRES_DE_HERRAMIENTAS);
+    // Turno de redactar que solo promete consultar (sin datos): va el respaldo
+    // determinista, que sí trae los datos. Ver prometeConsultarSinDatos.
+    if (f.texto && opciones.respaldo && prometeConsultarSinDatos(f.texto)) {
+        f = { ...f, texto: null, alterado: true, motivos: [...f.motivos, 'promesa_sin_datos'] };
+    }
     const ctx = f.alterado ? { ...context, salida_filtrada: f.motivos } : context;
     if (f.alterado) {
         console.warn('[whatsapp-bot] salida del modelo filtrada', { conversationId, motivos: f.motivos,
@@ -3716,7 +3721,7 @@ async function handleIntent(
         } catch (err) {
             anotarFallasDelModelo(fallasDeError(err));
             const anexo = await anexoDeConsentimiento(integration, conversationId, contactWaId, parentId);
-            const m = conAnexoDeConsentimiento(fallbackMediosDePago(medios), { step: 'medios_fallback' }, undefined, anexo);
+            const m = conAnexoDeConsentimiento(fallbackMediosDePago(medios), { step: 'medios_fallback' }, botonIrAPagar(medios), anexo);
             await deliver(integration, conversationId, contactWaId, m.texto, m.context, m.conBotones);
             return;
         }
@@ -3731,7 +3736,7 @@ async function handleIntent(
         await entregarTextoDelModelo(integration, conversationId, contactWaId,
             final.text || fallbackMediosDePago(medios),
             { step: 'get_payment_methods', provider: final.provider },
-            { textoFamilia: text, respaldo: fallbackMediosDePago(medios),
+            { textoFamilia: text, respaldo: fallbackMediosDePago(medios), conBotones: botonIrAPagar(medios),
                 anexo: await anexoDeConsentimiento(integration, conversationId, contactWaId, parentId) });
         return;
     }
@@ -3821,12 +3826,17 @@ function fallbackMediosDePago(m: Awaited<ReturnType<typeof mediosDePago>> & { co
             const monto = c.monto != null ? ` — ${new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(c.monto)}` : '';
             lineas.push(`• ${c.tipo_cobro ?? c.concepto ?? 'Cobro'}${monto}`);
             if (c.tipo_cobro && c.concepto && c.concepto !== c.tipo_cobro) lineas.push(`   ${c.concepto.slice(0, 80)}`);
-            lineas.push(`   Pagar: ${c.enlace_pago}`);
-            if (c.enlace_instrucciones) lineas.push(`   (${c.enlace_instrucciones})`);
+            if (c.enlace_pago !== m.enlace_para_pagar) {
+                lineas.push(`   Pagar: ${c.enlace_pago}`);
+                if (c.enlace_instrucciones) lineas.push(`   (${c.enlace_instrucciones})`);
+            }
         }
         lineas.push('');
     }
-    if (m.enlace_para_pagar) {
+    if (m.enlace_para_pagar && cobros.some((c) => c.enlace_pago === m.enlace_para_pagar)) {
+        lineas.push(`*Para pagar:* toca «${TEXTO_BOTON_IR_A_PAGAR}» (${m.enlace_para_pagar}), escribe el valor de tu cobro y, al terminar, mándame la foto del comprobante por aquí.`);
+        lineas.push('');
+    } else if (m.enlace_para_pagar) {
         lineas.push(`*En línea:* ${m.enlace_para_pagar}`);
         // Con link de pago (Wompi/MP de la escuela) va también qué hacer con él:
         // la familia paga por fuera de SportMaps y, si no manda el comprobante, el
@@ -4266,6 +4276,11 @@ export interface ConBotones {
      * rechaza, sale lo mismo sin foto.
      */
     imagen?: string | null;
+}
+
+/** «Ir a pagar» con el link de pago propio de la escuela (Dynasty, 2026-10-13). */
+function botonIrAPagar(m: { link_de_pago?: string | null } | null | undefined): ConBotones | undefined {
+    return m?.link_de_pago ? { botones: [], cta: { texto: TEXTO_BOTON_IR_A_PAGAR, url: m.link_de_pago } } : undefined;
 }
 
 /** «Pagar» como botón URL cuando hay UN solo cobro pendiente con enlace. */

@@ -251,7 +251,7 @@ export function SchoolMap({ schools, userLocation, selectedSchoolId, onSchoolSel
   }, [schoolsWithDistance, selectedSchoolId, onSchoolSelect]);
 
   return (
-    <div className="relative h-[400px] rounded-xl overflow-hidden border border-border shadow-lg">
+    <div className="relative h-96 rounded-xl overflow-hidden border border-border shadow-lg">
       {/* Map container - always rendered */}
       <div ref={mapContainerRef} className="h-full w-full" />
 
@@ -276,7 +276,7 @@ export function SchoolMap({ schools, userLocation, selectedSchoolId, onSchoolSel
       {!isLoading && !error && userLocation && schoolsWithDistance.length > 0 && (
         <div className="absolute bottom-4 left-4 bg-background/95 backdrop-blur-sm rounded-lg p-3 shadow-lg border border-border z-[1000]">
           <p className="text-xs font-semibold mb-2 text-foreground font-poppins">Escuelas cercanas</p>
-          <div className="space-y-1 max-h-[100px] overflow-y-auto">
+          <div className="space-y-1 max-h-24 overflow-y-auto">
             {schoolsWithDistance.slice(0, 5).map((school) => (
               <div
                 key={school.id}
@@ -287,7 +287,7 @@ export function SchoolMap({ schools, userLocation, selectedSchoolId, onSchoolSel
                   className="w-2 h-2 rounded-full flex-shrink-0"
                   style={{ backgroundColor: school.id === selectedSchoolId ? '#FB9F1E' : '#248223' }}
                 />
-                <span className="truncate max-w-[100px]">{school.name}</span>
+                <span className="truncate max-w-24">{school.name}</span>
                 <span className="text-muted-foreground">{school.distance?.toFixed(1)} km</span>
               </div>
             ))}

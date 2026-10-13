@@ -163,7 +163,7 @@ export default function AnnouncementsPage() {
               Nuevo Anuncio
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[500px]">
+          <DialogContent className="sm:max-w-lg">
             <DialogHeader>
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">

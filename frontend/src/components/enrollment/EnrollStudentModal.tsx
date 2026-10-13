@@ -159,7 +159,7 @@ export function EnrollStudentModal({ open, onClose, onSuccess, schoolId }: Enrol
               </div>
             </div>
 
-            <div className="max-h-[400px] overflow-y-auto space-y-2">
+            <div className="max-h-list overflow-y-auto space-y-2">
               {filteredStudents.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   No se encontraron deportistas activos
@@ -202,7 +202,7 @@ export function EnrollStudentModal({ open, onClose, onSuccess, schoolId }: Enrol
               <Label>Seleccionar Clase</Label>
             </div>
 
-            <div className="max-h-[400px] overflow-y-auto space-y-2">
+            <div className="max-h-list overflow-y-auto space-y-2">
               {availableClasses.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   No hay clases disponibles con cupos

@@ -165,15 +165,16 @@ export default function TrainerRoutineDetail() {
   if (!routine) return <div className="p-12 text-center">Rutina no encontrada.</div>;
 
   return (
-    <div className="space-y-8 pb-20 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 md:space-y-8 pb-24 md:pb-20 max-w-5xl mx-auto">
+      <div className="flex items-center justify-between gap-2">
         <Button 
           variant="ghost" 
           onClick={() => navigate(isSchoolContext ? '/school/routines' : '/trainer/routines')} 
-          className="gap-2 -ml-2 text-muted-foreground hover:bg-transparent hover:text-primary transition-colors font-bold"
+          className="min-h-touch md:min-h-0 gap-2 -ml-2 px-2 md:px-4 text-muted-foreground hover:bg-transparent hover:text-primary transition-colors font-bold"
         >
           <ChevronLeft className="h-4 w-4" />
-          VOLVER AL PANEL
+          <span className="sm:hidden">VOLVER</span>
+          <span className="hidden sm:inline">VOLVER AL PANEL</span>
         </Button>
         <div className="flex gap-2">
           {routine.scope !== 'global' && (
@@ -181,7 +182,7 @@ export default function TrainerRoutineDetail() {
               <Button 
                 variant="outline" 
                 size="sm" 
-                className="gap-2 h-10 border-primary/20 hover:bg-primary/5"
+                className="gap-2 h-touch md:h-10 border-primary/20 hover:bg-primary/5"
                 onClick={() => setIsModalOpen(true)}
               >
                 <Pencil className="h-4 w-4" />
@@ -190,7 +191,7 @@ export default function TrainerRoutineDetail() {
               <Button 
                 variant="destructive" 
                 size="sm" 
-                className="gap-2 h-10 shadow-lg shadow-destructive/20"
+                className="gap-2 h-touch md:h-10 shadow-lg shadow-destructive/20"
                 onClick={handleDelete}
               >
                 <Trash2 className="h-4 w-4" />
@@ -201,12 +202,12 @@ export default function TrainerRoutineDetail() {
         </div>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-8">
+      <div className="flex flex-col md:flex-row gap-6 md:gap-8">
         {/* Main Content: Routine Structure */}
-        <div className="flex-1 space-y-8">
+        <div className="flex-1 min-w-0 space-y-6 md:space-y-8">
           <div className="space-y-4">
             <div className="space-y-1">
-              <div className="flex items-center gap-3 mb-2">
+              <div className="flex flex-wrap items-center gap-2 md:gap-3 mb-2">
                 <Badge className="bg-primary/10 text-primary border-primary/20 font-bold uppercase tracking-widest text-[10px]">
                   {routine.category}
                 </Badge>
@@ -214,41 +215,41 @@ export default function TrainerRoutineDetail() {
                   {routine.difficulty}
                 </Badge>
               </div>
-              <h1 className="text-4xl font-black tracking-tighter leading-none">{routine.name}</h1>
+              <h1 className="text-3xl md:text-4xl font-black tracking-tighter leading-none break-words">{routine.name}</h1>
               {routine.description && (
-                <p className="text-muted-foreground text-lg font-medium leading-relaxed max-w-2xl mt-4">
+                <p className="text-muted-foreground text-base md:text-lg font-medium leading-relaxed max-w-2xl mt-3 md:mt-4">
                   {routine.description}
                 </p>
               )}
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 py-6 border-y border-border/40 bg-muted/5 rounded-2xl px-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 py-4 md:py-6 border-y border-border/40 bg-muted/5 rounded-2xl px-4 md:px-6">
               <div className="flex flex-col gap-1">
                 <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Duración</span>
                 <div className="flex items-center gap-2">
                   <Clock className="h-5 w-5 text-primary" />
-                  <span className="text-xl font-black">{routine.estimated_minutes} min</span>
+                  <span className="text-lg md:text-xl font-black">{routine.estimated_minutes} min</span>
                 </div>
               </div>
               <div className="flex flex-col gap-1 md:border-x border-border/40 md:px-6">
                 <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Ejercicios</span>
                 <div className="flex items-center gap-2">
                   <Dumbbell className="h-5 w-5 text-primary" />
-                  <span className="text-xl font-black">{routine.blocks?.length || 0} bloques</span>
+                  <span className="text-lg md:text-xl font-black">{routine.blocks?.length || 0} bloques</span>
                 </div>
               </div>
               <div className="flex flex-col gap-1 md:border-r border-border/40 md:pr-6">
                 <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Usos totales</span>
                 <div className="flex items-center gap-2">
                   <History className="h-5 w-5 text-primary" />
-                  <span className="text-xl font-black">{routine.times_used} veces</span>
+                  <span className="text-lg md:text-xl font-black">{routine.times_used} veces</span>
                 </div>
               </div>
               <div className="flex flex-col gap-1">
                 <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Calorías Est.</span>
                 <div className="flex items-center gap-2">
                   <Flame className="h-5 w-5 text-orange-500" />
-                  <span className="text-xl font-black text-orange-600">
+                  <span className="text-lg md:text-xl font-black text-orange-600">
                     {routine.estimated_calories > 0 ? `${routine.estimated_calories} kcal` : '—'}
                   </span>
                 </div>
@@ -258,7 +259,7 @@ export default function TrainerRoutineDetail() {
 
           <div className="space-y-8">
             {routine.warmup && (
-              <div className="bg-muted/20 border border-border/40 rounded-2xl p-6">
+              <div className="bg-muted/20 border border-border/40 rounded-2xl p-4 md:p-6">
                 <h3 className="text-[10px] font-black uppercase tracking-widest text-primary mb-3 flex items-center gap-2">
                   <Wind className="h-4 w-4" /> Calentamiento
                 </h3>
@@ -279,47 +280,49 @@ export default function TrainerRoutineDetail() {
                   return (
                     <Card key={idx} className="border-border/40 shadow-sm overflow-hidden group hover:border-primary/30 transition-colors bg-card/40">
                       <CardContent className="p-0 flex items-stretch">
-                        <div className="w-12 bg-muted/30 flex items-center justify-center font-black text-lg text-muted-foreground border-r border-border/40 group-hover:bg-primary/5 transition-colors">
+                        <div className="w-10 md:w-12 shrink-0 bg-muted/30 flex items-center justify-center font-black text-lg text-muted-foreground border-r border-border/40 group-hover:bg-primary/5 transition-colors">
                           {idx + 1}
                         </div>
-                        <div className="flex-1 p-5 space-y-3">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <h4 className="font-bold text-lg leading-none">{block.name}</h4>
+                        <div className="flex-1 min-w-0 p-4 md:p-5 space-y-3">
+                          {/* Móvil: nombre arriba y cifras en una fila debajo (al lado
+                              apretaban el nombre a 3 renglones y partían "60 kg"). */}
+                          <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
+                            <div className="min-w-0">
+                              <h4 className="font-bold text-lg leading-tight sm:leading-none break-words">{block.name}</h4>
                               <div className={`flex items-center gap-1 mt-1.5 ${blockCfg.color}`}>
                                 <BlockIcon className="h-3 w-3" />
                                 <span className="text-[9px] font-black uppercase tracking-widest">{blockCfg.label}</span>
                               </div>
                             </div>
-                            <div className="flex gap-4">
+                            <div className="grid grid-cols-4 gap-2 sm:flex sm:gap-4 sm:shrink-0">
                               {blockFields.includes('sets') && block.sets && (
                                 <div className="flex flex-col items-center">
                                   <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Sets</span>
-                                  <span className="font-black text-lg">{block.sets}</span>
+                                  <span className="font-black text-lg whitespace-nowrap">{block.sets}</span>
                                 </div>
                               )}
                               {blockFields.includes('reps') && block.reps && (
                                 <div className="flex flex-col items-center">
                                   <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Reps</span>
-                                  <span className="font-black text-lg">{block.reps}</span>
+                                  <span className="font-black text-lg whitespace-nowrap">{block.reps}</span>
                                 </div>
                               )}
                               {blockFields.includes('duration_minutes') && block.duration_minutes && (
                                 <div className="flex flex-col items-center">
                                   <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Dur.</span>
-                                  <span className="font-black text-lg">{block.duration_minutes}<span className="text-xs font-normal"> min</span></span>
+                                  <span className="font-black text-lg whitespace-nowrap">{block.duration_minutes}<span className="text-xs font-normal"> min</span></span>
                                 </div>
                               )}
                               {blockFields.includes('rest_seconds') && block.rest_seconds && (
                                 <div className="flex flex-col items-center">
                                   <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Desc.</span>
-                                  <span className="font-black text-lg">{block.rest_seconds}<span className="text-xs font-normal"> s</span></span>
+                                  <span className="font-black text-lg whitespace-nowrap">{block.rest_seconds}<span className="text-xs font-normal"> s</span></span>
                                 </div>
                               )}
                               {blockFields.includes('weight') && block.weight && block.weight !== '0' && (
                                 <div className="flex flex-col items-center">
                                   <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Peso</span>
-                                  <span className="font-black text-lg">
+                                  <span className="font-black text-lg whitespace-nowrap">
                                     {/^\d+(\.\d+)?$/.test(String(block.weight).trim())
                                       ? <>{block.weight}<span className="text-xs font-normal"> {block.weight_unit ?? 'kg'}</span></>
                                       : block.weight
@@ -343,7 +346,7 @@ export default function TrainerRoutineDetail() {
             </div>
 
             {routine.cooldown && (
-              <div className="bg-muted/20 border border-border/40 rounded-2xl p-6">
+              <div className="bg-muted/20 border border-border/40 rounded-2xl p-4 md:p-6">
                 <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-3 flex items-center gap-2">
                   <Coffee className="h-4 w-4" /> Vuelta a la Calma
                 </h3>
@@ -354,8 +357,8 @@ export default function TrainerRoutineDetail() {
         </div>
 
         {/* Sidebar: Metadata & History */}
-        <div className="w-full md:w-[320px] space-y-6">
-          <Card className="border-primary/20 bg-primary/5 shadow-xl shadow-primary/5 overflow-hidden">
+        <div className="w-full md:w-80 md:shrink-0 space-y-6">
+          <Card className="hidden md:block border-primary/20 bg-primary/5 shadow-xl shadow-primary/5 overflow-hidden">
             <CardHeader className="p-6 pb-2">
               <CardTitle className="text-sm font-black uppercase tracking-widest">Acción Rápida</CardTitle>
             </CardHeader>
@@ -429,18 +432,32 @@ export default function TrainerRoutineDetail() {
             </div>
           )}
 
-          <div className="p-6 bg-accent/20 rounded-2xl space-y-3">
+          <div className="p-4 md:p-6 bg-accent/20 rounded-2xl space-y-3">
             <div className="flex justify-between text-[10px] uppercase font-bold tracking-widest text-muted-foreground">
               <span>Creado</span>
               <span>{new Date(routine.created_at).toLocaleDateString()}</span>
             </div>
             <Separator className="bg-border/20" />
-            <div className="flex justify-between text-[10px] uppercase font-bold tracking-widest text-muted-foreground">
+            <div className="flex justify-between gap-3 text-[10px] uppercase font-bold tracking-widest text-muted-foreground">
               <span>Tipo</span>
               <span>{isSchoolContext ? (routine.scope === 'global' ? 'Catálogo SportMaps' : 'Rutina del Gym') : 'Plantilla Reutilizable'}</span>
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Móvil: la acción principal queda fija encima de MobileBottomNav
+          (bottom-nav-safe = alto de la barra + safe-area). Deja libre la
+          esquina derecha (pr-20) donde flota el botón de soporte. En md+ se
+          usa la tarjeta "Acción Rápida" de la columna lateral. */}
+      <div className="fixed inset-x-0 bottom-nav-safe z-30 border-t border-border/40 bg-background/95 backdrop-blur px-gutter py-3 pr-20 md:hidden">
+        <Button
+          className="w-full gap-2 h-12 font-black bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20"
+          onClick={() => setIsUseModalOpen(true)}
+        >
+          <Play className="h-5 w-5 fill-current" />
+          USAR AHORA
+        </Button>
       </div>
 
       <RoutineFormModal

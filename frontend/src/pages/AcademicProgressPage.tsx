@@ -79,7 +79,7 @@ function SessionDetailModal({
 
   return (
     <Dialog open={!!session} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-lg max-h-sheet overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-xl font-black">{session.name}</DialogTitle>
           <DialogDescription className="flex flex-wrap gap-3 mt-1">
@@ -503,7 +503,7 @@ export default function AcademicProgressPage() {
           </p>
         </div>
 
-        <Card className="border-primary/20 bg-primary/5 min-w-[280px]">
+        <Card className="border-primary/20 bg-primary/5 md:min-w-72">
           <CardContent className="p-3 flex items-center gap-3">
             <div className="h-10 w-10 rounded-xl bg-primary/20 flex items-center justify-center text-primary">
               <User className="h-5 w-5" />

@@ -47,8 +47,8 @@ export function RoutineCard({ routine, onUse, onClick, onDelete, onTagClick }: R
     >
       <CardContent className="p-5 pt-6">
         <div className="flex justify-between items-start mb-4">
-          <div className="space-y-1">
-            <h3 className="text-xl font-bold tracking-tight leading-none group-hover:text-primary transition-colors">
+          <div className="space-y-1 min-w-0">
+            <h3 className="text-lg sm:text-xl font-bold tracking-tight leading-none group-hover:text-primary transition-colors">
               {routine.name}
             </h3>
             <div className="flex flex-wrap gap-1.5 pt-1">
@@ -64,7 +64,8 @@ export function RoutineCard({ routine, onUse, onClick, onDelete, onTagClick }: R
             <Button 
               variant="ghost" 
               size="icon" 
-              className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 -mt-1 -mr-1"
+              aria-label="Eliminar rutina"
+              className="h-touch w-touch md:h-8 md:w-8 shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 -mt-2 -mr-2 md:-mt-1 md:-mr-1"
               onClick={(e) => {
                 e.stopPropagation();
                 onDelete(routine.id);
@@ -94,12 +95,12 @@ export function RoutineCard({ routine, onUse, onClick, onDelete, onTagClick }: R
         </div>
 
         {routine.tags && routine.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 opacity-80 group-hover:opacity-100 transition-opacity">
-            <Tag className="h-3 w-3 text-muted-foreground mt-0.5" />
+          <div className="flex flex-wrap items-center gap-1.5 opacity-80 group-hover:opacity-100 transition-opacity">
+            <Tag className="h-3 w-3 text-muted-foreground" />
             {routine.tags.slice(0, 3).map(tag => (
               <span 
                 key={tag} 
-                className="text-[10px] text-muted-foreground bg-slate-500/5 px-1.5 py-0.5 rounded hover:bg-primary/10 hover:text-primary transition-colors"
+                className="inline-flex min-h-8 items-center text-xs text-muted-foreground bg-slate-500/5 px-2 rounded hover:bg-primary/10 hover:text-primary transition-colors md:min-h-0 md:px-1.5 md:py-0.5 md:text-[10px]"
                 onClick={(e) => {
                   if (onTagClick) {
                     e.stopPropagation();
@@ -119,7 +120,7 @@ export function RoutineCard({ routine, onUse, onClick, onDelete, onTagClick }: R
 
       <CardFooter className="p-4 pt-0">
         <Button 
-          className="w-full gap-2 font-bold shadow-lg shadow-primary/10 group/btn"
+          className="w-full min-h-touch md:min-h-0 gap-2 font-bold shadow-lg shadow-primary/10 group/btn"
           onClick={(e) => {
             e.stopPropagation();
             onUse(routine.id);

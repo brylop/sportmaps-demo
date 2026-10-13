@@ -370,7 +370,7 @@ export default function MessageTemplatesPage() {
 
       {/* ── Edit Modal ────────────────────────────────────────── */}
       <Dialog open={!!editing} onOpenChange={(open) => { if (!open) setEditing(null); }}>
-        <DialogContent className="sm:max-w-[640px] max-h-[85vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-modal max-h-sheet overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Editar Plantilla</DialogTitle>
             <DialogDescription>

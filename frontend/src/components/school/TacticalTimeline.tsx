@@ -197,7 +197,7 @@ export function TacticalTimeline(props: TacticalTimelineProps) {
           <Plus className="h-4 w-4" /> Cuadro
         </button>
         {n < 2 && (
-          <span className="text-[11px] text-white/60 leading-tight min-w-[160px]">
+          <span className="text-[11px] text-white/60 leading-tight min-w-40">
             Agrega cuadros y mueve a los jugadores en cada uno para animar la jugada.
           </span>
         )}

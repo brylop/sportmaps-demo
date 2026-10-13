@@ -542,7 +542,7 @@ export function AvailabilityManager({
                 <Clock className="h-8 w-8 text-muted-foreground/40" />
               </div>
               <h3 className="text-lg font-bold text-foreground">Sin horarios configurados</h3>
-              <p className="text-sm text-muted-foreground max-w-[240px] text-center mt-1">
+              <p className="text-sm text-muted-foreground max-w-60 text-center mt-1">
                 Comienza agregando disponibilidad en la pestaña de configuración.
               </p>
             </div>

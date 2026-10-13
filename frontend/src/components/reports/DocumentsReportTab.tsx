@@ -262,7 +262,7 @@ export default function DocumentsReportTab() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-end gap-4">
-            <div className="space-y-1.5 min-w-[200px]">
+            <div className="space-y-1.5 min-w-48">
               <label className="text-sm font-medium">Equipo</label>
               <Select value={filterTeam} onValueChange={setFilterTeam}>
                 <SelectTrigger>
@@ -277,7 +277,7 @@ export default function DocumentsReportTab() {
               </Select>
             </div>
 
-            <div className="space-y-1.5 min-w-[200px]">
+            <div className="space-y-1.5 min-w-48">
               <label className="text-sm font-medium">Plan</label>
               <Select value={filterPlan} onValueChange={setFilterPlan}>
                 <SelectTrigger>
@@ -325,7 +325,7 @@ export default function DocumentsReportTab() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[40px]">
+                    <TableHead className="w-10">
                       <Checkbox
                         checked={allSelected}
                         onCheckedChange={toggleAll}
@@ -339,7 +339,7 @@ export default function DocumentsReportTab() {
                     <TableHead className="text-center">Identidad</TableHead>
                     <TableHead className="text-center">EPS</TableHead>
                     <TableHead>Total</TableHead>
-                    <TableHead className="w-[100px]" />
+                    <TableHead className="w-24" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>

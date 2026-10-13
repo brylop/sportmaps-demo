@@ -196,7 +196,7 @@ export default function SchoolRoutines() {
             <Dumbbell className="h-6 w-6 text-primary" />
           </div>
           <div>
-            <h1 className="text-3xl font-black tracking-tighter">Gestión de Rutinas</h1>
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tighter">Gestión de Rutinas</h1>
             <p className="text-xs text-muted-foreground font-bold uppercase tracking-widest opacity-80">
               Biblioteca compartida entre dueño y coaches
             </p>
@@ -204,7 +204,7 @@ export default function SchoolRoutines() {
         </div>
         <Button
           onClick={() => { setEditingRoutine(null); setIsModalOpen(true); }}
-          className="gap-2 bg-primary shadow-lg shadow-primary/20 h-12 px-6 font-bold"
+          className="w-full md:w-auto gap-2 bg-primary shadow-lg shadow-primary/20 h-12 px-6 font-bold"
         >
           <Plus className="h-5 w-5" />
           NUEVA RUTINA
@@ -230,7 +230,8 @@ export default function SchoolRoutines() {
               #{selectedTag}
               <button 
                 onClick={() => setSelectedTag(null)} 
-                className="font-bold hover:text-destructive text-sm"
+                aria-label="Quitar filtro"
+                className="-mr-2 flex h-touch w-8 items-center justify-center font-bold hover:text-destructive text-sm"
               >
                 ×
               </button>
@@ -238,18 +239,20 @@ export default function SchoolRoutines() {
           )}
         </div>
 
+        {/* Móvil: 2x2 (en fila no cabían y "Catálogo"/"Asignadas" quedaban
+            recortadas e inalcanzables). Desde md, la fila de siempre. */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="bg-muted/20 p-1 h-11 border border-border/40">
-            <TabsTrigger value="todas" className="rounded-md px-4 font-black text-[10px] uppercase tracking-widest">
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-1 bg-muted/20 p-1 border border-border/40 md:inline-flex md:h-11 md:w-auto md:gap-0">
+            <TabsTrigger value="todas" className="min-h-touch rounded-md px-2 font-black text-xs uppercase tracking-wider md:min-h-0 md:px-4 md:text-[10px] md:tracking-widest">
               Todas ({counts.todas})
             </TabsTrigger>
-            <TabsTrigger value="personalizadas" className="rounded-md px-4 font-black text-[10px] uppercase tracking-widest">
+            <TabsTrigger value="personalizadas" className="min-h-touch rounded-md px-2 font-black text-xs uppercase tracking-wider md:min-h-0 md:px-4 md:text-[10px] md:tracking-widest">
               Personalizadas ({counts.personalizadas})
             </TabsTrigger>
-            <TabsTrigger value="catalogo" className="rounded-md px-4 font-black text-[10px] uppercase tracking-widest">
+            <TabsTrigger value="catalogo" className="min-h-touch rounded-md px-2 font-black text-xs uppercase tracking-wider md:min-h-0 md:px-4 md:text-[10px] md:tracking-widest">
               <Globe2 className="h-3 w-3 mr-1" /> Catálogo ({counts.catalogo})
             </TabsTrigger>
-            <TabsTrigger value="asignadas" className="rounded-md px-4 font-black text-[10px] uppercase tracking-widest">
+            <TabsTrigger value="asignadas" className="min-h-touch rounded-md px-2 font-black text-xs uppercase tracking-wider md:min-h-0 md:px-4 md:text-[10px] md:tracking-widest">
               <ClipboardList className="h-3 w-3 mr-1" /> Asignadas
             </TabsTrigger>
           </TabsList>
@@ -275,7 +278,7 @@ export default function SchoolRoutines() {
         ) : (
           <div className="space-y-3">
             {assignedSessions.map((s) => (
-              <div key={s.id} className="flex items-center gap-4 p-4 rounded-2xl border border-border/40 bg-card">
+              <div key={s.id} className="flex items-center gap-3 p-3 sm:gap-4 sm:p-4 rounded-2xl border border-border/40 bg-card">
                 <Avatar className="h-10 w-10 border-2 border-background shadow-sm shrink-0">
                   <AvatarImage src={s.client_avatar ?? undefined} />
                   <AvatarFallback className="bg-primary/10 text-primary text-xs font-bold">
@@ -304,7 +307,7 @@ export default function SchoolRoutines() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-9 w-9 text-muted-foreground hover:text-destructive shrink-0"
+                    className="h-touch w-touch md:h-9 md:w-9 text-muted-foreground hover:text-destructive shrink-0"
                     onClick={() => setSessionToUnassign(s)}
                     disabled={unassigningId === s.id}
                   >
@@ -344,7 +347,7 @@ export default function SchoolRoutines() {
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
           {filteredRoutines.map(routine => (
             <div key={routine.id} className="space-y-2">
               <RoutineOriginBadge routine={routine} />

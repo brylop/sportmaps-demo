@@ -71,7 +71,7 @@ export function MembershipBadge({ membresia, compacto = false }: Props) {
         <TooltipProvider>
             <Tooltip>
                 <TooltipTrigger asChild><span className="inline-flex">{insignia}</span></TooltipTrigger>
-                <TooltipContent className="max-w-[260px]">
+                <TooltipContent className="max-w-64">
                     <p className="text-xs">{detalle.join(' · ')}</p>
                     {revisar && (
                         <p className="text-xs mt-1 text-amber-500">

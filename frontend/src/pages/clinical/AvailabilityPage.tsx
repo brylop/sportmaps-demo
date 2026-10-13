@@ -122,7 +122,7 @@ export default function AvailabilityPage() {
   });
 
   if (vendorQ.isLoading) {
-    return <div className="flex h-[50vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+    return <div className="flex h-[50dvh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
   }
   if (vendorQ.isError) {
     return (
@@ -348,7 +348,7 @@ function BlockDialog({ draft, siblings, onClose, onSaved }: {
 
   return (
     <Dialog open={!!draft} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-[420px]">
+      <DialogContent className="sm:max-w-modal-sm">
         <DialogHeader>
           <DialogTitle>{draft?.id ? 'Editar bloque' : 'Nuevo bloque'} · {dayLabel}</DialogTitle>
           <DialogDescription>Las citas se ofrecen dentro de este rango.</DialogDescription>
@@ -446,7 +446,7 @@ function ExceptionDialog({ open, onOpenChange, vendorId, onSaved }: {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[420px]">
+      <DialogContent className="sm:max-w-modal-sm">
         <DialogHeader>
           <DialogTitle>Bloquear fecha</DialogTitle>
           <DialogDescription>Ese día (o rango) no se ofrecerán horarios. Las citas ya agendadas no se cancelan solas.</DialogDescription>

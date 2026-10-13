@@ -314,7 +314,7 @@ export default function AthletePaymentsPage() {
 
   if (loading && payments.length === 0) {
     return (
-      <div className="flex justify-center items-center p-12 min-h-[50vh]">
+      <div className="flex justify-center items-center p-12 min-h-[50dvh]">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
@@ -410,7 +410,7 @@ export default function AthletePaymentsPage() {
 
       {/* Enrollments Modal */}
       <Dialog open={showEnrollmentPicker} onOpenChange={setShowEnrollmentPicker}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Selecciona qué deseas pagar</DialogTitle>
             <DialogDescription>
@@ -418,7 +418,7 @@ export default function AthletePaymentsPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3 py-4 max-h-[400px] overflow-y-auto">
+          <div className="space-y-3 py-4 max-h-list overflow-y-auto">
             {loadingEnrollments ? (
               <div className="py-8 text-center">
                 <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
@@ -598,12 +598,12 @@ export default function AthletePaymentsPage() {
                 {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(viewingProof.amount)}
               </span>
             </div>
-            <div className="border rounded-md overflow-hidden bg-muted/30 min-h-[200px] flex items-center justify-center">
+            <div className="border rounded-md overflow-hidden bg-muted/30 min-h-48 flex items-center justify-center">
               {viewingProof.url ? (
                 <img
                   src={viewingProof.url}
                   alt="Comprobante"
-                  className="max-w-full max-h-[60vh] object-contain"
+                  className="max-w-full max-h-list object-contain"
                 />
               ) : (
                 <div className="text-center text-muted-foreground p-8">
@@ -751,7 +751,7 @@ function PaymentCard({ payment, formatCurrency, formatDate, onRefresh, onSelect,
                 </span>
               )}
               {payment.school_name && (
-                <span className="flex items-center gap-1 truncate max-w-[180px]">
+                <span className="flex items-center gap-1 truncate max-w-44">
                   <Building2 className="h-3 w-3 shrink-0" />
                   <span className="truncate">{payment.school_name}</span>
                 </span>

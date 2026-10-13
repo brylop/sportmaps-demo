@@ -3,6 +3,7 @@ import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { todayInZone, addDaysToDateString } from '../utils/businessDate';
 import { armarInformeCartera, guardarAjusteInforme, informeACsv, leerAjusteInforme } from '../services/informe-cartera.service';
+import { resolverAccesoEquipo } from '../services/team-access.service';
 
 const router = Router();
 
@@ -667,17 +668,15 @@ router.get(
             const { teamId } = req.params;
             const { schoolId } = req;
 
-            const { data: team, error: teamErr } = await supabase
-                .from('teams')
-                .select('id, name, age_group, sport, coach_id, school_id')
-                .eq('id', teamId)
-                .single();
-
-            if (teamErr || !team) return res.status(404).json({ error: 'Equipo no encontrado.' });
-
-            if (req.role === 'school_admin' && team.school_id !== schoolId) {
-                return res.status(403).json({ error: 'No tienes permiso para ver este equipo.' });
-            }
+            // Service role: este es el único gate. Antes solo se validaba la
+            // escuela para school_admin → cualquier coach/owner leía equipos de
+            // otra escuela por UUID. Ver services/team-access.service.ts.
+            const acceso = await resolverAccesoEquipo<{
+                id: string; name: string; age_group: string | null; sport: string | null;
+                coach_id: string | null; school_id: string | null;
+            }>(supabase, { role: req.role, schoolId, userId: req.user?.id }, String(teamId));
+            if (!acceso.ok) return res.status(acceso.status).json({ error: acceso.error });
+            const team = acceso.team;
 
             // Roster
             const { data: roster, error: rosterErr } = await supabase

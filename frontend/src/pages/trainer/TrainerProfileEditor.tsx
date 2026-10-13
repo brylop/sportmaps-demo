@@ -276,7 +276,7 @@ export default function TrainerProfileEditor() {
                         <CommandInput placeholder="Buscar deporte..." />
                         <CommandList>
                           <CommandEmpty>No se encontró el deporte.</CommandEmpty>
-                          <CommandGroup className="max-h-[200px] overflow-y-auto">
+                          <CommandGroup className="max-h-48 overflow-y-auto">
                             {SPORTS_LIST.map((sport) => (
                               <CommandItem
                                 key={sport}
@@ -405,7 +405,7 @@ export default function TrainerProfileEditor() {
                         />
                       </div>
                       <Select value={form.rate_currency} onValueChange={v => set('rate_currency', v)}>
-                        <SelectTrigger className="w-[85px] h-full rounded-none border-0 border-l border-border/40 bg-background/40 font-bold focus:ring-0">
+                        <SelectTrigger className="w-20 h-full rounded-none border-0 border-l border-border/40 bg-background/40 font-bold focus:ring-0">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>

@@ -4,6 +4,7 @@ import QRCode from 'qrcode';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole } from '../middlewares/authMiddleware';
+import { esAdminDePlataforma } from '../middlewares/requirePlatformAdmin';
 import { resolveSchoolBranding } from '../utils/schoolBrandingResolver';
 
 const router = Router();
@@ -279,7 +280,9 @@ router.get(
             }
 
             // Authz: super-admin / school_admin de la escuela / atleta dueño / padre del child
-            const isSuperAdmin = ['admin', 'super_admin'].includes(req.role);
+            // 'admin' acá es admin DE ESCUELA (membresía), no de plataforma: con él
+            // un admin bajaba certificados de CUALQUIER escuela.
+            const isSuperAdmin = req.role === 'super_admin' && await esAdminDePlataforma(req.user.id);
             const isSchoolAdmin = ['owner', 'admin', 'school_admin', 'school'].includes(req.role)
                 && cert.school_id === req.schoolId;
             const isAthleteOwner = cert.profile_id === req.user.id;

@@ -39,7 +39,7 @@ function ChartTooltip({ active, payload, unit }: any) {
   const p = payload[0].payload;
   const band = p.band as keyof typeof BAND_STYLE | null;
   return (
-    <div className="rounded-xl border bg-popover px-3 py-2 shadow-lg text-xs max-w-[220px]">
+    <div className="rounded-xl border bg-popover px-3 py-2 shadow-lg text-xs max-w-56">
       <div className="font-mono font-bold text-sm tabular-nums">{fmtWithUnit(p.value, unit)}</div>
       <div className="text-muted-foreground mt-0.5">
         {new Date(p.date).toLocaleDateString('es-CO', {
@@ -62,7 +62,7 @@ function ChartTooltip({ active, payload, unit }: any) {
 export function MetricTrendChart({ series, displayName, unit, thresholds }: MetricTrendChartProps) {
   if (series.length < 2) {
     return (
-      <div className="h-[200px] flex flex-col items-center justify-center text-muted-foreground text-center">
+      <div className="h-chart-sm flex flex-col items-center justify-center text-muted-foreground text-center">
         <BarChart3 className="h-8 w-8 mb-2 opacity-20" aria-hidden="true" />
         <p className="text-sm">Se necesitan al menos 2 registros para ver la tendencia.</p>
       </div>
@@ -78,7 +78,7 @@ export function MetricTrendChart({ series, displayName, unit, thresholds }: Metr
     .join(', ')}.`;
 
   return (
-    <div className="h-[250px] w-full" role="img" aria-label={summary}>
+    <div className="h-chart w-full" role="img" aria-label={summary}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={points} margin={{ left: -14, right: 12, top: 14, bottom: 0 }}>
           {ranges.map((r) => (

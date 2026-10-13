@@ -506,7 +506,7 @@ export function ActivarDebitoDialog(props: ActivarDebitoDialogProps) {
                         <Input
                           id={`ad-t-${a.key}`}
                           inputMode="numeric"
-                          className="h-8 max-w-[180px]"
+                          className="h-8 max-w-44"
                           value={topes[a.key] ?? ''}
                           placeholder="$0"
                           onChange={(e) => setTopes((t) => ({ ...t, [a.key]: e.target.value.replace(/\D/g, '') }))}

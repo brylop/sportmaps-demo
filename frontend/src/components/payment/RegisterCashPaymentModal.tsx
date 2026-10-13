@@ -93,6 +93,9 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
   // Form state
   const [selectedAthleteId, setSelectedAthleteId] = useState<string>('');
   const [selectedPaymentId, setSelectedPaymentId] = useState<string>('new');
+  // Pagar varios cobros pendientes del mismo deportista en una sola operación.
+  const [multiMode, setMultiMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer'>('cash');
   const [concept, setConcept] = useState('Mensualidad');
   // Tipo de cobro del cobro NUEVO. null = se deduce del concepto (ver
@@ -239,6 +242,8 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
 
     setLoadingPending(true);
     setSelectedPaymentId('new');
+    setMultiMode(false);
+    setSelectedIds([]);
     try {
       // Clasificar por athlete_type de la vista school_athletes (fuente de verdad),
       // NO por presencia de parent_id: un 'child' sin padre vinculado (parent_id
@@ -248,9 +253,9 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
       const childId        = student.athlete_type === 'child' ? student.id : null;
       const unregisteredId = student.athlete_type === 'unregistered' ? student.id : null;
 
-      let q = supabase
-        .from('payments')
-        .select('id, concept, amount, due_date, status, requires_review, last_failure_at, last_failure_reason, payment_category, payment_type')
+      // `as any`: discount_pct / list_amount aún no están en los tipos generados de Supabase.
+      let q = (supabase.from('payments') as any)
+        .select('id, concept, amount, due_date, status, requires_review, last_failure_at, last_failure_reason, payment_category, payment_type, discount_pct, list_amount')
         .eq('school_id', schoolId)
         .in('status', ['pending', 'overdue'])
         .order('due_date', { ascending: true });
@@ -286,7 +291,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
   // Un cobro nuevo de mensualidad debe llevar periodo; aplicado a un pendiente NO
   // (ese ya trae el suyo desde que se genero). Un cobro único (inscripción,
   // seguro, artículos…) tampoco: no es un mes de servicio.
-  const periodApplies = selectedPaymentId === 'new' && !!selectedAthleteId && manualChargeIsPeriodic(newChargeCategory);
+  const periodApplies = !multiMode && selectedPaymentId === 'new' && !!selectedAthleteId && manualChargeIsPeriodic(newChargeCategory);
 
   useEffect(() => {
     if (!periodApplies) {
@@ -374,6 +379,29 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
       }. Al registrar el pago manualmente este cobro se destraba.`
     : null;
 
+  // El descuento aplicado al registrar al estudiante viaja con el cobro
+  // (payments.discount_pct / list_amount). El monto del cobro YA viene descontado:
+  // aquí solo se muestra, y si el monto a registrar se aleja del del cobro se pide
+  // confirmación explícita — antes un monto distinto se escribía en silencio.
+  const pendingAmount = selectedPending ? Number(selectedPending.amount) || 0 : null;
+  const pendingDiscountPct = selectedPending ? Number(selectedPending.discount_pct) || 0 : 0;
+  const pendingListAmount = selectedPending
+    ? (Number(selectedPending.list_amount)
+        || (pendingDiscountPct > 0 && pendingAmount ? Math.round(pendingAmount / (1 - pendingDiscountPct / 100)) : 0))
+    : 0;
+  const amountDiffersFromCharge = !multiMode &&
+    pendingAmount !== null && typeof amount === 'number' && amount > 0 && amount !== pendingAmount;
+
+  // Varios cobros: cada uno se paga por su propio valor (ya con descuento y mora);
+  // el total es la suma. No hay monto ni concepto editables.
+  const selectedMulti = pendingPayments.filter(p => selectedIds.includes(p.id));
+  const multiTotal = selectedMulti.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const toggleSelected = (id: string) =>
+    setSelectedIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+  const allSelected = pendingPayments.length > 0 && selectedIds.length === pendingPayments.length;
+  const [confirmAmountChange, setConfirmAmountChange] = useState(false);
+  useEffect(() => { setConfirmAmountChange(false); }, [selectedPaymentId, amount]);
+
   const handlePendingSelect = (value: string) => {
     setSelectedPaymentId(value);
     if (value === 'new') return;
@@ -381,6 +409,96 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
     if (pmt) {
       setConcept(pmt.concept);
       setAmount(Number(pmt.amount) || 0);
+    }
+  };
+
+  /**
+   * Varios cobros del mismo deportista en UNA operación atómica (RPC
+   * register_manual_payments): se paga el valor de cada cobro (con descuento y
+   * mora) y, si algo falla, no queda ninguno a medias. La RPC exige owner/admin de
+   * la escuela, que la escuela esté operativa y que los cobros sean pendientes o
+   * atrasados de un mismo deportista.
+   */
+  const handleSaveMulti = async () => {
+    const selectedStudent = athletes.find(a => a.id === selectedAthleteId);
+    if (!selectedStudent || !schoolId || !user) return;
+    if (selectedMulti.length === 0) {
+      toast({ title: 'Selecciona cobros', description: 'Marca al menos un cobro para registrar su pago.', variant: 'destructive' });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const prefix = paymentMethod === 'cash' ? 'CASH' : 'TRF';
+      const reference = `${prefix}-${Date.now().toString(36).toUpperCase()}`;
+      const isTransfer = paymentMethod === 'transfer';
+
+      const { data, error } = await (supabase as any).rpc('register_manual_payments', {
+        p_school_id: schoolId,
+        p_payment_ids: selectedMulti.map(p => p.id),
+        p_method: paymentMethod,
+        p_payment_date: pickedDay(),
+        p_reference_base: reference,
+        p_receipt_url: isTransfer ? receiptUrl : null,
+        p_receipt_fields: isTransfer && receiptUrl ? buildReceiptOcrFields(ocrResult) : null,
+      });
+      if (error) throw error;
+
+      const total = Number(data?.total) || multiTotal;
+      const resumen = selectedMulti.length <= 3
+        ? selectedMulti.map(p => p.concept).join(' · ')
+        : `${selectedMulti.slice(0, 3).map(p => p.concept).join(' · ')} y ${selectedMulti.length - 3} más`;
+
+      const recipientId = selectedStudent.parent_id || (selectedStudent.athlete_type === 'adult' ? selectedStudent.id : null);
+      if (recipientId) {
+        await supabase.rpc('notify_user', {
+          p_user_id: recipientId,
+          p_title: isTransfer ? '✅ Transferencia registrada' : '✅ Pago en efectivo registrado',
+          p_message: `${schoolName || 'La escuela'} registró tu pago de ${formatCurrency(total)} (${selectedMulti.length} cobros): ${resumen}.`,
+          p_type: 'success',
+          p_link: '/my-payments',
+        });
+      }
+      if (selectedStudent.parent_email) {
+        emailClient.send({
+          type: 'payment_confirmation',
+          to: selectedStudent.parent_email,
+          data: {
+            userName: selectedStudent.parent_name || 'Padre de familia',
+            schoolName: schoolName || 'La escuela',
+            amount: formatCurrency(total),
+            concept: resumen,
+            reference,
+          },
+        }).catch(() => {}); // Fire and forget
+      }
+
+      toast({
+        title: 'Pagos registrados',
+        description: `${selectedMulti.length} cobro(s) por ${formatCurrency(total)} quedaron como pagados.`,
+      });
+      onSuccess();
+      onOpenChange(false);
+      resetForm();
+    } catch (err: any) {
+      console.error(err);
+      if (isDuplicateReceiptError(err)) {
+        toast({
+          title: 'Comprobante ya registrado',
+          description: 'Este soporte ya está vinculado a otro pago de la escuela. Revísalo en Validación de Cobros antes de volver a registrarlo.',
+          variant: 'destructive',
+        });
+      } else {
+        const msg: string = err?.message || 'Ocurrió un error inesperado';
+        toast({
+          title: 'No se registraron los pagos',
+          // Los errores de la RPC vienen como «codigo: explicación».
+          description: msg.includes(':') ? msg.split(':').slice(1).join(':').trim() : msg,
+          variant: 'destructive',
+        });
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -430,7 +548,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
 
       // Apply only to the selected pending payment, or create a new one.
       if (selectedPaymentId !== 'new') {
-        const { error: updateError } = await supabase
+        const { data: updatedRows, error: updateError } = await supabase
           .from('payments')
           .update({
             status: 'paid',
@@ -446,9 +564,16 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
             ...unblockFields,
             ...receiptFields,
           } as any)
-          .eq('id', selectedPaymentId);
+          .eq('id', selectedPaymentId)
+          .select('id');
 
         if (updateError) throw updateError;
+        // La policy «Payments: update admin» solo deja actualizar a owner/admin: con
+        // otro rol el UPDATE afecta 0 filas SIN error y esto reportaba «Cobro
+        // registrado» sin haber registrado nada.
+        if (!updatedRows || updatedRows.length === 0) {
+          throw new Error('No se registró el pago: tu rol no puede modificar cobros de esta escuela. Pídele a un owner o administrador que lo registre.');
+        }
       } else {
         // No pending payment found — create a new one
         const chargeFields = manualChargeInsertFields(newChargeCategory, selectedStudent.offering_plan_id || null);
@@ -595,6 +720,8 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
   const resetForm = () => {
     setSelectedAthleteId('');
     setSelectedPaymentId('new');
+    setMultiMode(false);
+    setSelectedIds([]);
     setPendingPayments([]);
     setPaymentMethod('cash');
     setConcept('Mensualidad');
@@ -615,7 +742,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
       onOpenChange(val);
       if (!val) resetForm();
     }}>
-      <DialogContent className="sm:max-w-[480px] w-[95vw] p-0 overflow-hidden border-primary/20 bg-background/95 backdrop-blur-xl shadow-2xl max-h-[90vh] flex flex-col">
+      <DialogContent className="sm:max-w-lg w-[95vw] p-0 overflow-hidden border-primary/20 bg-background/95 backdrop-blur-xl shadow-2xl max-h-[90vh] flex flex-col">
         <DialogHeader className="p-8 pb-4 border-b bg-primary/5 shrink-0">
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 bg-emerald-500/10 rounded-xl">
@@ -836,6 +963,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
               <Label htmlFor="pending-payment" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                 <FileText className="h-3.5 w-3.5" /> Aplicar a
               </Label>
+              {!multiMode && (
               <Select value={selectedPaymentId} onValueChange={handlePendingSelect} disabled={loadingPending}>
                 <SelectTrigger id="pending-payment" className="h-12 bg-background/50 border-border/40 rounded-xl font-bold">
                   <SelectValue placeholder={loadingPending ? 'Cargando...' : 'Selecciona un pago pendiente'} />
@@ -852,6 +980,79 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
                   ))}
                 </SelectContent>
               </Select>
+              )}
+
+              {/* Pagar varios cobros a la vez. */}
+              {pendingPayments.length > 1 && (
+                <button
+                  type="button"
+                  className="text-[11px] font-bold text-primary underline-offset-2 hover:underline"
+                  onClick={() => {
+                    setMultiMode(v => !v);
+                    setSelectedIds([]);
+                    setSelectedPaymentId('new');
+                  }}
+                >
+                  {multiMode ? 'Volver a pagar un solo cobro' : 'Pagar varios cobros a la vez'}
+                </button>
+              )}
+
+              {multiMode && (
+                <div className="space-y-2 rounded-xl border border-border/40 bg-background/50 p-3">
+                  <label className="flex items-center gap-2 text-[11px] font-bold cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={allSelected}
+                      onChange={(e) => setSelectedIds(e.target.checked ? pendingPayments.map(p => p.id) : [])}
+                    />
+                    Seleccionar todos ({pendingPayments.length})
+                  </label>
+                  <div className="max-h-48 space-y-1 overflow-y-auto">
+                    {pendingPayments.map((p) => (
+                      <label key={p.id} className="flex items-start gap-2 rounded-lg p-1.5 text-xs cursor-pointer hover:bg-muted/40">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 h-4 w-4"
+                          checked={selectedIds.includes(p.id)}
+                          onChange={() => toggleSelected(p.id)}
+                        />
+                        <span className="flex-1">
+                          <span className="block font-medium">{p.concept}</span>
+                          <span className="block text-muted-foreground">
+                            {formatCurrency(Number(p.amount) || 0)} · Vence {format(new Date(p.due_date), 'd MMM yyyy', { locale: es })}
+                            {p.status === 'overdue' ? ' · atrasado' : ''}
+                            {Number(p.discount_pct) > 0 ? ` · desc. ${Number(p.discount_pct)}%` : ''}
+                          </span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-between border-t border-border/40 pt-2 text-sm font-black">
+                    <span>Total a registrar ({selectedMulti.length})</span>
+                    <span>{formatCurrency(multiTotal)}</span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    Cada cobro se registra por su propio valor (ya con descuento y mora). Si alguno falla, no se registra ninguno.
+                  </p>
+                </div>
+              )}
+
+              {/* Descuento aplicado al registrar al estudiante. */}
+              {selectedPending && pendingDiscountPct > 0 && (
+                <div className="flex items-start gap-2 rounded-lg border border-emerald-400/40 bg-emerald-500/10 p-2">
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0 mt-0.5 text-emerald-500" />
+                  <div className="space-y-0.5 text-[11px] text-emerald-700 dark:text-emerald-400">
+                    <p className="font-bold">Este cobro tiene un descuento del {pendingDiscountPct}%</p>
+                    {pendingListAmount > 0 && pendingAmount !== null && (
+                      <p>
+                        Precio de lista {formatCurrency(pendingListAmount)} − descuento{' '}
+                        {formatCurrency(pendingListAmount - pendingAmount)} = {formatCurrency(pendingAmount)}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Rechazo previo de la pasarela. Informativo: no frena el registro manual. */}
               {reviewNotice && (
@@ -943,6 +1144,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
             </div>
           )}
 
+          {!multiMode && (
           <div className="space-y-3">
             <Label htmlFor="concept" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
               <FileText className="h-3.5 w-3.5" /> Concepto de pago
@@ -955,6 +1157,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
               className="h-12 bg-background/50 border-border/40 rounded-xl font-medium focus-visible:ring-primary/20"
             />
           </div>
+          )}
 
           {/* Tipo del cobro NUEVO. Decide si lleva «Mes que cubre» (solo la
               mensualidad) y si pagarlo extiende la vigencia (un cobro único
@@ -1026,7 +1229,12 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
               <Label htmlFor="amount" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                 <Landmark className="h-3.5 w-3.5" /> Monto ($ COP)
               </Label>
-              <NumberStepper 
+              {multiMode ? (
+                <div className="flex h-12 items-center rounded-xl border border-border/40 bg-muted/30 px-3 font-black">
+                  {formatCurrency(multiTotal)}
+                </div>
+              ) : (
+              <NumberStepper
                 value={amount}
                 onChange={setAmount}
                 step={10000}
@@ -1034,6 +1242,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
                 unit="COP"
                 className="h-12"
               />
+              )}
             </div>
             <div className="space-y-3">
               <Label htmlFor="date" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
@@ -1066,15 +1275,34 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
             </div>
           </div>
 
-          <Button 
+          {/* El monto a registrar no coincide con el del cobro (p. ej. se quitó el
+              descuento): se pide confirmación antes de sobrescribirlo. */}
+          {amountDiffersFromCharge && pendingAmount !== null && (
+            <label className="flex items-start gap-2 rounded-lg border border-amber-400/40 bg-amber-500/10 p-3 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4"
+                checked={confirmAmountChange}
+                onChange={(e) => setConfirmAmountChange(e.target.checked)}
+              />
+              <span className="text-[11px] text-amber-700 dark:text-amber-400">
+                <span className="font-bold block">El monto es distinto al del cobro</span>
+                El cobro es de {formatCurrency(pendingAmount)}
+                {pendingDiscountPct > 0 ? ` (ya con el descuento del ${pendingDiscountPct}%)` : ''} y vas a registrar{' '}
+                {formatCurrency(typeof amount === 'number' ? amount : 0)}. Marca la casilla para confirmar que es correcto.
+              </span>
+            </label>
+          )}
+
+          <Button
             className={cn(
               "w-full h-14 mt-4 font-black uppercase tracking-widest text-sm shadow-xl transition-all gap-3",
-              paymentMethod === 'cash' 
-                ? "bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20" 
+              paymentMethod === 'cash'
+                ? "bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20"
                 : "bg-blue-500 hover:bg-blue-600 shadow-blue-500/20"
             )}
-            disabled={loading} 
-            onClick={handleSave}
+            disabled={loading || (multiMode && selectedMulti.length === 0) || (amountDiffersFromCharge && !confirmAmountChange)}
+            onClick={multiMode ? handleSaveMulti : handleSave}
           >
             {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
             {loading ? 'Registrando...' : 'Confirmar Registro'}

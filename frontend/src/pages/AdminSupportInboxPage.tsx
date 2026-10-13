@@ -128,7 +128,7 @@ export default function AdminSupportInboxPage() {
             </div>
 
             <div className="grid md:grid-cols-[320px_1fr] gap-4">
-                <Card className="h-[70vh] overflow-hidden flex flex-col">
+                <Card className="h-[70dvh] overflow-hidden flex flex-col">
                     <ScrollArea className="flex-1">
                         {loadingTickets ? (
                             <LoadingSpinner text="Cargando..." />
@@ -161,7 +161,7 @@ export default function AdminSupportInboxPage() {
                     </ScrollArea>
                 </Card>
 
-                <Card className="h-[70vh] flex flex-col">
+                <Card className="h-[70dvh] flex flex-col">
                     {!selectedId ? (
                         <CardContent className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
                             Selecciona un ticket de la izquierda.

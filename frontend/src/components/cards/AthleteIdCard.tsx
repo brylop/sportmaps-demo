@@ -1,6 +1,7 @@
 import { forwardRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { ShieldCheck, AlertTriangle, XCircle, CalendarDays, Hash, MapPin, Users, Heart, Phone, Shirt, User } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, XCircle, CalendarDays, Hash, MapPin, Users, Heart, Phone, Shirt, User, Lock } from 'lucide-react';
+import { translateRevocationReason } from '@/lib/cards/cardLayout';
 
 export type CardLayout = 'classic' | 'modern' | 'minimal' | 'photo' | 'stripe';
 export type CardPattern = 'none' | 'diagonal' | 'dots' | 'grid' | 'waves';
@@ -10,6 +11,9 @@ export type CardTextMode = 'auto' | 'light' | 'dark';
 export type CardData = {
   found: boolean;
   status: 'active' | 'revoked' | 'expired' | string;
+  /** Quién está mirando, según la RPC: el público no recibe datos médicos,
+   *  de emergencia, documento ni pagos (mig 20261010201231). */
+  viewer?: 'public' | 'staff' | 'guardian';
   card_id?: string;
   qr_token?: string;
   issued_at?: string;
@@ -37,7 +41,7 @@ export type CardData = {
     show_fields?: Record<string, boolean>;
   } | null;
   athlete?: {
-    kind: 'child' | 'profile';
+    kind: 'child' | 'profile' | 'unregistered';
     full_name: string;
     avatar_url?: string | null;
     doc_type?: string | null;
@@ -94,6 +98,9 @@ interface Props {
   className?: string;
   /** Cara a mostrar. 'back' muestra datos de emergencia/médicos. Default 'front'. */
   face?: 'front' | 'back';
+  /** 'print' quita la sombra y las esquinas redondeadas: es lo que se captura
+   *  para el PDF/PNG (se recorta en rectángulo con las marcas de corte). */
+  variant?: 'screen' | 'print';
 }
 
 /** Todo lo que los cinco layouts necesitan resuelto una sola vez. */
@@ -112,7 +119,7 @@ type Theme = {
   backgroundUrl: string | null;
 };
 
-export const AthleteIdCard = forwardRef<HTMLDivElement, Props>(({ data, publicUrl, className = '', face = 'front' }, ref) => {
+export const AthleteIdCard = forwardRef<HTMLDivElement, Props>(({ data, publicUrl, className = '', face = 'front', variant = 'screen' }, ref) => {
   const t = resolveTheme(data);
   const show = { ...DEFAULT_SHOW, ...(data.template?.show_fields || {}) };
   const feeKey = data.fee_status || 'unknown';
@@ -125,7 +132,7 @@ export const AthleteIdCard = forwardRef<HTMLDivElement, Props>(({ data, publicUr
   return (
     <div
       ref={ref}
-      className={`relative rounded-2xl overflow-hidden shadow-2xl ${className}`}
+      className={`relative overflow-hidden ${variant === 'print' ? '' : 'rounded-2xl shadow-2xl'} ${className}`}
       style={{ width: CARD_W, height: CARD_H, background: t.canvas, color: t.inkColor }}
     >
       {/* Imagen de fondo de la plantilla, si la escuela subió una. El velo de
@@ -176,7 +183,7 @@ export const AthleteIdCard = forwardRef<HTMLDivElement, Props>(({ data, publicUr
           <p className="text-white font-bold uppercase tracking-wider">
             {data.status === 'revoked' ? 'Carnet revocado' : 'Carnet vencido'}
           </p>
-          {data.reason && <p className="text-white/80 text-xs mt-1 px-6 text-center">{data.reason}</p>}
+          {data.reason && <p className="text-white/80 text-xs mt-1 px-6 text-center">{translateRevocationReason(data.reason)}</p>}
         </div>
       )}
     </div>
@@ -347,11 +354,13 @@ function dataRows(ctx: LayoutCtx): { icon: typeof ShieldCheck; label: string; va
 function Row({ icon: Icon, label, value, t }: { icon: typeof ShieldCheck; label: string; value: string; t: Theme }) {
   return (
     <div className="flex items-center gap-2" style={{ color: t.inkColor }}>
-      <div className="p-1 rounded" style={{ background: t.ink(0.2) }}>
+      <div className="p-1 rounded shrink-0" style={{ background: t.ink(0.2) }}>
         <Icon className="h-3 w-3" />
       </div>
-      <span className="text-[10px] uppercase tracking-wider w-16" style={{ color: t.ink(0.7) }}>{label}</span>
-      <span className="text-xs font-medium truncate flex-1">{value}</span>
+      {/* w-20: «EMERGENCIA» no cabía en w-16 y se montaba sobre el valor. El valor
+          puede ir en dos renglones: cortado con «…» el teléfono quedaba ilegible. */}
+      <span className="text-[10px] uppercase tracking-wider w-20 shrink-0" style={{ color: t.ink(0.7) }}>{label}</span>
+      <span className="text-xs font-medium leading-snug break-words min-w-0 flex-1">{value}</span>
     </div>
   );
 }
@@ -511,6 +520,7 @@ function ModernFace({ ctx }: { ctx: LayoutCtx }) {
   const { data, t, show, publicUrl } = ctx;
   return (
     <>
+      {/* px fijos a propósito: cara de tarjeta CR80 de tamaño de impresión, no responsive */}
       <div className="relative px-5 pt-5 flex items-start gap-3" style={{ height: 168 }}>
         <Logo ctx={ctx} size={40} />
         <div className="flex-1 min-w-0 pt-0.5">
@@ -681,6 +691,7 @@ function PhotoFace({ ctx }: { ctx: LayoutCtx }) {
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
           {dataRows(ctx).slice(0, 4).map((r) => (
             <div key={r.label} className="min-w-0">
+              {/* max-w en px: layout fijo de la tarjeta CR80 impresa */}
               <div className="text-[8px] uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.65)' }}>{r.label}</div>
               <div className="text-[11px] font-semibold truncate max-w-[130px]">{r.value}</div>
             </div>
@@ -767,15 +778,18 @@ function StripeFace({ ctx }: { ctx: LayoutCtx }) {
 /** Reverso: datos médicos / de emergencia + QR + términos. Igual para todos los
  *  layouts — es la cara que se lee en una urgencia, no el lugar para lucirse. */
 function BackFace({ ctx }: { ctx: LayoutCtx }) {
-  const { data, t, publicUrl } = ctx;
+  const { data, t, publicUrl, show } = ctx;
   const a = data.athlete;
-  const rows: [string, string | null | undefined][] = [
-    ['Contacto de emergencia', a?.emergency_contact],
-    ['EPS', a?.eps_name],
-    ['RH', a?.blood_type],
-    ['Talla', a?.tshirt_size],
+  // Respeta los show_fields de la plantilla (la RPC ya los filtra; esto cubre
+  // la vista previa del editor, que arma los datos a mano).
+  const rows: [string, string | null | undefined, boolean][] = [
+    ['Contacto de emergencia', a?.emergency_contact, !!show.emergency_contact],
+    ['EPS', a?.eps_name, !!show.eps],
+    ['RH', a?.blood_type, !!show.blood_type],
+    ['Talla', a?.tshirt_size, !!show.tshirt_size],
   ];
-  const shown = rows.filter(([, v]) => !!v);
+  const shown = rows.filter(([, v, on]) => on && !!v);
+  const isPublic = data.viewer === 'public';
   return (
     <div className="relative h-full px-5 pt-5 pb-4 flex flex-col" style={{ color: t.inkColor }}>
       <div className="flex items-center gap-3 pb-3" style={{ borderBottom: `1px solid ${t.ink(0.2)}` }}>
@@ -786,16 +800,30 @@ function BackFace({ ctx }: { ctx: LayoutCtx }) {
         </div>
       </div>
 
-      <div className="mt-4 space-y-3">
+      <div className="mt-2">
+        <p className="text-sm font-bold leading-tight break-words">{a?.full_name || '—'}</p>
+        {(data.team_name || data.branch_name) && (
+          <p className="text-[10px] leading-snug mt-0.5" style={{ color: t.ink(0.75) }}>
+            {[data.team_name, data.branch_name].filter(Boolean).join(' · ')}
+          </p>
+        )}
+      </div>
+
+      <div className="mt-3 space-y-3">
         {shown.length > 0 ? (
           shown.map(([k, v]) => (
             <div key={k}>
               <div className="text-[9px] uppercase tracking-wider" style={{ color: t.ink(0.6) }}>{k}</div>
-              <div className="text-sm font-semibold">{v}</div>
+              <div className="text-sm font-semibold leading-snug break-words">{v}</div>
             </div>
           ))
+        ) : isPublic ? (
+          <p className="text-xs flex items-start gap-1.5 leading-snug" style={{ color: t.ink(0.75) }}>
+            <Lock className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+            Los datos médicos y de emergencia solo los ven la escuela y el acudiente con su sesión iniciada.
+          </p>
         ) : (
-          <p className="text-xs" style={{ color: t.ink(0.6) }}>
+          <p className="text-xs leading-snug" style={{ color: t.ink(0.6) }}>
             Sin datos médicos configurados en la plantilla de este carnet.
           </p>
         )}
@@ -804,7 +832,7 @@ function BackFace({ ctx }: { ctx: LayoutCtx }) {
       <div className="my-4" style={{ borderTop: `1px solid ${t.ink(0.2)}` }} />
 
       <div className="flex items-center gap-3">
-        <Qr publicUrl={publicUrl} size={54} />
+        <Qr publicUrl={publicUrl} size={64} />
         <p className="text-[10px] leading-snug" style={{ color: t.ink(0.85) }}>
           Escanea para <strong>validar este carnet</strong> en línea. Estado en tiempo real.
         </p>

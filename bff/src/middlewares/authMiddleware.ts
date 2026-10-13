@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { supabase } from '../config/supabase';
 import { getCachedUser, getCachedMembership, type CachedUser } from '../utils/authCache';
+import { esAdminDePlataforma } from './requirePlatformAdmin';
 
 /**
  * Valida el Bearer token contra Supabase, con cache de TTL corto.
@@ -413,7 +414,15 @@ export const requireMarketplaceAuth = async (
             email: user.email!, 
             user_metadata: user.user_metadata 
         };
-        req.role = (profile?.role as Request['role']) || 'athlete';
+        // profiles.role lo fija el signup desde raw_user_meta_data: no es fuente
+        // de privilegio. 'admin'/'super_admin' pasan requireVendorProfile y el gate
+        // de vendor-products por PRIVILEGED_ROLES, así que solo se respetan si la
+        // cuenta figura en platform_admins (misma fuente que is_super_admin()).
+        let role = (profile?.role as Request['role']) || 'athlete';
+        if (role === 'admin' || role === 'super_admin') {
+            role = (await esAdminDePlataforma(user.id)) ? 'super_admin' : 'athlete';
+        }
+        req.role = role;
         // schoolId y branchId no aplican para vendor routes
         req.schoolId = '';
         req.branchId = null;

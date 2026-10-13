@@ -526,7 +526,7 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
                       }`}>
                         {isBlockDone ? '✓' : idx + 1}
                       </span>
-                      <span className="max-w-[90px] truncate">{b.name ?? `Ej. ${idx + 1}`}</span>
+                      <span className="max-w-24 truncate">{b.name ?? `Ej. ${idx + 1}`}</span>
                     </button>
                   );
                 })}
@@ -673,12 +673,12 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
                                 )}
                               </div>
                             ) : (
-                              <div className="flex flex-col items-center justify-center p-8 rounded-3xl border-2 border-dashed border-border/30 bg-muted/5 text-center min-h-[220px] animate-in fade-in duration-300">
+                              <div className="flex flex-col items-center justify-center p-8 rounded-3xl border-2 border-dashed border-border/30 bg-muted/5 text-center min-h-56 animate-in fade-in duration-300">
                                 <div className="h-12 w-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-4">
                                   <Dumbbell className="h-6 w-6 text-primary animate-pulse" />
                                 </div>
                                 <p className="text-sm font-black text-foreground">Instrucciones listas</p>
-                                <p className="text-xs text-muted-foreground mt-2 max-w-[240px] leading-relaxed">
+                                <p className="text-xs text-muted-foreground mt-2 max-w-60 leading-relaxed">
                                   Realiza las series indicadas manteniendo una técnica controlada y segura en cada repetición.
                                 </p>
                               </div>
@@ -953,7 +953,7 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
               <Button
                 onClick={handleComplete}
                 disabled={submitting || completed}
-                className="gap-2 min-w-[160px] h-10 font-black bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20 rounded-xl"
+                className="gap-2 min-w-40 h-10 font-black bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20 rounded-xl"
               >
                 {completed   ? <><CheckCircle2 className="h-4 w-4" /> ¡Completada!</> :
                  submitting  ? <><Loader2 className="h-4 w-4 animate-spin" /> Guardando...</> :

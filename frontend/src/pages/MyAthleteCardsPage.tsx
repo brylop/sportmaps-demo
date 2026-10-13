@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, IdCard, Download, ExternalLink, AlertCircle, Building, ShieldCheck, ShieldX, Clock } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Loader2, IdCard, Download, ExternalLink, AlertCircle, Building, ShieldCheck, ShieldX, Clock, RotateCw, Info } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -8,6 +8,8 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { AthleteIdCard, type CardData } from '@/components/cards/AthleteIdCard';
+import { exportCardPng } from '@/lib/cards/cardExport';
+import { pickCurrentCards, slugifyFileName } from '@/lib/cards/cardLayout';
 
 type MyCardRow = {
   card_id: string;
@@ -46,8 +48,8 @@ export default function MyAthleteCardsPage() {
   const [previewToken, setPreviewToken] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<CardData | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewFace, setPreviewFace] = useState<'front' | 'back'>('front');
   const [downloading, setDownloading] = useState(false);
-  const previewRef = useRef<HTMLDivElement>(null);
 
   const publicCardOrigin = useMemo(() => {
     if (typeof window === 'undefined') return '';
@@ -56,6 +58,7 @@ export default function MyAthleteCardsPage() {
 
   useEffect(() => {
     void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function load() {
@@ -70,22 +73,27 @@ export default function MyAthleteCardsPage() {
     setRows((data as MyCardRow[]) || []);
   }
 
-  // Agrupar por escuela
+  // Por escuela, y dentro de cada escuela solo el carnet vigente de cada atleta:
+  // al reemitir, el anterior queda "Revocado" y antes salía como otra tarjeta
+  // más, que el acudiente leía como "le quitaron el carnet a mi hijo".
   const groups = useMemo(() => {
-    const map = new Map<string, { school_name: string; school_logo: string | null; cards: MyCardRow[] }>();
+    const map = new Map<string, { school_name: string; school_logo: string | null; rows: MyCardRow[] }>();
     for (const r of rows) {
-      const key = r.school_id;
-      if (!map.has(key)) {
-        map.set(key, { school_name: r.school_name, school_logo: r.school_logo, cards: [] });
-      }
-      map.get(key)!.cards.push(r);
+      if (!map.has(r.school_id)) map.set(r.school_id, { school_name: r.school_name, school_logo: r.school_logo, rows: [] });
+      map.get(r.school_id)!.rows.push(r);
     }
-    return Array.from(map.entries());
+    return Array.from(map.entries()).map(([schoolId, g]) => ({
+      schoolId,
+      school_name: g.school_name,
+      school_logo: g.school_logo,
+      cards: pickCurrentCards(g.rows).sort((a, b) => a.card.athlete_name.localeCompare(b.card.athlete_name, 'es')),
+    }));
   }, [rows]);
 
   async function openPreview(qrToken: string) {
     setPreviewToken(qrToken);
     setPreviewData(null);
+    setPreviewFace('front');
     setPreviewOpen(true);
     const { data, error } = await supabase.rpc('verify_athlete_id_card_public' as any, {
       p_qr_token: qrToken,
@@ -98,21 +106,13 @@ export default function MyAthleteCardsPage() {
   }
 
   async function downloadPreview() {
-    if (!previewRef.current) return;
+    if (!previewData || !previewToken) return;
     setDownloading(true);
     try {
-      const html2canvas = (await import('html2canvas')).default;
-      const canvas = await html2canvas(previewRef.current, {
-        backgroundColor: null,
-        scale: 3,
-        useCORS: true,
-        logging: false,
-      });
-      const url = canvas.toDataURL('image/png');
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `carnet-${previewToken?.slice(0, 8)}.png`;
-      a.click();
+      await exportCardPng(
+        { data: previewData, publicUrl: `${publicCardOrigin}/${previewToken}` },
+        `carnet-${slugifyFileName(previewData.athlete?.full_name, previewToken.slice(0, 8))}`,
+      );
     } catch (e: any) {
       toast({ title: 'No se pudo descargar', description: e?.message || 'Error', variant: 'destructive' });
     } finally {
@@ -120,17 +120,19 @@ export default function MyAthleteCardsPage() {
     }
   }
 
+  const title = isAthlete ? 'Mis carnets' : 'Carnets de mis hijos';
+
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto px-4 py-6 sm:p-6 space-y-6">
       <header>
-        <h1 className="text-3xl font-bold flex items-center gap-2">
-          <IdCard className="h-7 w-7 text-primary" />
-          Mis carnets
+        <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-2">
+          <IdCard className="h-7 w-7 text-primary shrink-0" />
+          {title}
         </h1>
         <p className="text-muted-foreground text-sm mt-1">
           {isAthlete
-            ? 'Tus carnets digitales deportivos, con el branding de cada escuela donde entrenas.'
-            : 'Carnets digitales de los atletas a tu cargo. Cada uno con el branding de su escuela.'}
+            ? 'Tus carnets digitales deportivos, con la marca de cada escuela donde entrenas.'
+            : 'El carnet vigente de cada uno de tus hijos, con la marca de su escuela. Tócalo para verlo, voltearlo o descargarlo.'}
         </p>
       </header>
 
@@ -150,54 +152,64 @@ export default function MyAthleteCardsPage() {
         </Card>
       ) : (
         <div className="space-y-6">
-          {groups.map(([schoolId, group]) => (
-            <Card key={schoolId}>
-              <CardHeader className="flex flex-row items-center gap-3 pb-3">
+          {groups.map((group) => (
+            <Card key={group.schoolId}>
+              <CardHeader className="flex flex-row items-center gap-3 pb-3 space-y-0 px-3 sm:px-6">
                 {group.school_logo ? (
-                  <img src={group.school_logo} alt="" className="h-10 w-10 rounded-lg object-contain bg-white p-1" />
+                  <img src={group.school_logo} alt="" className="h-10 w-10 rounded-lg object-contain bg-white p-1 shrink-0" />
                 ) : (
-                  <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                     <Building className="h-5 w-5 text-primary" />
                   </div>
                 )}
-                <div>
-                  <CardTitle className="text-lg">{group.school_name}</CardTitle>
+                <div className="min-w-0">
+                  <CardTitle className="text-lg break-words">{group.school_name}</CardTitle>
                   <p className="text-xs text-muted-foreground">{group.cards.length} carnet{group.cards.length !== 1 ? 's' : ''}</p>
                 </div>
               </CardHeader>
-              <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {group.cards.map((c) => {
+              <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-3 px-3 pb-3 sm:px-6 sm:pb-6">
+                {group.cards.map(({ card: c, revokedCount }) => {
                   const effectiveStatus: 'active' | 'revoked' | 'expired' =
                     c.status === 'revoked' ? 'revoked' :
                     c.is_expired           ? 'expired' : 'active';
                   const sb = STATUS_BADGE[effectiveStatus];
                   const StatusIcon = sb.icon;
                   return (
-                    <div key={c.card_id} className="border rounded-lg p-4 hover:border-primary transition cursor-pointer flex gap-3"
-                         onClick={() => openPreview(c.qr_token)}>
+                    <button
+                      type="button"
+                      key={c.card_id}
+                      className="text-left border rounded-lg p-3 sm:p-4 hover:border-primary transition flex gap-3 items-start w-full"
+                      onClick={() => openPreview(c.qr_token)}
+                    >
                       {c.athlete_photo ? (
-                        <img src={c.athlete_photo} alt="" className="h-16 w-16 rounded-lg object-cover" />
+                        <img src={c.athlete_photo} alt="" className="h-14 w-14 sm:h-16 sm:w-16 rounded-lg object-cover shrink-0" />
                       ) : (
-                        <div className="h-16 w-16 rounded-lg bg-muted flex items-center justify-center text-muted-foreground">
+                        <div className="h-14 w-14 sm:h-16 sm:w-16 rounded-lg bg-muted flex items-center justify-center text-muted-foreground shrink-0">
                           <IdCard className="h-6 w-6" />
                         </div>
                       )}
                       <div className="flex-1 min-w-0">
-                        <p className="font-bold truncate">{c.athlete_name}</p>
+                        {/* Sin truncate: en celular los nombres compuestos se cortaban. */}
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <p className="font-bold leading-tight break-words">{c.athlete_name}</p>
+                          <Badge className={`${sb.cls} gap-1 text-xs`}>
+                            <StatusIcon className="h-3 w-3" /> {sb.label}
+                          </Badge>
+                        </div>
                         <div className="text-xs text-muted-foreground space-y-0.5 mt-1">
-                          {c.team_name && <p>Equipo: {c.team_name}</p>}
-                          {c.branch_name && <p>Sede: {c.branch_name}</p>}
-                          <p>Vence: {new Date(c.valid_until).toLocaleDateString('es-CO')}</p>
-                          {c.relation === 'self' && <Badge variant="outline" className="text-[9px] mt-1">Tu carnet</Badge>}
+                          {c.team_name && <p className="break-words">Equipo: {c.team_name}</p>}
+                          {c.branch_name && <p className="break-words">Sede: {c.branch_name}</p>}
+                          <p>Vence: {new Date(c.valid_until).toLocaleDateString('es-CO')}{c.version > 1 ? ` · versión ${c.version}` : ''}</p>
+                          {c.relation === 'self' && <Badge variant="outline" className="text-xs mt-1">Tu carnet</Badge>}
+                          {revokedCount > 0 && (
+                            <p className="flex items-center gap-1 pt-0.5">
+                              <Info className="h-3 w-3 shrink-0" />
+                              {revokedCount === 1 ? 'Carnet anterior revocado (reemplazado por este).' : `${revokedCount} carnets anteriores revocados.`}
+                            </p>
+                          )}
                         </div>
                       </div>
-                      <div className="flex flex-col items-end gap-1">
-                        <Badge className={`${sb.cls} gap-1 text-[10px]`}>
-                          <StatusIcon className="h-3 w-3" /> {sb.label}
-                        </Badge>
-                        <span className="text-[10px] text-muted-foreground">v{c.version}</span>
-                      </div>
-                    </div>
+                    </button>
                   );
                 })}
               </CardContent>
@@ -207,22 +219,33 @@ export default function MyAthleteCardsPage() {
       )}
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[95vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Vista previa del carnet</DialogTitle>
+            <DialogTitle>Carnet deportivo</DialogTitle>
             <DialogDescription>
-              Usa este QR para presentar el carnet en la escuela. La validación es en tiempo real.
+              Presenta este QR en la escuela. La validación es en tiempo real.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex flex-col items-center gap-4">
+          <div className="flex flex-col items-center gap-3">
             {!previewData ? (
               <Loader2 className="h-6 w-6 animate-spin" />
             ) : (
               <AthleteIdCard
-                ref={previewRef}
                 data={previewData}
+                face={previewFace}
                 publicUrl={`${publicCardOrigin}/${previewToken}`}
               />
+            )}
+            {previewData?.status === 'active' && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setPreviewFace((f) => (f === 'front' ? 'back' : 'front'))}
+                className="gap-1"
+              >
+                <RotateCw className="h-3.5 w-3.5" />
+                {previewFace === 'front' ? 'Ver reverso' : 'Ver frente'}
+              </Button>
             )}
           </div>
           <DialogFooter className="gap-2 sm:justify-between">
@@ -233,9 +256,9 @@ export default function MyAthleteCardsPage() {
               disabled={!previewToken}
             >
               <ExternalLink className="h-4 w-4" />
-              Abrir público
+              Abrir enlace público
             </Button>
-            <Button onClick={downloadPreview} disabled={downloading || !previewData} className="gap-1">
+            <Button onClick={downloadPreview} disabled={downloading || previewData?.status !== 'active'} className="gap-1">
               {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
               Descargar PNG
             </Button>

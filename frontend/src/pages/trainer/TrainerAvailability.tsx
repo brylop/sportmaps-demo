@@ -77,7 +77,7 @@ export default function TrainerAvailability() {
 
   if (!trainerSchoolId || isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[40vh]">
+      <div className="flex items-center justify-center min-h-[40dvh]">
         <Loader2 className="h-5 w-5 animate-spin text-primary mr-2" />
         <span className="text-sm text-muted-foreground">Cargando...</span>
       </div>
@@ -187,7 +187,7 @@ export default function TrainerAvailability() {
                       <p className="text-xs font-medium">Sin sesiones este día</p>
                     </div>
                   ) : (
-                    <div className="space-y-2 max-h-[340px] overflow-y-auto pr-1">
+                    <div className="space-y-2 max-h-list overflow-y-auto pr-1">
                       {ptSessions.map((s) => {
                         const initials = s.client_name
                           .split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase();

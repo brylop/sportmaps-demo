@@ -378,7 +378,7 @@ export default function SchoolJoinQRsPage() {
 
       {/* New QR dialog */}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-lg max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Nuevo código QR</DialogTitle>
             <DialogDescription>Crea un código para una campaña, equipo o sede específica.</DialogDescription>

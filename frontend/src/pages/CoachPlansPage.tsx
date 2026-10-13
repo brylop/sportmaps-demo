@@ -320,7 +320,7 @@ export default function CoachPlansPage() {
             </CardHeader>
             <CardContent>
               {availabilitySlots && availabilitySlots.length > 0 ? (
-                <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+                <div className="space-y-3 max-h-list overflow-y-auto pr-2">
                   {availabilitySlots.map((slot: any) => (
                     <div key={slot.id} className="p-3 rounded-lg border border-border/50 bg-background flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-primary/30 transition-colors shadow-sm">
                       <div className="flex items-center gap-3">
@@ -430,7 +430,7 @@ export default function CoachPlansPage() {
                 Agrega o elimina franjas de disponibilidad.
               </CardDescription>
             </CardHeader>
-            <CardContent className="pt-6 flex-1 min-h-[500px]">
+            <CardContent className="pt-6 flex-1 min-h-96">
               {staffId && schoolId ? (
                 <AvailabilityManager coachId={staffId} schoolId={schoolId} />  // ✅ usa school_staff.id
               ) : user && schoolId && !isStaffLoading ? (

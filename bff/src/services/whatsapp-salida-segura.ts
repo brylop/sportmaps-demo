@@ -75,6 +75,25 @@ export function sinEmojisDeDeporte(t: string): string {
 const OTRO_SISTEMA = /[^.!?\n]*\b(otro sistema|un sistema (automatico|automático|aparte|externo)|sistema automatizado)\b[^.!?\n]*[.!?]?/gi;
 const LA_ESCUELA_REVISA = 'La escuela revisa los comprobantes.';
 
+/**
+ * «Voy a consultar el estado de tus pagos.» y nada más: el turno de REDACTAR
+ * (los datos ya están en el mensaje) devolvió una promesa de consultar. Desde
+ * que ese turno manda las herramientas con tool_choice 'none' (caché de
+ * prompt, 2026-10-10) el modelo a veces escribe el preámbulo de la consulta en
+ * vez de la respuesta (Dynasty 2026-10-11 `8423dad1`, 2026-10-13 `d0631e79`:
+ * 2 de 8 estados de pago). La familia se queda esperando algo que no llega.
+ *
+ * true = promete consultar/revisar y no trae ningún dato (ni monto, ni enlace,
+ * ni fecha). Quien llama usa su respaldo determinista. Pura.
+ */
+const PROMESA_DE_CONSULTA =
+    /\b(voy a|vamos a|d[ée]jame|perm[ií]teme|ya mismo|enseguida|un momento,?\s*(que\s+)?(voy a)?)\s*(consultar|revisar|verificar|buscar|mirar|chequear|validar)\b/i;
+const TRAE_DATOS = /(\$\s?\d|\d{1,3}(?:\.\d{3})+|https?:\/\/|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\s+de\s+[a-z]+)/i;
+export function prometeConsultarSinDatos(texto: string | null | undefined): boolean {
+    const t = String(texto ?? '');
+    return PROMESA_DE_CONSULTA.test(t) && !TRAE_DATOS.test(t);
+}
+
 function escapar(s: string): string {
     return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

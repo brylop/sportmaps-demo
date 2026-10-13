@@ -165,8 +165,7 @@ export function EventsMap({
   return (
     <div 
       ref={mapRef} 
-      className="w-full h-full"
-      style={{ minHeight: '400px' }}
+      className="w-full h-full min-h-96"
     />
   );
 }

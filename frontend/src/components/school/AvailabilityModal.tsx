@@ -38,7 +38,7 @@ export function AvailabilityModal({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="mt-4 min-h-[400px]">
+        <div className="mt-4 min-h-96">
           <AvailabilityManager coachId={coachId} schoolId={schoolId} />
         </div>
 

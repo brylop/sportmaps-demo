@@ -25,6 +25,7 @@ import { bffClient } from '@/lib/api/bffClient';
 import { supabase } from '@/integrations/supabase/client';
 import { FileText, Send, Users, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { downloadAthleteReportPdf } from '@/lib/school/reportsQueries';
+import { fetchCoachTeams } from '@/lib/coachTeamScope';
 
 const MESES = [
     'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -130,7 +131,7 @@ export default function MonthlyReportsPage() {
         });
 
     const { data: equipos } = useQuery({
-        queryKey: ['teams-for-reports', schoolId],
+        queryKey: ['teams-for-reports', schoolId, isCoach],
         enabled: !!schoolId,
         queryFn: async () => {
             const { data } = await supabase
@@ -138,7 +139,13 @@ export default function MonthlyReportsPage() {
                 .select('id, name')
                 .eq('school_id', schoolId)
                 .order('name');
-            return (data ?? []) as { id: string; name: string }[];
+            const todos = (data ?? []) as { id: string; name: string }[];
+            if (!isCoach) return todos;
+            // El coach solo escribe la nota y previsualiza el informe de SUS
+            // equipos (el BFF ahora responde 403 para los demás).
+            const { teamIds } = await fetchCoachTeams(schoolId as string);
+            const propios = new Set(teamIds);
+            return todos.filter((t) => propios.has(t.id));
         },
     });
 

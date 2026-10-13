@@ -27,7 +27,7 @@ export default function MiTiendaPage() {
 
   if (isLoading || target) {
     return (
-      <div className="min-h-[60vh] flex items-center justify-center">
+      <div className="min-h-[60dvh] flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
@@ -35,7 +35,7 @@ export default function MiTiendaPage() {
 
   const schoolName = store?.display_name || 'Tu escuela';
   return (
-    <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3 p-6 text-center" data-testid="mi-tienda-unavailable">
+    <div className="min-h-[60dvh] flex flex-col items-center justify-center gap-3 p-6 text-center" data-testid="mi-tienda-unavailable">
       <Store className="h-12 w-12 text-muted-foreground/40" />
       <h1 className="text-xl font-bold">La tienda aún no está disponible</h1>
       <p className="text-muted-foreground max-w-sm">
