@@ -1,18 +1,22 @@
 /**
  * access-admin.routes — Vista SUPER-ADMIN de logs de control de acceso.
- * Montado en /api/v1/admin/access-logs. Gateado a super_admin/admin.
+ * Montado en /api/v1/admin/access-logs. Gateado a admin de PLATAFORMA
+ * (platform_admins). Antes era requireRole('super_admin','admin'), que deja
+ * pasar a todo 'owner'/'admin' de escuela (PRIVILEGED_ROLES): cualquier dueño
+ * leía los ingresos por torniquete de TODAS las escuelas.
  *
  *  - GET /events       → eventos de acceso de TODAS las escuelas (access_events)
  *  - GET /device-log   → tráfico crudo del protocolo ADMS (adms_device_log)
  */
 import { Router, Response } from 'express';
 import { supabase } from '../config/supabase';
-import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
+import { requireAuth, AuthenticatedRequest } from '../middlewares/authMiddleware';
+import { requirePlatformAdmin } from '../middlewares/requirePlatformAdmin';
 
 const router = Router();
 
 router.use(requireAuth);
-router.use(requireRole('super_admin', 'admin'));
+router.use(requirePlatformAdmin);
 
 // ─── GET /api/v1/admin/access-logs/events ────────────────────────────────────
 // Eventos de acceso cross-escuela, enriquecidos con nombre y dispositivo.

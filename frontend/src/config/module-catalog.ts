@@ -22,6 +22,7 @@ export type ModuleKey =
   | 'gestion_deportiva_entrenamiento_rutinas'
   | 'gestion_deportiva_informe_mensual'
   | 'gestion_deportiva_disponibilidad_coach'
+  | 'deportistas_matriculas_por_revisar'
   | 'finanzas_pagos'
   | 'finanzas_recepcion'
   | 'finanzas_contabilidad'
@@ -85,6 +86,14 @@ export const MODULE_CATALOG: Record<ModuleKey, ModuleDefinition> = {
     // sesiones reservables (Carmel) lo apaga acá; el ítem del menú y la página
     // desaparecen SOLO para los coaches de esa escuela.
     label: 'Mis Planes del coach (disponibilidad y citas)',
+    group: 'Gestión Deportiva',
+  },
+  // Alta por foto de la hoja de matrícula. Va en «Principal» del menú, pero se
+  // agrupa acá en el panel del Super Admin. Apagado en Carmel y GYM RM
+  // (migración 20261009121558).
+  deportistas_matriculas_por_revisar: {
+    key: 'deportistas_matriculas_por_revisar',
+    label: 'Matrículas por revisar',
     group: 'Gestión Deportiva',
   },
   finanzas_pagos: {

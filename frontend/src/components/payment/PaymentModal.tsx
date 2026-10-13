@@ -261,7 +261,7 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[500px] p-0 bg-background max-h-[95vh] overflow-y-auto grid grid-rows-[1fr_auto] gap-0">
+      <DialogContent className="sm:max-w-lg p-0 bg-background max-h-[95vh] overflow-y-auto grid grid-rows-[1fr_auto] gap-0">
         {step === 'success' ? (
           renderSuccess()
         ) : (

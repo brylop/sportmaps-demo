@@ -35,6 +35,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { dayToLocalDate } from '@/lib/dateUtils';
+import { fetchCoachTeams } from '@/lib/coachTeamScope';
 
 export default function TrainingPlansPage() {
   const { user } = useAuth();
@@ -120,17 +121,29 @@ export default function TrainingPlansPage() {
 
   // Fetch offering plans
   const { data: offeringPlans } = useQuery({
-    queryKey: ['school-offering-plans', schoolId],
+    queryKey: ['school-offering-plans', schoolId, currentUserRole],
     queryFn: async () => {
       if (!schoolId) return [];
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('offering_plans')
-        .select('id, name, is_active')
+        .select('id, name, is_active, offering_id')
         .eq('school_id', schoolId)
         .eq('is_active', true)
         .order('name');
       if (error) throw error;
-      return data || [];
+      const planes = (data || []) as { id: string; name: string; is_active: boolean; offering_id: string | null }[];
+      if (currentUserRole !== 'coach') return planes;
+      // El coach ve solo los planes de las disciplinas que tiene asignadas
+      // (offering_coaches) — mismo criterio con que el BFF le deja tomar
+      // asistencia de un plan. Antes veía el roster de cualquier plan.
+      const { staffId } = await fetchCoachTeams(schoolId);
+      if (!staffId) return [];
+      const { data: asignadas } = await (supabase as any)
+        .from('offering_coaches')
+        .select('offering_id')
+        .eq('coach_id', staffId);
+      const propias = new Set(((asignadas ?? []) as { offering_id: string }[]).map((a) => a.offering_id));
+      return planes.filter((p) => p.offering_id && propias.has(p.offering_id));
     },
     enabled: !!schoolId,
   });

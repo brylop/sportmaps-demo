@@ -11,6 +11,7 @@ import {
     emitPlanCharge,
     emitEnrollmentFees,
     enrollmentFeeDueDate,
+    auditEnrollmentFeeWaiver,
     isAthleteActive,
     INACTIVE_ATHLETE_ERROR,
 } from '../services/enrollmentBilling';
@@ -40,6 +41,11 @@ const CreateEnrollmentSchema = z.object({
     // período, el admin elige parcial (diferencia) o completo. Ver
     // POST /plan-change-preview. Sin valor y con pago previo = 'full'.
     plan_change_charge: z.enum(['partial', 'full']).optional(),
+    // Exoneración por alta: la escuela no cobra la inscripción y/o el seguro
+    // del plan en ESTA alta (la mensualidad sí). Ausente = se cobran como hoy.
+    // Solo tiene efecto con plan, y el coach no puede asignar planes (403).
+    waive_registration_fee: z.boolean().optional(),
+    waive_insurance_fee: z.boolean().optional(),
 }).refine(
     (data) => data.user_id || data.child_id || data.unregistered_athlete_id,
     { message: 'Se requiere user_id, child_id o unregistered_athlete_id', path: ['user_id'] }
@@ -665,12 +671,27 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
             await emitPlanCharge(schoolId!, athleteCol, studentId!, data.offering_plan_id, startDate);
             // Inscripción + seguro del plan (F-B). Alta nueva = fila nueva de
             // enrollments → cobra; el cambio de plan (PUT) no pasa por acá (D18).
+            const feeWaivers = {
+                registration: data.waive_registration_fee === true,
+                insurance: data.waive_insurance_fee === true,
+            };
             await emitEnrollmentFees({
                 schoolId: schoolId!,
                 planId: data.offering_plan_id,
                 athleteCol,
                 athleteId: studentId!,
                 dueDate: enrollmentFeeDueDate(startDate),
+                waivers: feeWaivers,
+                log: req.log,
+            });
+            await auditEnrollmentFeeWaiver({
+                schoolId: schoolId!,
+                profileId: req.user?.id,
+                enrollmentId: (enrollment as any)?.id,
+                planId: data.offering_plan_id,
+                athleteCol,
+                athleteId: studentId!,
+                waivers: feeWaivers,
                 log: req.log,
             });
         }

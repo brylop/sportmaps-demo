@@ -132,3 +132,30 @@ npx tsx scripts/wa-registrar-plantilla.ts pago_recibido_otro_concepto <school_id
 npx tsx scripts/wa-registrar-plantilla.ts comprobante_en_revision <school_id>
 npx tsx scripts/wa-registrar-plantilla.ts recordatorio_clase_cortesia <school_id>
 ```
+
+## Plantillas del canal de PLATAFORMA (`plataforma/`)
+
+Viven en la WABA **de SportMaps** (número comercial +57 320 268 3539), no en la de
+ninguna escuela. Por eso están en una subcarpeta: `register-templates.sh` solo
+lee `*.json` de esta carpeta y `wa-copiar-plantillas.ts` copia entre WABAs de
+escuelas; ninguno de los dos las ve. Spec: `docs/specs/canal-whatsapp-plataforma.md`.
+
+| Archivo | Aviso | Variables | Botón (sufijo de `https://app.sportmaps.co/{{1}}`) |
+|---|---|---|---|
+| `sm_comprobantes_por_revisar.json` | comprobantes por validar | escuela · cantidad · espera | `payments-automation?tab=recurrent` |
+| `sm_caso_por_atender.json` | escalación / solicitud de retiro | escuela · qué pasó | `whatsapp?conversacion=<id>` |
+| `sm_clase_cortesia_novedad.json` | clase de cortesía (agendada, llegada…) | escuela · qué pasó | `whatsapp?tab=cortesias` |
+| `sm_resumen_diario.json` | resumen de las 7:00 | escuela · resumen | `whatsapp?tab=conversaciones` |
+| `sm_informe_cartera_semanal.json` | cartera de los lunes (solo cifras) | escuela · familias · total · comprobantes | `finances` |
+
+Todas UTILITY `es_CO`. Solo se usan cuando la dueña NO escribió al número en
+las últimas 24 h; dentro de la ventana sale texto libre con botón.
+
+```bash
+npx tsx scripts/wa-plataforma.ts plantillas            # simula: muestra lo que mandaría
+npx tsx scripts/wa-plataforma.ts plantillas --aplicar  # las registra en la WABA de SportMaps
+npx tsx scripts/wa-plataforma.ts estado                # canal + estado de cada plantilla en Meta
+```
+
+NO usar `wa-registrar-plantilla.ts` para estas: ese script registra en la WABA
+de una ESCUELA.

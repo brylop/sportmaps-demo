@@ -123,7 +123,7 @@ export const BrandedEmailTemplates = {
                     </table>
                 `,
                 cta: { label: 'Pagar Ahora', url: params.paymentLink },
-                closingHtml: 'Si ya realizaste el pago, podés omitir este mensaje.',
+                closingHtml: 'Si ya realizaste el pago, puedes omitir este mensaje.',
             }),
         };
     },
@@ -141,8 +141,16 @@ export const BrandedEmailTemplates = {
         dueDate: string;
         paymentLink: string;
         schoolId: string | null;
+        /**
+         * Cobro ÚNICO (inscripción, seguro…): su etiqueta. Sin ella el texto
+         * habla de «la mensualidad», que es lo que este aviso fue siempre.
+         */
+        chargeLabel?: string | null;
     }): Promise<{ subject: string; html: string }> => {
         const branding = await resolveSchoolBranding(params.schoolId);
+        const queCobro = params.chargeLabel
+            ? `el cobro de <strong>${escapeHtml(params.chargeLabel)}</strong>`
+            : 'la mensualidad';
 
         return {
             subject: `Nuevo cobro disponible — ${branding.schoolName.replace(/&amp;/g, '&')}`,
@@ -151,7 +159,7 @@ export const BrandedEmailTemplates = {
                 title: 'Nuevo Cobro Disponible',
                 greeting: `Hola ${escapeHtml(params.parentName)},`,
                 bodyHtml: `
-                    <p>Ya está disponible la mensualidad de <strong>${escapeHtml(params.childName)}</strong>
+                    <p>Ya está disponible ${queCobro} de <strong>${escapeHtml(params.childName)}</strong>
                     en <strong>${branding.schoolName}</strong>.</p>
                     <table cellpadding="0" cellspacing="0" border="0" width="100%"
                            style="background-color: #f3f4f6; border-radius: 8px; margin: 16px 0;">
@@ -180,8 +188,18 @@ export const BrandedEmailTemplates = {
         dueDate: string;
         paymentLink: string;
         schoolId: string | null;
+        /** Cobro ÚNICO (inscripción, seguro…): su etiqueta. Sin ella, «la mensualidad». */
+        chargeLabel?: string | null;
+        /** Concepto del cobro; si viene, se muestra en el recuadro. */
+        concept?: string | null;
     }): Promise<{ subject: string; html: string }> => {
         const branding = await resolveSchoolBranding(params.schoolId);
+        const queCobro = params.chargeLabel
+            ? `del cobro de <strong>${escapeHtml(params.chargeLabel)}</strong>`
+            : 'de la mensualidad';
+        const lineaConcepto = params.concept
+            ? `<p style="margin: 4px 0;"><strong>Concepto:</strong> ${escapeHtml(params.concept)}</p>`
+            : '';
 
         return {
             subject: `Pago vencido — ${branding.schoolName.replace(/&amp;/g, '&')}`,
@@ -190,18 +208,19 @@ export const BrandedEmailTemplates = {
                 title: 'Pago Vencido',
                 greeting: `Hola ${escapeHtml(params.parentName)},`,
                 bodyHtml: `
-                    <p>El pago de la mensualidad de <strong>${escapeHtml(params.childName)}</strong>
+                    <p>El pago ${queCobro} de <strong>${escapeHtml(params.childName)}</strong>
                     en <strong>${branding.schoolName}</strong> ya pasó su fecha límite y sigue pendiente.</p>
                     <table cellpadding="0" cellspacing="0" border="0" width="100%"
                            style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; margin: 16px 0;">
                         <tr><td style="padding: 16px;">
+                            ${lineaConcepto}
                             <p style="margin: 4px 0;"><strong>Monto a pagar:</strong> ${escapeHtml(params.amount)}</p>
                             <p style="margin: 4px 0;"><strong>Venció el:</strong> ${escapeHtml(params.dueDate)}</p>
                         </td></tr>
                     </table>
                 `,
                 cta: { label: 'Pagar Ahora', url: params.paymentLink },
-                closingHtml: 'Si ya realizaste el pago, podés omitir este mensaje.',
+                closingHtml: 'Si ya realizaste el pago, puedes omitir este mensaje.',
             }),
         };
     },

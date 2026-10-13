@@ -169,7 +169,7 @@ export function SupportChatModal({ isOpen, onClose }: SupportChatModalProps) {
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="max-w-lg h-[600px] flex flex-col p-0 gap-0 overflow-hidden">
+            <DialogContent className="max-w-lg h-[37.5rem] max-h-sheet flex flex-col p-0 gap-0 overflow-hidden">
                 <DialogHeader className="px-4 py-3 border-b bg-muted/40">
                     <DialogTitle className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-3">

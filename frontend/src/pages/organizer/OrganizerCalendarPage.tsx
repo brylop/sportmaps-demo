@@ -106,7 +106,7 @@ export default function OrganizerCalendarPage() {
     return (
       <div className="container mx-auto py-6 px-4 max-w-6xl space-y-6">
         <Skeleton className="h-10 w-48" />
-        <Skeleton className="h-[500px] w-full" />
+        <Skeleton className="h-96 w-full" />
       </div>
     );
   }
@@ -157,7 +157,7 @@ export default function OrganizerCalendarPage() {
               {calendarDays.map((day, idx) => (
                 <div
                   key={idx}
-                  className={`min-h-[80px] p-1 rounded-md border text-sm ${
+                  className={`min-h-20 p-1 rounded-md border text-sm ${
                     day.date === null
                       ? 'bg-transparent border-transparent'
                       : day.dateStr === today

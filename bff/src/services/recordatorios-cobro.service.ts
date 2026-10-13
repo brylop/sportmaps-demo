@@ -62,6 +62,7 @@ import {
 } from './whatsapp-plantillas.service';
 import { emitirTokenCobro } from './cobro-enlace-publico.service';
 import { findDuplicatePaymentIds } from './duplicatePayerGuard.service';
+import { esMensualidad } from './tipo-de-cobro';
 import { COLUMNAS_CONTACTO_FICHA, COLUMNAS_CONTACTO_HIJO } from './contacto-acudiente';
 import {
     agruparPorFamilia, contactosConEstadoDeCuentaHoy, esDiaHabil, escuelasConEstadoPendiente,
@@ -251,6 +252,22 @@ export function esHoraDeRecordatorios(ahora: Date): boolean {
 }
 
 /**
+ * ¿Este cobro entra en la escalera de recordatorios? Solo la MENSUALIDAD: las
+ * seis plantillas dicen «la mensualidad de …». Un pago único (inscripción,
+ * seguro, torneo… — `payment_type='one_time'` y/o `payment_category` distinta
+ * de 'mensualidad') NO se recuerda por acá: decirle «mensualidad» a una
+ * inscripción es mentirle, y la mora sobre pagos únicos no es regla de
+ * ninguna escuela todavía (decisión pendiente, 2026-10-10). El filtro de la
+ * consulta (`payment_type='subscription'`) no alcanza solo: `payment_type`
+ * no es fiable y hay filas 'subscription' con categoría de pago único. Pura.
+ */
+export function entraEnRecordatorios(p: { payment_type?: string | null; payment_category?: string | null; concept?: string | null }): boolean {
+    // Sin payment_type en la fila (la consulta ya filtra 'subscription') se toma como tal.
+    const tipo = p.payment_type ?? 'subscription';
+    return tipo === 'subscription' && esMensualidad({ ...p, payment_type: tipo });
+}
+
+/**
  * Cobros cuyo atleta la escuela dio de baja: no se le recuerdan a la familia
  * (caso Dynasty 2026-10-06: a la familia de un atleta inactivo le seguían
  * llegando avisos). Mismo criterio que el estado de cuenta: hijo/ficha con
@@ -371,7 +388,7 @@ export async function planDeEscuela(schoolId: string, ahora: Date, hoyOverride?:
     // Solo mensualidades (las plantillas dicen "la mensualidad de …"), con saldo
     // y sin comprobante en revisión: a quien ya pagó y espera aprobación no se le cobra.
     const { data: crudos, error } = await supabase.from('payments')
-        .select('id, school_id, parent_id, user_id, child_id, unregistered_athlete_id, concept, amount, amount_paid, status, due_date, payment_type, period_year, period_month, charge_notice_sent_at, overdue_notice_sent_at, requires_review')
+        .select('id, school_id, parent_id, user_id, child_id, unregistered_athlete_id, concept, amount, amount_paid, status, due_date, payment_type, payment_category, period_year, period_month, charge_notice_sent_at, overdue_notice_sent_at, requires_review')
         .eq('school_id', schoolId)
         .eq('payment_type', 'subscription')
         .in('status', ['pending', 'overdue', 'partial'])
@@ -379,7 +396,8 @@ export async function planDeEscuela(schoolId: string, ahora: Date, hoyOverride?:
         .lte('due_date', hasta)
         .limit(5000);
     if (error) throw new Error(`payments: ${error.message}`);
-    const pagos = ((crudos as any[]) ?? []).filter((p) => p.requires_review !== true) as PagoEstado[];
+    const pagos = ((crudos as any[]) ?? [])
+        .filter((p) => p.requires_review !== true && entraEnRecordatorios(p)) as PagoEstado[];
 
     const duplicados = new Set(await findDuplicatePaymentIds(schoolId, pagos as any));
     const vivos = pagos.filter((p) => !duplicados.has(p.id));

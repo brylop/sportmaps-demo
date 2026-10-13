@@ -11,8 +11,14 @@ const TabsList = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <TabsPrimitive.List
     ref={ref}
+    // Móvil: si las pestañas no caben, la tira desliza en horizontal sin barra
+    // visible (overflow-x-auto + scrollbar-none) en vez de cortarse. En
+    // escritorio se ve igual que antes: cuando caben no hay scroll.
+    // `tabs-list` (index.css, @layer components) centra con `safe center`
+    // para que al desbordar no se pierda la primera pestaña por la izquierda;
+    // al estar en components, un `justify-start` del consumidor la pisa.
     className={cn(
-      "inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground",
+      "tabs-list inline-flex h-10 max-w-full items-center overflow-x-auto whitespace-nowrap scrollbar-none rounded-md bg-muted p-1 text-muted-foreground",
       className,
     )}
     {...props}

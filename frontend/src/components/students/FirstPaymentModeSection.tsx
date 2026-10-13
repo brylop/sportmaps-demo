@@ -17,6 +17,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2 } from 'lucide-react';
 import { bffClient } from '@/lib/api/bffClient';
 import { formatCOP } from '@/lib/prorationUtils';
+import type { FeeWaivers } from '@/components/students/AltaFirstChargeCard';
 
 export type FirstPaymentMode = 'full_month' | 'remaining_classes';
 export type PartialDue = 'today' | 'next_month_first';
@@ -59,12 +60,16 @@ interface Props {
   discountPct: number;
   value: FirstPaymentChoice;
   onChange: (v: FirstPaymentChoice) => void;
+  /** «No cobrar inscripción / seguro»: el total del alta no los suma. */
+  waivers?: FeeWaivers;
+  /** Atleta que ya tiene cuenta: el BFF descuenta el seguro si ya tiene uno vigente. */
+  athleteUserId?: string | null;
 }
 
 const fmtDate = (d: string) =>
   new Date(d + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
 
-export function FirstPaymentModeSection({ schoolId, planId, startDate, monthlyFee, discountPct, value, onChange }: Props) {
+export function FirstPaymentModeSection({ schoolId, planId, startDate, monthlyFee, discountPct, value, onChange, waivers, athleteUserId }: Props) {
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,6 +87,9 @@ export function FirstPaymentModeSection({ schoolId, planId, startDate, monthlyFe
           start_date: startDate,
           monthly_fee: monthlyFee > 0 ? monthlyFee : null,
           discount_pct: discountPct > 0 ? discountPct : undefined,
+          ...(waivers?.registration ? { waive_registration_fee: true } : {}),
+          ...(waivers?.insurance ? { waive_insurance_fee: true } : {}),
+          ...(athleteUserId ? { user_id: athleteUserId } : {}),
           ...(value.mode === 'remaining_classes' && value.classesRemaining
             ? { classes_remaining: value.classesRemaining, partial_due: value.partialDue }
             : {}),
@@ -94,7 +102,7 @@ export function FirstPaymentModeSection({ schoolId, planId, startDate, monthlyFe
       }
     }, 350);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [schoolId, planId, startDate, monthlyFee, discountPct, value.mode, value.classesRemaining, value.partialDue]);
+  }, [schoolId, planId, startDate, monthlyFee, discountPct, value.mode, value.classesRemaining, value.partialDue, waivers?.registration, waivers?.insurance, athleteUserId]);
 
   // Si el plan deja de ser elegible, volver a "Mes completo".
   useEffect(() => {
@@ -188,7 +196,7 @@ export function FirstPaymentModeSection({ schoolId, planId, startDate, monthlyFe
               ))}
               {preview.total_today != null && (
                 <div className="flex justify-between border-t border-border pt-1 text-xs">
-                  <span>A pagar en el alta (con inscripción y seguro si aplican):</span>
+                  <span>Total primer cobro (con inscripción y seguro que sí se cobran):</span>
                   <span className="font-semibold text-foreground">{formatCOP(preview.total_today)}</span>
                 </div>
               )}

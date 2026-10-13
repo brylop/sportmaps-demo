@@ -144,35 +144,37 @@ export function QuickUseRoutineModal({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md p-0 overflow-hidden shadow-2xl border-primary/20 bg-background flex flex-col max-h-[90vh]">
-        <DialogHeader className="p-6 border-b bg-primary/5 shrink-0">
+      {/* Móvil: pantalla completa (h-screen-d) para que la lista de atletas use
+          todo el alto. Desde sm, el modal angosto de siempre (max-h-sheet). */}
+      <DialogContent className="h-screen-d max-h-screen-d w-full max-w-full rounded-none sm:h-auto sm:max-h-sheet sm:max-w-md sm:rounded-lg gap-0 p-0 pt-safe-t sm:pt-0 overflow-hidden shadow-2xl border-primary/20 bg-background flex flex-col">
+        <DialogHeader className="px-4 py-4 pr-12 sm:p-6 border-b bg-primary/5 shrink-0 text-left">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-primary/10 rounded-xl">
               <CheckCircle2 className="h-5 w-5 text-primary" />
             </div>
-            <div>
-              <DialogTitle className="text-xl">Usar Rutina Ahora</DialogTitle>
+            <div className="min-w-0">
+              <DialogTitle className="text-lg sm:text-xl">Usar Rutina Ahora</DialogTitle>
               <p className="text-xs text-muted-foreground mt-0.5 font-medium">Asignar <span className="text-foreground font-black tracking-tight">{routineName}</span> a un atleta</p>
             </div>
           </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-hidden flex flex-col p-6 space-y-6">
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col p-4 sm:p-6 space-y-4 sm:space-y-6">
           {!selectedClient ? (
             <div className="space-y-4 flex flex-col flex-1 overflow-hidden">
               <Label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground">Paso 1: Selecciona el Atleta</Label>
               <div className="relative shrink-0">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input 
-                  placeholder="Buscar atleta..." 
-                  className="pl-9 bg-accent/20 border-border/40"
+                <Input
+                  placeholder="Buscar atleta..."
+                  className="pl-9 h-touch md:h-10 bg-accent/20 border-border/40"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
 
               <div className="flex-1 overflow-hidden">
-                <ScrollArea className="h-full pr-4">
+                <ScrollArea className="h-full pr-2 sm:pr-4">
                   {loadingClients ? (
                     <div className="flex justify-center py-10">
                       <Loader2 className="h-6 w-6 animate-spin text-primary opacity-20" />
@@ -185,7 +187,7 @@ export function QuickUseRoutineModal({
                         <button
                           key={client.athleteId}
                           onClick={() => setSelectedClient(client)}
-                          className="w-full flex items-center gap-4 p-3 rounded-xl border border-transparent hover:border-primary/20 hover:bg-primary/5 transition-all text-left group"
+                          className="w-full min-h-touch flex items-center gap-3 sm:gap-4 p-3 rounded-xlborder border-transparent hover:border-primary/20 hover:bg-primary/5 transition-all text-left group"
                         >
                           <Avatar className="h-10 w-10 border-2 border-background shadow-sm">
                             <AvatarImage src={client.avatarUrl ?? undefined} />
@@ -209,20 +211,20 @@ export function QuickUseRoutineModal({
             </div>
           ) : (
             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
-              <div className="p-4 rounded-2xl bg-primary/5 border border-primary/20 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Avatar className="h-12 w-12 border-2 border-background shadow-sm">
+              <div className="p-4 rounded-2xl bg-primary/5 border border-primary/20 flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-3">
+                  <Avatar className="h-12 w-12 shrink-0 border-2 border-background shadow-sm">
                     <AvatarImage src={selectedClient.avatarUrl ?? undefined} />
                     <AvatarFallback className="bg-primary/10 text-primary text-xs font-bold">
                       {selectedClient.fullName.substring(0, 2).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-[10px] uppercase font-bold text-primary tracking-widest leading-none mb-1">Atleta Seleccionado</p>
-                    <p className="font-black text-lg leading-tight">{selectedClient.fullName}</p>
+                    <p className="font-black text-lg leading-tight break-words">{selectedClient.fullName}</p>
                   </div>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => setSelectedClient(null)} className="text-[10px] uppercase font-bold hover:bg-primary/10">Cambiar</Button>
+                <Button variant="ghost" size="sm" onClick={() => setSelectedClient(null)} className="shrink-0 min-h-touch md:min-h-0 text-xs md:text-[10px] uppercase font-bold hover:bg-primary/10">Cambiar</Button>
               </div>
 
               <div className="space-y-3">
@@ -247,13 +249,13 @@ export function QuickUseRoutineModal({
           )}
         </div>
 
-        <DialogFooter className="p-6 border-t bg-muted/20 shrink-0">
-          <div className="flex justify-between w-full">
-            <Button variant="ghost" onClick={onClose} disabled={isSubmitting} className="font-bold">Cancelar</Button>
+        <DialogFooter className="px-4 py-3 sm:p-6 border-t bg-muted/20 shrink-0">
+          <div className="flex items-center gap-2 justify-between w-full">
+            <Button variant="ghost" onClick={onClose} disabled={isSubmitting} className="font-bold h-touch md:h-10">Cancelar</Button>
             {selectedClient && (
               <Button 
                 onClick={handleConfirm} 
-                className="px-8 bg-primary hover:bg-primary/90 font-black shadow-lg shadow-primary/20 gap-2 h-11"
+                className="flex-1 sm:flex-none px-4 sm:px-8 bg-primary hover:bg-primary/90 font-black shadow-lg shadow-primary/20 gap-2 h-11"
                 disabled={isSubmitting}
               >
                 {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}

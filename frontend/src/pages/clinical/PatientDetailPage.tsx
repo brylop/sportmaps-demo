@@ -154,7 +154,7 @@ export default function PatientDetailPage() {
             </div>
             <div className="flex flex-wrap gap-2 sm:justify-end">
               <Select value={patient.status} onValueChange={(v) => setStatus.mutate(v as PatientStatus)} disabled={setStatus.isPending}>
-                <SelectTrigger className="h-9 w-[130px]"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-9 w-32"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {(Object.keys(STATUS_LABEL) as PatientStatus[]).map((s) => <SelectItem key={s} value={s}>{STATUS_LABEL[s]}</SelectItem>)}
                 </SelectContent>

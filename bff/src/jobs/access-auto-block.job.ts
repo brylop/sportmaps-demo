@@ -1,5 +1,6 @@
 import { supabase } from '../config/supabase';
 import { getAccessBlockMechanism, buildBlockCommand, computeIsBlocked, athleteKey, BLOCK_COMMAND_TYPES } from '../utils/accessBlockMechanism';
+import { FILTRO_SOLO_MENSUALIDAD } from '../services/payment-accounts';
 
 /**
  * Bloqueo automático por mora — school_settings.access_auto_block_overdue_enabled
@@ -69,7 +70,11 @@ async function reconcileSchool(schoolId: string): Promise<{ blocked: number; unb
     .from('payments')
     .select('user_id, unregistered_athlete_id, child_id')
     .eq('school_id', schoolId)
-    .eq('status', 'overdue');
+    .eq('status', 'overdue')
+    // F0 (migración 20261010143132): solo la mensualidad vencida bloquea. Un
+    // cobro único (torneo, artículo, inscripción…) ya no pasa a 'overdue', y
+    // los que quedaron 'overdue' de antes tampoco deben bloquear.
+    .or(FILTRO_SOLO_MENSUALIDAD);
 
   const overduePins = new Set<number>();
   (overduePayments ?? []).forEach((p: any) => {

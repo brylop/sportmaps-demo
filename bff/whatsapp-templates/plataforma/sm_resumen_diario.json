@@ -1,0 +1,32 @@
+{
+  "name": "sm_resumen_diario",
+  "language": "es_CO",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Buenos días. Este es el resumen de hoy de {{1}}: {{2}}. El detalle está en SportMaps.",
+      "example": {
+        "body_text": [
+          [
+            "Academia Tigres FC",
+            "3 familia(s) sin respuesta, 2 comprobante(s) para revisar, 1 clase(s) de cortesía hoy y mañana"
+          ]
+        ]
+      }
+    },
+    {
+      "type": "BUTTONS",
+      "buttons": [
+        {
+          "type": "URL",
+          "text": "Ver en la app",
+          "url": "https://app.sportmaps.co/{{1}}",
+          "example": [
+            "whatsapp?tab=conversaciones"
+          ]
+        }
+      ]
+    }
+  ]
+}

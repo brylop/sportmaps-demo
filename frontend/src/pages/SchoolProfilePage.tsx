@@ -254,7 +254,7 @@ export default function SchoolProfilePage() {
   }, []);
 
   if (error) return (
-    <div style={{ minHeight: "100vh", background: "#020817", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>
+    <div style={{ minHeight: "100dvh", background: "#020817", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>
       <span style={{ fontSize: 48 }}>😕</span>
       <p style={{ color: "#94a3b8" }}>No encontramos esta escuela</p>
       <button onClick={() => navigate("/explore")} style={{ padding: "10px 24px", borderRadius: 8, background: "#1e293b", color: "#f1f5f9", border: "none", cursor: "pointer" }}>← Volver</button>
@@ -305,7 +305,7 @@ export default function SchoolProfilePage() {
         )}
       </div>
 
-      {/* Content */}
+      {/* Content — maxWidth/minWidth en px a propósito: ya son fluidos (max-width + padding, flex-wrap) */}
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "0 20px 80px" }}>
 
         {/* Header */}

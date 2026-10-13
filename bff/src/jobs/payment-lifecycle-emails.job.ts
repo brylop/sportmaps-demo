@@ -53,6 +53,7 @@ import {
 import { emitirTokenCobro } from '../services/cobro-enlace-publico.service';
 import { contactosConEstadoDeCuentaHoy, escuelasConEstadoPendiente } from '../services/estado-de-cuenta.service';
 import { contactosConRecordatorioHoy } from '../services/recordatorios-cobro.service';
+import { esCobroUnico, etiquetaDeCobro } from '../services/payment-accounts';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://app.sportmaps.co';
 
@@ -74,6 +75,26 @@ interface PaymentRow {
     unregistered_athlete_id: string | null;
     period_year: number | null;
     period_month: number | null;
+    payment_category?: string | null;
+    payment_type?: string | null;
+}
+
+/**
+ * Cobros ÚNICOS (inscripción, seguro, artículos… — categoría explícita distinta
+ * de mensualidad, ver esCobroUnico) en el aviso de VENCIDO (2026-10-10):
+ *   · NO van por WhatsApp: todas las plantillas aprobadas de cobro dicen «la
+ *     mensualidad de …» (pago_pendiente_suave, pago_recordatorio_previo_v*), así
+ *     que a un seguro vencido le llegaba «quedó pendiente la mensualidad».
+ *     Va el correo, que sí nombra el cobro.
+ *   · El aviso de COBRO GENERADO sigue siendo solo de mensualidades
+ *     (payment_type 'subscription'): los cobros únicos del alta nacen junto con
+ *     la mensualidad y sumarlos aquí mandaría hasta tres correos el mismo día
+ *     a la misma familia (Ley 2300: 1 contacto/día). La familia los ve en Mis
+ *     Pagos, en la página /p/:token del cobro (lista «otros pendientes») y en el
+ *     estado de cuenta mensual, que ya los incluye.
+ */
+export function avisoDeCobroUnico(p: Pick<PaymentRow, 'payment_category' | 'concept' | 'payment_type'>): string | null {
+    return esCobroUnico(p.payment_category) ? etiquetaDeCobro(p) : null;
 }
 
 interface Resolved {
@@ -294,6 +315,43 @@ export function puedeAvisarCobranzaAhora(ahora: Date = new Date()): boolean {
     return dentroDeHorarioDeCobranza(ahora);
 }
 
+/**
+ * Cobros creados por el modal «Cobros y pagos» SIN «Avisar a las familias»
+ * (spec cobros-multiples I21, Q9): no mandan el correo de «cobro generado».
+ * El lote ya dejó UNA notificación in-app por familia; con `notify_families =
+ * true` el aviso agrupado es de F5 y por ahora sigue el camino de siempre.
+ *
+ * Se consulta aparte y sin nombrar `charge_batch_id` en el SELECT principal: la
+ * columna la crea la F1 y, mientras no esté aplicada, nombrarla rompería todo
+ * el job (42703). Si la consulta falla, no se excluye nada (como antes).
+ */
+export async function idsDeLotesSinAviso(paymentIds: string[]): Promise<Set<string>> {
+    const fuera = new Set<string>();
+    if (paymentIds.length === 0) return fuera;
+    try {
+        const { data: filas, error } = await supabase
+            .from('payments')
+            .select('id, charge_batch_id')
+            .in('id', paymentIds)
+            .not('charge_batch_id', 'is', null);
+        if (error || !filas || filas.length === 0) return fuera;
+        const lotes = [...new Set((filas as { charge_batch_id: string }[]).map((f) => f.charge_batch_id))];
+        const { data: batches, error: errLotes } = await supabase
+            .from('charge_batches')
+            .select('id, notify_families')
+            .in('id', lotes);
+        if (errLotes) return fuera;
+        const silenciosos = new Set(((batches ?? []) as { id: string; notify_families: boolean }[])
+            .filter((b) => b.notify_families !== true).map((b) => b.id));
+        for (const f of filas as { id: string; charge_batch_id: string }[]) {
+            if (silenciosos.has(f.charge_batch_id)) fuera.add(f.id);
+        }
+    } catch {
+        /* sin dato: no se excluye nada */
+    }
+    return fuera;
+}
+
 export async function sendChargeCreatedEmails(ahora: Date = new Date()): Promise<{ sent: number; whatsapp: number }> {
     if (!puedeAvisarCobranzaAhora(ahora)) return { sent: 0, whatsapp: 0 };
     let sent = 0;
@@ -313,7 +371,8 @@ export async function sendChargeCreatedEmails(ahora: Date = new Date()): Promise
         if (error) throw error;
         if (!candidates || candidates.length === 0) return { sent: 0, whatsapp: 0 };
 
-        const toSend = await filterOutDuplicates(candidates as PaymentRow[]);
+        const deLoteSinAviso = await idsDeLotesSinAviso((candidates as PaymentRow[]).map((p) => p.id));
+        const toSend = await filterOutDuplicates((candidates as PaymentRow[]).filter((p) => !deLoteSinAviso.has(p.id)));
         const contacts = await resolveContacts(toSend);
         const schools = await schoolNames([...new Set(toSend.map(p => p.school_id))]);
         const filtro = creaFiltroEstadoDeCuenta(ahora);
@@ -378,7 +437,7 @@ export async function sendOverdueNoticeEmails(ahora: Date = new Date()): Promise
 
         const { data: candidates, error } = await supabase
             .from('payments')
-            .select('id, school_id, amount, due_date, concept, parent_id, child_id, user_id, unregistered_athlete_id, period_year, period_month')
+            .select('id, school_id, amount, due_date, concept, parent_id, child_id, user_id, unregistered_athlete_id, period_year, period_month, payment_category, payment_type')
             .eq('status', 'overdue')
             .is('overdue_notice_sent_at', null)
             .in('school_id', schoolIds);
@@ -402,18 +461,26 @@ export async function sendOverdueNoticeEmails(ahora: Date = new Date()): Promise
             // así que hoy devuelve 'fuera_de_horario' y cae al correo (aquí NO se
             // pospone: corre una vez al día y posponer sería no avisar nunca).
             // Mover su cron a '15 12 * * *' (07:15 COT) en maintenance.job.ts lo destraba.
-            const wa = await tryWhatsApp(p, contact, schools.get(p.school_id), 'pendiente_suave');
-            if (wa.sent) {
-                whatsapp++;
-                continue;
+            const cobroUnico = avisoDeCobroUnico(p);
+            if (cobroUnico) {
+                // La plantilla dice «mensualidad»: un cobro único va por correo.
+                contarMotivo(motivos, 'cobro_unico');
+            } else {
+                const wa = await tryWhatsApp(p, contact, schools.get(p.school_id), 'pendiente_suave');
+                if (wa.sent) {
+                    whatsapp++;
+                    continue;
+                }
+                contarMotivo(motivos, wa.motivo);
             }
-            contarMotivo(motivos, wa.motivo);
             try {
                 if (contact?.contactEmail) {
                     const tpl = await BrandedEmailTemplates.paymentOverdue({
                         parentName: contact.contactName,
                         amount: fmtCop(p.amount),
                         childName: contact.athleteName,
+                        chargeLabel: cobroUnico,
+                        concept: cobroUnico ? p.concept : null,
                         dueDate: fmtDate(p.due_date),
                         paymentLink: `${FRONTEND_URL}/my-payments`,
                         schoolId: p.school_id,

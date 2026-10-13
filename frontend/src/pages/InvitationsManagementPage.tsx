@@ -1130,7 +1130,7 @@ export default function InvitationsManagementPage() {
             </DialogHeader>
           </div>
 
-          <form onSubmit={handleSubmit} className="px-6 pb-6 space-y-5 max-h-[70vh] overflow-y-auto">
+          <form onSubmit={handleSubmit} className="px-6 pb-6 space-y-5 max-h-[70dvh] overflow-y-auto">
 
             {/* Selector de rol */}
             <div className="space-y-2 pt-4">

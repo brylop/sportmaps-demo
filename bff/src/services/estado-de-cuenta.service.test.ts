@@ -103,7 +103,7 @@ vi.mock('./whatsapp-plantillas.service', async (orig) => {
 });
 
 import {
-    agruparPorFamilia, claveEstadoDeCuenta, cobrosDeAtletaInactivo, cuerpoCorreoEstado, elegirCanal, enviarEstadoDeCuenta,
+    agruparPorFamilia, claveEstadoDeCuenta, cobrosDeAtletaInactivo, cuerpoCorreoEstado, datosWhatsAppDeFamilia, elegirCanal, enviarEstadoDeCuenta,
     escuelasConEstadoPendiente, esDiaHabil, esHoraDelEnvioMensual, primerDiaHabilDesde, runEstadoDeCuentaMensual,
     type Familia, type PagoEstado,
 } from './estado-de-cuenta.service';
@@ -225,6 +225,36 @@ describe('agrupación por familia', () => {
             pago('a', { parent_id: 'p1', charge_notice_sent_at: '2026-11-03T12:05:00.000Z' }),
         ], datos(), MAR_3_NOV_0800, '2026-11');
         expect(familias[0].avisadaHoy).toBe(true);
+    });
+
+    // Alta con cobros únicos (Dreamers 2026-10-10): mensualidad + inscripción +
+    // seguro, los tres con period_year/period_month del mes. Inscripción y seguro
+    // van en el estado de cuenta (tabla del correo) pero NO son «la mensualidad
+    // del mes» que nombra la plantilla de WhatsApp ni suman a su monto.
+    it('cobros únicos: van en las filas, pero no cuentan como mensualidad del mes', () => {
+        const { familias } = agruparPorFamilia([
+            pago('mens', { amount: 245000, concept: null, payment_category: null }),
+            pago('insc', { amount: 120000, concept: 'Inscripción — Plan X — Samuel', payment_type: 'one_time', payment_category: 'inscripcion' }),
+            pago('seg', { amount: 150000, concept: null, payment_type: 'one_time', payment_category: 'seguro' }),
+            pago('viaje', { amount: 90000, concept: 'Viaje a Cali', payment_type: 'one_time', payment_category: 'viaje' }),
+        ], datos(), MAR_3_NOV_0800, '2026-11');
+        const f = familias[0];
+        expect(f.filas.map((r) => r.paymentId).sort()).toEqual(['insc', 'mens', 'seg', 'viaje']);
+        expect(f.filas.filter((r) => r.delMes).map((r) => r.paymentId)).toEqual(['mens']);
+        // Sin concepto: la etiqueta de la categoría, no «Cobro».
+        expect(f.filas.find((r) => r.paymentId === 'seg')!.concepto).toBe('Seguro de accidentes');
+        expect(f.filas.find((r) => r.paymentId === 'mens')!.concepto).toBe('Mensualidad');
+        const wa = datosWhatsAppDeFamilia(f, 'Escuela', '2026-11');
+        expect(wa.monto.replace(/\D/g, '')).toBe('245000'); // solo la mensualidad, sin inscripción ni seguro
+        expect(wa.paymentIdBoton).toBe('mens');
+    });
+
+    it('solo cobros únicos: ninguna fila del mes (la plantilla «mensualidad» no aplica)', () => {
+        const { familias } = agruparPorFamilia([
+            pago('seg', { payment_type: 'one_time', payment_category: 'seguro', concept: 'Seguro de accidentes' }),
+        ], datos(), MAR_3_NOV_0800, '2026-11');
+        expect(familias[0].filas.filter((r) => r.delMes)).toHaveLength(0);
+        expect(elegirCanal({ pedido: 'auto', whatsappEscuela: true, waId: '573001234567', email: 'caro@x.co', filasDelMes: 0 })).toBe('correo');
     });
 });
 

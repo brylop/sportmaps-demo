@@ -31,6 +31,9 @@ export interface LlmMessage {
     toolName?: string;
 }
 
+/** 'auto': puede llamar herramientas. 'none': las ve pero solo redacta. */
+export type LlmToolChoice = 'auto' | 'none';
+
 export interface LlmToolCall {
     name: string;
     args: Record<string, unknown>;
@@ -115,6 +118,7 @@ async function chatGemini(
     system: string,
     messages: LlmMessage[],
     tools: LlmTool[],
+    toolChoice: LlmToolChoice = 'auto',
 ): Promise<LlmResult> {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('GEMINI_API_KEY no configurado');
@@ -162,6 +166,9 @@ ${m.content}` }],
                 ? { name: t.name, description: t.description, parameters: sinRequiredVacio(t.parameters) }
                 : { name: t.name, description: t.description })),
         }];
+        // Turno de solo redactar: las herramientas van (mismo prefijo) pero no
+        // se pueden llamar.
+        if (toolChoice === 'none') body.tool_config = { function_calling_config: { mode: 'NONE' } };
     }
 
     const res = await fetch(url, {
@@ -195,6 +202,7 @@ async function chatOpenAICompatible(
     system: string,
     messages: LlmMessage[],
     tools: LlmTool[],
+    toolChoice: LlmToolChoice = 'auto',
 ): Promise<LlmResult> {
     const cfg = OPENAI_COMPAT[provider];
     const apiKey = process.env[cfg.keyEnv];
@@ -228,7 +236,7 @@ async function chatOpenAICompatible(
             type: 'function',
             function: { name: t.name, description: t.description, parameters: t.parameters },
         }));
-        body.tool_choice = 'auto';
+        body.tool_choice = toolChoice;
     }
 
     const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
@@ -276,7 +284,30 @@ function clienteClaude(): Anthropic {
     return anthropicClient;
 }
 
-async function chatClaude(system: string, messages: LlmMessage[], tools: LlmTool[]): Promise<LlmResult> {
+/**
+ * TTL de la caché de prompt de Claude. 1 h por defecto (2026-10-10): el
+ * SYSTEM_PROMPT y las herramientas del bot son los MISMOS para todas las
+ * escuelas, y entre un mensaje de WhatsApp y el siguiente suelen pasar más de
+ * 5 minutos, así que con el TTL de 5 min casi cada turno volvía a escribir la
+ * caché. Escribir con 1 h cuesta 2× (5 min: 1,25×) y leer 0,1×: con más de una
+ * lectura por hora sale más barato. `ttl: '1h'` es GA en la API (sin header
+ * beta) y el SDK 0.131 lo tipa en `CacheControlEphemeral`. Se vuelve a 5 min
+ * con WHATSAPP_CLAUDE_CACHE_TTL=5m, sin desplegar.
+ */
+export const CACHE_TTL_CLAUDE: '5m' | '1h' =
+    process.env.WHATSAPP_CLAUDE_CACHE_TTL === '5m' ? '5m' : '1h';
+
+/** El `cache_control` de los puntos de corte (sistema y última herramienta), con el mismo TTL. */
+export function cacheControlClaude(ttl: '5m' | '1h' = CACHE_TTL_CLAUDE): { type: 'ephemeral'; ttl?: '1h' } {
+    return ttl === '1h' ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' };
+}
+
+async function chatClaude(
+    system: string,
+    messages: LlmMessage[],
+    tools: LlmTool[],
+    toolChoice: LlmToolChoice = 'auto',
+): Promise<LlmResult> {
     const client = clienteClaude();
     // Mismo criterio que OpenAI-compatible: el resultado de una tool va como
     // texto del usuario (los bots no reenvían el tool_use original).
@@ -302,7 +333,13 @@ ${m.content}`
         // Caché de prompt: herramientas + sistema son casi siempre iguales y el
         // bot llama al modelo 2+ veces por turno (herramienta → respuesta). Lo
         // cacheado se cobra ~10 % en las lecturas siguientes (2026-10-07).
-        system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+        // El orden del prefijo es herramientas → sistema → mensajes: si la
+        // segunda llamada del turno no manda las MISMAS herramientas, el
+        // prefijo cambia y no lee nada de lo que escribió la primera. Por eso
+        // el turno de «solo redactar» manda las herramientas con
+        // tool_choice 'none' (cambiar tool_choice no invalida la caché de
+        // herramientas ni de sistema) en vez de `tools: []`.
+        system: [{ type: 'text', text: system, cache_control: cacheControlClaude() }],
         messages: msgs,
     };
     if (tools.length) {
@@ -310,8 +347,9 @@ ${m.content}`
             name: t.name,
             description: t.description,
             input_schema: { type: 'object', ...(t.parameters || {}) },
-            ...(i === tools.length - 1 ? { cache_control: { type: 'ephemeral' } } : {}),
+            ...(i === tools.length - 1 ? { cache_control: cacheControlClaude() } : {}),
         }));
+        if (toolChoice === 'none') body.tool_choice = { type: 'none' };
     }
     const res: any = await client.messages.create(body);
     const u = res.usage;
@@ -341,6 +379,12 @@ export async function chatWithTools(params: {
     system: string;
     messages: LlmMessage[];
     tools?: LlmTool[];
+    /**
+     * 'none': el modelo ve las herramientas pero no puede llamarlas (turno de
+     * solo redactar con datos ya obtenidos). Se mandan igual para que el
+     * prefijo —y la caché de prompt— sea el de la primera llamada.
+     */
+    toolChoice?: LlmToolChoice;
     provider?: LlmProvider;
     /** Escuela / conversación / función para el registro de consumo (llm_usage). */
     uso?: ContextoUsoLlm;
@@ -348,16 +392,17 @@ export async function chatWithTools(params: {
     const primary: LlmProvider =
         params.provider || (process.env.WHATSAPP_LLM_PROVIDER as LlmProvider) || 'gemini';
     const tools = params.tools ?? [];
+    const toolChoice: LlmToolChoice = params.toolChoice ?? 'auto';
 
     const run = (p: LlmProvider): Promise<LlmResult> => (params.uso
         ? conContextoLlm(params.uso, () => correr(p))
         : correr(p));
     const correr = (p: LlmProvider) =>
         p === 'claude'
-            ? chatClaude(params.system, params.messages, tools)
+            ? chatClaude(params.system, params.messages, tools, toolChoice)
             : p === 'gemini'
-                ? chatGemini(params.system, params.messages, tools)
-                : chatOpenAICompatible(p as 'deepseek' | 'groq', params.system, params.messages, tools);
+                ? chatGemini(params.system, params.messages, tools, toolChoice)
+                : chatOpenAICompatible(p as 'deepseek' | 'groq', params.system, params.messages, tools, toolChoice);
 
     // Cadena: primario → resto (resiliencia si un proveedor está sin saldo/caído).
     //

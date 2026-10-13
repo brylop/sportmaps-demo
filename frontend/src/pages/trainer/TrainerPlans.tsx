@@ -11,7 +11,7 @@ export default function TrainerPlans() {
 
   if (!trainerSchoolId) {
     return (
-      <div className="flex items-center justify-center min-h-[40vh]">
+      <div className="flex items-center justify-center min-h-[40dvh]">
         <p className="text-muted-foreground text-sm">Cargando configuración...</p>
       </div>
     );

@@ -71,7 +71,7 @@ import { emitirTokenCobro, enlaceWhatsApp, nombreCorto, whatsappDeLaEscuela } fr
 import { mediosDePago, type MediosDePago } from './whatsapp-medios-de-pago.service';
 // Los textos del link viven en payment-accounts (módulo puro): varias pruebas
 // moquean el servicio de medios entero y no exportarían estas constantes.
-import { AVISO_LINK_DE_PAGO, TEXTO_BOTON_LINK_DE_PAGO } from './payment-accounts';
+import { AVISO_LINK_DE_PAGO, TEXTO_BOTON_LINK_DE_PAGO, esCobroUnico, etiquetaDeCobro } from './payment-accounts';
 import { COLUMNAS_CONTACTO_FICHA, COLUMNAS_CONTACTO_HIJO, contactoDeFicha, contactoDeHijoSinCuenta, type FichaContacto } from './contacto-acudiente';
 import { escuelaFacturaElectronicamente } from './factura-pagador.service';
 import { enlaceActivarAvisos } from './whatsapp-activar-avisos';
@@ -101,6 +101,8 @@ export interface PagoEstado {
     status: string;
     due_date: string | null;
     payment_type?: string | null;
+    /** Categoría explícita: un cobro único (inscripción, seguro…) no es «del mes». */
+    payment_category?: string | null;
     period_year?: number | null;
     period_month?: number | null;
     charge_notice_sent_at?: string | null;
@@ -261,12 +263,18 @@ export function agruparPorFamilia(
             avisadaHoy: false,
         };
         if (!f.waId && waId) f.waId = waId;
-        const delMes = (p.period_year === anio && p.period_month === numMes)
-            || (!p.period_year && !!p.due_date && p.due_date.slice(0, 7) === mes);
+        // «Del mes» = la mensualidad del mes: es lo que nombra la plantilla de
+        // WhatsApp («la mensualidad de … vence … por …»). Un cobro único (seguro,
+        // inscripción del alta) lleva period_year/period_month del mes en que
+        // nació, pero no es la mensualidad: va en el correo (tabla con su
+        // concepto) y en la página del cobro, no en el monto de la plantilla.
+        const delMes = !esCobroUnico(p.payment_category) && (
+            (p.period_year === anio && p.period_month === numMes)
+            || (!p.period_year && !!p.due_date && p.due_date.slice(0, 7) === mes));
         f.filas.push({
             paymentId: p.id,
             atleta: hijo?.full_name || nr?.full_name || perfil?.full_name || '',
-            concepto: p.concept || 'Cobro',
+            concepto: p.concept || etiquetaDeCobro(p),
             vence: p.due_date ? p.due_date.slice(0, 10) : null,
             saldo,
             vencido: p.status === 'overdue' || (!!p.due_date && p.due_date.slice(0, 10) < hoy),
@@ -456,7 +464,7 @@ async function leerPorIds(tabla: string, cols: string, ids: string[]): Promise<a
 /** Familias con deuda de una escuela, sin cobros duplicados por pagador. */
 export async function familiasConDeuda(schoolId: string, ahora: Date, mes = mesColombia(ahora)) {
     const pagos = await todas<PagoEstado>((desde) => supabase.from('payments')
-        .select('id, school_id, parent_id, user_id, child_id, unregistered_athlete_id, concept, amount, amount_paid, status, due_date, payment_type, period_year, period_month, charge_notice_sent_at, overdue_notice_sent_at')
+        .select('id, school_id, parent_id, user_id, child_id, unregistered_athlete_id, concept, amount, amount_paid, status, due_date, payment_type, payment_category, period_year, period_month, charge_notice_sent_at, overdue_notice_sent_at')
         .eq('school_id', schoolId).in('status', ['pending', 'overdue', 'partial'])
         .order('due_date').range(desde, desde + 999));
 

@@ -14,6 +14,8 @@ import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { AthleteIdCard, type CardData } from '@/components/cards/AthleteIdCard';
+import { exportCardPng, exportCardsPdf } from '@/lib/cards/cardExport';
+import { slugifyFileName, type PdfLayoutMode } from '@/lib/cards/cardLayout';
 import { CardTemplatesManager } from '@/components/cards/CardTemplatesManager';
 import { StatFilterBar } from '@/components/common/StatFilterBar';
 import { TableRefreshBar } from '@/components/common/TableRefreshBar';
@@ -63,6 +65,7 @@ type CardRow = {
   branch_name: string | null;
   child_id: string | null;
   profile_id: string | null;
+  unregistered_athlete_id?: string | null;
 };
 
 const STATUS_BADGE: Record<string, string> = {
@@ -101,6 +104,9 @@ export default function SchoolCardsAdminPage() {
   );
   const [templates, setTemplates] = useState<{ id: string; name: string; is_default: boolean }[]>([]);
   const [issueTemplate, setIssueTemplate] = useState<string>('default');
+  // La emisión masiva tiene su propio selector: antes reutilizaba en silencio
+  // lo último que se eligió en el diálogo individual.
+  const [bulkTemplate, setBulkTemplate] = useState<string>('default');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -146,10 +152,14 @@ export default function SchoolCardsAdminPage() {
 
   // Descarga PDF por equipo (encarpetado)
   const [pdfTeam, setPdfTeam] = useState<string>('all');
+  const [pdfMode, setPdfMode] = useState<PdfLayoutMode>('duplex');
+  const [pdfCutMarks, setPdfCutMarks] = useState(true);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfProgress, setPdfProgress] = useState<{ done: number; total: number } | null>(null);
-  const [batch, setBatch] = useState<{ data: CardData; token: string }[]>([]);
-  const batchRefs = useRef<(HTMLDivElement | null)[]>([]);
+  // Catálogo de equipos/sedes de la escuela. Antes salía solo de la respuesta
+  // de la pestaña "Emitir nuevo": abriendo /cards?tab=cards directo, el
+  // selector de equipo del PDF quedaba vacío.
+  const [catalog, setCatalog] = useState<{ teams: { id: string; name: string }[]; branches: { id: string; name: string }[] }>({ teams: [], branches: [] });
 
   const publicCardOrigin = useMemo(() => {
     if (typeof window === 'undefined') return '';
@@ -190,6 +200,9 @@ export default function SchoolCardsAdminPage() {
         teams: (d?.teams ?? []) as { id: string; name: string }[],
         branches: (d?.branches ?? []) as { id: string; name: string }[],
       });
+      if ((d?.teams ?? []).length || (d?.branches ?? []).length) {
+        setCatalog({ teams: d?.teams ?? [], branches: d?.branches ?? [] });
+      }
     }
     setLoadingAthletes(false);
   }, [schoolId, debouncedSearch, teamFilter, branchFilter, cardFilter, athleteOffset, toast]);
@@ -233,6 +246,21 @@ export default function SchoolCardsAdminPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schoolId, tab, debouncedSearch, statusFilter, teamFilter, branchFilter, cardFilter, athleteOffset, cardsOffset]);
 
+  // Catálogo de equipos al abrir la página, sin depender de la pestaña activa.
+  useEffect(() => {
+    if (!schoolId) return;
+    let cancelled = false;
+    void supabase.rpc('list_school_athletes_for_card_issue_v2' as any, {
+      p_school_id: schoolId, p_search: null, p_team_id: null, p_branch_id: null,
+      p_card_filter: 'all', p_limit: 1, p_offset: 0,
+    }).then(({ data }) => {
+      if (cancelled || !data) return;
+      const d = data as any;
+      setCatalog({ teams: d?.teams ?? [], branches: d?.branches ?? [] });
+    });
+    return () => { cancelled = true; };
+  }, [schoolId]);
+
   // Plantillas activas (para elegir cuál usar al emitir).
   useEffect(() => {
     if (!schoolId) return;
@@ -245,22 +273,30 @@ export default function SchoolCardsAdminPage() {
       .then(({ data }) => setTemplates((data as any) || []));
   }, [schoolId, tab]);
 
-  // Resuelve el template_id a usar al emitir ('default' → deja que la RPC use la
-  // plantilla predeterminada; un id concreto → esa plantilla).
-  const resolveTemplateId = () => (issueTemplate === 'default' ? null : issueTemplate);
+  // Resuelve el template_id a usar al emitir. 'default' antes mandaba null y la
+  // RPC no buscaba la predeterminada → carnet sin plantilla. Ahora se resuelve
+  // acá (y la RPC también cae a la predeterminada si llega null, mig 20261010201231).
+  const defaultTemplate = templates.find((t) => t.is_default) || null;
+  const resolveTemplateId = (choice: string) => (choice === 'default' ? defaultTemplate?.id ?? null : choice);
 
   /** Recorre todas las páginas del filtro actual. Se usa para "seleccionar
    *  todos" y para el PDF: sin esto ambas cosas operaban solo sobre lo visible. */
-  async function fetchAllAthletes(cardFilterOverride: 'all' | 'with' | 'without'): Promise<Athlete[]> {
+  async function fetchAllAthletes(
+    cardFilterOverride: 'all' | 'with' | 'without',
+    scope?: { teamId: string | null; branchId: string | null; search: string | null },
+  ): Promise<Athlete[]> {
     if (!schoolId) return [];
     const out: Athlete[] = [];
     let offset = 0;
+    const teamId = scope ? scope.teamId : (teamFilter === 'all' ? null : teamFilter);
+    const branchId = scope ? scope.branchId : (branchFilter === 'all' ? null : branchFilter);
+    const search = scope ? scope.search : (debouncedSearch || null);
     for (;;) {
       const { data, error } = await supabase.rpc('list_school_athletes_for_card_issue_v2' as any, {
         p_school_id: schoolId,
-        p_search: debouncedSearch || null,
-        p_team_id: teamFilter === 'all' ? null : teamFilter,
-        p_branch_id: branchFilter === 'all' ? null : branchFilter,
+        p_search: search,
+        p_team_id: teamId,
+        p_branch_id: branchId,
         p_card_filter: cardFilterOverride,
         p_limit: FETCH_ALL_CHUNK,
         p_offset: offset,
@@ -329,7 +365,7 @@ export default function SchoolCardsAdminPage() {
         p_child_id: a.kind === 'child' ? a.athlete_id : null,
         p_profile_id: a.kind === 'profile' ? a.athlete_id : null,
         p_unregistered_athlete_id: a.kind === 'unregistered' ? a.athlete_id : null,
-        p_template_id: resolveTemplateId(),
+        p_template_id: resolveTemplateId(bulkTemplate),
         p_valid_until: validUntil,
         p_photo_url: null,
       });
@@ -348,7 +384,7 @@ export default function SchoolCardsAdminPage() {
   }
 
   // Equipos para el PDF: del catálogo de la escuela, no de la página cargada.
-  const cardTeamOptions = page.teams;
+  const cardTeamOptions = catalog.teams;
 
   /** Trae TODOS los carnets vigentes que cumplen el filtro, no solo la página. */
   async function fetchAllActiveCards(): Promise<CardRow[]> {
@@ -373,8 +409,27 @@ export default function SchoolCardsAdminPage() {
     return out;
   }
 
-  // Genera un PDF (tamaño tarjeta CR80, 9 por hoja) con los carnets activos del
-  // equipo elegido (o todos) — para imprimir, plastificar y archivar por equipo.
+  /** Datos completos de cada carnet (marca, plantilla, foto, campos). De a 6 en
+   *  paralelo: uno por uno, un equipo de 30 tardaba más que la propia captura. */
+  async function fetchCardDatas(target: CardRow[], onEach?: () => void): Promise<{ data: CardData; token: string }[]> {
+    const out: ({ data: CardData; token: string } | null)[] = new Array(target.length).fill(null);
+    let next = 0;
+    async function worker() {
+      while (next < target.length) {
+        const i = next++;
+        const { data } = await supabase.rpc('verify_athlete_id_card_public' as any, { p_qr_token: target[i].qr_token });
+        if (data && (data as CardData).found && (data as CardData).status === 'active') {
+          out[i] = { data: data as CardData, token: target[i].qr_token };
+        }
+        onEach?.();
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(6, target.length) }, worker));
+    return out.filter((x): x is { data: CardData; token: string } => !!x);
+  }
+
+  // PDF CR80 exacto (53,98 × 85,6 mm) con frente Y reverso: hoja de frentes +
+  // hoja de reversos en espejo (doble cara), o frente y reverso juntos.
   async function downloadCardsPdf() {
     if (!schoolId) return;
     setPdfBusy(true);
@@ -382,57 +437,42 @@ export default function SchoolCardsAdminPage() {
     try {
       const teamName = pdfTeam === 'all' ? null : cardTeamOptions.find((t) => t.id === pdfTeam)?.name || null;
       const all = await fetchAllActiveCards();
-      const target = teamName ? all.filter((c) => c.team_name === teamName) : all;
+      let target = all;
+      if (pdfTeam !== 'all') {
+        // Filtro por id de equipo, no por nombre: dos equipos con el mismo
+        // nombre en sedes distintas se mezclaban.
+        const members = await fetchAllAthletes('with', { teamId: pdfTeam, branchId: null, search: null });
+        const ids = new Set(members.map((m) => m.athlete_id));
+        target = all.filter((c) => ids.has(c.child_id || '') || ids.has(c.profile_id || '') || ids.has(c.unregistered_athlete_id || ''));
+      }
       if (target.length === 0) {
         toast({ title: 'Sin carnets', description: 'No hay carnets vigentes para ese equipo.' });
         return;
       }
+      let loaded = 0;
       setPdfProgress({ done: 0, total: target.length });
-
-      // 1) Cargar la data completa de cada carnet (branding, foto, estado)
-      const datas: { data: CardData; token: string }[] = [];
-      for (const c of target) {
-        const { data } = await supabase.rpc('verify_athlete_id_card_public' as any, { p_qr_token: c.qr_token });
-        if (data) datas.push({ data: data as CardData, token: c.qr_token });
-      }
-      batchRefs.current = [];
-      setBatch(datas);
-      // 2) Esperar a que React renderice los carnets ocultos
-      await new Promise((r) => setTimeout(r, 500));
-
-      const html2canvas = (await import('html2canvas')).default;
-      const { jsPDF } = await import('jspdf');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pageW = 210, margin = 10, cols = 3, rows = 3, gap = 6;
-      const cardW = (pageW - margin * 2 - gap * (cols - 1)) / cols;   // ≈ 54mm (CR80)
-      const cardH = cardW * (540 / 340);                              // ≈ 85.6mm
-      const perPage = cols * rows;
-
-      let idx = 0;
-      for (let i = 0; i < batchRefs.current.length; i++) {
-        const node = batchRefs.current[i];
-        if (!node) continue;
-        const canvas = await html2canvas(node, { scale: 2, useCORS: true, backgroundColor: null, logging: false });
-        const img = canvas.toDataURL('image/png');
-        const pos = idx % perPage;
-        if (idx > 0 && pos === 0) pdf.addPage();
-        const col = pos % cols;
-        const row = Math.floor(pos / cols);
-        const x = margin + col * (cardW + gap);
-        const y = margin + row * (cardH + gap);
-        pdf.addImage(img, 'PNG', x, y, cardW, cardH);
-        idx++;
-        setPdfProgress({ done: idx, total: datas.length });
-      }
-      const slug = teamName ? teamName.replace(/\s+/g, '-').toLowerCase() : 'todos';
-      pdf.save(`carnets-${slug}.pdf`);
-      toast({ title: 'PDF generado', description: `${idx} carnet(s) · listos para imprimir (CR80).` });
+      const datas = await fetchCardDatas(target, () => { loaded++; setPdfProgress({ done: loaded, total: target.length }); });
+      const slug = teamName ? slugifyFileName(teamName) : 'todos';
+      const n = await exportCardsPdf(
+        datas.map((d) => ({ data: d.data, publicUrl: `${publicCardOrigin}/${d.token}` })),
+        {
+          mode: pdfMode,
+          cutMarks: pdfCutMarks,
+          fileName: `carnets-${slug}-${pdfMode === 'duplex' ? 'doble-cara' : 'frente-y-reverso'}.pdf`,
+          onProgress: (done, total) => setPdfProgress({ done, total }),
+        },
+      );
+      toast({
+        title: 'PDF generado',
+        description: pdfMode === 'duplex'
+          ? `${n} carnet(s) · tamaño CR80 real. Imprime a doble cara volteando por el borde largo, al 100 %.`
+          : `${n} carnet(s) · frente y reverso juntos, tamaño CR80 real. Imprime al 100 %.`,
+      });
     } catch (e: any) {
       toast({ title: 'No se pudo generar el PDF', description: e?.message || 'Error', variant: 'destructive' });
     } finally {
       setPdfBusy(false);
       setPdfProgress(null);
-      setBatch([]);
     }
   }
 
@@ -451,7 +491,7 @@ export default function SchoolCardsAdminPage() {
       p_unregistered_athlete_id: issueTarget.kind === 'unregistered' ? issueTarget.athlete_id : null,
       // Antes iba null fijo: la plantilla elegida en este mismo diálogo se
       // ignoraba y todos los carnets salían con la predeterminada.
-      p_template_id: resolveTemplateId(),
+      p_template_id: resolveTemplateId(issueTemplate),
       p_valid_until: validUntil,
       p_photo_url: null,
     });
@@ -518,22 +558,15 @@ export default function SchoolCardsAdminPage() {
     setPreviewData(data as CardData);
   }
 
+  // PNG con frente Y reverso, a resolución de impresión.
   async function downloadPreview() {
-    if (!previewRef.current) return;
+    if (!previewData || !previewToken) return;
     setDownloading(true);
     try {
-      const html2canvas = (await import('html2canvas')).default;
-      const canvas = await html2canvas(previewRef.current, {
-        backgroundColor: null,
-        scale: 3,
-        useCORS: true,
-        logging: false,
-      });
-      const url = canvas.toDataURL('image/png');
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `carnet-${previewToken?.slice(0, 8)}.png`;
-      a.click();
+      await exportCardPng(
+        { data: previewData, publicUrl: `${publicCardOrigin}/${previewToken}` },
+        `carnet-${slugifyFileName(previewData.athlete?.full_name, previewToken.slice(0, 8))}`,
+      );
     } catch (e: any) {
       toast({ title: 'No se pudo descargar', description: e?.message || 'Error', variant: 'destructive' });
     } finally {
@@ -582,7 +615,7 @@ export default function SchoolCardsAdminPage() {
             <CardContent>
               {/* Filtros */}
               <div className="flex flex-wrap items-center gap-2 mb-4">
-                <div className="relative flex-1 min-w-[200px]">
+                <div className="relative flex-1 min-w-48">
                   <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
                     placeholder="Buscar por nombre o documento…"
@@ -592,14 +625,14 @@ export default function SchoolCardsAdminPage() {
                   />
                 </div>
                 <Select value={teamFilter} onValueChange={setTeamFilter}>
-                  <SelectTrigger className="w-auto min-w-[150px]"><SelectValue placeholder="Equipo" /></SelectTrigger>
+                  <SelectTrigger className="w-auto min-w-36"><SelectValue placeholder="Equipo" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todos los equipos</SelectItem>
                     {page.teams.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 <Select value={branchFilter} onValueChange={setBranchFilter}>
-                  <SelectTrigger className="w-auto min-w-[130px]"><SelectValue placeholder="Sede" /></SelectTrigger>
+                  <SelectTrigger className="w-auto min-w-32"><SelectValue placeholder="Sede" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todas las sedes</SelectItem>
                     {page.branches.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
@@ -654,9 +687,25 @@ export default function SchoolCardsAdminPage() {
                       </button>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {templates.length > 0 && (
+                      <>
+                        <Label className="text-xs text-muted-foreground">Plantilla</Label>
+                        <Select value={bulkTemplate} onValueChange={setBulkTemplate}>
+                          <SelectTrigger className="h-8 w-auto min-w-40" data-testid="bulk-template-select"><SelectValue placeholder="Plantilla" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="default">
+                              Predeterminada{defaultTemplate ? ` (${defaultTemplate.name})` : ' (diseño base)'}
+                            </SelectItem>
+                            {templates.map((t) => (
+                              <SelectItem key={t.id} value={t.id}>{t.name}{t.is_default ? ' ★' : ''}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </>
+                    )}
                     <Label className="text-xs text-muted-foreground">Vence</Label>
-                    <Input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} className="h-8 w-[150px]" />
+                    <Input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} className="h-8 w-40" />
                     <Button size="sm" disabled={bulkIssuing || selectedCount === 0} onClick={bulkIssue} className="gap-1">
                       {bulkIssuing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                       {bulkIssuing && bulkProgress
@@ -773,7 +822,7 @@ export default function SchoolCardsAdminPage() {
             </CardHeader>
             <CardContent>
               <div className="flex flex-wrap items-center gap-2 mb-4">
-                <div className="relative flex-1 min-w-[180px]">
+                <div className="relative flex-1 min-w-44">
                   <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
                     placeholder="Buscar atleta…"
@@ -784,14 +833,30 @@ export default function SchoolCardsAdminPage() {
                 </div>
 
                 {/* Descarga por equipo (encarpetado) */}
-                <div className="flex items-center gap-2 ml-auto">
+                <div className="flex flex-wrap items-center gap-2 ml-auto">
                   <Select value={pdfTeam} onValueChange={setPdfTeam}>
-                    <SelectTrigger className="w-auto min-w-[160px]"><SelectValue placeholder="Equipo" /></SelectTrigger>
+                    <SelectTrigger className="w-auto min-w-40" data-testid="pdf-team-select"><SelectValue placeholder="Equipo" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Todos los equipos</SelectItem>
                       {cardTeamOptions.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
+                  <Select value={pdfMode} onValueChange={(v) => setPdfMode(v as PdfLayoutMode)}>
+                    <SelectTrigger className="w-auto min-w-44" data-testid="pdf-mode-select" aria-label="Formato de impresión"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="duplex" data-testid="pdf-mode-duplex">Doble cara (frentes y reversos)</SelectItem>
+                      <SelectItem value="together" data-testid="pdf-mode-together">Frente y reverso juntos</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-primary"
+                      checked={pdfCutMarks}
+                      onChange={(e) => setPdfCutMarks(e.target.checked)}
+                    />
+                    Marcas de corte
+                  </label>
                   <Button size="sm" variant="outline" disabled={pdfBusy} onClick={downloadCardsPdf} className="gap-1">
                     {pdfBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
                     {pdfBusy && pdfProgress ? `Generando ${pdfProgress.done}/${pdfProgress.total}…` : 'Descargar PDF'}
@@ -917,7 +982,9 @@ export default function SchoolCardsAdminPage() {
                 <Select value={issueTemplate} onValueChange={setIssueTemplate}>
                   <SelectTrigger><SelectValue placeholder="Plantilla" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="default">Predeterminada de la escuela</SelectItem>
+                    <SelectItem value="default">
+                      Predeterminada de la escuela{defaultTemplate ? ` (${defaultTemplate.name})` : ' (diseño base)'}
+                    </SelectItem>
                     {templates.map((t) => (
                       <SelectItem key={t.id} value={t.id}>{t.name}{t.is_default ? ' ★' : ''}</SelectItem>
                     ))}
@@ -1028,22 +1095,12 @@ export default function SchoolCardsAdminPage() {
             </div>
             <Button onClick={downloadPreview} disabled={downloading || !previewData} className="gap-1">
               {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-              Descargar PNG
+              Descargar PNG (frente y reverso)
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Render oculto para generar el PDF por equipo (html2canvas los captura). */}
-      {batch.length > 0 && (
-        <div aria-hidden style={{ position: 'fixed', left: -99999, top: 0, opacity: 0, pointerEvents: 'none' }}>
-          {batch.map((b, i) => (
-            <div key={b.token} ref={(el) => { batchRefs.current[i] = el; }} style={{ marginBottom: 12 }}>
-              <AthleteIdCard data={b.data} publicUrl={`${publicCardOrigin}/${b.token}`} />
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

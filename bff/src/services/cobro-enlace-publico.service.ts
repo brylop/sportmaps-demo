@@ -55,7 +55,7 @@ import {
 } from './wompi.service';
 import { mediosDePago } from './whatsapp-medios-de-pago.service';
 import { enlaceActivarAvisosParaPagador } from './whatsapp-activar-avisos';
-import { categoriaDeCobro } from './payment-accounts';
+import { categoriaDeCobro, esCobroUnico } from './payment-accounts';
 import { findDuplicatePaymentIds } from './duplicatePayerGuard.service';
 import { debitoEnCurso, MENSAJE_DEBITO_EN_CURSO } from './autopay.service';
 
@@ -196,7 +196,11 @@ export function nombreCorto(full: string | null | undefined): string | null {
     return `${partes[0]} ${partes[1].charAt(0).toUpperCase()}.`;
 }
 
-export function periodoDeCobro(p: { period_year?: number | null; period_month?: number | null }): string | null {
+export function periodoDeCobro(p: { period_year?: number | null; period_month?: number | null; payment_category?: string | null }): string | null {
+    // Un cobro único (inscripción, seguro…) lleva el período del mes en que
+    // nació, pero no ES ese mes: «Seguro de accidentes (Octubre 2026)» se lee
+    // como si se cobrara cada mes.
+    if (esCobroUnico(p.payment_category)) return null;
     if (p.period_year && p.period_month && p.period_month >= 1 && p.period_month <= 12) {
         return `${MESES[p.period_month - 1]} ${p.period_year}`;
     }
@@ -340,7 +344,11 @@ const MAX_OTROS = 10;
  * reusa el vigente, así que abrir la página no multiplica tokens.
  */
 async function otrosPendientesDelPagador(p: any): Promise<VistaCobroPublico['otrosPendientes']> {
-    const col = p.parent_id ? 'parent_id' : p.user_id ? 'user_id' : p.unregistered_athlete_id ? 'unregistered_athlete_id' : null;
+    // child_id al final: los cobros que la escuela crea en el alta (inscripción,
+    // seguro y la mensualidad) nacen sin parent_id hasta que el acudiente
+    // vincula su cuenta; sin esto la página del seguro no listaba los otros dos.
+    const col = p.parent_id ? 'parent_id' : p.user_id ? 'user_id'
+        : p.unregistered_athlete_id ? 'unregistered_athlete_id' : p.child_id ? 'child_id' : null;
     if (!col) return [];
     const { data, error } = await supabase
         .from('payments')

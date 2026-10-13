@@ -122,9 +122,9 @@ export function SportMultiCombobox({
           sideOffset={4}
         >
           <Command>
-            <CommandInput placeholder="Buscar deporte..." className="text-sm h-[38px] w-full" />
+            <CommandInput placeholder="Buscar deporte..." className="text-sm h-10 w-full" />
             <CommandEmpty>No se encontró el deporte.</CommandEmpty>
-            <div className="max-h-[260px] overflow-y-auto">
+            <div className="max-h-64 overflow-y-auto">
               {groups.map((g) => (
                 <CommandGroup key={g.key} heading={g.heading}>
                   {g.options.map((o) => (

@@ -1,0 +1,215 @@
+{
+  "anon": {
+    "found": true,
+    "school": {
+      "id": "25a123f0-6d57-48a4-9800-7b1531d61cd2",
+      "name": "Club Campestre Demo",
+      "slug": "club-campestre-demo",
+      "logo_url": "https://luebjarufsiadojhvxgi.supabase.co/storage/v1/object/public/school-assets/logos/25a123f0-6d57-48a4-9800-7b1531d61cd2/logo.jpg",
+      "branding_settings": {
+        "primary_color": "#1f6f3f",
+        "secondary_color": "#c9a227",
+        "show_sportmaps_watermark": true
+      }
+    },
+    "status": "active",
+    "athlete": {
+      "kind": "child",
+      "doc_type": null,
+      "eps_name": null,
+      "full_name": "Tomás Herrera",
+      "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=7167931e-0798-43e8-a286-d4985b0965b6",
+      "blood_type": null,
+      "doc_number": null,
+      "emergency_contact": "Mauricio Herrera — +57 320 555 0301"
+    },
+    "card_id": "9c9f099f-9934-4b3e-b4cd-fc1742d2a0b9",
+    "version": 2,
+    "next_due": "2026-10-08",
+    "qr_token": "4a47dd62-cccd-4a3e-8894-c5385273191a",
+    "template": {
+      "id": "32f0438d-c0ed-4fde-80bd-e61f0e9b5798",
+      "name": "Carnet 2026",
+      "layout": "classic",
+      "pattern": "diagonal",
+      "text_mode": "auto",
+      "footer_text": "",
+      "header_text": "Carnet deportivo 2026",
+      "photo_shape": "rounded",
+      "show_fields": {
+        "eps": true,
+        "plan": true,
+        "team": true,
+        "photo": true,
+        "branch": true,
+        "blood_type": true,
+        "doc_number": true,
+        "fee_status": true,
+        "tshirt_size": false,
+        "valid_until": true,
+        "emergency_contact": true
+      },
+      "accent_color": "#1c5c34",
+      "background_url": null,
+      "secondary_color": "#0c1f10"
+    },
+    "issued_at": "2026-10-10T19:37:07.512962-05:00",
+    "team_name": "Fútbol — Sub-15",
+    "fee_status": "due_soon",
+    "branch_name": "Unidad Deportiva — Fútbol",
+    "monthly_fee": 180000,
+    "valid_until": "2027-10-11",
+    "last_paid_at": "2026-09-08",
+    "last_payment": {
+      "amount": 50000,
+      "concept": "Torneos: Torneo E2E Test x1",
+      "created_at": "2026-09-08T16:14:27.925991-05:00",
+      "amount_paid": 50000,
+      "payment_date": "2026-09-08",
+      "payment_method": "transfer",
+      "provider_reference": null
+    }
+  },
+  "asOwner": {
+    "found": true,
+    "school": {
+      "id": "25a123f0-6d57-48a4-9800-7b1531d61cd2",
+      "name": "Club Campestre Demo",
+      "slug": "club-campestre-demo",
+      "logo_url": "https://luebjarufsiadojhvxgi.supabase.co/storage/v1/object/public/school-assets/logos/25a123f0-6d57-48a4-9800-7b1531d61cd2/logo.jpg",
+      "branding_settings": {
+        "primary_color": "#1f6f3f",
+        "secondary_color": "#c9a227",
+        "show_sportmaps_watermark": true
+      }
+    },
+    "status": "active",
+    "athlete": {
+      "kind": "child",
+      "doc_type": null,
+      "eps_name": null,
+      "full_name": "Tomás Herrera",
+      "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=7167931e-0798-43e8-a286-d4985b0965b6",
+      "blood_type": null,
+      "doc_number": null,
+      "emergency_contact": "Mauricio Herrera — +57 320 555 0301"
+    },
+    "card_id": "9c9f099f-9934-4b3e-b4cd-fc1742d2a0b9",
+    "version": 2,
+    "next_due": "2026-10-08",
+    "qr_token": "4a47dd62-cccd-4a3e-8894-c5385273191a",
+    "template": {
+      "id": "32f0438d-c0ed-4fde-80bd-e61f0e9b5798",
+      "name": "Carnet 2026",
+      "layout": "classic",
+      "pattern": "diagonal",
+      "text_mode": "auto",
+      "footer_text": "",
+      "header_text": "Carnet deportivo 2026",
+      "photo_shape": "rounded",
+      "show_fields": {
+        "eps": true,
+        "plan": true,
+        "team": true,
+        "photo": true,
+        "branch": true,
+        "blood_type": true,
+        "doc_number": true,
+        "fee_status": true,
+        "tshirt_size": false,
+        "valid_until": true,
+        "emergency_contact": true
+      },
+      "accent_color": "#1c5c34",
+      "background_url": null,
+      "secondary_color": "#0c1f10"
+    },
+    "issued_at": "2026-10-10T19:37:07.512962-05:00",
+    "team_name": "Fútbol — Sub-15",
+    "fee_status": "due_soon",
+    "branch_name": "Unidad Deportiva — Fútbol",
+    "monthly_fee": 180000,
+    "valid_until": "2027-10-11",
+    "last_paid_at": "2026-09-08",
+    "last_payment": {
+      "amount": 50000,
+      "concept": "Torneos: Torneo E2E Test x1",
+      "created_at": "2026-09-08T16:14:27.925991-05:00",
+      "amount_paid": 50000,
+      "payment_date": "2026-09-08",
+      "payment_method": "transfer",
+      "provider_reference": null
+    }
+  },
+  "asParent": {
+    "found": true,
+    "school": {
+      "id": "25a123f0-6d57-48a4-9800-7b1531d61cd2",
+      "name": "Club Campestre Demo",
+      "slug": "club-campestre-demo",
+      "logo_url": "https://luebjarufsiadojhvxgi.supabase.co/storage/v1/object/public/school-assets/logos/25a123f0-6d57-48a4-9800-7b1531d61cd2/logo.jpg",
+      "branding_settings": {
+        "primary_color": "#1f6f3f",
+        "secondary_color": "#c9a227",
+        "show_sportmaps_watermark": true
+      }
+    },
+    "status": "active",
+    "athlete": {
+      "kind": "child",
+      "doc_type": null,
+      "eps_name": null,
+      "full_name": "Tomás Herrera",
+      "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=7167931e-0798-43e8-a286-d4985b0965b6",
+      "blood_type": null,
+      "doc_number": null,
+      "emergency_contact": "Mauricio Herrera — +57 320 555 0301"
+    },
+    "card_id": "9c9f099f-9934-4b3e-b4cd-fc1742d2a0b9",
+    "version": 2,
+    "next_due": "2026-10-08",
+    "qr_token": "4a47dd62-cccd-4a3e-8894-c5385273191a",
+    "template": {
+      "id": "32f0438d-c0ed-4fde-80bd-e61f0e9b5798",
+      "name": "Carnet 2026",
+      "layout": "classic",
+      "pattern": "diagonal",
+      "text_mode": "auto",
+      "footer_text": "",
+      "header_text": "Carnet deportivo 2026",
+      "photo_shape": "rounded",
+      "show_fields": {
+        "eps": true,
+        "plan": true,
+        "team": true,
+        "photo": true,
+        "branch": true,
+        "blood_type": true,
+        "doc_number": true,
+        "fee_status": true,
+        "tshirt_size": false,
+        "valid_until": true,
+        "emergency_contact": true
+      },
+      "accent_color": "#1c5c34",
+      "background_url": null,
+      "secondary_color": "#0c1f10"
+    },
+    "issued_at": "2026-10-10T19:37:07.512962-05:00",
+    "team_name": "Fútbol — Sub-15",
+    "fee_status": "due_soon",
+    "branch_name": "Unidad Deportiva — Fútbol",
+    "monthly_fee": 180000,
+    "valid_until": "2027-10-11",
+    "last_paid_at": "2026-09-08",
+    "last_payment": {
+      "amount": 50000,
+      "concept": "Torneos: Torneo E2E Test x1",
+      "created_at": "2026-09-08T16:14:27.925991-05:00",
+      "amount_paid": 50000,
+      "payment_date": "2026-09-08",
+      "payment_method": "transfer",
+      "provider_reference": null
+    }
+  }
+}

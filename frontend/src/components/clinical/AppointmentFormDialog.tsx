@@ -145,7 +145,7 @@ export function AppointmentFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[560px] max-h-[92vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-xl max-h-[92vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Editar / reprogramar cita' : 'Nueva cita'}</DialogTitle>
           <DialogDescription>
@@ -366,7 +366,7 @@ export function CancelAppointmentDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[440px]">
+      <DialogContent className="sm:max-w-modal-sm">
         <DialogHeader>
           <DialogTitle>{mode === 'rechazar' ? 'Rechazar solicitud' : 'Cancelar cita'}</DialogTitle>
           <DialogDescription>

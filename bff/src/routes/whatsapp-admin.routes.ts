@@ -41,8 +41,10 @@ import { esCierreSuelto } from '../services/whatsapp-reglas-turno';
 import { vocativosDeEscuela } from '../services/whatsapp-bot.service';
 import { contarBorradoresHuerfanos, ponerseAlDia } from '../services/whatsapp-ponerse-al-dia.service';
 import { prospectosDeConversaciones } from '../services/whatsapp-prospecto-lead.service';
-import { ESTADOS_BANDEJA, clasificarFila, estaCerrada, filasParaAutocierre, marcaDeCierre, motivoDeFila,
-         referenciaUsada, resumenDeGrupos, type GrupoBandeja, type PagoMinimo } from '../services/whatsapp-bandeja.service';
+import { medioDelMensaje } from '../services/whatsapp-medios';
+import { ESTADOS_BANDEJA, PREFIJO_CERRADA, clasificarFila, contarCierres, estaCerrada, filasParaAutocierre,
+         filasParaAutocierrePorDecision, huellasDeFila, marcaDeCierre, motivoDeFila, referenciaUsada, resumenDeGrupos,
+         type GrupoBandeja, type PagoDecidible, type PagoMinimo } from '../services/whatsapp-bandeja.service';
 
 const router = Router();
 
@@ -164,10 +166,15 @@ router.get('/:schoolId', requireAuth, async (req: AuthenticatedRequest, res: Res
             .order('created_at', { ascending: false }).limit(50),
     ]);
     const ajustes = ajustesR.data;
+    // El barrido corre también acá (no solo al abrir la pestaña): si no, el
+    // contador de la pestaña y del Resumen cuenta comprobantes que ya se
+    // decidieron en Pagos hasta que alguien entre a la Bandeja.
+    const cerradasAlCargar = await autocerrarYaRegistradas(schoolId, bandejaR.filas, req.log).catch(() => new Set<string>());
+    const filasBandeja = bandejaR.filas.filter((f) => !cerradasAlCargar.has(f.id));
     // La bandeja va clasificada: el contador de la pestaña es lo que requiere
     // acción, no todo lo que el bot no aplicó (ver whatsapp-bandeja.service).
-    const bandeja = armarBandeja(bandejaR.filas,
-        await conversacionesPorNumero(integracion.id, bandejaR.filas.map((f) => f.wa_phone_number)));
+    const bandeja = armarBandeja(filasBandeja,
+        await conversacionesPorNumero(integracion.id, filasBandeja.map((f) => f.wa_phone_number)));
 
     // El desglose se arma aca con la misma forma que devolvia el RPC, para que
     // la pantalla no note la diferencia.
@@ -218,7 +225,7 @@ router.get('/:schoolId', requireAuth, async (req: AuthenticatedRequest, res: Res
             // ahorra; el excedente se factura como paquete.
             avisar: facturables >= incluidos * UMBRAL_AVISO,
         },
-        bandeja: bandeja.filas,
+        bandeja: bandeja.filas.map(sinHuellas),
         bandeja_resumen: bandeja.resumen,
         eventos: eventosR.data ?? [],
     });
@@ -366,7 +373,10 @@ router.post('/:schoolId/ponerse-al-dia', requireAuth, async (req: AuthenticatedR
 // estaba registrado.
 
 const COLUMNAS_BANDEJA = 'id, status, wa_phone_number, message_type, media_mime_type, storage_path, '
-    + 'media_caption, error_message, result_type, result_ref_id, matched_child_id, retries, created_at, processed_at';
+    + 'media_caption, error_message, result_type, result_ref_id, matched_child_id, retries, created_at, processed_at, '
+    // sha y referencia del OCR: enlazan la fila con el pago para cerrarla sola.
+    // Se quitan antes de responder (sinHuellas).
+    + 'pregunta_ocr';
 /** Techo de filas abiertas. Antes era 100 y el contador se quedaba ahí (Dynasty tenía 113). */
 const TECHO_BANDEJA = 500;
 const BUCKET_COMPROBANTES = 'payment-receipts';
@@ -416,8 +426,20 @@ async function conversacionesPorNumero(integrationId: string, numeros: string[])
 async function autocerrarYaRegistradas(schoolId: string, filas: any[], log?: any): Promise<Set<string>> {
     const candidatas = filas.filter((f) => f.status === 'ignored' && motivoDeFila(f).motivo === 'ya_registrado');
     const cerradas = new Set<string>();
-    if (!candidatas.length) return cerradas;
+    if (candidatas.length) await autocerrarRegistradas(schoolId, candidatas, cerradas, log);
 
+    // 2026-10-13: además, las que pedían decidir y cuyo pago enlazado ya se
+    // aprobó o rechazó (por cualquier camino) después de que llegaron. Ver
+    // filasParaAutocierrePorDecision. La migración 20261013124655 hace lo mismo
+    // con un trigger en `payments`; esto cubre lo que ya estaba y el tiempo
+    // hasta que se aplique.
+    for (const id of await autocerrarPorDecision(schoolId, filas.filter((f) => !cerradas.has(f.id)), log)) {
+        cerradas.add(id);
+    }
+    return cerradas;
+}
+
+async function autocerrarRegistradas(schoolId: string, candidatas: any[], cerradas: Set<string>, log?: any) {
     const ids = [...new Set(candidatas.map((f) => f.result_ref_id).filter(Boolean))] as string[];
     const refs = [...new Set(candidatas.map((f) => referenciaUsada(f.error_message)).filter(Boolean))] as string[];
     const [porIdR, porRefR] = await Promise.all([
@@ -447,7 +469,66 @@ async function autocerrarYaRegistradas(schoolId: string, filas: any[], log?: any
         if ((data ?? []).length) cerradas.add(fila.id);
     }
     if (cerradas.size) log?.info?.({ schoolId, cerradas: cerradas.size }, '[wa-bandeja] cerradas solas (ya registradas)');
+}
+
+const COLUMNAS_PAGO_DECIDIBLE = 'id, school_id, status, concept, ocr_reference, approved_at, payment_date, updated_at, '
+    + 'receipt_rejected_at, receipt_image_sha256, receipt_reference_norm';
+
+async function autocerrarPorDecision(schoolId: string, filas: any[], log?: any): Promise<string[]> {
+    const conEnlace = filas.filter((f) => f.result_ref_id || huellasDeFila(f).sha || huellasDeFila(f).referencia);
+    if (!conEnlace.length) return [];
+    const ids = [...new Set(conEnlace.map((f) => f.result_ref_id).filter(Boolean))] as string[];
+    const shas = [...new Set(conEnlace.map((f) => huellasDeFila(f).sha).filter(Boolean))] as string[];
+    const refs = [...new Set(conEnlace.map((f) => huellasDeFila(f).referencia).filter(Boolean))] as string[];
+    const vacio = Promise.resolve({ data: [], error: null } as any);
+    const lecturas = await Promise.all([
+        ids.length ? supabase.from('payments').select(COLUMNAS_PAGO_DECIDIBLE).eq('school_id', schoolId).in('id', ids) : vacio,
+        shas.length ? supabase.from('payments').select(COLUMNAS_PAGO_DECIDIBLE).eq('school_id', schoolId).in('receipt_image_sha256', shas) : vacio,
+        refs.length ? supabase.from('payments').select(COLUMNAS_PAGO_DECIDIBLE).eq('school_id', schoolId).in('ocr_reference', refs) : vacio,
+        refs.length ? supabase.from('payments').select(COLUMNAS_PAGO_DECIDIBLE).eq('school_id', schoolId).in('receipt_reference_norm', refs) : vacio,
+    ]);
+    // Una columna que no exista todavía (migración sin aplicar) no tumba la bandeja.
+    const pagos = new Map<string, PagoDecidible>();
+    for (const r of lecturas) for (const p of ((r as any).data ?? []) as PagoDecidible[]) pagos.set(p.id, p);
+
+    const cerradas: string[] = [];
+    for (const { fila, pago, decision } of filasParaAutocierrePorDecision(schoolId, conEnlace, [...pagos.values()])) {
+        const motivo = decision === 'aprobado'
+            ? `el pago se aprobó (${pago.status}: ${(pago.concept ?? '').slice(0, 80)})`
+            : `el comprobante se rechazó en Pagos (${(pago.concept ?? '').slice(0, 80)})`;
+        let upd = supabase.from('whatsapp_inbound_queue')
+            .update({ status: 'ignored', locked_until: null,
+                      error_message: marcaDeCierre('resuelto_auto', motivo, null, fila.error_message),
+                      updated_at: new Date().toISOString() })
+            .eq('id', fila.id)
+            .eq('school_id', schoolId)
+            .eq('status', fila.status);
+        upd = fila.error_message === null ? upd.is('error_message', null) : upd.eq('error_message', fila.error_message as string);
+        const { data, error } = await upd.select('id');
+        if (error) { log?.warn?.({ schoolId, fila: fila.id, err: error.message }, '[wa-bandeja] autocierre por decisión falló'); continue; }
+        if ((data ?? []).length) cerradas.push(fila.id);
+    }
+    if (cerradas.length) log?.info?.({ schoolId, cerradas: cerradas.length }, '[wa-bandeja] cerradas solas (pago decidido)');
     return cerradas;
+}
+
+/** Cierres de los últimos 30 días: cuántos hizo la escuela y cuántos se hicieron solos. */
+async function cierresRecientes(schoolId: string) {
+    const desde = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    const { data, error } = await supabase.from('whatsapp_inbound_queue')
+        .select('error_message')
+        .eq('school_id', schoolId)
+        .like('error_message', `${PREFIJO_CERRADA}%`)
+        .gte('updated_at', desde)
+        .limit(5000);
+    if (error) return null;
+    return contarCierres(((data ?? []) as any[]).map((f) => f.error_message));
+}
+
+/** Lo que viaja a la pantalla: sin `pregunta_ocr` (trae datos del OCR y del acudiente). */
+function sinHuellas<T extends Record<string, any>>(f: T): Omit<T, 'pregunta_ocr'> {
+    const { pregunta_ocr: _p, ...resto } = f;
+    return resto;
 }
 
 /** Clasifica y ordena: acción primero, después revisar, después informativo. */
@@ -486,6 +567,7 @@ router.get('/:schoolId/bandeja', requireAuth, async (req: AuthenticatedRequest, 
         ? await conversacionesPorNumero(integracion.id, abiertas.map((f) => f.wa_phone_number))
         : new Map();
     const { filas, resumen } = armarBandeja(abiertas, convs);
+    const cierres = await cierresRecientes(schoolId);
 
     // Miniatura firmada del comprobante (15 min). Las rutas son de ESTA escuela
     // (salen de filas filtradas por school_id); el bucket es privado.
@@ -501,9 +583,11 @@ router.get('/:schoolId/bandeja', requireAuth, async (req: AuthenticatedRequest, 
     }
 
     return res.json({
-        filas: filas.map((f) => ({ ...f, archivo_url: f.storage_path ? urlPorRuta.get(f.storage_path) ?? null : null })),
+        filas: filas.map((f) => ({ ...sinHuellas(f), archivo_url: f.storage_path ? urlPorRuta.get(f.storage_path) ?? null : null })),
         resumen,
         cerradas_solas: cerradasSolas.size,
+        // Cierres de los últimos 30 días (null si no se pudo contar).
+        cierres_30d: cierres,
     });
 });
 
@@ -560,6 +644,66 @@ router.post('/:schoolId/bandeja/:filaId/cerrar', requireAuth, async (req: Authen
 
     req.log?.info({ schoolId, filaId, accion: parsed.data.accion, por: req.user.id }, '[wa-bandeja] fila cerrada');
     return res.json({ ok: true, fila: (data as any[])[0] });
+});
+
+/**
+ * POST /api/v1/whatsapp/:schoolId/bandeja/cerrar-lote  { ids, accion, motivo }
+ *
+ * Por qué existe (2026-10-13): en Dynasty había 206 abiertas y 0 cerradas por
+ * la escuela. El cierre funcionaba, pero era de a una, con un diálogo y un
+ * motivo escrito, sobre una lista donde 131 eran fotos de contactos que no son
+ * familias o capturas que no eran comprobantes. Nadie cierra 200 filas de a
+ * una. Con esto la pantalla ofrece «Cerrar las N de esta sección» con un solo
+ * motivo. Mismas reglas que el cierre individual: solo administración de ESA
+ * escuela, solo filas abiertas de esa escuela, sin tocar pagos, y cada UPDATE
+ * condicionado al estado leído (dos pestañas no se pisan).
+ */
+const CierreLoteSchema = z.object({
+    ids: z.array(z.string().uuid()).min(1).max(300),
+    accion: z.enum(['resuelto', 'descartado']),
+    motivo: z.string().trim().min(3, 'escribe el motivo').max(200),
+});
+
+router.post('/:schoolId/bandeja/cerrar-lote', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId } = req.params as { schoolId: string };
+    if (!(await administraEstaEscuela(req.user.id, schoolId))) {
+        return res.status(403).json({ error: 'forbidden' });
+    }
+    const parsed = CierreLoteSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'datos_invalidos', details: parsed.error.issues });
+    const ids = [...new Set(parsed.data.ids)];
+
+    const { data: filas, error: errLee } = await supabase.from('whatsapp_inbound_queue')
+        .select('id, school_id, status, error_message')
+        .eq('school_id', schoolId)
+        .in('id', ids);
+    if (errLee) return res.status(500).json({ error: errLee.message });
+
+    const abiertas = ((filas ?? []) as any[]).filter((f) =>
+        (ESTADOS_BANDEJA as readonly string[]).includes(f.status) && !estaCerrada(f.error_message));
+    const cerradas: string[] = [];
+    for (const f of abiertas) {
+        const previo = (f.error_message ?? null) as string | null;
+        let upd = supabase.from('whatsapp_inbound_queue')
+            .update({
+                status: 'ignored',
+                error_message: marcaDeCierre(parsed.data.accion, parsed.data.motivo, req.user.id, previo),
+                locked_until: null,
+                updated_at: new Date().toISOString(),
+            })
+            .eq('id', f.id)
+            .eq('school_id', schoolId)
+            .eq('status', f.status);
+        upd = previo === null ? upd.is('error_message', null) : upd.eq('error_message', previo);
+        const { data, error } = await upd.select('id');
+        if (error) { req.log?.warn({ schoolId, fila: f.id, err: error.message }, '[wa-bandeja] cierre en lote falló'); continue; }
+        if ((data ?? []).length) cerradas.push(f.id);
+    }
+
+    req.log?.info({ schoolId, pedidas: ids.length, cerradas: cerradas.length, accion: parsed.data.accion, por: req.user.id },
+        '[wa-bandeja] cierre en lote');
+    // Las que no se cerraron: de otra escuela, ya cerradas o cambiadas en el camino.
+    return res.json({ ok: true, cerradas, omitidas: ids.length - cerradas.length });
 });
 
 // ── GET /eventos — lo que avisa Meta ────────────────────────────────────────
@@ -812,7 +956,7 @@ router.post('/:schoolId/plantillas/catalogo/:nombre', requireAuth, async (req: A
 
 const VENTANA_MS = 24 * 60 * 60 * 1000;
 
-function estadoDeVentana(lastInboundAt: string | null) {
+export function estadoDeVentana(lastInboundAt: string | null) {
     if (!lastInboundAt) return { ventana_abierta: false, ventana_vence: null };
     const vence = new Date(new Date(lastInboundAt).getTime() + VENTANA_MS);
     return { ventana_abierta: vence.getTime() > Date.now(), ventana_vence: vence.toISOString() };
@@ -825,7 +969,7 @@ function estadoDeVentana(lastInboundAt: string | null) {
  * proposito no selecciona `access_token_encrypted`: ese dato no tiene por
  * que viajar en una respuesta que solo pinta un encabezado.
  */
-async function integracionParaEnviar(schoolId: string): Promise<WhatsAppIntegration | null> {
+export async function integracionParaEnviar(schoolId: string): Promise<WhatsAppIntegration | null> {
     const { data } = await supabase
         .from('school_whatsapp_integrations')
         .select('id, school_id, phone_number_id, waba_id, display_phone_number, '
@@ -835,58 +979,14 @@ async function integracionParaEnviar(schoolId: string): Promise<WhatsAppIntegrat
     return (data as unknown as WhatsAppIntegration) ?? null;
 }
 
-/** GET /api/v1/whatsapp/:schoolId/conversaciones */
-router.get('/:schoolId/conversaciones', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-    const { schoolId } = req.params as { schoolId: string };
-    const userId = req.user.id;
-    if (!(await administraEstaEscuela(userId, schoolId))) {
-        return res.status(403).json({ error: 'Sin permiso sobre esta escuela' });
-    }
-
-    const vistaPedida = VistaSchema.safeParse(req.query.vista ?? 'familias');
-    if (!vistaPedida.success) {
-        return res.status(400).json({ error: 'vista_invalida', detalle: 'usa familias | otros | todas' });
-    }
-
-    // Fase A: con Coexistence el número es también el WhatsApp personal de
-    // quien dirige la escuela (Dynasty, 2026-10-03: 30 de 55 conversaciones
-    // eran familias). Por defecto se muestran solo familias; el resto va a
-    // "otros". Se trae la lista completa (hasta 500) para poder devolver los
-    // conteos de las tres pestañas en el mismo viaje, y se filtra acá.
-    const COLUMNAS = 'id, contact_wa_id, contact_name, identified, status, unread_count, '
-                   + 'last_message_at, last_inbound_at, parent_id';
-    const conTipo = await supabase
-        .from('whatsapp_conversations')
-        .select(`${COLUMNAS}, contact_kind`)
-        .eq('school_id', schoolId)
-        .order('last_message_at', { ascending: false, nullsFirst: false })
-        .limit(500);
-
-    let todas: any[] = (conTipo.data as any[]) ?? [];
-    let clasificacionDisponible = true;
-    if (conTipo.error) {
-        // La migración 20261003193624 se aplica a mano. Mientras no esté, la
-        // columna no existe y la consulta falla: se degrada a la lista de
-        // siempre, sin filtrar, para que el buzón no se caiga.
-        if (!esColumnaInexistente(conTipo.error)) {
-            return res.status(500).json({ error: conTipo.error.message });
-        }
-        clasificacionDisponible = false;
-        const sinTipo = await supabase
-            .from('whatsapp_conversations')
-            .select(COLUMNAS)
-            .eq('school_id', schoolId)
-            .order('last_message_at', { ascending: false, nullsFirst: false })
-            .limit(500);
-        if (sinTipo.error) return res.status(500).json({ error: sinTipo.error.message });
-        todas = ((sinTipo.data as any[]) ?? []).map((c) => ({ ...c, contact_kind: null }));
-    }
-
-    const vista: VistaDelBuzon = clasificacionDisponible ? vistaPedida.data : 'todas';
-    const conteos = clasificacionDisponible ? contarPorVista(todas) : null;
-    const data = (vista === 'todas' ? todas : todas.filter((c) => vistaDeTipo(c.contact_kind) === vista))
-        .slice(0, 200);
-
+/**
+ * Último mensaje, pendiente/requiere respuesta, borradores, toma, prospecto y
+ * ventana de cada conversación. Sale de GET /conversaciones para que la
+ * búsqueda en servidor (whatsapp-buzon.routes) devuelva filas idénticas.
+ */
+export async function enriquecerConversaciones(schoolId: string, data: any[]): Promise<{
+    filas: any[]; tomaDisponible: boolean;
+}> {
     const ids = data.map((c: any) => c.id);
 
     // El ultimo mensaje de cada hilo. Una sola consulta para las 200
@@ -1008,15 +1108,9 @@ router.get('/:schoolId/conversaciones', requireAuth, async (req: AuthenticatedRe
     // Consulta aparte para que la migración sin aplicar no tumbe la lista.
     const { disponible: tomaDisponible, tomas } = await tomasDe(ids);
 
-    return res.json({
-        vista,
-        // false = la migración de Fase A aún no está aplicada: la lista viene
-        // sin filtrar y `conteos` en null. La pantalla debería ocultar las pestañas.
-        clasificacion_disponible: clasificacionDisponible,
-        // false = falta la migración 20261006101521: el botón «Tomar» se deshabilita.
-        toma_disponible: tomaDisponible,
-        conteos,
-        conversaciones: data.map((c: any) => ({
+    return {
+        tomaDisponible,
+        filas: data.map((c: any) => ({
             ...c,
             ...estadoDeVentana(c.last_inbound_at),
             pendiente: estaPendiente(c.status, tiempos.get(c.id)),
@@ -1032,6 +1126,72 @@ router.get('/:schoolId/conversaciones', requireAuth, async (req: AuthenticatedRe
                 ? { ...leads.get(c.id)!, interes: leads.get(c.id)!.intereses.join(', ') || null }
                 : null,
         })),
+    };
+}
+
+/** GET /api/v1/whatsapp/:schoolId/conversaciones */
+router.get('/:schoolId/conversaciones', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { schoolId } = req.params as { schoolId: string };
+    const userId = req.user.id;
+    if (!(await administraEstaEscuela(userId, schoolId))) {
+        return res.status(403).json({ error: 'Sin permiso sobre esta escuela' });
+    }
+
+    const vistaPedida = VistaSchema.safeParse(req.query.vista ?? 'familias');
+    if (!vistaPedida.success) {
+        return res.status(400).json({ error: 'vista_invalida', detalle: 'usa familias | otros | todas' });
+    }
+
+    // Fase A: con Coexistence el número es también el WhatsApp personal de
+    // quien dirige la escuela (Dynasty, 2026-10-03: 30 de 55 conversaciones
+    // eran familias). Por defecto se muestran solo familias; el resto va a
+    // "otros". Se trae la lista completa (hasta 500) para poder devolver los
+    // conteos de las tres pestañas en el mismo viaje, y se filtra acá.
+    const COLUMNAS = 'id, contact_wa_id, contact_name, identified, status, unread_count, '
+                   + 'last_message_at, last_inbound_at, parent_id';
+    const conTipo = await supabase
+        .from('whatsapp_conversations')
+        .select(`${COLUMNAS}, contact_kind`)
+        .eq('school_id', schoolId)
+        .order('last_message_at', { ascending: false, nullsFirst: false })
+        .limit(500);
+
+    let todas: any[] = (conTipo.data as any[]) ?? [];
+    let clasificacionDisponible = true;
+    if (conTipo.error) {
+        // La migración 20261003193624 se aplica a mano. Mientras no esté, la
+        // columna no existe y la consulta falla: se degrada a la lista de
+        // siempre, sin filtrar, para que el buzón no se caiga.
+        if (!esColumnaInexistente(conTipo.error)) {
+            return res.status(500).json({ error: conTipo.error.message });
+        }
+        clasificacionDisponible = false;
+        const sinTipo = await supabase
+            .from('whatsapp_conversations')
+            .select(COLUMNAS)
+            .eq('school_id', schoolId)
+            .order('last_message_at', { ascending: false, nullsFirst: false })
+            .limit(500);
+        if (sinTipo.error) return res.status(500).json({ error: sinTipo.error.message });
+        todas = ((sinTipo.data as any[]) ?? []).map((c) => ({ ...c, contact_kind: null }));
+    }
+
+    const vista: VistaDelBuzon = clasificacionDisponible ? vistaPedida.data : 'todas';
+    const conteos = clasificacionDisponible ? contarPorVista(todas) : null;
+    const data = (vista === 'todas' ? todas : todas.filter((c) => vistaDeTipo(c.contact_kind) === vista))
+        .slice(0, 200);
+
+    const { filas: conversaciones, tomaDisponible } = await enriquecerConversaciones(schoolId, data);
+
+    return res.json({
+        vista,
+        // false = la migración de Fase A aún no está aplicada: la lista viene
+        // sin filtrar y `conteos` en null. La pantalla debería ocultar las pestañas.
+        clasificacion_disponible: clasificacionDisponible,
+        // false = falta la migración 20261006101521: el botón «Tomar» se deshabilita.
+        toma_disponible: tomaDisponible,
+        conteos,
+        conversaciones,
     });
 });
 
@@ -1127,11 +1287,15 @@ router.get('/:schoolId/conversaciones/:conversationId', requireAuth, async (req:
         .maybeSingle();
     if (!conv) return res.status(404).json({ error: 'Conversacion no encontrada' });
 
-    const { data: mensajes } = await supabase
+    // `payload` solo para saber si el mensaje trae un adjunto (y de qué tipo):
+    // no viaja entero a la pantalla. El archivo se pide aparte, por el BFF
+    // (GET …/mensajes/:id/media), porque la URL de Meta es privada.
+    const { data: mensajesCrudos } = await supabase
         .from('whatsapp_messages')
-        .select('id, direction, type, text_body, status, ai_generated, created_at, error_detail')
+        .select('id, direction, type, text_body, status, ai_generated, created_at, error_detail, payload')
         .eq('conversation_id', conversationId)
         .order('created_at');
+    const mensajes = ((mensajesCrudos ?? []) as any[]).map(({ payload, ...m }) => ({ ...m, media: medioDelMensaje(m.type, payload) }));
 
     const { data: drafts } = await supabase
         .from('whatsapp_message_drafts')

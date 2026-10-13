@@ -18,7 +18,7 @@
 
 import { supabase } from '../config/supabase';
 import { normalizarFrase } from './whatsapp-reglas-turno';
-import type { PagoPendiente } from './whatsapp-receipt-matching.service';
+import { resolverPago, type PagoPendiente } from './whatsapp-receipt-matching.service';
 
 export type OtroConcepto =
     | 'clase_extra'
@@ -27,6 +27,7 @@ export type OtroConcepto =
     | 'viaje'
     | 'rifa'
     | 'inscripcion'
+    | 'seguro'
     | 'vacacional';
 
 /** Cómo se nombra cada concepto en el mensaje a la familia y en el motivo. */
@@ -37,6 +38,7 @@ export const NOMBRE_OTRO_CONCEPTO: Record<OtroConcepto, string> = {
     viaje: 'viaje',
     rifa: 'rifa',
     inscripcion: 'inscripción',
+    seguro: 'seguro de accidentes',
     vacacional: 'vacacionales',
 };
 
@@ -51,6 +53,9 @@ const PATRONES: [OtroConcepto, RegExp][] = [
     ['torneo', /\b(torneos?|campeonatos?|copa|festival|inscripcion (al|del|de la) (torneo|copa|campeonato))\b/],
     ['viaje', /\b(viajes?|tiquetes?|pasajes?|transporte|hotel|hospedaje|excursion)\b/],
     ['rifa', /\b(rifas?|boletas?|bono(s)? (de la )?rifa)\b/],
+    // «Seguro» suelto es también «seguro que ya pagué»: cuenta solo como el pie
+    // entero, o con lo que lo hace un cobro (de accidentes, póliza, «el seguro»).
+    ['seguro', /(^seguro$|\bseguro (de |del |contra )?(accidente|accidentes|deportivo|estudiantil|medico)\b|\bpolizas?\b|\b(pago|pague|abono|valor|cuota|el|del) seguro\b)/],
     ['inscripcion', /\b(inscripcion|matricula)\b/],
 ];
 
@@ -74,6 +79,30 @@ export function nombraMensualidad(texto: string | null | undefined): boolean {
 export function conceptoDelCobro(concept: string | null | undefined): OtroConcepto | null {
     if (nombraMensualidad(concept)) return null;
     return conceptoNombrado(concept);
+}
+
+/** `payments.payment_category` → el concepto que la familia nombra. Las demás categorías no tienen palabra propia. */
+const CONCEPTO_DE_CATEGORIA: Record<string, OtroConcepto | null> = {
+    mensualidad: null,
+    inscripcion: 'inscripcion',
+    seguro: 'seguro',
+    articulos: 'uniforme',
+    torneo: 'torneo',
+    clase_extra: 'clase_extra',
+    viaje: 'viaje',
+    vacacional: 'vacacional',
+};
+
+/**
+ * De qué concepto es un cobro pendiente. La categoría manda cuando se conoce
+ * (2026-10-10): «Inscripción — PLAN RM MENSUAL — …» dice «mensual» en el
+ * nombre del plan, y por el texto se leía como mensualidad. Sin categoría (o
+ * 'otro', o una nueva sin palabra propia), por el texto como siempre.
+ */
+export function conceptoDePago(p: Pick<PagoPendiente, 'concept'> & { categoria?: string | null }): OtroConcepto | null {
+    const cat = p.categoria ?? null;
+    if (cat && cat !== 'otro' && cat in CONCEPTO_DE_CATEGORIA) return CONCEPTO_DE_CATEGORIA[cat];
+    return conceptoDelCobro(p.concept);
 }
 
 export interface SenalOtroConcepto {
@@ -113,6 +142,8 @@ export function detectarOtroConcepto(e: {
     if (chat.some(nombraMensualidad)) return null;
     for (const t of chat) {
         const c = conceptoNombrado(t);
+        // «Seguro» solo, en el chat, es «claro que sí»; en el pie de la foto sí cuenta.
+        if (c === 'seguro' && normalizarFrase(t) === 'seguro') continue;
         if (c) return { concepto: c, fuente: 'chat', evidencia: recorte(t) };
     }
     return null;
@@ -140,10 +171,20 @@ export function decidirOtroConcepto(
     monto: number | null,
 ): DecisionOtroConcepto {
     if (!senal) return { tipo: 'seguir' };
-    const delConcepto = pendientes.filter((p) => conceptoDelCobro(p.concept) === senal.concepto);
+    const delConcepto = pendientes.filter((p) => conceptoDePago(p) === senal.concepto);
     if (monto !== null) {
         const exactos = delConcepto.filter((p) => p.amount === monto);
         if (exactos.length === 1) return { tipo: 'aplicar', pago: exactos[0], senal };
+        // Una transferencia por varios cobros que INCLUYE el nombrado (pie
+        // «inscripción» y $515.000 = mensualidad + inscripción + seguro): no es
+        // «otro concepto» sin cobro, es el pago de varios. Sigue el flujo normal,
+        // que con una única combinación lo pasa a la escuela para repartirlo.
+        if (delConcepto.length) {
+            const m = resolverPago(pendientes, monto);
+            if (m.tipo === 'combinacion' && m.pagos.some((p) => conceptoDePago(p) === senal.concepto)) {
+                return { tipo: 'seguir' };
+            }
+        }
     }
     if (senal.fuente === 'chat' && monto !== null) {
         const cualquiera = pendientes.filter((p) => p.amount === monto);

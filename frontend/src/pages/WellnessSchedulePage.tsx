@@ -226,7 +226,7 @@ export default function WellnessSchedulePage() {
                 </div>
               ))}
             </div>
-            <div className="max-h-[70vh] overflow-y-auto">
+            <div className="max-h-[70dvh] overflow-y-auto">
               <div className="grid grid-cols-[56px_repeat(7,minmax(0,1fr))]" style={{ height: HOURS.length * HOUR_PX }}>
                 <div className="relative">
                   {HOURS.map((h, i) => (
@@ -294,7 +294,7 @@ export default function WellnessSchedulePage() {
                     type="button"
                     onClick={() => setMobileDay(d)}
                     className={cn(
-                      'flex min-w-[46px] flex-col items-center rounded-lg border px-2 py-1.5 text-xs',
+                      'flex min-w-12 flex-col items-center rounded-lg border px-2 py-1.5 text-xs',
                       mobileDay === d ? 'border-primary bg-primary text-primary-foreground' : d === today ? 'border-primary/50' : '',
                     )}
                   >

@@ -193,7 +193,8 @@ export default function PickupMonitorPage() {
 
             {/* Kanban Board Layout */}
             <div className="flex-1 overflow-x-auto pb-4">
-                <div className="flex gap-6 min-w-[1000px] h-[600px]">
+                {/* min-w en px a propósito: 3 columnas kanban con scroll horizontal (overflow-x-auto) */}
+                <div className="flex gap-6 min-w-[1000px] h-[70dvh] max-h-[37.5rem]">
 
                     {/* Column 1: Approaching */}
                     <div className="flex-1 bg-blue-50/50 rounded-xl p-4 border border-blue-100 flex flex-col">

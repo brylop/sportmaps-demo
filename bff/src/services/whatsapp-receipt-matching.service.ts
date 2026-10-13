@@ -10,6 +10,7 @@
  */
 
 import { supabase } from '../config/supabase';
+import { categoriaDelCobro } from './tipo-de-cobro';
 
 /** Pago pendiente del acudiente, con lo mínimo para nombrarlo en el chat. */
 export interface PagoPendiente {
@@ -19,6 +20,12 @@ export interface PagoPendiente {
     due_date: string | null;
     child_id: string | null;
     atleta: string | null;
+    /**
+     * De qué es el cobro: 'mensualidad', 'inscripcion', 'seguro', 'torneo'… o
+     * cualquier categoría nueva (`categoriaDelCobro`). Opcional: las opciones
+     * congeladas en `pregunta_opciones` antes del 2026-10-10 no la traen.
+     */
+    categoria?: string | null;
 }
 
 export type Coincidencia =
@@ -45,7 +52,7 @@ export async function pagosPendientesDe(
 ): Promise<PagoPendiente[]> {
     const { data, error } = await supabase
         .from('payments')
-        .select('id, amount, concept, due_date, child_id, child:children(full_name)')
+        .select('id, amount, concept, due_date, child_id, payment_category, payment_type, child:children(full_name)')
         .eq('parent_id', parentId)
         .eq('school_id', schoolId)
         .in('status', ['pending', 'overdue'])
@@ -61,6 +68,7 @@ export async function pagosPendientesDe(
         due_date: p.due_date ?? null,
         child_id: p.child_id ?? null,
         atleta: p.child?.full_name ?? null,
+        categoria: categoriaDelCobro(p),
     }));
 }
 

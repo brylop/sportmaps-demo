@@ -566,7 +566,7 @@ export function TrainerInvitationsTab() {
             </DialogHeader>
           </div>
 
-          <div className="px-6 pb-6 pt-4 space-y-4 max-h-[70vh] overflow-y-auto">
+          <div className="px-6 pb-6 pt-4 space-y-4 max-h-[70dvh] overflow-y-auto">
 
             {/* Selector de rol */}
             <div className="space-y-2">

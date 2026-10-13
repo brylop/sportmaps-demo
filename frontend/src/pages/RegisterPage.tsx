@@ -502,11 +502,12 @@ export default function RegisterPage() {
       {!tenant && (
       <div className="hidden lg:flex w-[42%] min-h-screen bg-[#0f2614] relative flex-col justify-between p-12 overflow-hidden border-r border-white/5">
         <div className="absolute inset-0 sportmaps-grid"></div>
+        {/* px a propósito: adorno del panel lg+ (hidden en móvil) */}
         <div className="absolute -top-[120px] -right-[120px] w-[420px] h-[420px] rounded-full bg-[radial-gradient(circle,rgba(36,130,35,.35)_0%,transparent_70%)] pointer-events-none"></div>
         <div className="absolute -bottom-[80px] -left-[80px] w-[300px] h-[300px] rounded-full bg-[radial-gradient(circle,rgba(36,130,35,.2)_0%,transparent_70%)] pointer-events-none"></div>
         <div className="relative z-10 flex items-center gap-3">
-          <div className="w-[38px] h-[38px] bg-[#248223] rounded-[10px] flex items-center justify-center">
-            <svg viewBox="0 0 24 24" className="w-[22px] h-[22px] fill-white"><path d="M12 2C8.5 2 6 5 6 8c0 4 6 12 6 12s6-8 6-12c0-3-2.5-6-6-6zm0 8a2 2 0 110-4 2 2 0 010 4z"/></svg>
+          <div className="w-10 h-10 bg-[#248223] rounded-[10px] flex items-center justify-center">
+            <svg viewBox="0 0 24 24" className="w-6 h-6 fill-white"><path d="M12 2C8.5 2 6 5 6 8c0 4 6 12 6 12s6-8 6-12c0-3-2.5-6-6-6zm0 8a2 2 0 110-4 2 2 0 010 4z"/></svg>
           </div>
           <span className="logo-name font-extrabold text-xl tracking-tight">SportMaps</span>
         </div>
@@ -520,7 +521,7 @@ export default function RegisterPage() {
             <span className="text-[#2ea82d]">mejor</span><br />
             organizado.
           </h1>
-          <p className="text-sm text-[#8a9186] leading-relaxed max-w-[320px] font-light">
+          <p className="text-sm text-[#8a9186] leading-relaxed max-w-xs font-light">
             Conectamos academias, entrenadores, atletas y familias en un solo ecosistema diseñado para el deporte latinoamericano.
           </p>
         </div>
@@ -544,7 +545,7 @@ export default function RegisterPage() {
 
       {/* ── RIGHT PANEL ── */}
       <div className="flex-1 flex items-center justify-center p-6 md:p-12">
-        <div className="w-full max-w-[480px] animate-in slide-in-from-bottom-6 duration-500 ease-out">
+        <div className="w-full max-w-lg animate-in slide-in-from-bottom-6 duration-500 ease-out">
 
           {tenant ? (
             /* Sin panel izquierdo, la identidad de la escuela pasa a ser el
@@ -869,7 +870,7 @@ export default function RegisterPage() {
                             <Command className="bg-transparent">
                               <CommandInput placeholder="Filtrar por nombre..." className="text-sm h-11" />
                               <CommandEmpty>No se encontró el deporte.</CommandEmpty>
-                              <CommandGroup className="max-h-[300px] overflow-y-auto">
+                              <CommandGroup className="max-h-72 overflow-y-auto">
                                 {allSports.map((sport) => (
                                   <CommandItem
                                     key={sport.id}

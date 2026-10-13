@@ -3,8 +3,34 @@ import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/a
 import { supabase } from '../config/supabase';
 import { todayInZone } from '../utils/businessDate';
 import { z } from 'zod';
+import { bloquearNombreDePlan, esNombreDePagoUnico, pagoUnicoNoEsPlanBody } from '../utils/pagosUnicos';
 
 const router = Router();
+
+// Nombre actual de una fila (offerings / offering_plans) de la escuela, para dejar
+// editar los planes viejos llamados «Inscripción»/«Seguro» sin obligar a renombrarlos.
+async function nombreActual(tabla: 'offerings' | 'offering_plans', id: string, schoolId: string): Promise<string | null> {
+    const { data } = await supabase
+        .from(tabla)
+        .select('name')
+        .eq('id', id)
+        .eq('school_id', schoolId)
+        .maybeSingle();
+    return (data as { name?: string } | null)?.name ?? null;
+}
+
+// true = respondió 400 (crear o renombrar a «Inscripción»/«Seguro»/«Matrícula»/«Póliza»).
+async function rechazarNombreDePagoUnico(
+    res: Response,
+    nombreNuevo: string | undefined,
+    actual?: { tabla: 'offerings' | 'offering_plans'; id: string; schoolId: string },
+): Promise<boolean> {
+    if (!nombreNuevo || !esNombreDePagoUnico(nombreNuevo)) return false;
+    const previo = actual ? await nombreActual(actual.tabla, actual.id, actual.schoolId) : null;
+    if (!bloquearNombreDePlan(nombreNuevo, previo)) return false;
+    res.status(400).json(pagoUnicoNoEsPlanBody());
+    return true;
+}
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -255,6 +281,8 @@ router.post('/',
 
             const { schoolId } = req;
 
+            if (await rechazarNombreDePagoUnico(res, parsed.data.name)) return;
+
             if (!(await assertBookingModeEnabled(schoolId!, parsed.data.booking_mode))) {
                 return res.status(403).json({
                     error: 'Esta escuela no tiene habilitado el agendamiento por instalación.',
@@ -291,6 +319,8 @@ router.patch('/:id',
 
             const { schoolId } = req;
             const { id } = req.params;
+
+            if (await rechazarNombreDePagoUnico(res, parsed.data.name, { tabla: 'offerings', id: String(id), schoolId: schoolId! })) return;
 
             if (!(await assertBookingModeEnabled(schoolId!, parsed.data.booking_mode))) {
                 return res.status(403).json({
@@ -417,6 +447,8 @@ router.post('/:id/plans',
             const { schoolId } = req;
             const { id: offeringId } = req.params;
 
+            if (await rechazarNombreDePagoUnico(res, parsed.data.name)) return;
+
             // Verificar que el offering pertenece a la escuela
             const { data: offering, error: offErr } = await supabase
                 .from('offerings')
@@ -491,6 +523,8 @@ router.patch('/:offeringId/plans/:planId',
             const { schoolId } = req;
             const { planId, offeringId } = req.params;
 
+            if (await rechazarNombreDePagoUnico(res, parsed.data.name, { tabla: 'offering_plans', id: String(planId), schoolId: schoolId! })) return;
+
             // Banco de horas: mismo gate que al crear el plan (ver POST /plans).
             if (parsed.data.included_minutes_per_period != null) {
                 const { data: ss } = await supabase
@@ -540,6 +574,55 @@ router.patch('/:offeringId/plans/:planId',
         } catch (err) {
             (req as any).log?.error({ err }, 'Error updating plan');
             res.status(500).json({ error: 'Error al actualizar plan' });
+        }
+    }
+);
+
+// ── POST /api/v1/offerings/one-time-fees/apply ───────────────────────────────
+// «Aplicar a todos los planes»: fija la misma Inscripción y el mismo Seguro en
+// varias tarifas de la escuela con UN solo UPDATE (atómico: o quedan todas o
+// ninguna). null = deja de cobrarse. Solo toca registration_fee / insurance_fee;
+// un campo ausente del body no se modifica. No crea ni cobra nada: el cobro sigue
+// siendo emit_enrollment_fees en el alta.
+const ApplyOneTimeFeesSchema = z.object({
+    plan_ids: z.array(z.string().uuid()).min(1).max(500),
+    registration_fee: z.number().min(0).nullable().optional(),
+    insurance_fee: z.number().min(0).nullable().optional(),
+}).refine(
+    (d) => d.registration_fee !== undefined || d.insurance_fee !== undefined,
+    { message: 'Indica la inscripción, el seguro o ambos', path: ['registration_fee'] }
+);
+
+router.post('/one-time-fees/apply',
+    requireAuth,
+    requireRole('owner', 'admin', 'school_admin'),
+    async (req: Request, res: Response) => {
+        try {
+            const parsed = ApplyOneTimeFeesSchema.safeParse(req.body);
+            if (!parsed.success) {
+                return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
+            }
+            const { schoolId } = req;
+            const { plan_ids, registration_fee, insurance_fee } = parsed.data;
+
+            // 0 y NULL significan lo mismo para emit_enrollment_fees (COALESCE(x,0) > 0);
+            // se guarda NULL para que «vacío = no se cobra» se lea igual en la base.
+            const patch: Record<string, number | null> = {};
+            if (registration_fee !== undefined) patch.registration_fee = registration_fee || null;
+            if (insurance_fee !== undefined) patch.insurance_fee = insurance_fee || null;
+
+            const { data, error } = await supabase
+                .from('offering_plans')
+                .update(patch)
+                .in('id', [...new Set(plan_ids)])
+                .eq('school_id', schoolId)
+                .select('id');
+
+            if (error) throw error;
+            res.json({ updated: (data ?? []).length });
+        } catch (err) {
+            (req as any).log?.error({ err }, 'Error applying one-time fees');
+            res.status(500).json({ error: 'Error al aplicar inscripción y seguro' });
         }
     }
 );

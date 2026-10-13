@@ -14,6 +14,8 @@
  *     no lo ejecute como fórmula (inyección CSV: el concepto lo escribe un usuario).
  */
 
+import { chargeCategoryOf } from '../payment-accounts';
+
 export type CsvCell = string | number | null | undefined;
 
 export const CSV_SEPARATOR = ';';
@@ -74,11 +76,32 @@ const METHOD_LABEL: Record<string, string> = {
     nequi: 'Nequi', daviplata: 'Daviplata', wompi: 'Wompi', mercadopago: 'Mercado Pago',
 };
 
-/** payments.payment_category (CHECK de la base) → etiqueta. */
+/** payments.payment_category (CHECK de la base, payments_payment_category_check) → etiqueta. */
 export const INCOME_CATEGORY_LABEL: Record<string, string> = {
     mensualidad: 'Mensualidad', inscripcion: 'Inscripción', articulos: 'Artículos', torneo: 'Torneo', otro: 'Otro',
-    seguro: 'Seguro', excedente: 'Horas adicionales',
+    seguro: 'Seguro', excedente: 'Horas adicionales', clase_extra: 'Clase extra', vacacional: 'Vacacional',
+    viaje: 'Viaje',
 };
+
+/**
+ * Categoría de un INGRESO del libro, para la columna «Categoría».
+ *
+ * `payment_category` manda. Sin ella (las mensualidades generadas por el cron
+ * y los cobros viejos la tienen NULL) se deduce del concepto con la misma regla
+ * que usa el resto de la app (`chargeCategoryOf`): antes la celda quedaba vacía
+ * y en el Excel no se distinguía la mensualidad de la inscripción o el seguro.
+ * Sin nada reconocible, vacía (no se inventa «Mensualidad»).
+ */
+export function incomeCategoryLabel(
+    paymentCategory: string | null | undefined,
+    concept: string | null | undefined,
+): string | null {
+    if (paymentCategory && paymentCategory !== 'otro') {
+        return INCOME_CATEGORY_LABEL[paymentCategory] ?? paymentCategory;
+    }
+    const inferred = chargeCategoryOf(paymentCategory, concept);
+    return inferred ? (INCOME_CATEGORY_LABEL[inferred] ?? inferred) : null;
+}
 
 export function methodLabel(m: string | null | undefined): string {
     if (!m) return '';

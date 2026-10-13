@@ -103,7 +103,7 @@ export function AddDropInModal({ open, onClose, sessionId }: AddDropInModalProps
 
     return (
         <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-            <DialogContent className="sm:max-w-[425px]">
+            <DialogContent className="sm:max-w-modal-sm">
                 <DialogHeader>
                     <DialogTitle>Agregar Drop-in</DialogTitle>
                 </DialogHeader>
@@ -121,7 +121,7 @@ export function AddDropInModal({ open, onClose, sessionId }: AddDropInModalProps
                         </Button>
                     </div>
 
-                    <div className="max-h-[300px] overflow-y-auto space-y-1">
+                    <div className="max-h-72 overflow-y-auto space-y-1">
                         {results.length === 0 && !searching && search && (
                             <p className="text-sm text-muted-foreground text-center py-4">
                                 No se encontraron deportistas.

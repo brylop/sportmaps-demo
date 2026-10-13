@@ -1118,8 +1118,8 @@ router.post('/school-tournaments/:id/categories/:catId/assign-teams', requireAut
         // equipo) — evita renotificar a quien ya estaba desde antes.
         const notifyIds = Array.isArray(data?.notified_profile_ids) ? data.notified_profile_ids : [];
         notifyProfiles(notifyIds, {
-            title: '⚽ Ya tenés equipo asignado',
-            message: 'La escuela ya armó los equipos de tu categoría — revisá tus partidos.',
+            title: '🙌 Ya tienes equipo asignado',
+            message: 'La escuela ya armó los equipos de tu categoría: revisa tus partidos.',
             link: `/tournaments/${eventId}/register`,
             data: { eventId },
         }).catch((err) => req.log?.warn({ err }, 'Error notificando armado de equipos'));

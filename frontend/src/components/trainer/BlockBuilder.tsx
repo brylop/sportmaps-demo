@@ -282,16 +282,16 @@ export function BlockBuilder({ blocks, onChange, difficulty }: BlockBuilderProps
             <CardContent className="p-4 space-y-4">
 
               {/* ── Fila superior: tipo de bloque + acciones ── */}
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <div className={`p-2 rounded-lg ${Config.color}`}>
+              <div className="flex items-center justify-between gap-2 sm:gap-3">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <div className={`p-2 rounded-lg shrink-0 ${Config.color}`}>
                     <Icon className="h-4 w-4" />
                   </div>
                   <Select 
                     value={block.type} 
                     onValueChange={(val: BlockType) => updateBlock(index, { type: val })}
                   >
-                    <SelectTrigger className="w-[160px] h-8 text-xs font-semibold bg-transparent border-none focus:ring-0">
+                    <SelectTrigger className="w-full min-w-0 sm:w-40 h-touch md:h-8 gap-1 px-1 md:px-3 text-sm md:text-xs font-semibold bg-transparent border-none focus:ring-0">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -304,24 +304,28 @@ export function BlockBuilder({ blocks, onChange, difficulty }: BlockBuilderProps
                   </Select>
                 </div>
 
-                <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => moveBlock(index, 'up')}  disabled={index === 0}>
+                {/* Reordenar con flechas (no hay arrastre): sirve igual con el dedo.
+                    44px en móvil, 32px desde md como siempre. */}
+                <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+                  <Button variant="ghost" size="icon" aria-label="Subir ejercicio" className="h-touch w-touch md:h-8 md:w-8" onClick={() => moveBlock(index, 'up')}  disabled={index === 0}>
                     <ArrowUp className="h-4 w-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => moveBlock(index, 'down')} disabled={index === blocks.length - 1}>
+                  <Button variant="ghost" size="icon" aria-label="Bajar ejercicio" className="h-touch w-touch md:h-8 md:w-8" onClick={() => moveBlock(index, 'down')} disabled={index === blocks.length - 1}>
                     <ArrowDown className="h-4 w-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => removeBlock(index)}>
+                  <Button variant="ghost" size="icon" aria-label="Eliminar ejercicio" className="h-touch w-touch md:h-8 md:w-8 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => removeBlock(index)}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
 
               {/* ── Grid de campos ── */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* Móvil: 2 columnas (nombre, peso y calorías a lo ancho); antes
+                  todo iba en una sola columna y cada ejercicio medía ~3 pantallas. */}
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
 
                 {/* Nombre / búsqueda */}
-                <div className="space-y-1.5 md:col-span-2 lg:col-span-1">
+                <div className="space-y-1.5 col-span-2 lg:col-span-1">
                   <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
                     Nombre del ejercicio
                   </Label>
@@ -390,18 +394,18 @@ export function BlockBuilder({ blocks, onChange, difficulty }: BlockBuilderProps
                 {Config.fields.includes('reps') && !isAdvanced && (
                   <div className="space-y-1.5">
                     <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Repeticiones</Label>
-                    <Input 
-                      placeholder="12 o Al fallo" 
+                    <Input
+                      placeholder="12 o Al fallo"
                       value={block.reps || ''}
                       onChange={(e) => updateBlock(index, { reps: e.target.value })}
-                      className="h-9"
+                      className="h-touch md:h-9"
                     />
                   </div>
                 )}
 
                 {/* Peso — solo modo plano */}
                 {Config.fields.includes('weight') && !isAdvanced && (
-                  <div className="space-y-1.5">
+                  <div className="space-y-1.5 col-span-2 md:col-span-1">
                     <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Peso / Carga</Label>
                     <div className="flex gap-1">
                       <NumberStepper 
@@ -410,13 +414,13 @@ export function BlockBuilder({ blocks, onChange, difficulty }: BlockBuilderProps
                         min={0}
                         max={1000}
                         step={1}
-                        className="h-9 flex-1"
+                        className="h-touch md:h-9 flex-1"
                       />
                       <Select 
                         value={block.weight_unit || 'kg'} 
                         onValueChange={(val: 'kg' | 'lb') => updateBlock(index, { weight_unit: val })}
                       >
-                        <SelectTrigger className="w-[65px] h-9 text-[10px] font-bold">
+                        <SelectTrigger className="w-16 h-touch md:h-9 text-xs md:text-[10px] font-bold">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -429,7 +433,7 @@ export function BlockBuilder({ blocks, onChange, difficulty }: BlockBuilderProps
                 )}
 
                 {/* Calorías */}
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 col-span-2 md:col-span-1">
                   <Label className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center justify-between gap-1">
                     <div className="flex items-center gap-1">
                       <Flame className="h-3 w-3 text-orange-500" /> Calorías Est.
@@ -442,7 +446,7 @@ export function BlockBuilder({ blocks, onChange, difficulty }: BlockBuilderProps
                     min={0}
                     max={1000}
                     step={1}
-                    className="h-9 font-bold text-orange-600 bg-orange-500/5 border-orange-500/20"
+                    className="h-touch md:h-9 font-bold text-orange-600 bg-orange-500/5 border-orange-500/20"
                     unit="kcal"
                   />
                 </div>
@@ -476,12 +480,13 @@ export function BlockBuilder({ blocks, onChange, difficulty }: BlockBuilderProps
 
               {/* ── Toggle "Personalizar por serie" — solo para bloques con reps+peso ── */}
               {supportsAdvancedSets && (
-                <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-muted/20 border border-border/30">
+                <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-muted/20 border border-border/30">
                   <div>
                     <p className="text-xs font-bold">Personalizar por serie</p>
                     <p className="text-[10px] text-muted-foreground">Permite configurar reps, peso y drop sets individualmente</p>
                   </div>
                   <Switch
+                    className="shrink-0"
                     checked={isAdvanced}
                     onCheckedChange={(val) => toggleSetConfig(index, val)}
                   />
@@ -519,7 +524,7 @@ export function BlockBuilder({ blocks, onChange, difficulty }: BlockBuilderProps
                               placeholder="12"
                               value={setRow.reps ?? ''}
                               onChange={(e) => updateSetConfig(index, setIdx, 'reps', e.target.value || null)}
-                              className="h-8 text-xs px-2"
+                              className="h-touch md:h-8 md:text-xs px-2"
                             />
                           ) : (
                             <span className="text-[10px] text-muted-foreground italic px-1">ver drops ↓</span>
@@ -533,7 +538,7 @@ export function BlockBuilder({ blocks, onChange, difficulty }: BlockBuilderProps
                               min={0}
                               value={setRow.weight ?? ''}
                               onChange={(e) => updateSetConfig(index, setIdx, 'weight', e.target.value || null)}
-                              className="h-8 text-xs px-2"
+                              className="h-touch md:h-8 md:text-xs px-2"
                             />
                           ) : (
                             <span className="text-[10px] text-muted-foreground italic px-1">ver drops ↓</span>
@@ -550,11 +555,11 @@ export function BlockBuilder({ blocks, onChange, difficulty }: BlockBuilderProps
                                 e.target.value ? parseInt(e.target.value, 10) : null
                               )
                             }
-                            className="h-8 text-xs px-2"
+                            className="h-touch md:h-8 md:text-xs px-2"
                           />
 
-                          {/* Toggle Drop Set */}
-                          <div className="flex items-center justify-center">
+                          {/* Toggle Drop Set — la casilla mide 16px; el label da el área táctil */}
+                          <label className="flex min-h-touch min-w-touch items-center justify-center md:min-h-0 md:min-w-0">
                             <Checkbox
                               checked={!!setRow.is_drop_set}
                               onCheckedChange={(checked) => {
@@ -577,9 +582,10 @@ export function BlockBuilder({ blocks, onChange, difficulty }: BlockBuilderProps
                                   onChange(newBlocks);
                                 }
                               }}
+                              aria-label={`Serie ${setIdx + 1}: drop set`}
                               className="h-4 w-4 rounded border-primary/30 data-[state=checked]:bg-primary"
                             />
-                          </div>
+                          </label>
                         </div>
 
                         {/* Sub-filas de drops — solo cuando is_drop_set */}
@@ -600,7 +606,7 @@ export function BlockBuilder({ blocks, onChange, difficulty }: BlockBuilderProps
                                   placeholder="10"
                                   value={drop.reps ?? ''}
                                   onChange={(e) => updateDrop(index, setIdx, dropIdx, 'reps', e.target.value || null)}
-                                  className="h-7 text-xs px-2 bg-primary/5 border-primary/20"
+                                  className="h-touch md:h-7 md:text-xs px-2 bg-primary/5 border-primary/20"
                                 />
                                 <Input
                                   type="number"
@@ -608,13 +614,14 @@ export function BlockBuilder({ blocks, onChange, difficulty }: BlockBuilderProps
                                   min={0}
                                   value={drop.weight ?? ''}
                                   onChange={(e) => updateDrop(index, setIdx, dropIdx, 'weight', e.target.value || null)}
-                                  className="h-7 text-xs px-2 bg-primary/5 border-primary/20"
+                                  className="h-touch md:h-7 md:text-xs px-2 bg-primary/5 border-primary/20"
                                 />
                                 <Button
                                   type="button"
                                   variant="ghost"
                                   size="icon"
-                                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                  aria-label="Quitar drop"
+                                  className="h-touch w-touch md:h-7 md:w-7 text-muted-foreground hover:text-destructive"
                                   onClick={() => removeDrop(index, setIdx, dropIdx)}
                                 >
                                   ×
@@ -626,7 +633,7 @@ export function BlockBuilder({ blocks, onChange, difficulty }: BlockBuilderProps
                               type="button"
                               variant="ghost"
                               size="sm"
-                              className="h-6 text-[10px] font-bold text-primary/60 hover:text-primary px-1"
+                              className="min-h-touch text-xs md:min-h-0 md:h-6 md:text-[10px] font-bold text-primary/60 hover:text-primary px-1"
                               onClick={() => addDrop(index, setIdx)}
                             >
                               + drop
@@ -646,7 +653,7 @@ export function BlockBuilder({ blocks, onChange, difficulty }: BlockBuilderProps
                   placeholder="Mantener la espalda recta..." 
                   value={block.notes || ''}
                   onChange={(e) => updateBlock(index, { notes: e.target.value })}
-                  className="min-h-[60px] text-xs resize-none"
+                  className="min-h-16 md:text-xs resize-none"
                 />
               </div>
             </CardContent>

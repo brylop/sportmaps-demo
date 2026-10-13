@@ -1,0 +1,32 @@
+{
+  "name": "sm_caso_por_atender",
+  "language": "es_CO",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Hola, en {{1}} hay un caso de WhatsApp que necesita a una persona: {{2}}. Respóndele a la familia desde SportMaps.",
+      "example": {
+        "body_text": [
+          [
+            "Academia Tigres FC",
+            "Carolina Pérez pidió hablar con la escuela"
+          ]
+        ]
+      }
+    },
+    {
+      "type": "BUTTONS",
+      "buttons": [
+        {
+          "type": "URL",
+          "text": "Ver en la app",
+          "url": "https://app.sportmaps.co/{{1}}",
+          "example": [
+            "whatsapp?conversacion=3f2b8c1e-0000-4000-8000-000000000000"
+          ]
+        }
+      ]
+    }
+  ]
+}

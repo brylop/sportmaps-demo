@@ -14,6 +14,7 @@
  * de documento confiable).
  */
 import { supabase } from '../config/supabase';
+import { esCobroUnico } from './payment-accounts';
 
 interface PagoMinimo {
     id: string;
@@ -26,6 +27,8 @@ interface PagoMinimo {
     period_year: number | null;
     period_month: number | null;
     concept: string | null;
+    /** Si viene, manda sobre el concepto para saber si es un cobro único. */
+    payment_category?: string | null;
 }
 
 const periodoDe = (p: Pick<PagoMinimo, 'period_year' | 'period_month' | 'due_date'>): string =>
@@ -56,8 +59,16 @@ const mismoNombre = (a: Set<string>, b: Set<string>): boolean => {
 // Matrícula/uniforme/torneo no cancelan la mensualidad ni al revés.
 // OJO: `payment_type` no sirve para esto — la mensualidad pagada puede venir
 // como 'one_time' y la duplicada como 'subscription' (visto en Dynasty).
-const esUnicaVez = (c?: string | null): boolean =>
-    /matricul|inscripcion|uniforme|torneo|examen|carnet|kit|implement|multa|sancion/
+//
+// 2026-10-10: también por `payment_category` explícita (inscripción, seguro,
+// artículos… — esCobroUnico) y 'seguro' en el concepto. Antes un seguro con
+// period_year/period_month del mes (así nacen los del alta de Dreamers) contaba
+// como «mensualidad pagada» al pagarse y sacaba del aviso y del estado de cuenta
+// la mensualidad pendiente de ese mes; y al revés, la mensualidad pagada sacaba
+// al seguro/inscripción pendiente (la rama «certeza» no miraba esto).
+export const esUnicaVez = (c?: string | null, categoria?: string | null): boolean =>
+    esCobroUnico(categoria)
+    || /matricul|inscripcion|seguro|uniforme|torneo|examen|carnet|kit|implement|multa|sancion/
         .test((c || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase());
 
 /**
@@ -74,7 +85,7 @@ export async function findDuplicatePaymentIds(
 
     const { data: pagados } = await supabase
         .from('payments')
-        .select('id, child_id, unregistered_athlete_id, user_id, amount, due_date, period_year, period_month, concept')
+        .select('id, child_id, unregistered_athlete_id, user_id, amount, due_date, period_year, period_month, concept, payment_category')
         .eq('school_id', schoolId)
         .in('status', ['paid', 'partial']);
 
@@ -113,7 +124,7 @@ export async function findDuplicatePaymentIds(
     const pagadoPorSujeto = new Set<string>(); // sujeto|periodo
     const pagadoPorPeriodo = new Map<string, { sujeto: string; toks: Set<string> }[]>();
     for (const q of pagados) {
-        if (esUnicaVez(q.concept)) continue;
+        if (esUnicaVez(q.concept, (q as any).payment_category)) continue;
         const per = periodoDe(q as any);
         if (!per) continue;
         const subj = sujetoDe(q as any);
@@ -129,6 +140,8 @@ export async function findDuplicatePaymentIds(
     for (const c of candidatos) {
         const per = periodoDe(c);
         const subj = sujetoDe(c);
+        // Un cobro único no es «ese período»: la mensualidad pagada no lo cubre.
+        if (esUnicaVez(c.concept, c.payment_category)) continue;
 
         // Certeza: el MISMO sujeto ya tiene ese período pagado.
         if (per && subj && pagadoPorSujeto.has(`${subj}|${per}`)) {
@@ -137,7 +150,7 @@ export async function findDuplicatePaymentIds(
         }
 
         // Probable: nombre-gemelo en otro sujeto ya pagó ese período.
-        if (per && !esUnicaVez(c.concept)) {
+        if (per) {
             const misToks = tokensNombre(nombrePorId.get(subj) || '');
             const gemelo = (pagadoPorPeriodo.get(per) || []).find(
                 x => x.sujeto !== subj && mismoNombre(misToks, x.toks),

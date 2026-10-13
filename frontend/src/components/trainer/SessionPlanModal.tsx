@@ -113,7 +113,7 @@ export function SessionPlanModal({
 
         <Tabs value={activeTab} onValueChange={(val: any) => setActiveTab(val)} className="flex-1 flex flex-col overflow-hidden">
           <div className="px-6 pt-4 border-b bg-muted/20 shrink-0">
-            <TabsList className="grid w-full grid-cols-2 max-w-[400px]">
+            <TabsList className="grid w-full grid-cols-2 max-w-sm">
               <TabsTrigger value="template" className="gap-2">
                 <Sparkles className="h-4 w-4" />
                 Desde Biblioteca
@@ -132,7 +132,7 @@ export function SessionPlanModal({
                   <Label className="text-xs font-bold uppercase tracking-wider">1. Seleccionar Fecha</Label>
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button variant="outline" className="max-w-[220px] justify-start text-left font-normal">
+                      <Button variant="outline" className="max-w-56 justify-start text-left font-normal">
                         {format(new Date(templateDate + 'T12:00:00'), 'PPP', { locale: es })}
                         <Calendar className="ml-auto h-4 w-4 opacity-50" />
                       </Button>
@@ -264,7 +264,7 @@ export function SessionPlanModal({
                   <Label className="text-xs font-bold uppercase tracking-wider">Notas Personalizadas</Label>
                   <Textarea 
                     placeholder="Instrucciones específicas para este cliente hoy..." 
-                    className="min-h-[80px]"
+                    className="min-h-20"
                     value={scratchData.custom_notes}
                     onChange={(e) => setScratchData({ ...scratchData, custom_notes: e.target.value })}
                   />

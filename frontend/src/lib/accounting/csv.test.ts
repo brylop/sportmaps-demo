@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCsv, csvCell, isoDateToCo, ledgerCsvRows, CSV_BOM } from './csv';
+import { buildCsv, csvCell, isoDateToCo, ledgerCsvRows, incomeCategoryLabel, CSV_BOM } from './csv';
 
 describe('csv para Excel en español', () => {
     it('empieza con BOM UTF-8, separa con ; y termina líneas con CRLF', () => {
@@ -51,5 +51,28 @@ describe('csv para Excel en español', () => {
         expect(lines[1]).toBe('02/10/2026;Sofía Ruiz;Mensualidad octubre;Mensualidad;Transferencia;TRX-1;145000;');
         expect(lines[2]).toBe('03/10/2026;"QA Distribuidora; SAS";Pago proveedor;Implementos;Efectivo;;;80000,5');
         expect(lines[3]).toBe(';;TOTAL;;;;145000;80000,5');
+    });
+});
+
+describe('incomeCategoryLabel (columna «Categoría» de ingresos)', () => {
+    it('payment_category manda', () => {
+        expect(incomeCategoryLabel('inscripcion', 'Inscripción — Plan A')).toBe('Inscripción');
+        expect(incomeCategoryLabel('seguro', 'Seguro de accidentes — Plan A')).toBe('Seguro');
+        expect(incomeCategoryLabel('mensualidad', 'Mensualidad octubre')).toBe('Mensualidad');
+        expect(incomeCategoryLabel('vacacional', 'Curso de vacaciones')).toBe('Vacacional');
+    });
+
+    it('mensualidad con categoría NULL (cron) se rotula por el concepto', () => {
+        expect(incomeCategoryLabel(null, 'Mensualidad octubre 2026')).toBe('Mensualidad');
+    });
+
+    it("'otro' se precisa por el concepto si se puede", () => {
+        expect(incomeCategoryLabel('otro', 'Seguro de accidentes')).toBe('Seguro');
+        expect(incomeCategoryLabel('otro', 'Rifa')).toBe('Otro');
+    });
+
+    it('sin nada reconocible queda vacía (no inventa mensualidad)', () => {
+        expect(incomeCategoryLabel(null, 'Cuota')).toBeNull();
+        expect(incomeCategoryLabel(undefined, null)).toBeNull();
     });
 });

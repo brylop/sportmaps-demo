@@ -23,6 +23,7 @@ import type { OcrResult } from './ocr.service';
 import { normalizeReference } from './receipt-verdict';
 import { describirPago, type PagoPendiente } from './whatsapp-receipt-matching.service';
 import type { BotonInteractivo } from './whatsapp.service';
+import { categoriaDelCobro, etiquetaCortaDelCobro } from './tipo-de-cobro';
 
 /** Las fichas de una familia en `payments` cuando no hay `parent_id`. */
 export interface LlavesDeFicha { childIds: string[]; unregisteredIds: string[] }
@@ -182,6 +183,17 @@ const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct
 const pesos = (n: number) => `$${new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(n)}`;
 const MAX_TITULO = 20;
 
+/**
+ * «Inscrip.», «Seguro», «Torneo»… si el cobro es un pago único reconocible
+ * (por su categoría o, en opciones viejas sin categoría, por su concepto).
+ * null = mensualidad o un cobro sin tipo claro: el botón sigue con el mes. Pura.
+ */
+export function rotuloDePagoUnico(p: Pick<PagoPendiente, 'concept' | 'due_date'> & { categoria?: string | null }): string | null {
+    const cat = categoriaDelCobro({ payment_category: p.categoria ?? null, concept: p.concept });
+    if (cat === 'mensualidad' || cat === 'otro') return null;
+    return etiquetaCortaDelCobro({ payment_category: cat, concept: p.concept, due_date: p.due_date });
+}
+
 /** Prefijo del id de cada botón: «sm_cobro_2» = la opción 2. */
 export const PREFIJO_BOTON_COBRO = 'sm_cobro_';
 
@@ -194,7 +206,11 @@ export function botonesDeCobros(opciones: PagoPendiente[]): BotonInteractivo[] {
     const varios = new Set(opciones.map((p) => p.child_id ?? p.atleta ?? '')).size > 1;
     return opciones.map((p, i) => {
         const m = p.due_date ? Number(String(p.due_date).slice(5, 7)) : NaN;
-        const mes = Number.isInteger(m) && m >= 1 && m <= 12 ? MES[m - 1].replace(/^./, (c) => c.toUpperCase()) : '';
+        const mesDeVencimiento = Number.isInteger(m) && m >= 1 && m <= 12 ? MES[m - 1].replace(/^./, (c) => c.toUpperCase()) : '';
+        // Un pago único (inscripción, seguro, torneo…) vence el mismo día que la
+        // mensualidad del alta: «Oct $180.000 / Oct $300.000 / Oct $35.000» no
+        // dice cuál es cuál. Va su tipo corto en vez del mes (2026-10-10).
+        const mes = rotuloDePagoUnico(p) ?? mesDeVencimiento;
         const nombre = varios && p.atleta ? String(p.atleta).trim().split(/\s+/)[0] : '';
         const n = `${i + 1}.`;
         const candidatos = [

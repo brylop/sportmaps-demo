@@ -26,7 +26,11 @@ const getNavigationItemsForRole = (role: string, showStore = false) => {
         { href: '/dashboard', label: 'Inicio', icon: Home },
         { href: '/students', label: 'Alumnos', icon: Users },
         { href: '/payments-automation', label: 'Pagos', icon: CreditCard },
-        { href: '/messages', label: 'Chat', icon: MessageSquare },
+        // «Chat» de la escuela = el buzón de WhatsApp, que es donde le escriben
+        // las familias. Antes abría /messages (mensajería interna, 0 mensajes en
+        // 90 días: inventario de Comunicaciones 2026-10-12 §5.3). Los demás
+        // roles siguen en /messages hasta que se decida qué pasa con ese módulo.
+        { href: '/whatsapp?tab=conversaciones', label: 'Chat', icon: MessageSquare },
         { href: '/settings', label: 'Config', icon: Settings },
       ];
     case 'coach':
@@ -86,15 +90,17 @@ export function MobileBottomNav() {
       <div className="flex items-center justify-around h-16 px-2">
         {navigationItems.map((item) => {
           const Icon = item.icon;
-          const isActive = location.pathname === item.href ||
-            (item.href !== '/dashboard' && location.pathname.startsWith(item.href));
+          // El href puede traer query (?tab=…): se compara solo la ruta.
+          const ruta = item.href.split('?')[0];
+          const isActive = location.pathname === ruta ||
+            (ruta !== '/dashboard' && location.pathname.startsWith(ruta));
 
           return (
             <NavLink
               key={item.href}
               to={item.href}
               className={cn(
-                'flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-lg transition-all duration-200 min-w-[60px]',
+                'flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-lg transition-all duration-200 min-w-14',
                 isActive
                   ? 'text-primary'
                   : 'text-muted-foreground hover:text-foreground'

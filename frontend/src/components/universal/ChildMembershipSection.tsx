@@ -64,7 +64,7 @@ export function ChildMembershipSection({ childId }: ChildMembershipSectionProps)
                 {bookings.length > 0 && (
                     <div>
                         <p className="text-xs font-medium text-muted-foreground mb-2">Historial reciente</p>
-                        <div className="space-y-1 max-h-[200px] overflow-y-auto">
+                        <div className="space-y-1 max-h-48 overflow-y-auto">
                             {bookings.slice(0, 10).map((booking: { id: string; booked_at: string; status: string }) => (
                                 <div
                                     key={booking.id}

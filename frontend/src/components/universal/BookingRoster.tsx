@@ -87,7 +87,7 @@ function BookingRosterRow({ booking }: { booking: SessionBooking }) {
                     )}
                 </div>
                 {plan && (
-                    <div className="mt-1 max-w-[200px]">
+                    <div className="mt-1 max-w-52">
                         <PlanProgressBar
                             used={sessionsUsed}
                             max={maxSessions}

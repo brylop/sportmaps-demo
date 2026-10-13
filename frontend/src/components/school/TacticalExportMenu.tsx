@@ -153,7 +153,7 @@ export function TacticalExportMenu({ getInput, frameCount, onEvent, disabled, cl
       return 'Compartido';
     });
 
-  const itemClass = 'min-h-[44px] gap-3 cursor-pointer';
+  const itemClass = 'min-h-touch gap-3 cursor-pointer';
 
   return (
     <DropdownMenu>
@@ -161,7 +161,7 @@ export function TacticalExportMenu({ getInput, frameCount, onEvent, disabled, cl
         <Button
           type="button"
           variant="outline"
-          className={`min-h-[44px] gap-2 ${className ?? ''}`}
+          className={`min-h-touch gap-2 ${className ?? ''}`}
           disabled={disabled || !!busy}
           aria-label="Exportar la jugada"
         >

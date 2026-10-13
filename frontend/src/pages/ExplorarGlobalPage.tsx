@@ -703,7 +703,7 @@ export default function ExplorarGlobalPage() {
                   )}
                 </Button>
               </SheetTrigger>
-              <SheetContent side="right" className="w-[320px]">
+              <SheetContent side="right" className="w-80">
                 <SheetHeader>
                   <SheetTitle>Filtros</SheetTitle>
                   <SheetDescription>Refina tu busqueda</SheetDescription>

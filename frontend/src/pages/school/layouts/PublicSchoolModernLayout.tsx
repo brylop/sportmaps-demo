@@ -23,7 +23,7 @@ export function PublicSchoolModernLayout({ school, facilities, slug, onAction }:
     return (
         <div className="min-h-screen bg-white pb-20" data-layout="modern">
             {/* Hero partido */}
-            <div className="grid md:grid-cols-2 min-h-[420px]">
+            <div className="grid md:grid-cols-2 min-h-96">
                 <div className="flex flex-col justify-center gap-4 px-6 md:px-12 py-16 bg-gradient-to-br from-primary/5 to-transparent">
                     <div className="flex flex-wrap gap-2">
                         <Badge className="bg-primary text-white border-0">

@@ -36,7 +36,7 @@ import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { z } from 'zod';
 import { validate, zRequiredText, zAmountPositive } from '@/lib/formValidation';
 import { comprimirParaSubir } from '@/lib/imageCompression';
-import { downloadCsv, ledgerCsvRows, INCOME_CATEGORY_LABEL, type LedgerExportLine } from '@/lib/accounting/csv';
+import { downloadCsv, ledgerCsvRows, incomeCategoryLabel, type LedgerExportLine } from '@/lib/accounting/csv';
 
 const expenseSchema = z.object({
     category_id: zRequiredText('La categoría'),
@@ -319,7 +319,7 @@ export default function AccountingPage() {
                     tercero: x?.tercero ?? null,
                     concept: r.concept,
                     category: r.direction === 'income'
-                        ? (r.payment_category ? (INCOME_CATEGORY_LABEL[r.payment_category] ?? r.payment_category) : null)
+                        ? incomeCategoryLabel(r.payment_category, r.concept)
                         : (r.category_id ? (catName.get(r.category_id) ?? null) : null),
                     method: x?.method ?? null,
                     reference: x?.reference ?? null,
@@ -600,6 +600,12 @@ export default function AccountingPage() {
                                         </TableCell>
                                         <TableCell className="text-xs text-muted-foreground">
                                             {r.source === 'payment' ? 'Pago' : 'Gasto'}
+                                            {/* Categoría del ingreso (mensualidad, inscripción, seguro…):
+                                                cada cobro es UNA fila, así que se ve una sola vez y
+                                                con su etiqueta, igual que en el CSV. */}
+                                            {r.source === 'payment' && incomeCategoryLabel(r.payment_category, r.concept) && (
+                                                <span className="block">{incomeCategoryLabel(r.payment_category, r.concept)}</span>
+                                            )}
                                         </TableCell>
                                         <TableCell className={`text-right font-bold ${r.direction === 'income' ? 'text-emerald-600' : 'text-red-600'}`}>
                                             {r.direction === 'income' ? '+' : '−'}{formatCurrency(Number(r.amount))}

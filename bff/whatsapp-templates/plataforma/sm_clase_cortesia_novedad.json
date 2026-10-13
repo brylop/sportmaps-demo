@@ -1,0 +1,32 @@
+{
+  "name": "sm_clase_cortesia_novedad",
+  "language": "es_CO",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Hola, hay una novedad en las clases de cortesía de {{1}}: {{2}}. El detalle está en SportMaps.",
+      "example": {
+        "body_text": [
+          [
+            "Academia Tigres FC",
+            "Nueva clase de cortesía agendada: Sofía, Sub 12, sábado 11 de octubre 9:00 a. m."
+          ]
+        ]
+      }
+    },
+    {
+      "type": "BUTTONS",
+      "buttons": [
+        {
+          "type": "URL",
+          "text": "Ver en la app",
+          "url": "https://app.sportmaps.co/{{1}}",
+          "example": [
+            "whatsapp?tab=cortesias"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -216,13 +216,15 @@ export function CardTemplatesManager({ schoolId }: { schoolId: string | null | u
   }
 
   /** CardData de muestra para el preview. Se arma con lo que el formulario
-   *  tiene ahora mismo, así el cambio de color o de layout se ve al instante. */
+   *  tiene ahora mismo, así el cambio de color o de layout se ve al instante.
+   *  Datos NEUTROS a propósito: antes mostraba la sede y un atleta de un
+   *  cliente real, y este editor lo ven todas las escuelas. */
   const previewData = (tpl: CardTemplate): CardData => ({
     found: true,
     status: 'active',
     school: {
       id: '',
-      name: school?.name || 'Tu escuela',
+      name: school?.name || 'Escuela Ejemplo',
       logo_url: school?.logo_url || null,
       branding_settings: school?.branding_settings || {},
     },
@@ -242,17 +244,17 @@ export function CardTemplatesManager({ schoolId }: { schoolId: string | null | u
     },
     athlete: {
       kind: 'child',
-      full_name: 'Abril Samudio Vera',
+      full_name: 'Valentina Ejemplo Ruiz',
       avatar_url: null,
       doc_type: 'TI',
-      doc_number: '101500072',
+      doc_number: '1000000000',
       blood_type: 'O+',
-      eps_name: 'Sura',
+      eps_name: 'EPS Ejemplo',
       tshirt_size: 'S',
-      emergency_contact: 'María Vera · 300 555 1188',
+      emergency_contact: 'Acudiente Ejemplo · 300 000 0000',
     },
-    branch_name: 'Coliseo Dynasty',
-    team_name: 'Minivolley Benjamines',
+    branch_name: 'Sede principal',
+    team_name: 'Equipo Sub-12',
     valid_until: '2026-12-31',
     version: 1,
     fee_status: 'paid',

@@ -272,10 +272,125 @@ export function enrollmentFeeDueDate(startDate: string, today: string = todayInZ
 }
 
 /**
+ * Exoneración por alta (2026-10-10): la escuela decide NO cobrar la inscripción
+ * y/o el seguro de UN alta concreta. La mensualidad no se toca.
+ */
+export interface EnrollmentFeeWaivers {
+    registration?: boolean;
+    insurance?: boolean;
+}
+
+/** Categorías de payments que la exoneración deja sin cobrar. */
+export function waivedFeeCategories(w?: EnrollmentFeeWaivers | null): ('inscripcion' | 'seguro')[] {
+    const out: ('inscripcion' | 'seguro')[] = [];
+    if (w?.registration) out.push('inscripcion');
+    if (w?.insurance) out.push('seguro');
+    return out;
+}
+
+/**
+ * Red de seguridad mientras la migración 20261010124934 (parámetros
+ * p_waive_* de emit_enrollment_fees) no esté aplicada: la RPC vieja ignora la
+ * exoneración e inserta igual la fila. Se anula aquí lo que haya salido de una
+ * categoría exonerada. Con la migración viva no encuentra nada (0 filas).
+ * Devuelve los ids que quedan vigentes.
+ */
+export async function cancelWaivedFeeRows(opts: {
+    schoolId: string;
+    paymentIds: string[];
+    waivers?: EnrollmentFeeWaivers | null;
+    log?: { error: (...a: any[]) => void };
+}): Promise<string[]> {
+    const cats = waivedFeeCategories(opts.waivers);
+    if (!cats.length || !opts.paymentIds.length) return opts.paymentIds;
+    const { data, error } = await supabase
+        .from('payments')
+        .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+        .eq('school_id', opts.schoolId)
+        .in('id', opts.paymentIds)
+        .in('payment_category', cats)
+        .eq('status', 'pending')
+        .select('id');
+    if (error) {
+        opts.log?.error({ err: error }, 'No se pudo anular el cobro exonerado del alta');
+        return opts.paymentIds;
+    }
+    const cancelled = new Set(((data as { id: string }[] | null) ?? []).map(r => r.id));
+    return opts.paymentIds.filter(id => !cancelled.has(id));
+}
+
+/**
+ * Rastro de la exoneración en audit_logs (quién, a qué inscripción, qué
+ * concepto). Nunca rompe el alta: un error solo se registra.
+ */
+export async function auditEnrollmentFeeWaiver(opts: {
+    schoolId: string;
+    profileId: string | null | undefined;
+    enrollmentId: string | null | undefined;
+    planId: string | null | undefined;
+    athleteCol: AthleteCol;
+    athleteId: string;
+    waivers?: EnrollmentFeeWaivers | null;
+    log?: { error: (...a: any[]) => void };
+}): Promise<void> {
+    if (!waivedFeeCategories(opts.waivers).length || !opts.enrollmentId) return;
+    const { error } = await supabase.from('audit_logs').insert({
+        school_id: opts.schoolId,
+        profile_id: opts.profileId ?? null,
+        table_name: 'enrollments',
+        record_id: opts.enrollmentId,
+        action: 'enrollment_fees_waived',
+        new_data: {
+            offering_plan_id: opts.planId ?? null,
+            [opts.athleteCol]: opts.athleteId,
+            waive_registration_fee: !!opts.waivers?.registration,
+            waive_insurance_fee: !!opts.waivers?.insurance,
+        },
+    });
+    if (error) opts.log?.error({ err: error }, 'Error registrando la exoneración de inscripción/seguro');
+}
+
+/**
+ * ¿El atleta ya tiene un seguro de los últimos 12 meses en la escuela? Mismo
+ * predicado que el dedupe de emit_enrollment_fees (categoría 'seguro', no
+ * anulado, due_date > dueDate − 365; el adulto sin child_id). Devuelve el
+ * due_date del más reciente o null. Solo para la vista previa del alta: la
+ * decisión real la toma la RPC dentro de la transacción.
+ */
+export async function findActiveInsurance(opts: {
+    schoolId: string;
+    athleteCol: AthleteCol;
+    athleteId: string;
+    dueDate: string;
+}): Promise<string | null> {
+    let q = supabase
+        .from('payments')
+        .select('due_date')
+        .eq('school_id', opts.schoolId)
+        .eq('payment_category', 'seguro')
+        .neq('status', 'cancelled')
+        .gt('due_date', addDaysToDateString(opts.dueDate, -365))
+        .eq(opts.athleteCol, opts.athleteId);
+    if (opts.athleteCol === 'user_id') q = q.is('child_id', null);
+    const { data, error } = await q.order('due_date', { ascending: false }).limit(1);
+    if (error || !data?.length) return null;
+    return (data[0] as { due_date: string }).due_date ?? null;
+}
+
+/** PostgREST no encontró la firma pedida (RPC sin la migración nueva). */
+const isMissingSignature = (error: any): boolean =>
+    error?.code === 'PGRST202' || /could not find the function/i.test(String(error?.message ?? ''));
+
+/**
  * Cobros únicos del alta — inscripción y seguro (F-B, D17-D19). Delegado a la
  * RPC emit_enrollment_fees (solo service_role): filas 'one_time' exentas de la
  * unicidad por período, con parent_id del menor, seguro con dedupe de 365 días.
  * Plan sin registration_fee / insurance_fee = 0 filas (hoy, todas las escuelas).
+ *
+ * `waivers`: la escuela no cobra ese concepto en esta alta. Los dos exonerados
+ * = ni se llama a la RPC. Uno solo = p_waive_* (migración 20261010124934); si
+ * la base aún no la tiene, se llama con la firma vieja y se anula la fila
+ * exonerada (cancelWaivedFeeRows). Sin waivers, la llamada es la de siempre.
  *
  * NO se llama en cambio de plan (D18: solo un alta nueva cobra inscripción).
  * Nunca rompe el alta: un error se registra y devuelve [].
@@ -289,10 +404,14 @@ export async function emitEnrollmentFees(opts: {
     branchId?: string | null;
     dueDate: string;
     personName?: string | null;
+    waivers?: EnrollmentFeeWaivers | null;
     log?: { error: (...a: any[]) => void };
 }): Promise<string[]> {
     if (!opts.planId) return [];
-    const { data, error } = await supabase.rpc('emit_enrollment_fees', {
+    const waived = waivedFeeCategories(opts.waivers);
+    if (waived.length === 2) return [];
+
+    const baseArgs = {
         p_school_id: opts.schoolId,
         p_plan_id: opts.planId,
         p_child_id: opts.athleteCol === 'child_id' ? opts.athleteId : null,
@@ -302,13 +421,26 @@ export async function emitEnrollmentFees(opts: {
         p_branch_id: opts.branchId ?? null,
         p_due_date: opts.dueDate,
         p_person_name: opts.personName ?? null,
-    });
+    };
+    const args = waived.length
+        ? {
+            ...baseArgs,
+            ...(opts.waivers?.registration ? { p_waive_registration: true } : {}),
+            ...(opts.waivers?.insurance ? { p_waive_insurance: true } : {}),
+        }
+        : baseArgs;
+
+    let { data, error } = await supabase.rpc('emit_enrollment_fees', args);
+    if (error && waived.length && isMissingSignature(error)) {
+        ({ data, error } = await supabase.rpc('emit_enrollment_fees', baseArgs));
+    }
     if (error) {
         if (opts.log) opts.log.error({ err: error }, 'Error emitiendo cobros de inscripción/seguro');
         else console.error('[enrollmentBilling] emit_enrollment_fees', error);
         return [];
     }
-    return ((data as string[] | null) ?? []).filter(Boolean);
+    const ids = ((data as string[] | null) ?? []).filter(Boolean);
+    return cancelWaivedFeeRows({ schoolId: opts.schoolId, paymentIds: ids, waivers: opts.waivers, log: opts.log });
 }
 
 /** Anula los cobros pendientes de un plan concreto (cambio o baja de plan). */

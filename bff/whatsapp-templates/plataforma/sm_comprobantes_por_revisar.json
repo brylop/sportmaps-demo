@@ -1,0 +1,33 @@
+{
+  "name": "sm_comprobantes_por_revisar",
+  "language": "es_CO",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Hola, {{1}} tiene {{2}} comprobante(s) de pago por revisar. El más antiguo espera desde hace {{3}}. Puedes revisarlos y aprobarlos en SportMaps.",
+      "example": {
+        "body_text": [
+          [
+            "Academia Tigres FC",
+            "4",
+            "3 h"
+          ]
+        ]
+      }
+    },
+    {
+      "type": "BUTTONS",
+      "buttons": [
+        {
+          "type": "URL",
+          "text": "Ver en la app",
+          "url": "https://app.sportmaps.co/{{1}}",
+          "example": [
+            "payments-automation?tab=recurrent"
+          ]
+        }
+      ]
+    }
+  ]
+}

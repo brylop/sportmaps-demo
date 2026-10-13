@@ -20,6 +20,16 @@ vi.mock('../config/supabase', () => {
             select: () => api,
             eq: (c: string, v: any) => { filas = filas.filter((f) => f[c] === v); return api; },
             in: (c: string, vs: readonly any[]) => { filas = filas.filter((f) => vs.includes(f[c])); return api; },
+            // .or('payment_category.is.null,payment_category.eq.mensualidad'): solo is.null / eq.
+            or: (expr: string) => {
+                const conds = expr.split(',').map((s) => {
+                    const [c, op, ...r] = s.split('.');
+                    const v = r.join('.');
+                    return (f: any) => (op === 'is' && v === 'null' ? (f[c] ?? null) === null : op === 'eq' ? f[c] === v : false);
+                });
+                filas = filas.filter((f) => conds.some((k) => k(f)));
+                return api;
+            },
             // Solo lo que usa el job: .not(col, 'is', null) y .gte(col, valor).
             not: (c: string, _op: string, _v: null) => { filas = filas.filter((f) => (f[c] ?? null) !== null); return api; },
             gte: (c: string, v: any) => { filas = filas.filter((f) => f[c] != null && f[c] >= v); return api; },
@@ -115,5 +125,36 @@ describe('runAccessAutoBlockCycle — comprobante pendiente', () => {
         await runAccessAutoBlockCycle();
         expect(estado.inserts.device_commands ?? []).toHaveLength(0);
         expect(estado.inserts.notifications ?? []).toHaveLength(0);
+    });
+});
+
+/** F0 cobros únicos (migración 20261010143132, I24): solo la mensualidad vencida bloquea. */
+describe('runAccessAutoBlockCycle — solo la mensualidad', () => {
+    beforeEach(() => {
+        estado.tablas.zk_user_mappings.push(
+            { school_id: ESCUELA, zk_pin: 5, user_id: 'u-torneo', unregistered_athlete_id: null },
+            { school_id: ESCUELA, zk_pin: 6, user_id: 'u-mensualidad', unregistered_athlete_id: null },
+            { school_id: ESCUELA, zk_pin: 7, user_id: 'u-torneo-bloqueado', unregistered_athlete_id: null },
+        );
+        estado.tablas.payments.push(
+            { school_id: ESCUELA, user_id: 'u-torneo', unregistered_athlete_id: null, status: 'overdue', payment_category: 'torneo' },
+            { school_id: ESCUELA, user_id: 'u-mensualidad', unregistered_athlete_id: null, status: 'overdue', payment_category: 'mensualidad' },
+            // Quedó bloqueado por un torneo vencido de antes de F0.
+            { school_id: ESCUELA, user_id: 'u-torneo-bloqueado', unregistered_athlete_id: null, status: 'overdue', payment_category: 'articulos' },
+        );
+        estado.tablas.device_commands.push(...bloqueado(7, '2026-10-01T10:00:00Z'));
+    });
+
+    it('un cobro único vencido NO bloquea; una mensualidad (explícita o NULL) sí', async () => {
+        await runAccessAutoBlockCycle();
+        const blq = comandos('disable_user');
+        expect(blq).not.toContain(5);
+        expect(blq.filter((p: number) => p === 6)).toHaveLength(2);
+        expect(blq.filter((p: number) => p === 1)).toHaveLength(2); // categoría NULL = mensualidad
+    });
+
+    it('bloqueado solo por un cobro único vencido → se desbloquea', async () => {
+        await runAccessAutoBlockCycle();
+        expect(comandos('enable_user').filter((p: number) => p === 7)).toHaveLength(2);
     });
 });

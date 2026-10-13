@@ -15,7 +15,7 @@ const formatCurrency = (amount: number) =>
 
 import { FileUpload } from '@/components/common/FileUpload';
 import type { ReceiptValidationResult } from '@/hooks/useReceiptValidator';
-import { calcEarlyPaymentDiscount, hasEarlierUnpaidPayment, type EarlyPaymentDiscountConfig } from '@/lib/earlyPaymentDiscount';
+import { calcEarlyPaymentDiscount, earlyDiscountAppliesToCategory, hasEarlierUnpaidPayment, type EarlyPaymentDiscountConfig } from '@/lib/earlyPaymentDiscount';
 
 /** Intenta parsear un string como JSON; devuelve null si no es JSON valido. */
 function safeParseJson(s: string): unknown | null {
@@ -40,7 +40,7 @@ import { getPaymentPayload, SchoolAthlete } from '@/lib/athleteUtils';
 import { useWompiCheckout, type ServerQuote } from '@/hooks/useWompiCheckout';
 import { blockPwaReload, unblockPwaReload } from '@/pwa/reloadGuard';
 import MercadoPagoBrick from '@/components/checkout/MercadoPagoBrick';
-import { resolvePaymentAccounts, resolvePaymentLink, accountDisplayLabel, chargeCategoryOf, type PaymentChargeCategory } from '@/lib/payment-accounts';
+import { resolvePaymentAccounts, resolvePaymentLink, accountDisplayLabel, existingChargeInfo, type PaymentChargeCategory } from '@/lib/payment-accounts';
 import { PaymentLinkButton } from '@/components/payment/PaymentLinkButton';
 import type { MpCreatePaymentResult } from '@/lib/api/mercadopago';
 import { autoEvaluate as autoEvaluateGlosa } from '@/lib/api/glosas';
@@ -79,11 +79,17 @@ interface PaymentCheckoutModalProps {
   mode?: 'create' | 'update';
   /** Abre el modal directo en el conceptType 'articulos' (botón "Agregar artículos"). */
   initialConceptType?: 'mensualidad' | 'inscripcion_fija' | 'inscripcion_variable' | 'otro' | 'articulos' | 'torneo';
+  /**
+   * mode='update': `payments.payment_category` del cobro que se paga, si quien
+   * abre el modal ya la tiene. Si no viene, el modal la lee de la fila. Decide si
+   * es un cobro ÚNICO (inscripción, seguro… — ver isOneTimeCategory).
+   */
+  paymentCategory?: string | null;
   onSuccess?: () => void;
 }
 
 export function PaymentCheckoutModal({
-  open, onOpenChange, studentId, schoolId, paymentId, teamId, childId, childName, branchId, amount, concept, mode = 'update', initialConceptType, onSuccess
+  open, onOpenChange, studentId, schoolId, paymentId, teamId, childId, childName, branchId, amount, concept, mode = 'update', initialConceptType, paymentCategory: paymentCategoryProp, onSuccess
 }: PaymentCheckoutModalProps) {
   const [selectedMethod, setSelectedMethod] = useState<'pse' | 'card' | 'transfer' | 'online' | 'mercadopago' | null>(null);
   const [mpReference, setMpReference] = useState<string>('');
@@ -231,6 +237,22 @@ export function PaymentCheckoutModal({
   const [alreadyAppliedDiscount, setAlreadyAppliedDiscount] = useState<number | null>(null);
   const [hasEarlierUnpaid, setHasEarlierUnpaid] = useState(false);
 
+  // ── Cobro ÚNICO existente (mode='update') ────────────────────────────────
+  // Inscripción, seguro, artículos… que la escuela ya creó (p.ej. el alta de
+  // Dreamers 2026-10-10: mensualidad + inscripción + seguro). Sin esto el modal
+  // lo trataba como mensualidad (conceptType arranca en 'mensualidad'):
+  //   · buscaba el «siguiente mes por pagar» y, si la mensualidad de ese mes ya
+  //     estaba en validación o pagada, BLOQUEABA el pago del seguro con «Ya
+  //     existe un pago activo para Octubre 2026»;
+  //   · le aplicaba el descuento por pronto pago (exclusivo de mensualidad);
+  //   · el título decía «Mensualidad Octubre 2026».
+  // La categoría sale de la prop o de la fila (payment_category); el concepto
+  // solo se usa para elegir las llaves (only_for), como antes.
+  const [rowCategory, setRowCategory] = useState<string | null>(null);
+  const existingCharge = existingChargeInfo(mode, paymentCategoryProp ?? rowCategory, concept);
+  const isExistingOneTime = existingCharge.isOneTime;
+  const existingChargeLabel = existingCharge.label;
+
   // Mientras el modal de pago esté abierto, bloqueamos la auto-recarga del PWA:
   // si un SW nuevo toma control justo cuando el usuario ya subió el comprobante,
   // el reload borraría todo. La recarga queda pendiente y se aplica al cerrar.
@@ -244,10 +266,11 @@ export function PaymentCheckoutModal({
     if (!open) return;
     if (mode === 'update' && paymentId) {
       supabase.from('payments')
-        .select('created_at, early_payment_discount_applied, child_id, parent_id')
+        .select('created_at, early_payment_discount_applied, child_id, parent_id, payment_category')
         .eq('id', paymentId).maybeSingle()
         .then(async ({ data }) => {
           if (!data) return;
+          setRowCategory((data as { payment_category?: string | null }).payment_category ?? null);
           setPaymentCreatedAt(data.created_at);
           setAlreadyAppliedDiscount(data.early_payment_discount_applied ?? null);
           const unpaid = await hasEarlierUnpaidPayment(supabase, {
@@ -272,13 +295,15 @@ export function PaymentCheckoutModal({
   // con period_year/period_month y para preguntar al padre si quiere
   // adelantar cuando el mes sugerido ya esta cubierto.
   const { period: nextPeriod } = useNextUnpaidPeriod(
-    open && conceptType === 'mensualidad' ? childId ?? null : null,
+    open && conceptType === 'mensualidad' && !isExistingOneTime ? childId ?? null : null,
   );
   const [advancedPeriod, setAdvancedPeriod] = useState<{ year: number; month: number; label: string } | null>(null);
   const [confirmAdvanceOpen, setConfirmAdvanceOpen] = useState(false);
 
   // Periodo efectivo que se va a cobrar (posiblemente adelantado).
-  const effectivePeriod = advancedPeriod ?? (nextPeriod
+  // Un cobro único no es de ningún mes por pagar (aunque el hook haya alcanzado
+  // a responder antes de leer la categoría de la fila).
+  const effectivePeriod = isExistingOneTime ? null : advancedPeriod ?? (nextPeriod
     ? { year: nextPeriod.year, month: nextPeriod.month, label: nextPeriod.label }
     : null);
 
@@ -295,7 +320,7 @@ export function PaymentCheckoutModal({
       : conceptType === 'mensualidad' ? 'mensualidad'
       : conceptType.startsWith('inscripcion') ? 'inscripcion'
       : 'otro')
-    : chargeCategoryOf(null, concept);
+    : existingCharge.accountsCategory;
   const payableAccounts = useMemo(
     () => resolvePaymentAccounts(bankDetails, { category: accountsCategory }),
     [bankDetails, accountsCategory],
@@ -364,7 +389,7 @@ export function PaymentCheckoutModal({
   // Solo importa para las filas que este modal INSERTA (mode='create'): una fila
   // en mode='update' ya nació categorizada donde se creó (open_month, etc.), no
   // se retoca acá. Ver docs/specs/articulos-escolares-catalogo.md §7.
-  const paymentCategory: 'mensualidad' | 'inscripcion' | 'otro' | 'articulos' | 'torneo' =
+  const paymentCategory: PaymentChargeCategory =
     conceptType === 'articulos' ? 'articulos'
       : conceptType === 'torneo' ? 'torneo'
       : conceptType === 'mensualidad' ? 'mensualidad'
@@ -382,8 +407,9 @@ export function PaymentCheckoutModal({
   const periodUniquenessExempt = conceptType === 'articulos' || conceptType === 'torneo';
 
   // Descuento por pronto pago es exclusivo de mensualidad (spec §0) — nunca
-  // artículos ni torneos.
-  const discountResult = paymentCreatedAt && conceptType !== 'articulos' && conceptType !== 'torneo'
+  // artículos, torneos ni un cobro único ya creado (inscripción, seguro…).
+  // El servidor (S1/H5) acota el valor con la misma regla: solo mensualidad.
+  const discountResult = paymentCreatedAt && earlyDiscountAppliesToCategory(paymentCategory) && !isExistingOneTime
     ? calcEarlyPaymentDiscount(finalAmount, {
       createdAt: paymentCreatedAt,
       config: discountConfig,
@@ -593,6 +619,7 @@ export function PaymentCheckoutModal({
       setMpReference('');
       setServerQuote(null);
       setCreatedPaymentId(null);
+      setRowCategory(null);
     }
   }, [open]);
 
@@ -772,7 +799,7 @@ export function PaymentCheckoutModal({
       const REUSABLE = ['pending', 'overdue'];
       const BLOCKING = ['awaiting_approval', 'paid', 'approved', 'partial'];
 
-      if (conceptType === 'mensualidad' && effectivePeriod) {
+      if (conceptType === 'mensualidad' && effectivePeriod && !isExistingOneTime) {
         const samePeriod = (pendingPayments || []).find((p: any) =>
           p.period_year === effectivePeriod.year && p.period_month === effectivePeriod.month,
         );
@@ -892,7 +919,9 @@ export function PaymentCheckoutModal({
         setPaymentStatus('awaiting_approval');
         toast({
           title: "Pago registrado",
-          description: effectivePeriod
+          description: existingChargeLabel
+            ? `Comprobante de ${existingChargeLabel} enviado. La escuela lo validará pronto.`
+            : effectivePeriod
             ? `Comprobante de ${effectivePeriod.label} enviado. La escuela lo validará pronto.`
             : "Tu cupo ha sido reservado. Validaremos tu comprobante pronto.",
         });
@@ -936,7 +965,7 @@ export function PaymentCheckoutModal({
     if (conceptType === 'torneo' && Object.keys(tournSelected).length === 0) return;
 
     // No-mensualidad o sin info de periodo → flujo directo
-    if (conceptType !== 'mensualidad' || !nextPeriod || !childId) {
+    if (conceptType !== 'mensualidad' || isExistingOneTime || !nextPeriod || !childId) {
       void processPayment();
       return;
     }
@@ -1013,12 +1042,16 @@ export function PaymentCheckoutModal({
         >
           <DialogHeader className="text-left">
             <DialogTitle className="text-xl sm:text-2xl">
-              {conceptType === 'mensualidad' && effectivePeriod
+              {existingChargeLabel
+                ? existingChargeLabel
+                : conceptType === 'mensualidad' && effectivePeriod
                 ? `Mensualidad ${effectivePeriod.label}`
                 : 'Realizar Pago'}
             </DialogTitle>
             <DialogDescription>
-              {conceptType === 'mensualidad' && effectivePeriod && childName
+              {existingChargeLabel && childName
+                ? `Pago para ${childName}`
+                : conceptType === 'mensualidad' && effectivePeriod && childName
                 ? `Pago para ${childName} — ${effectivePeriod.label}`
                 : 'Selecciona tu método de pago preferido'}
             </DialogDescription>

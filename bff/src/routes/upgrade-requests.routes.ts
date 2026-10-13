@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth, requireRole } from '../middlewares/authMiddleware';
+import { requirePlatformAdmin, esAdminDePlataforma } from '../middlewares/requirePlatformAdmin';
 import { supabase } from '../config/supabase';
 
 const router = Router();
@@ -135,12 +136,17 @@ router.get('/', requireAuth, requireRole('admin', 'super_admin', 'school_admin')
             .limit(limit);
 
         // El comentario de arriba decía "por RLS" pero esta ruta usa
-        // service_role (bypasea RLS) y no tenía NINGÚN filtro — cualquier
-        // school_admin veía las solicitudes de upgrade de TODAS las
-        // escuelas. requireRole ya bloqueó a padres/atletas/coaches; acá
-        // se limita a school_admin a su propia escuela (admin/super_admin
-        // de plataforma sí ven todas, como decía la intención original).
-        if (req.role === 'school_admin') {
+        // service_role (bypasea RLS): el filtro lo pone el BFF.
+        //
+        // Solo el admin de PLATAFORMA (platform_admins) ve todas las escuelas.
+        // Antes el filtro se aplicaba solo a 'school_admin', pero requireRole
+        // deja pasar SIEMPRE a 'owner' y 'admin' (PRIVILEGED_ROLES) y esos son
+        // roles de MEMBRESÍA de una escuela: cualquier dueño veía las
+        // solicitudes de TODAS las escuelas, con el correo de quien las pidió.
+        if (!(await esAdminDePlataforma(req.user.id))) {
+            if (!req.schoolId) {
+                return res.status(403).json({ error: 'Sin escuela activa.' });
+            }
             query = query.eq('school_id', req.schoolId);
         }
 
@@ -170,7 +176,7 @@ router.get('/', requireAuth, requireRole('admin', 'super_admin', 'school_admin')
 // Solo super_admin (forzado por RPC rpc_process_upgrade_request).
 // ============================================================
 
-router.post('/:id/process', requireAuth, requireRole('admin', 'super_admin'), async (req: Request, res: Response) => {
+router.post('/:id/process', requireAuth, requirePlatformAdmin, async (req: Request, res: Response) => {
     try {
         const requestId = req.params.id;
         const { notes, amount_cents, contact_method } = req.body || {};
@@ -201,7 +207,7 @@ router.post('/:id/process', requireAuth, requireRole('admin', 'super_admin'), as
 // sin necesariamente procesar el upgrade.
 // ============================================================
 
-router.patch('/:id', requireAuth, requireRole('admin', 'super_admin'), async (req: Request, res: Response) => {
+router.patch('/:id', requireAuth, requirePlatformAdmin, async (req: Request, res: Response) => {
     try {
         const requestId = req.params.id;
         const { status, processed_notes, contact_method } = req.body || {};

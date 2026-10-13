@@ -660,7 +660,9 @@ const App = () => (
                           le muestra únicamente el botón y el BFF es el gate real). */}
                       <Route path="school/enrollment-intake" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
-                          <EnrollmentIntakeInboxPage />
+                          <ModuleGate moduleKey="deportistas_matriculas_por_revisar">
+                            <EnrollmentIntakeInboxPage />
+                          </ModuleGate>
                         </ProtectedRoute>
                       } />
                       {/* El plan lo ve SOLO quien lo paga. Estar asociado a una entidad no
@@ -840,7 +842,9 @@ const App = () => (
                       } />
                       <Route path="informe-mensual" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
-                          <ModuleGate moduleKey="gestion_deportiva_informe_mensual">
+                          {/* roles explícitos: con el default (solo school/school_admin)
+                              el coach entraba aunque la escuela apagara el módulo. */}
+                          <ModuleGate moduleKey="gestion_deportiva_informe_mensual" roles={['school', 'school_admin', 'coach']}>
                             <MonthlyReportsPage />
                           </ModuleGate>
                         </ProtectedRoute>
@@ -1062,14 +1066,16 @@ const App = () => (
                       </Route>
 
 
-                      {/* Admin routes */}
+                      {/* Admin routes — TODAS con strictRoleCheck (solo plataforma). Una
+                          escuela no entra a /admin/* por URL; sus pantallas viven en
+                          /students, /staff, /finances, /settings, etc. */}
                       <Route path="admin" element={
                         <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
                           <AdminPanelPage />
                         </ProtectedRoute>
                       } />
                       <Route path="admin/users" element={
-                        <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
                           <AdminUsersPage />
                         </ProtectedRoute>
                       } />
@@ -1079,7 +1085,7 @@ const App = () => (
                         </ProtectedRoute>
                       } />
                       <Route path="admin/clubs" element={
-                        <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
                           <AdminClubsPage />
                         </ProtectedRoute>
                       } />
@@ -1104,27 +1110,27 @@ const App = () => (
                         </ProtectedRoute>
                       } />
                       <Route path="admin/reports" element={
-                        <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
                           <ReportsPage />
                         </ProtectedRoute>
                       } />
                       <Route path="admin/analytics" element={
-                        <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
                           <AdminAnalyticsPage />
                         </ProtectedRoute>
                       } />
                       <Route path="admin/config" element={
-                        <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
                           <SettingsPage />
                         </ProtectedRoute>
                       } />
                       <Route path="admin/payroll-config" element={
-                        <ProtectedRoute allowedRoles={['super_admin']}>
+                        <ProtectedRoute allowedRoles={['super_admin']} strictRoleCheck>
                           <PayrollConfigPage />
                         </ProtectedRoute>
                       } />
                       <Route path="admin/logs" element={
-                        <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
                           <NotificationsPage />
                         </ProtectedRoute>
                       } />

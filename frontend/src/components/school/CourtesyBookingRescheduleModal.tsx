@@ -75,7 +75,7 @@ export function CourtesyBookingRescheduleModal({ reservation, onClose }: Courtes
             No hay horarios disponibles para esta cancha en los próximos {SLOTS_HORIZON_DAYS} días.
           </div>
         ) : (
-          <div className="space-y-4 max-h-[360px] overflow-y-auto pr-1">
+          <div className="space-y-4 max-h-96 overflow-y-auto pr-1">
             {Object.entries(slotsByDate).map(([date, daySlots]) => (
               <div key={date} className="space-y-2">
                 <p className="text-xs font-bold uppercase tracking-wider text-primary capitalize flex items-center gap-1.5">

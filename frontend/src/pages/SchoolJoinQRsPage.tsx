@@ -262,7 +262,7 @@ export default function SchoolJoinQRsPage() {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       if (!token) throw new Error('No session');
-      const url = (import.meta.env.VITE_BFF_URL || 'https://sportmaps-bff.onrender.com') + `/api/v1/join-qr/${qr.slug}/poster.pdf`;
+      const url = (import.meta.env.VITE_BFF_URL || 'https://sportmaps-bff-prod.onrender.com') + `/api/v1/join-qr/${qr.slug}/poster.pdf`;
       const r = await fetch(url, {
         headers: { Authorization: `Bearer ${token}`, 'x-school-id': schoolId || '' },
       });
@@ -378,7 +378,7 @@ export default function SchoolJoinQRsPage() {
 
       {/* New QR dialog */}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-lg max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Nuevo código QR</DialogTitle>
             <DialogDescription>Crea un código para una campaña, equipo o sede específica.</DialogDescription>

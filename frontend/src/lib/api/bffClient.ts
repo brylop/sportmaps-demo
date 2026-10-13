@@ -21,7 +21,7 @@ import { supabase } from '@/integrations/supabase/client';
  * Mapea según hostname:
  *   - localhost/127.0.0.1 → http://localhost:3000
  *   - dev.sportmaps.co → sportmaps-bff-dev.onrender.com
- *   - resto → sportmaps-bff.onrender.com (prod)
+ *   - resto → sportmaps-bff-prod.onrender.com (prod)
  * VITE_BFF_URL override esta logica.
  */
 function resolveBffUrl(): string {
@@ -37,7 +37,7 @@ function resolveBffUrl(): string {
     if (hostname === 'dev.sportmaps.co' || hostname.startsWith('dev.') || hostname.includes('preview') || hostname.includes('vercel.app')) {
         return 'https://sportmaps-bff-dev.onrender.com';
     }
-    return 'https://sportmaps-bff.onrender.com';
+    return 'https://sportmaps-bff-prod.onrender.com';
 }
 export const BFF_URL = resolveBffUrl();
 
@@ -51,6 +51,8 @@ class BFFError extends Error {
         public status: number,
         message: string,
         public body?: unknown,
+        /** Segundos del header `Retry-After` (solo en 429/503 cuando el BFF lo manda). */
+        public retryAfterSeconds?: number,
     ) {
         super(message);
         this.name = 'BFFError';
@@ -129,7 +131,13 @@ async function request<T>(
             (responseBody as any)?.error ??
             (responseBody as any)?.message ??
             `Error ${response.status}`;
-        throw new BFFError(response.status, message, responseBody);
+        const retryAfter = Number(response.headers?.get?.('Retry-After'));
+        throw new BFFError(
+            response.status,
+            message,
+            responseBody,
+            Number.isFinite(retryAfter) && retryAfter >= 0 ? retryAfter : undefined,
+        );
     }
 
     return responseBody as T;
@@ -170,6 +178,24 @@ export const bffClient = {
 
     delete: <T>(path: string, headers?: Record<string, string>, authMode: AuthMode = 'required') =>
         request<T>('DELETE', path, undefined, headers, authMode),
+
+    /**
+     * GET de un archivo (foto, audio, PDF) con la sesión. Un `<img src>` no
+     * manda el Authorization, así que los adjuntos privados (p. ej. los de
+     * WhatsApp, que el BFF baja de Meta) se piden como Blob y se muestran con
+     * `URL.createObjectURL`. Error: BFFError con el `error`/`detalle` del JSON.
+     */
+    getBlob: async (path: string): Promise<Blob> => {
+        const headers = await buildHeaders(undefined, 'required');
+        delete headers['Content-Type'];
+        const response = await fetch(`${BFF_URL}${path}`, { method: 'GET', headers });
+        if (!response.ok) {
+            let cuerpo: any = null;
+            try { cuerpo = await response.json(); } catch { /* no era JSON */ }
+            throw new BFFError(response.status, cuerpo?.detalle ?? cuerpo?.error ?? `Error ${response.status}`, cuerpo);
+        }
+        return response.blob();
+    },
 
     request,
 };

@@ -261,7 +261,7 @@ export default function EventDocumentsTab({ eventId }: { eventId: string }) {
 
       {/* Filters + actions */}
       <div className="flex flex-wrap items-end gap-4">
-        <div className="space-y-1.5 min-w-[220px]">
+        <div className="space-y-1.5 min-w-56">
           <label className="text-sm font-medium">Escuela</label>
           <Select value={filterSchool} onValueChange={setFilterSchool}>
             <SelectTrigger>
@@ -360,11 +360,11 @@ export default function EventDocumentsTab({ eventId }: { eventId: string }) {
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead className="w-[40px]" />
+                            <TableHead className="w-10" />
                             <TableHead>Atleta</TableHead>
                             <TableHead>Equipo</TableHead>
                             <TableHead>Documento</TableHead>
-                            <TableHead className="w-[80px]" />
+                            <TableHead className="w-20" />
                           </TableRow>
                         </TableHeader>
                         <TableBody>

@@ -35,8 +35,17 @@ import {
   PartialDue,
 } from '../utils/remainingClasses';
 import { normalizeSchoolName } from '../utils/brandingUtils';
+// Una sola regla de duplicados (spec cobros-multiples §16.3): la misma que el modal «Cobros y pagos».
+import { buscarDuplicadoParaAlta } from '../services/athlete-duplicates.service';
 import { todayInZone } from '../utils/businessDate';
-import { enrollmentFeeDueDate } from '../services/enrollmentBilling';
+import {
+  enrollmentFeeDueDate,
+  EnrollmentFeeWaivers,
+  waivedFeeCategories,
+  cancelWaivedFeeRows,
+  auditEnrollmentFeeWaiver,
+  findActiveInsurance,
+} from '../services/enrollmentBilling';
 
 
 const router = Router();
@@ -87,6 +96,15 @@ const EnrollmentBase = z.object({
   first_payment_mode: z.enum(['full_month', 'remaining_classes']).optional(),
   classes_remaining:  z.number().int().optional(),
   partial_due:        z.enum(['today', 'next_month_first']).optional(),
+  // Exoneración por alta: la escuela no cobra la inscripción y/o el seguro del
+  // plan en ESTA alta (la mensualidad sí se cobra). Ausente = como hoy.
+  waive_registration_fee: z.boolean().optional(),
+  waive_insurance_fee:    z.boolean().optional(),
+});
+
+const feeWaiversOf = (d: { waive_registration_fee?: boolean; waive_insurance_fee?: boolean }): EnrollmentFeeWaivers => ({
+  registration: d.waive_registration_fee === true,
+  insurance:    d.waive_insurance_fee === true,
 });
 
 const ChildSchema = EnrollmentBase.extend({
@@ -426,6 +444,8 @@ async function altaConCobros(req: AuthenticatedRequest, p: {
   firstPaymentMode: 'full_month' | 'remaining_classes' | null;
   payments: Record<string, any>[];
   personName: string;
+  /** La escuela no cobra inscripción / seguro en esta alta. */
+  feeWaivers?: EnrollmentFeeWaivers;
 }): Promise<{ enrollmentsCreated: number; paymentCreated: boolean; paymentIds: string[] }> {
   const hasPlan = !!(p.offeringPlanId && p.offeringId);
   const shouldEnroll = !!(p.teamId || hasPlan);
@@ -446,7 +466,12 @@ async function altaConCobros(req: AuthenticatedRequest, p: {
   }
 
   // Inscripción + seguro (F-B): solo en un alta NUEVA con plan (D18).
-  const fees = enrollment && hasPlan
+  // Exonerados los dos = ni se manda el elemento (no depende de la migración
+  // 20261010124934). Uno solo = waive_* en el elemento; sin exoneración, el
+  // elemento es byte a byte el de siempre.
+  const waived = waivedFeeCategories(p.feeWaivers);
+  const emitsFees = !!(enrollment && hasPlan);
+  const fees = emitsFees && waived.length < 2
     ? [{
         kind: 'enrollment_fees',
         plan_id: p.offeringPlanId,
@@ -454,6 +479,8 @@ async function altaConCobros(req: AuthenticatedRequest, p: {
         branch_id: p.branchId,
         due_date: enrollmentFeeDueDate(p.startDate),
         person_name: p.personName,
+        ...(p.feeWaivers?.registration ? { waive_registration_fee: true } : {}),
+        ...(p.feeWaivers?.insurance ? { waive_insurance_fee: true } : {}),
       }]
     : [];
 
@@ -483,10 +510,23 @@ async function altaConCobros(req: AuthenticatedRequest, p: {
   }
 
   const result = (data ?? {}) as { enrollment_id?: string | null; payment_ids?: string[] };
+  let paymentIds = result.payment_ids ?? [];
+  if (emitsFees && waived.length) {
+    // Red de seguridad si la base aún no tiene 20261010124934 (la RPC vieja
+    // ignora waive_* y cobra igual): anula la fila exonerada. Luego, rastro.
+    paymentIds = await cancelWaivedFeeRows({
+      schoolId: p.schoolId, paymentIds, waivers: p.feeWaivers, log: req.log,
+    });
+    await auditEnrollmentFeeWaiver({
+      schoolId: p.schoolId, profileId: req.user?.id, enrollmentId: result.enrollment_id,
+      planId: p.offeringPlanId, athleteCol: p.athleteCol, athleteId: p.athleteId,
+      waivers: p.feeWaivers, log: req.log,
+    });
+  }
   return {
     enrollmentsCreated: result.enrollment_id ? 1 : 0,
     paymentCreated: p.payments.length > 0,
-    paymentIds: result.payment_ids ?? [],
+    paymentIds,
   };
 }
 
@@ -585,6 +625,16 @@ router.post(
         });
       }
 
+      // Exonerar inscripción / seguro es decisión de la administración, no del
+      // coach (spec cobros-multiples: exonerar = canManageCharges).
+      const askedWaiver = (data as any).waive_registration_fee === true || (data as any).waive_insurance_fee === true;
+      if (req.role === 'coach' && askedWaiver) {
+        return res.status(403).json({
+          error: 'Un entrenador no puede dejar sin cobrar la inscripción ni el seguro. Pídelo a la escuela.',
+          code: 'WAIVER_FORBIDDEN',
+        });
+      }
+
       // parent_email es opcional en el schema (para que la escuela con el
       // flag pueda omitirlo), pero para el resto sigue siendo obligatorio —
       // se valida acá porque Zod no conoce settings de la escuela.
@@ -640,7 +690,7 @@ router.post(
         // nombre normalizado y contra `unregistered_athletes` — un menor puede estar
         // duplicado contra un registro que la escuela creó sin cuenta.
         if (!data.allow_duplicate) {
-          const dup = await findExistingAthlete(schoolId, {
+          const dup = await buscarDuplicadoParaAlta(schoolId, {
             docNumber: data.doc_number,
             fullName: data.full_name,
           });
@@ -704,6 +754,7 @@ router.post(
         // UNA sola inscripción con equipo (roster) y/o plan (cobro) + UN cobro
         // (dos con clases restantes) + inscripción/seguro, en una transacción.
         const alta = await altaConCobros(req, {
+          feeWaivers: feeWaiversOf(data),
           schoolId: schoolId!, athleteCol: 'child_id', athleteId: childId,
           branchId: data.branch_id || null, teamId: data.team_id || null,
           offeringPlanId: hasPlan ? data.offering_plan_id : null,
@@ -871,6 +922,7 @@ router.post(
           : teamPrice;
 
         const alta = await altaConCobros(req, {
+          feeWaivers: feeWaiversOf(data),
           schoolId: schoolId!, athleteCol: 'user_id', athleteId: userId,
           branchId: data.branch_id || null, teamId: data.team_id || null,
           offeringPlanId: hasPlan ? data.offering_plan_id : null,
@@ -937,6 +989,7 @@ router.post(
           : null;
 
         const alta = await altaConCobros(req, {
+          feeWaivers: feeWaiversOf(data),
           schoolId: schoolId!, athleteCol: 'child_id', athleteId: child_id,
           branchId: data.branch_id || null, teamId: data.team_id || null,
           offeringPlanId: hasPlan ? data.offering_plan_id : null,
@@ -1042,7 +1095,7 @@ router.post(
         // DAIMARIS VASQUEZ PEREZ tres minutos antes de que la misma persona
         // apareciera como atleta adulta con su propia cuenta.
         if (!data.allow_duplicate) {
-          const dup = await findExistingAthlete(schoolId, {
+          const dup = await buscarDuplicadoParaAlta(schoolId, {
             docNumber: data.doc_number,
             fullName: data.full_name,
           });
@@ -1093,6 +1146,7 @@ router.post(
           : teamPrice;
 
         const alta = await altaConCobros(req, {
+          feeWaivers: feeWaiversOf(data),
           schoolId: schoolId!, athleteCol: 'unregistered_athlete_id', athleteId: uaId,
           branchId: data.branch_id || null, teamId: data.team_id || null,
           offeringPlanId: hasPlan ? data.offering_plan_id : null,
@@ -1217,6 +1271,12 @@ const PreviewSchema = z.object({
   partial_due:       z.enum(['today', 'next_month_first']).optional(),
   monthly_fee:       z.number().positive().nullable().optional(),
   discount_pct:      z.number().min(0).max(100).optional(),
+  waive_registration_fee: z.boolean().optional(),
+  waive_insurance_fee:    z.boolean().optional(),
+  // Atleta que ya existe (a lo sumo uno): para saber si ya tiene seguro vigente.
+  user_id:                 z.string().uuid().optional(),
+  child_id:                z.string().uuid().optional(),
+  unregistered_athlete_id: z.string().uuid().optional(),
 });
 
 router.post(
@@ -1259,6 +1319,24 @@ router.post(
         registration_fee: Number((plan as any).registration_fee) > 0 ? Number((plan as any).registration_fee) : 0,
         insurance_fee: Number((plan as any).insurance_fee) > 0 ? Number((plan as any).insurance_fee) : 0,
       };
+      const today = todayInZone();
+      // Vencimiento de inscripción y seguro (el mismo que usa el alta).
+      const altaDue = enrollmentFeeDueDate(body.start_date, today);
+
+      // Seguro vigente (12 meses) del atleta que ya existe: emit_enrollment_fees
+      // no lo repite, así que tampoco se suma aquí.
+      const athleteRef: { col: 'user_id' | 'child_id' | 'unregistered_athlete_id'; id: string } | null =
+        body.child_id ? { col: 'child_id', id: body.child_id }
+        : body.user_id ? { col: 'user_id', id: body.user_id }
+        : body.unregistered_athlete_id ? { col: 'unregistered_athlete_id', id: body.unregistered_athlete_id }
+        : null;
+      const insuranceActiveSince = athleteRef && fees.insurance_fee > 0
+        ? await findActiveInsurance({ schoolId: schoolId!, athleteCol: athleteRef.col, athleteId: athleteRef.id, dueDate: altaDue })
+        : null;
+
+      // Lo que de verdad se cobra en el alta (exoneración por alta + seguro vigente).
+      const chargedFees = (body.waive_registration_fee ? 0 : fees.registration_fee)
+        + (body.waive_insurance_fee || insuranceActiveSince ? 0 : fees.insurance_fee);
 
       const base = {
         eligible: elig.eligible,
@@ -1266,6 +1344,8 @@ router.post(
         classes_per_period: cpp?.classes ?? null,
         source: cpp?.source ?? null,
         fees,
+        fees_due_date: altaDue,
+        insurance_active_since: insuranceActiveSince,
       };
 
       if (!elig.eligible || body.classes_remaining == null) {
@@ -1279,7 +1359,6 @@ router.post(
       }
 
       const monthlyFee = body.monthly_fee && body.monthly_fee > 0 ? body.monthly_fee : Number((plan as any).price);
-      const today = todayInZone();
       const rows = calcRemainingClassesPayment({
         startDate: body.start_date,
         monthlyFee,
@@ -1291,10 +1370,9 @@ router.post(
         today,
       });
       // Lo que se paga en el alta: las filas que vencen ese día + inscripción y
-      // seguro (el seguro podría no cobrarse si ya tiene uno vigente).
-      const altaDue = enrollmentFeeDueDate(body.start_date, today);
+      // seguro que sí se cobran.
       const totalToday = rows.filter(r => r.dueDate <= altaDue).reduce((acc, r) => acc + r.amount, 0)
-        + fees.registration_fee + fees.insurance_fee;
+        + chargedFees;
 
       return res.json({
         ...base,

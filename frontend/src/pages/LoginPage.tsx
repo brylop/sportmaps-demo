@@ -183,13 +183,13 @@ export default function LoginPage() {
       <div className="hidden lg:flex w-[42%] min-h-screen bg-[#0f2614] relative flex-col justify-between p-12 overflow-hidden border-r border-white/5">
         <div className="absolute inset-0 sportmaps-grid"></div>
         
-        {/* Decorative Gradients */}
+        {/* Decorative Gradients — px a propósito: adorno del panel lg+ (hidden en móvil) */}
         <div className="absolute -top-[120px] -right-[120px] w-[420px] h-[420px] rounded-full bg-[radial-gradient(circle,rgba(36,130,35,.35)_0%,transparent_70%)] pointer-events-none"></div>
         <div className="absolute -bottom-[80px] -left-[80px] w-[300px] h-[300px] rounded-full bg-[radial-gradient(circle,rgba(36,130,35,.2)_0%,transparent_70%)] pointer-events-none"></div>
 
         <div className="relative z-10 flex items-center gap-3">
-          <div className="w-[38px] h-[38px] bg-[#248223] rounded-[10px] flex items-center justify-center">
-            <svg viewBox="0 0 24 24" className="w-[22px] h-[22px] fill-white"><path d="M12 2C8.5 2 6 5 6 8c0 4 6 12 6 12s6-8 6-12c0-3-2.5-6-6-6zm0 8a2 2 0 110-4 2 2 0 010 4z"/></svg>
+          <div className="w-10 h-10 bg-[#248223] rounded-[10px] flex items-center justify-center">
+            <svg viewBox="0 0 24 24" className="w-6 h-6 fill-white"><path d="M12 2C8.5 2 6 5 6 8c0 4 6 12 6 12s6-8 6-12c0-3-2.5-6-6-6zm0 8a2 2 0 110-4 2 2 0 010 4z"/></svg>
           </div>
           {/* Este panel solo se renderiza cuando NO hay tenant, asi que aca
               siempre es SportMaps. */}
@@ -206,7 +206,7 @@ export default function LoginPage() {
             <span className="text-[#2ea82d]">deportivamente</span><br />
             conectado.
           </h1>
-          <p className="text-sm text-[#8a9186] leading-relaxed max-w-[320px] font-light">
+          <p className="text-sm text-[#8a9186] leading-relaxed max-w-xs font-light">
             Inicia sesión para gestionar tus entrenamientos, equipos y progresos en la red deportiva más grande.
           </p>
         </div>
@@ -225,7 +225,7 @@ export default function LoginPage() {
 
       {/* ── RIGHT PANEL ── */}
       <div className="flex-1 flex items-center justify-center p-6 md:p-12">
-        <div className="w-full max-w-[420px] animate-in slide-in-from-bottom-6 duration-500 ease-out">
+        <div className="w-full max-w-modal-sm animate-in slide-in-from-bottom-6 duration-500 ease-out">
           
           {/* Logo Mobile.
               Si el visitante viene de la app instalada de una escuela (?t=<slug>

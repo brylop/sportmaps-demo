@@ -198,7 +198,7 @@ export default function MarketplacePage() {
               value={filters.order_by || 'newest'}
               onValueChange={(v) => updateFilters({ order_by: v as any })}
             >
-              <SelectTrigger className="w-[160px]">
+              <SelectTrigger className="w-40">
                 <SelectValue placeholder="Ordenar por" />
               </SelectTrigger>
               <SelectContent>
@@ -215,7 +215,7 @@ export default function MarketplacePage() {
                   value={filters.service_type || '__all__'}
                   onValueChange={(v) => updateFilters({ service_type: v === '__all__' ? undefined : v })}
                 >
-                  <SelectTrigger className="w-[180px]">
+                  <SelectTrigger className="w-44">
                     <SelectValue placeholder="Tipo de servicio" />
                   </SelectTrigger>
                   <SelectContent>
@@ -230,7 +230,7 @@ export default function MarketplacePage() {
                   value={filters.modality || '__all__'}
                   onValueChange={(v) => updateFilters({ modality: v === '__all__' ? undefined : v })}
                 >
-                  <SelectTrigger className="w-[160px]">
+                  <SelectTrigger className="w-40">
                     <SelectValue placeholder="Modalidad" />
                   </SelectTrigger>
                   <SelectContent>

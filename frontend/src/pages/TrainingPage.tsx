@@ -493,7 +493,7 @@ export default function TrainingPage() {
       {/* ── Modal detalle de sesión completada ── */}
       {viewingSession && (
         <Dialog open={!!viewingSession} onOpenChange={() => setViewingSession(null)}>
-          <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogContent className="max-w-lg max-h-sheet overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="text-xl font-black">{viewingSession.name}</DialogTitle>
               <DialogDescription className="flex flex-wrap gap-3 mt-1">

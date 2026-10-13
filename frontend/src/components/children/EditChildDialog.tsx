@@ -225,7 +225,7 @@ export function EditChildDialog({ open, onOpenChange, onSuccess, child }: EditCh
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[500px]">
+            <DialogContent className="sm:max-w-lg">
                 <DialogHeader>
                     <DialogTitle>Editar Información del Hijo</DialogTitle>
                     <DialogDescription>
@@ -604,7 +604,7 @@ export function EditChildDialog({ open, onOpenChange, onSuccess, child }: EditCh
                                             <FormControl>
                                                 <Textarea
                                                     placeholder="Cualquier otra información importante..."
-                                                    className="min-h-[80px]"
+                                                    className="min-h-20"
                                                     {...field}
                                                 />
                                             </FormControl>
@@ -627,7 +627,7 @@ export function EditChildDialog({ open, onOpenChange, onSuccess, child }: EditCh
                             <Button
                                 type="submit"
                                 disabled={isSubmitting || isUploading}
-                                className="bg-primary hover:bg-primary/90 min-w-[140px]"
+                                className="bg-primary hover:bg-primary/90 min-w-36"
                             >
                                 {isSubmitting || isUploading ? (
                                     <div className="flex items-center gap-2">

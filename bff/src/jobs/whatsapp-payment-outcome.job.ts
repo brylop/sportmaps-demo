@@ -46,6 +46,7 @@ import {
 } from '../services/whatsapp-plantillas.service';
 import { emitirTokenCobro } from '../services/cobro-enlace-publico.service';
 import { conceptoDelCobro } from '../services/whatsapp-otro-concepto.service';
+import { esPagoUnico, type CobroClasificable } from '../services/tipo-de-cobro';
 import type { Logger } from 'pino';
 
 const LOTE = 100;
@@ -151,11 +152,21 @@ export function siguienteTrasFallo(intentos: number, motivo: string, ahora: numb
  * no esté APPROVED en la WABA de la escuela el envío devuelve
  * `plantilla_no_aprobada` y el aviso queda «no entregado», como antes.
  */
-export function plantillaDelDesenlace(estado: string, concept: string | null): { concepto: ConceptoCobro } | { motivo: string } {
+export function plantillaDelDesenlace(
+    estado: string,
+    concept: string | null,
+    /**
+     * La categoría del cobro, cuando se leyó (2026-10-10). Con ella manda:
+     * «Inscripción — PLAN RM MENSUAL — …» dice «mensual» en el nombre del plan
+     * y por el texto salía «por la mensualidad de …» para una inscripción.
+     */
+    cobro?: Pick<CobroClasificable, 'payment_category' | 'payment_type'> | null,
+): { concepto: ConceptoCobro } | { motivo: string } {
     if (estado === 'paid') {
-        return conceptoDelCobro(concept) === null
-            ? { concepto: 'pago_confirmado' }
-            : { concepto: 'pago_recibido_otro_concepto' };
+        const otro = cobro?.payment_category
+            ? esPagoUnico({ ...cobro, concept })
+            : conceptoDelCobro(concept) !== null;
+        return otro ? { concepto: 'pago_recibido_otro_concepto' } : { concepto: 'pago_confirmado' };
     }
     if (estado === 'rejected') return { concepto: 'comprobante_rechazado' };
     return { motivo: `sin plantilla para el estado ${estado}` };
@@ -244,9 +255,60 @@ export async function registrarAvisoDePagoPorLink(
 }
 
 /**
+ * ¿Va la pregunta del consentimiento al pie del «pago confirmado»? Solo con el
+ * pago aprobado, sin baja, y si la conversación es del PAGADOR: su `parent_id`
+ * es el del cobro. Un número sin vincular (null) o de otra persona no recibe
+ * el botón (auditoría 2026-10-10: se le ofreció a un número que no pagaba). Pura.
+ */
+export function puedeOfrecerConsentimiento(
+    desenlace: Desenlace,
+    dadoDeBaja: boolean,
+    conv: { id?: string | null; parent_id?: string | null } | null | undefined,
+    pagadorId: string | null | undefined,
+): boolean {
+    return desenlace === 'paid' && !dadoDeBaja && !!conv?.id
+        && !!conv.parent_id && !!pagadorId && conv.parent_id === pagadorId;
+}
+
+/**
  * El aviso de comprobante rechazado, con el motivo que escribió la escuela.
  * Sin motivo (rechazos viejos) igual dice que el cobro sigue pendiente. Pura.
  */
+/**
+ * Cómo cierra el aviso de pago confirmado. «Queda al día» SOLO si la familia
+ * no tiene otro cobro vivo: con pagos únicos (2026-10-10) pagar la inscripción
+ * deja la mensualidad y el seguro pendientes, y decirle «al día» es mentirle.
+ * `otros` null = no se pudo saber → no se promete nada. Pura.
+ */
+export function cierreDelAvisoDePago(otros: number | null): string {
+    if (otros === null) return '';
+    if (otros === 0) return ' Queda al día.';
+    return otros === 1
+        ? ' Te queda 1 cobro pendiente.'
+        : ` Te quedan ${otros} cobros pendientes.`;
+}
+
+/** Cobros vivos de la misma familia en la escuela, sin contar este. null = no se pudo leer. */
+async function otrosPendientesDeLaFamilia(pago: PagoDesenlace): Promise<number | null> {
+    const filtro = pago.parent_id ? ['parent_id', pago.parent_id]
+        : pago.child_id ? ['child_id', pago.child_id]
+            : pago.unregistered_athlete_id ? ['unregistered_athlete_id', pago.unregistered_athlete_id] : null;
+    if (!filtro) return null;
+    try {
+        const { data, error } = await supabase.from('payments')
+            .select('id')
+            .eq('school_id', pago.school_id)
+            .eq(filtro[0], filtro[1])
+            .in('status', ['pending', 'partial', 'overdue'])
+            .neq('id', pago.id)
+            .limit(50);
+        if (error || !Array.isArray(data)) return null;
+        return data.length;
+    } catch {
+        return null;
+    }
+}
+
 export function textoComprobanteRechazado(monto: string, concepto: string | null, motivo: string | null | undefined): string {
     const m = String(motivo ?? '').trim();
     return `La escuela revisó tu comprobante de *${monto}* por *${concepto ?? 'tu cobro'}* y no lo pudo aprobar.` +
@@ -260,9 +322,11 @@ interface PagoDesenlace {
     id: string; status: string; amount: number | string; concept: string | null; rejection_reason: string | null;
     school_id: string; parent_id: string | null; child_id: string | null; unregistered_athlete_id: string | null;
     receipt_rejected_at?: string | null;
+    payment_category?: string | null;
+    payment_type?: string | null;
 }
 
-const COLUMNAS_PAGO = 'id, status, amount, concept, rejection_reason, school_id, parent_id, child_id, unregistered_athlete_id';
+const COLUMNAS_PAGO = 'id, status, amount, concept, payment_category, payment_type, rejection_reason, school_id, parent_id, child_id, unregistered_athlete_id';
 /** Con la migración 20261008165728: la marca del rechazo del comprobante. */
 const COLUMNAS_PAGO_CON_RECHAZO = `${COLUMNAS_PAGO}, receipt_rejected_at`;
 let sinMarcaDeRechazo = false;
@@ -286,7 +350,7 @@ async function leerPago(id: string): Promise<PagoDesenlace | null> {
 
 /** Manda el desenlace por plantilla. Devuelve el estado final del aviso. */
 async function avisarPorPlantilla(pago: PagoDesenlace, telefono: string, desenlace: Desenlace): Promise<EstadoAviso> {
-    const cual = plantillaDelDesenlace(desenlace, pago.concept);
+    const cual = plantillaDelDesenlace(desenlace, pago.concept, pago);
     if ('motivo' in cual) return { tipo: 'no_entregado', motivo: `ventana cerrada; ${cual.motivo}` };
 
     const [perfil, hijo, sinRegistrar, escuela] = await Promise.all([
@@ -422,9 +486,11 @@ export async function runWhatsAppPaymentOutcome(log?: Logger): Promise<{ avisado
         const monto = cop(Number(pago.amount));
         let texto: string;
         if (desenlace === 'paid' && porLink) {
-            texto = `¡Listo! ✅ Recibimos tu pago en línea de *${monto}* por *${pago.concept}*. Queda al día.`;
+            texto = `¡Listo! ✅ Recibimos tu pago en línea de *${monto}* por *${pago.concept}*.`
+                + cierreDelAvisoDePago(await otrosPendientesDeLaFamilia(pago));
         } else if (desenlace === 'paid') {
-            texto = `¡Listo! ✅ La escuela confirmó tu pago de *${monto}* por *${pago.concept}*. Queda al día.`;
+            texto = `¡Listo! ✅ La escuela confirmó tu pago de *${monto}* por *${pago.concept}*.`
+                + cierreDelAvisoDePago(await otrosPendientesDeLaFamilia(pago));
         } else if (desenlace === 'rejected') {
             // El motivo importa: un rechazo sin explicación deja al acudiente sin
             // saber qué corregir, que es justo el caso que originó todo esto.
@@ -440,7 +506,7 @@ export async function runWhatsAppPaymentOutcome(log?: Logger): Promise<{ avisado
         // de que la suelten o venza la toma.
         const { data: conv } = await supabase
             .from('whatsapp_conversations')
-            .select('id, last_inbound_at')
+            .select('id, last_inbound_at, parent_id')
             .eq('integration_id', fila.integration_id as string)
             .eq('contact_wa_id', fila.wa_phone_number as string)
             .maybeSingle();
@@ -480,8 +546,11 @@ export async function runWhatsAppPaymentOutcome(log?: Logger): Promise<{ avisado
         // sirve. Va al pie del mismo mensaje (no como uno aparte), con las
         // mismas reglas que en el bot (con cuenta, sin opt-in, sin baja, sin
         // haber dicho que no, una vez cada DIAS_PARA_REPREGUNTAR).
-        const consentimiento = (desenlace === 'paid' && !dadoDeBaja && conv?.id)
-            ? await anexoDeConsentimientoAlPie(integration as WhatsAppIntegration, conv.id as string,
+        // Solo si ESTE número es el del pagador (auditoría 2026-10-10): el
+        // comprobante lo puede mandar un tío o un número sin ficha, y a ese
+        // número no se le ofrece activar los avisos de otra persona.
+        const consentimiento = puedeOfrecerConsentimiento(desenlace, dadoDeBaja, conv as any, (pago as any).parent_id)
+            ? await anexoDeConsentimientoAlPie(integration as WhatsAppIntegration, (conv as any).id as string,
                 fila.wa_phone_number as string, (pago as any).parent_id ?? null)
             : null;
         const final = aFormatoWhatsApp((dadoDeBaja ? texto + AVISO_DADO_DE_BAJA : texto)

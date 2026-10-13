@@ -17,7 +17,6 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { NumberStepper } from '@/components/ui/number-stepper';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -27,7 +26,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import {
-  Baby, Users, ClipboardList, CalendarDays, Info, Loader2, ChevronDown, ChevronUp,
+  Baby, Users, ClipboardList, Info, Loader2, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useEntitlements } from '@/hooks/useEntitlements';
@@ -36,7 +35,10 @@ import { bffClient } from '@/lib/api/bffClient';
 import {
   FirstPaymentModeSection, FirstPaymentChoice, DEFAULT_FIRST_PAYMENT_CHOICE,
 } from '@/components/students/FirstPaymentModeSection';
-import { calcFirstPayment, applyDiscount, formatCOP } from '@/lib/prorationUtils';
+import { formatCOP } from '@/lib/prorationUtils';
+import {
+  AltaFirstChargeCard, FeeWaivers, NO_FEE_WAIVERS, feeWaiversPayload,
+} from '@/components/students/AltaFirstChargeCard';
 import { Search, CheckCircle2, Calendar as CalendarIcon } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
@@ -73,175 +75,13 @@ interface CreateChildModalProps {
   onClose: () => void;
   onSuccess: () => void;
   schoolId: string;
+  /** «No cobrar inscripción / seguro». El coach no exonera (default true; el BFF también lo frena). */
+  canWaiveFees?: boolean;
 }
 
 interface BillingSettings {
   payment_cutoff_day: number;
   billing_cycle_type: 'prorated' | 'fixed_calendar' | 'rolling_30';
-}
-
-interface ProrationCardProps {
-  startDate: string;
-  monthlyFee: number;
-  billing: BillingSettings;
-  discountPct: number;
-  onDiscountChange: (pct: number) => void;
-  registrationFee?: number;
-  insuranceFee?: number;
-  /** Clases restantes (F7) elegido: el detalle del ciclo lo muestra FirstPaymentModeSection. */
-  hideCycleDetail?: boolean;
-}
-
-// ─── Proration Card ───────────────────────────────────────────────────────────
-
-function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscountChange, registrationFee = 0, insuranceFee = 0, hideCycleDetail = false }: ProrationCardProps) {
-  const [discountEnabled, setDiscountEnabled] = useState(false);
-
-  if (!startDate || !monthlyFee) return null;
-
-  const calc = calcFirstPayment(
-    startDate,
-    monthlyFee,
-    billing.billing_cycle_type,
-    billing.payment_cutoff_day
-  );
-
-  const finalAmount = applyDiscount(calc.amount, discountEnabled ? discountPct : 0);
-  const dueDateObj  = new Date(calc.dueDate + 'T12:00:00');
-  const dueDateStr  = dueDateObj.toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
-
-  const handleDiscountToggle = (checked: boolean) => {
-    setDiscountEnabled(checked);
-    onDiscountChange(checked ? discountPct : 0);
-  };
-
-  const handleDiscountPctChange = (val: string) => {
-    const n = Math.min(100, Math.max(0, Number(val)));
-    onDiscountChange(discountEnabled ? n : 0);
-  };
-
-  return (
-    <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-3 text-sm">
-      <div className="flex items-center gap-2 font-semibold text-foreground">
-        <CalendarDays className="h-4 w-4 text-primary" />
-        Primer cobro
-      </div>
-
-      {/* ── Inscripción (D17-D19) — cobro único aparte de la mensualidad, ─────
-          una fila de payments distinta (payment_type='one_time', sin período).
-          No se suma a calc.amount: se muestra por separado a propósito. ── */}
-      {registrationFee > 0 && (
-        <div className="flex justify-between rounded-md bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-900 px-2.5 py-1.5 text-sm">
-          <span className="text-orange-700 dark:text-orange-400">Inscripción (pago único)</span>
-          <span className="font-bold text-orange-700 dark:text-orange-400">{formatCOP(registrationFee)}</span>
-        </div>
-      )}
-
-      {/* ── Seguro de accidentes (F-B) — cobro único aparte, categoría 'seguro'.
-          El BFF no lo repite si el atleta ya tiene un seguro de los últimos 12
-          meses en la escuela: por eso el texto dice "si no tiene uno vigente". ── */}
-      {insuranceFee > 0 && (
-        <div className="flex justify-between rounded-md bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-900 px-2.5 py-1.5 text-sm">
-          <span className="text-sky-700 dark:text-sky-400">Seguro de accidentes (si no tiene uno vigente)</span>
-          <span className="font-bold text-sky-700 dark:text-sky-400">{formatCOP(insuranceFee)}</span>
-        </div>
-      )}
-
-      {/* ── Prorated ── */}
-      {!hideCycleDetail && billing.billing_cycle_type === 'prorated' && (
-        <div className="space-y-1 text-muted-foreground">
-          {calc.isFullMonth ? (
-            <p>Inscripción el 1° del mes — mes completo.</p>
-          ) : (
-            <>
-              <div className="flex justify-between">
-                <span>Días restantes:</span>
-                <span className="font-medium text-foreground">{calc.remainingDays} de {calc.totalDaysInMonth}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Monto proporcional:</span>
-                <span className="font-bold text-foreground">{formatCOP(calc.amount)}</span>
-              </div>
-            </>
-          )}
-          <div className="flex justify-between text-xs">
-            <span>Vence:</span><span>{dueDateStr}</span>
-          </div>
-        </div>
-      )}
-
-      {/* ── Fixed calendar ── */}
-      {!hideCycleDetail && billing.billing_cycle_type === 'fixed_calendar' && (
-        <div className="space-y-1 text-muted-foreground">
-          <div className="flex justify-between">
-            <span>Monto:</span>
-            <span className="font-bold text-foreground">{formatCOP(calc.amount)}</span>
-          </div>
-          <div className="flex justify-between text-xs">
-            <span>Vence el día {billing.payment_cutoff_day} del próximo mes:</span>
-            <span>{dueDateStr}</span>
-          </div>
-        </div>
-      )}
-
-      {/* ── Rolling 30 ── */}
-      {!hideCycleDetail && billing.billing_cycle_type === 'rolling_30' && (
-        <div className="space-y-1 text-muted-foreground">
-          <div className="flex justify-between">
-            <span>Monto:</span>
-            <span className="font-bold text-foreground">{formatCOP(calc.amount)}</span>
-          </div>
-          <div className="flex justify-between text-xs">
-            <span>Ciclo de 30 días — vence:</span>
-            <span>{dueDateStr}</span>
-          </div>
-        </div>
-      )}
-
-      {/* ── Descuento primer mes ── */}
-      <div className="border-t border-border pt-3 space-y-2">
-        <div className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            id="discount-toggle"
-            checked={discountEnabled}
-            onChange={e => handleDiscountToggle(e.target.checked)}
-            className="rounded border-input text-primary focus:ring-primary h-4 w-4"
-          />
-          <label htmlFor="discount-toggle" className="text-xs font-medium text-foreground cursor-pointer">
-            Aplicar descuento solo este mes
-          </label>
-        </div>
-
-        {discountEnabled && (
-          <div className="flex items-center gap-4">
-            <div className="flex-1 max-w-[160px]">
-              <NumberStepper
-                value={discountPct || ""}
-                onChange={(val) => handleDiscountPctChange(String(val))}
-                min={0}
-                max={100}
-                unit="%"
-                className="h-9"
-              />
-            </div>
-            {discountPct > 0 && (
-              <div className="text-right flex-1">
-                <p className="text-xs text-muted-foreground line-through">{formatCOP(calc.amount)}</p>
-                <p className="text-sm font-bold text-green-600 dark:text-green-400">{formatCOP(finalAmount)}</p>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ── Mensualidades siguientes ── */}
-      <div className="flex justify-between text-xs text-muted-foreground border-t border-border pt-2">
-        <span>Mensualidades siguientes:</span>
-        <span className="font-medium">{formatCOP(monthlyFee)} / mes</span>
-      </div>
-    </div>
-  );
 }
 
 // ─── Section wrapper ──────────────────────────────────────────────────────────
@@ -262,7 +102,7 @@ function Section({
   );
 }
 
-export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateChildModalProps) {
+export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveFees = true }: CreateChildModalProps) {
   const { toast } = useToast();
   const [submitting, setSubmitting] = useState(false);
   const [showMedical, setShowMedical] = useState(false);
@@ -305,6 +145,8 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
   const [selectedPlanPrice, setSelectedPlanPrice] = useState(0);
   const [selectedPlanRegistrationFee, setSelectedPlanRegistrationFee] = useState(0);
   const [selectedPlanInsuranceFee, setSelectedPlanInsuranceFee] = useState(0);
+  // Exoneración por alta: «No cobrar inscripción / seguro» (se reinicia al cambiar de plan).
+  const [feeWaivers, setFeeWaivers] = useState<FeeWaivers>(NO_FEE_WAIVERS);
   // Alta a mitad de mes por clases restantes (F7). Flag por escuela, leído aparte
   // para que una base sin la columna no tumbe la lectura de billing.
   const [remainingClassesEnabled, setRemainingClassesEnabled] = useState(false);
@@ -362,6 +204,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
   // Cuando se selecciona plan, guardar offering_id y precio
   const handlePlanSelect = (planId: string) => {
     setSelectedPlanId(planId);
+    setFeeWaivers(NO_FEE_WAIVERS);
     if (!planId || planId === 'none') {
       setSelectedOfferingId('');
       setSelectedPlanPrice(0);
@@ -388,6 +231,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
     setBranchId('none'); setTeamId('none');
     setSelectedPlanId('none'); setSelectedOfferingId(''); setSelectedPlanPrice(0); setSelectedPlanRegistrationFee(0); setSelectedPlanInsuranceFee(0);
     setFirstPayment(DEFAULT_FIRST_PAYMENT_CHOICE);
+    setFeeWaivers(NO_FEE_WAIVERS);
     setStartDate(todayColombia()); setMonthlyFee('');
     setDiscountPct(0);
     setCheckingParentEmail(false);
@@ -506,6 +350,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
         monthly_fee:      monthlyFee ? Number(monthlyFee) : null,
         discount_pct:     discountPct > 0 ? discountPct : undefined,
         ...firstPaymentPayload,
+        ...feeWaiversPayload(feeWaivers),
       };
 
       const result = await bffClient.post('/api/v1/students/create-one', {
@@ -893,7 +738,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
               )}
             </div>
 
-            {hasBilling && <ProrationCard
+            {hasBilling && <AltaFirstChargeCard
               startDate={startDate}
               monthlyFee={Number(monthlyFee) || 0}
               billing={billing}
@@ -901,6 +746,9 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
               onDiscountChange={setDiscountPct}
               registrationFee={selectedPlanRegistrationFee}
               insuranceFee={selectedPlanInsuranceFee}
+              waivers={feeWaivers}
+              onWaiversChange={setFeeWaivers}
+              canWaive={canWaiveFees}
               hideCycleDetail={showFirstPaymentMode && firstPayment.mode === 'remaining_classes'}
             />}
             {hasBilling && showFirstPaymentMode && (
@@ -912,6 +760,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
                 discountPct={discountPct}
                 value={firstPayment}
                 onChange={setFirstPayment}
+                waivers={feeWaivers}
               />
             )}
           </Section>

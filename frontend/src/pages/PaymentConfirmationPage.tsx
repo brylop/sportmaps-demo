@@ -58,7 +58,7 @@ function resolveBffUrl(): string {
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
         return 'http://localhost:3000';
     }
-    return 'https://sportmaps-bff.onrender.com';
+    return 'https://sportmaps-bff-prod.onrender.com';
 }
 
 export default function PaymentConfirmationPage() {

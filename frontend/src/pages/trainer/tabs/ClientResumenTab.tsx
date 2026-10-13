@@ -391,7 +391,7 @@ export function ClientResumenTab({
           </CardHeader>
           <CardContent>
             {exerciseProgress && exerciseProgress.series.length >= 2 ? (
-              <div className="h-[160px]">
+              <div className="h-40">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart
                     data={exerciseProgress.series}
@@ -432,7 +432,7 @@ export function ClientResumenTab({
                 </ResponsiveContainer>
               </div>
             ) : (
-              <div className="h-[160px] flex flex-col items-center justify-center text-center text-muted-foreground border-2 border-dashed border-border/40 rounded-xl">
+              <div className="h-40 flex flex-col items-center justify-center text-center text-muted-foreground border-2 border-dashed border-border/40 rounded-xl">
                 <Trophy className="h-8 w-8 mb-2 opacity-20" />
                 <p className="text-sm">Sin suficientes datos de carga</p>
                 <p className="text-xs opacity-60 mt-1">

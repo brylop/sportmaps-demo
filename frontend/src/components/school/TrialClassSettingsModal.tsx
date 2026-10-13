@@ -248,7 +248,7 @@ export function TrialClassSettingsModal({ open, onOpenChange }: TrialClassSettin
                   Aún no hay categorías. Crea la primera para poder agendar clases de prueba.
                 </p>
               ) : (
-                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                   {categories.map((c) => (
                     <div key={c.id} className="flex items-start justify-between gap-3 rounded-lg border border-border/50 bg-muted/20 p-3">
                       <div className="min-w-0">

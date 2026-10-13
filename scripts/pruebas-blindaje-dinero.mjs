@@ -127,6 +127,20 @@ async function agregarMiembro(profileId, schoolId, role) {
         .insert({ profile_id: profileId, school_id: schoolId, role, status: 'active' })
         .select('id')
         .single();
+    if (error?.code === '23505') {
+        // El trigger de `schools` ya inscribe al owner_id como miembro 'owner':
+        // reutilizar esa fila (mismo rol) en vez de fallar la preparación.
+        const { data: existente, error: e2 } = await admin
+            .from('school_members')
+            .select('id, role')
+            .eq('profile_id', profileId).eq('school_id', schoolId)
+            .single();
+        if (e2 || existente?.role !== role) {
+            throw new Error(`No se pudo agregar miembro (role=${role}): ya existe con rol ${existente?.role ?? '?'}`);
+        }
+        inventario.schoolMemberIds.push(existente.id);
+        return;
+    }
     if (error) throw new Error(`No se pudo agregar miembro (role=${role}): ${error.message}`);
     inventario.schoolMemberIds.push(data.id);
 }
@@ -267,6 +281,10 @@ try {
         'ACEPTAR',
         () => uPadre.cliente.from('payments').insert(basePago(uPadre.id, {
             status: 'awaiting_approval', receipt_url: `https://example.invalid/comprobante-${marca}.jpg`, payment_method: 'transfer',
+            // S4 (20261010145241): una mensualidad creada por el acudiente toma la
+            // tarifa de la inscripción y sin inscripción se rechaza (P0001). Este
+            // caso prueba el guard de status (M2), no la tarifa: categoría libre.
+            payment_category: 'otro',
         })).select('id, status'),
         { verificar: (f) => (f[0]?.status === 'awaiting_approval' ? null : `quedó en status=${f[0]?.status}`) },
     );
@@ -374,6 +392,57 @@ try {
         'RECHAZAR',
         () => uPadreOtra.cliente.from('payments').insert(basePago(uPadreOtra.id, { status: 'pending' })).select('id'),
     ).then((r) => { if (r.filas[0]?.id) inventario.paymentIds.push(r.filas[0].id); });
+
+    // ═══ F1 «Cobros y pagos» · guardia de columnas de ajuste y lote ═══════════
+    // docs/specs/cobros-multiples.md §8.2 (migración 20261010144558): descuentos,
+    // condonaciones y lotes solo los escriben las RPC. Ni el acudiente ni el staff
+    // desde el navegador escriben charge_batch_id, discount_amount,
+    // late_fee_waived_amount ni list_amount.
+    const { error: sinColumnasF1 } = await admin.from('payments').select('charge_batch_id, discount_amount').limit(1);
+    if (sinColumnasF1) {
+        console.log('ℹ️  F1 cobros-y-pagos no aplicada (payments.charge_batch_id no existe): se omiten sus casos.');
+    } else {
+        const pagoF1Id = await crearCobroServicio(escuelaA, uPadre.id);
+        const loteFalso = randomUUID();
+        for (const [col, valor] of [['discount_amount', 1000], ['late_fee_waived_amount', 1000], ['list_amount', 999999]]) {
+            await caso(
+                `F1 · padre cambia ${col} de su cobro → 42501 PAYMENT_FIELD_LOCKED: ${col}`,
+                'RECHAZAR',
+                () => uPadre.cliente.from('payments').update({ [col]: valor }).eq('id', pagoF1Id).select('id'),
+                { error: { code: '42501', incluye: `PAYMENT_FIELD_LOCKED: ${col}` } },
+            );
+            await caso(
+                `F1 · owner desde el navegador cambia ${col} → 42501 PAYMENT_FIELD_LOCKED: ${col}`,
+                'RECHAZAR',
+                () => uOwner.cliente.from('payments').update({ [col]: valor }).eq('id', pagoF1Id).select('id'),
+                { error: { code: '42501', incluye: `PAYMENT_FIELD_LOCKED: ${col}` } },
+            );
+        }
+        await caso(
+            'F1 · owner desde el navegador inserta un cobro con charge_batch_id → 42501 PAYMENT_FIELD_LOCKED: charge_batch_id',
+            'RECHAZAR',
+            () => uOwner.cliente.from('payments').insert(basePago(uPadre.id, { status: 'pending', charge_batch_id: loteFalso })).select('id'),
+            { error: { code: '42501', incluye: 'PAYMENT_FIELD_LOCKED: charge_batch_id' } },
+        ).then((r) => { if (r.filas[0]?.id) inventario.paymentIds.push(r.filas[0].id); });
+        await caso(
+            'F1 · padre reasigna charge_batch_id de su cobro → 42501 PAYMENT_FIELD_LOCKED: charge_batch_id',
+            'RECHAZAR',
+            () => uPadre.cliente.from('payments').update({ charge_batch_id: loteFalso }).eq('id', pagoF1Id).select('id'),
+            { error: { code: '42501', incluye: 'PAYMENT_FIELD_LOCKED: charge_batch_id' } },
+        );
+        await caso(
+            'F1 · padre se declara descuento de hermanos al insertar → 42501 PAYMENT_FIELD_LOCKED: sibling_discount_applied',
+            'RECHAZAR',
+            () => uPadre.cliente.from('payments').insert(basePago(uPadre.id, { status: 'pending', sibling_discount_applied: 15000 })).select('id'),
+            { error: { code: '42501', incluye: 'PAYMENT_FIELD_LOCKED: sibling_discount_applied' } },
+        ).then((r) => { if (r.filas[0]?.id) inventario.paymentIds.push(r.filas[0].id); });
+        await caso(
+            'F1 · padre lee charge_batches → 0 filas (solo finanzas)',
+            'ACEPTAR',
+            () => uPadre.cliente.from('charge_batches').select('id').limit(5),
+            { leer: true, verificar: (f) => (f.length === 0 ? null : `vio ${f.length} lotes`) },
+        );
+    }
 
     // ═══ T1 · columnas de vendor_profiles para anon (M1) ═══════════════════
     await caso(
