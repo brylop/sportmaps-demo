@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 765,
-  "head": "20261014133326",
+  "count": 766,
+  "head": "20261014152633",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -768,6 +768,7 @@
     {"v":"20261014113152","file":"20261014113152_versiona_insert_exercise_tactical_scope.sql","sha256":"0bbfc719f33564c5acc9acf7af4f77eecf53a640d90a450f30337e1e92f7bade","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261014125527","file":"20261014125527_aviso_politica_cobranza.sql","sha256":"8fc99f5e185c3b32f97945cd6bffe1b44d0da5e7b572b7303862414446aac213","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261014130128","file":"20261014130128_mora_no_cancela_reactiva_y_detector_autocierra.sql","sha256":"37edf49e9fb252e2cffe62a27534c3f3a4113a8a1b5929301acf76fdbb8fdfdf","added":"2026-10-14","by":"Brayan Steven Lopez"},
-    {"v":"20261014133326","file":"20261014133326_mora_vence_enlaces_y_autopay_cobra_vencidos.sql","sha256":"418f0c5f5424d444946540d8bc801099efd3cece1d95543c122c209ad52571cc","added":"2026-10-14","by":"Brayan Steven Lopez"}
+    {"v":"20261014133326","file":"20261014133326_mora_vence_enlaces_y_autopay_cobra_vencidos.sql","sha256":"418f0c5f5424d444946540d8bc801099efd3cece1d95543c122c209ad52571cc","added":"2026-10-14","by":"Brayan Steven Lopez"},
+    {"v":"20261014152633","file":"20261014152633_wa_estado_pagos_con_mora.sql","sha256":"4f1b0c8d28f8258efd9a2e4e53001687a4064da3cf85a01e457add38d4bf7e12","added":"2026-10-14","by":"Brayan Steven Lopez"}
   ]
 }
