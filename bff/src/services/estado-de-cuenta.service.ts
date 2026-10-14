@@ -68,6 +68,7 @@ import {
 } from './whatsapp-plantillas.service';
 import { cerrarEnvio, escaparHtml, fechaColombia, reservarEnvio, uuidDeClave } from './avisos-correo.service';
 import { emitirTokenCobro, enlaceWhatsApp, nombreCorto, whatsappDeLaEscuela } from './cobro-enlace-publico.service';
+import { saldoDelCobro } from '../utils/saldo-cobro';
 import { mediosDePago, type MediosDePago } from './whatsapp-medios-de-pago.service';
 // Los textos del link viven en payment-accounts (módulo puro): varias pruebas
 // moquean el servicio de medios entero y no exportarían estas constantes.
@@ -99,6 +100,8 @@ export interface PagoEstado {
     concept: string | null;
     amount: number | string;
     amount_paid?: number | string | null;
+    /** Descuento por pronto pago ya aplicado: resta del saldo (saldoDelCobro). */
+    early_payment_discount_applied?: number | string | null;
     /** Recargo por mora que apply_late_fees ya sumó DENTRO de `amount` (0 si no hay). */
     late_fee_amount?: number | string | null;
     status: string;
@@ -218,8 +221,13 @@ export function elegirCanal(p: {
     return p.email ? 'correo' : 'ninguno';
 }
 
-const saldoDe = (p: PagoEstado) =>
-    Number(p.amount || 0) - (p.status === 'partial' ? Number(p.amount_paid || 0) : 0);
+/**
+ * Lo que falta por pagar: la MISMA regla que el enlace /p/:token y el modal de
+ * cobros (amount - amount_paid - early_payment_discount_applied, nunca
+ * negativo). Antes solo restaba amount_paid en 'partial' e ignoraba el pronto
+ * pago: el estado de cuenta podía decir más que la página del cobro.
+ */
+const saldoDe = (p: PagoEstado) => saldoDelCobro(p);
 
 /**
  * Agrupa los cobros vivos por familia. Contacto: mismo criterio que
@@ -483,7 +491,7 @@ async function leerPorIds(tabla: string, cols: string, ids: string[]): Promise<a
 /** Familias con deuda de una escuela, sin cobros duplicados por pagador. */
 export async function familiasConDeuda(schoolId: string, ahora: Date, mes = mesColombia(ahora)) {
     const pagos = await todas<PagoEstado>((desde) => supabase.from('payments')
-        .select('id, school_id, parent_id, user_id, child_id, unregistered_athlete_id, concept, amount, amount_paid, late_fee_amount, status, due_date, payment_type, payment_category, period_year, period_month, charge_notice_sent_at, overdue_notice_sent_at')
+        .select('id, school_id, parent_id, user_id, child_id, unregistered_athlete_id, concept, amount, amount_paid, early_payment_discount_applied, late_fee_amount, status, due_date, payment_type, payment_category, period_year, period_month, charge_notice_sent_at, overdue_notice_sent_at')
         .eq('school_id', schoolId).in('status', ['pending', 'overdue', 'partial'])
         .order('due_date').range(desde, desde + 999));
 

@@ -478,7 +478,7 @@ export async function planDeEscuela(
     // Solo mensualidades (las plantillas dicen "la mensualidad de …"), con saldo
     // y sin comprobante en revisión: a quien ya pagó y espera aprobación no se le cobra.
     const { data: crudos, error } = await supabase.from('payments')
-        .select('id, school_id, parent_id, user_id, child_id, unregistered_athlete_id, concept, amount, amount_paid, late_fee_amount, status, due_date, payment_type, payment_category, period_year, period_month, charge_notice_sent_at, overdue_notice_sent_at, requires_review')
+        .select('id, school_id, parent_id, user_id, child_id, unregistered_athlete_id, concept, amount, amount_paid, early_payment_discount_applied, late_fee_amount, status, due_date, payment_type, payment_category, period_year, period_month, charge_notice_sent_at, overdue_notice_sent_at, requires_review')
         .eq('school_id', schoolId)
         .eq('payment_type', 'subscription')
         .in('status', ['pending', 'overdue', 'partial'])

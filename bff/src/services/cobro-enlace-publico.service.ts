@@ -59,6 +59,7 @@ import { enlaceActivarAvisosParaPagador } from './whatsapp-activar-avisos';
 import { categoriaDeCobro, esCobroUnico } from './payment-accounts';
 import { findDuplicatePaymentIds } from './duplicatePayerGuard.service';
 import { debitoEnCurso, MENSAJE_DEBITO_EN_CURSO } from './autopay.service';
+import { saldoDelCobro } from '../utils/saldo-cobro';
 
 /** Formato del token que emite la RPC: 18 bytes → 24 caracteres base64url. */
 export const TOKEN_COBRO_RE = /^[A-Za-z0-9_-]{24}$/;
@@ -236,25 +237,8 @@ export function estadoPublico(status: string, dueDate: string | null, hoyISO: st
     }
 }
 
-/**
- * Lo que falta por pagar del cobro, misma regla que el modal de cobros
- * (frontend/src/lib/cobrosYPagos.ts):
- *   saldo = amount - amount_paid - early_payment_discount_applied   (nunca negativo)
- * La mora ya está dentro de `amount` (apply_late_fees la suma ahí), así que el
- * saldo la incluye. Un abono por debajo del total deja el cobro en 'partial'
- * con amount_paid: se cobra solo lo que falta. Es la base de la vista, del
- * checkout (recargo en línea sobre este saldo) y del reuso de links.
- */
-export function saldoDelCobro(p: {
-    amount?: number | string | null;
-    amount_paid?: number | string | null;
-    early_payment_discount_applied?: number | string | null;
-}): number {
-    const total = Number(p.amount) || 0;
-    const pagado = Number(p.amount_paid) || 0;
-    const pronto = Number(p.early_payment_discount_applied) || 0;
-    return Math.max(total - pagado - pronto, 0);
-}
+/** Saldo del cobro (amount - amount_paid - pronto pago, mora incluida): ver utils/saldo-cobro. */
+export { saldoDelCobro };
 
 /**
  * Estados que se pueden pagar en línea: pendiente, vencido y abonado
@@ -744,8 +728,11 @@ export async function prepararCheckoutDeCobro(
 // el tipo se valida por los bytes, no por el Content-Type; la respuesta no trae
 // ni el veredicto ni nada del pagador.
 
-/** Estados en que se acepta un comprobante (los mismos que estampa el bot). */
-export const ESTADOS_QUE_ACEPTAN_COMPROBANTE = ['pending', 'overdue'];
+/**
+ * Estados en que se acepta un comprobante: los que estampa el bot más
+ * 'partial' (abono): el comprobante debe ser del SALDO (saldoDelCobro).
+ */
+export const ESTADOS_QUE_ACEPTAN_COMPROBANTE = ['pending', 'overdue', 'partial'];
 
 /** 6 MB: un pantallazo de banco pesa < 1 MB; un PDF de comprobante, < 500 KB. */
 export const MAX_BYTES_COMPROBANTE = 6 * 1024 * 1024;
@@ -840,6 +827,10 @@ export async function subirComprobantePorToken(
     const estampado = await estamparComprobante(
         { schoolId: p.school_id, storagePath, sha, ocr, queueId: `enlace-publico:${p.id}`, log: log as any },
         { id: p.id, amount: Number(p.amount) } as any,
+        // Lo que el comprobante debe decir: el saldo (con mora, menos abonos y
+        // pronto pago). Sin esto un abono saldado marcaría MONTO_DIFIERE.
+        saldoDelCobro(p),
+        { estados: ESTADOS_QUE_ACEPTAN_COMPROBANTE },
     );
 
     if (!estampado.ok || !estampado.actualizado) {

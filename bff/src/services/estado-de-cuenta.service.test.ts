@@ -641,3 +641,23 @@ describe('estado de cuenta con mora', () => {
         expect(datosWhatsAppDeFamilia(familias[0], 'Escuela', '2026-11').monto).toBe('$150.000');
     });
 });
+
+describe('saldo del estado de cuenta = saldo del enlace /p/:token', () => {
+    const datos = () => ({
+        perfiles: new Map<string, any>([['p1', { id: 'p1', full_name: 'Carolina', email: 'caro@x.co', phone: null }]]),
+        hijos: new Map<string, any>([['c1', { full_name: 'Samuel' }], ['c2', { full_name: 'Sara' }]]),
+        noRegistrados: new Map<string, any>(),
+    });
+
+    it('resta lo abonado y el pronto pago en cualquier estado; sin saldo no sale la fila', () => {
+        const { familias } = agruparPorFamilia([
+            pago('abono', { status: 'partial', amount: 150000, amount_paid: 50000 }),
+            pago('pronto', { child_id: 'c2', amount: 150000, early_payment_discount_applied: 15000 }),
+            pago('cubierto', { amount: 150000, amount_paid: 140000, early_payment_discount_applied: 10000 }),
+        ], datos(), MAR_3_NOV_0800, '2026-11');
+        const saldo = (id: string) => familias[0].filas.find((r) => r.paymentId === id)?.saldo;
+        expect(saldo('abono')).toBe(100000);
+        expect(saldo('pronto')).toBe(135000);
+        expect(saldo('cubierto')).toBeUndefined();
+    });
+});
