@@ -306,7 +306,9 @@ const MOBILE_TABS: { key: MobileTab; label: string }[] = [
 ];
 
 /** Alto de la hoja inferior (Pizarra / Plantilla) en celular, en vh. */
-const SHEET_VH = 42;
+// 36 y no 42: en un iPhone 14 (664 px útiles) con 42vh la cancha quedaba de
+// 122-145 px de ancho. El material va en 4 columnas en celular para caber.
+const SHEET_VH = 36;
 
 /** Botones del toolbar: palabra + ícono, alto táctil de 32px. */
 const TB_BTN = 'h-8 gap-1 text-[11px] px-2';
@@ -2639,6 +2641,8 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       onDelete={deleteFrame}
       onMove={moveFrameTo}
       onDurationChange={changeFrameDuration}
+      // Celular con hoja abierta: solo la tira, para que la cancha no se angoste.
+      compact={isMobile && (tacticsOpen || rosterOpen)}
     />
   ) : null;
 
@@ -2690,7 +2694,9 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
           className="pl-3 pr-12 md:px-4 pb-1.5 flex flex-wrap items-center gap-1.5 border-b border-white/10 bg-black/30 shrink-0"
           style={{ paddingTop: 'max(0.375rem, env(safe-area-inset-top))' }}
         >
-          <span className="text-xs font-bold text-white/80 truncate max-w-[110px] sm:max-w-none mr-1" title={teamName}>
+          {/* En celular editando, el nombre del equipo se esconde: con él el
+              toolbar ocupaba 3 filas y la cancha quedaba de 122 px de ancho. */}
+          <span className={`text-xs font-bold text-white/80 truncate max-w-[110px] sm:max-w-none mr-1 ${isMobile && !viewing ? 'hidden' : ''}`} title={teamName}>
             {teamName}
           </span>
 
@@ -2756,10 +2762,11 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                 Dibujar{arrows.length > 0 ? ` (${arrows.length})` : ''}
               </Button>
 
+              {/* Celular: Material ya es una pestaña de la hoja de Dibujar. */}
               <Button
                 size="sm"
                 variant="ghost"
-                className={`${TB_BTN} ${tacticsOpen && mobileTab === 'material' ? TB_ON : TB_IDLE}`}
+                className={`${TB_BTN} ${tacticsOpen && mobileTab === 'material' ? TB_ON : TB_IDLE} ${isMobile ? 'hidden' : ''}`}
                 onClick={openMaterial}
                 title="Material de entrenamiento: conos, balones, vallas, arcos, aros…"
               >
@@ -3154,7 +3161,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                   vistas aparte. */}
               {tacticsOpen && !viewing && (
                 <div
-                  className="w-full md:w-[220px] shrink-0 border-t md:border-t-0 md:border-r border-white/10 bg-black/30 backdrop-blur-sm overflow-y-auto overscroll-contain px-3 py-3 space-y-3 order-last md:order-first"
+                  className="w-full md:w-[252px] shrink-0 border-t md:border-t-0 md:border-r border-white/10 bg-black/30 backdrop-blur-sm overflow-y-auto overscroll-contain px-3 py-3 space-y-3 order-last md:order-first"
                   style={isMobile ? { height: `${SHEET_VH}vh`, paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' } : undefined}
                 >
                   {isMobile && (
@@ -3319,7 +3326,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
 
                   <div ref={materialSectionRef} className={tabCls('material')}>
                     <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">Material</p>
-                    <div className="grid grid-cols-3 md:grid-cols-2 gap-1.5">
+                    <div className="grid grid-cols-4 md:grid-cols-2 gap-1.5">
                       {/* T4: solo el material que tiene sentido en el deporte. */}
                       {sportCfg.objects.map((type) => (
                         <button
@@ -3327,14 +3334,14 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                           type="button"
                           onClick={() => pickTool(type)}
                           title={OBJECT_LABEL[type]}
-                          className={`h-8 px-1.5 rounded text-[10px] font-semibold border flex items-center gap-1.5 ${
+                          className={`h-8 px-1 md:px-1.5 min-w-0 rounded text-[10px] font-semibold border flex items-center gap-1 md:gap-1.5 ${
                             drawShapeType === type
                               ? 'bg-emerald-600 border-emerald-500 text-white'
                               : 'bg-white/5 border-white/15 text-white/70 hover:bg-white/10'
                           }`}
                         >
                           {/* Vista previa con el color elegido: el mismo dibujo que va a la cancha. */}
-                          <svg viewBox="-19 -19 38 38" className="h-6 w-6 shrink-0" aria-hidden="true">
+                          <svg viewBox="-19 -19 38 38" className="h-5 w-5 md:h-6 md:w-6 shrink-0" aria-hidden="true">
                             <ObjectIcon type={type} x={0} y={0} size={type === 'goal' || type === 'ladder' ? 0.9 : 1.15} color={drawColor} pinStyle={pinStyle} />
                           </svg>
                           <span className="truncate">{OBJECT_LABEL[type]}</span>
@@ -3445,12 +3452,12 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     <Button
                       size="sm"
                       variant="outline"
-                      className="flex-1 h-7 gap-1 text-[11px] bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-30"
+                      className="flex-1 min-w-0 h-7 gap-1 px-1.5 text-[11px] whitespace-nowrap bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-white disabled:opacity-30"
                       disabled={!canUndo}
                       onClick={undo}
                       title="Deshacer (Ctrl+Z)"
                     >
-                      <Undo2 className="h-3.5 w-3.5" /> Deshacer
+                      <Undo2 className="h-3.5 w-3.5 shrink-0" /> Deshacer
                     </Button>
                     <Button
                       size="sm"
@@ -3466,11 +3473,12 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     <Button
                       size="sm"
                       variant="outline"
-                      className="flex-1 h-7 gap-1 text-[11px] bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-red-400 disabled:opacity-30"
+                      className="flex-1 min-w-0 h-7 gap-1 px-1.5 text-[11px] whitespace-nowrap bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-red-400 disabled:opacity-30"
                       disabled={arrows.length === 0}
                       onClick={requestClearDrawings}
+                      title="Borrar todos los dibujos"
                     >
-                      <Eraser className="h-3.5 w-3.5" /> Borrar
+                      <Eraser className="h-3.5 w-3.5 shrink-0" /> Borrar todo
                     </Button>
                   </div>
                   <p className="text-[10px] text-white/70">

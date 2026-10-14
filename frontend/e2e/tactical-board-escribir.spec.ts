@@ -31,6 +31,9 @@ async function openBoard(page: Page) {
             }],
         });
     });
+    // Métrica de uso (T0): la pizarra registra «open» por RPC. La base es
+    // compartida con producción: se responde aquí y no se escribe nada.
+    await page.route(/\/rest\/v1\/rpc\/log_tactical_board_event/, (route) => route.fulfill({ status: 200, json: false }));
     await page.goto('/training-plans');
     await page.getByRole('combobox').first().click({ timeout: 20_000 });
     await page.getByRole('option', { name: /THUNDER/i }).first().click();

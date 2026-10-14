@@ -298,6 +298,14 @@ describe('TacticalTimeline — arrastrar para reordenar', () => {
     expect(p.onMove).not.toHaveBeenCalled();
   });
 
+  it('compacta (celular con hoja abierta): solo la tira, sin barra ni fila de mover/velocidad', () => {
+    render(<TacticalTimeline {...props({ currentIndex: 1, compact: true })} />);
+    expect(screen.getAllByRole('listitem')).toHaveLength(3);
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Mover el cuadro a la izquierda' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Velocidad' })).toBeNull();
+  });
+
   it('◀ ▶ de 44 px para celular (h-11 / min-w-11)', () => {
     render(<TacticalTimeline {...props({ currentIndex: 1 })} />);
     for (const name of ['Mover el cuadro a la izquierda', 'Mover el cuadro a la derecha']) {

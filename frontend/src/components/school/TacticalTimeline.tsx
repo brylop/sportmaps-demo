@@ -108,6 +108,10 @@ export interface TacticalTimelineProps {
   onDelete?: (index: number) => void;
   onMove?: (from: number, to: number) => void;
   onDurationChange?: (index: number, ms: number) => void;
+  /** Celular con una hoja abierta: solo la tira de cuadros (sin el texto de
+   *  ayuda ni la fila de mover/tiempo/velocidad), para que la cancha no quede
+   *  angosta. Al cerrar la hoja vuelve todo. */
+  compact?: boolean;
 }
 
 const BTN = 'h-11 min-w-11 shrink-0 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1 px-2 transition-colors disabled:opacity-30 disabled:pointer-events-none';
@@ -118,7 +122,7 @@ export function TacticalTimeline(props: TacticalTimelineProps) {
   const {
     mode, frames, currentIndex, playState, clock, totalMs, speed, loop,
     onPlayPause, onSeek, onSpeedChange, onLoopChange,
-    onSelect, onAdd, onDelete, onMove, onDurationChange,
+    onSelect, onAdd, onDelete, onMove, onDurationChange, compact = false,
   } = props;
   const n = frames.length;
   const playing = playState === 'playing';
@@ -176,7 +180,7 @@ export function TacticalTimeline(props: TacticalTimelineProps) {
 
   return (
     <div className="shrink-0 border-t border-white/10 bg-black/30 px-2 sm:px-3 pt-1.5 pb-1.5 space-y-1.5" aria-label="Línea de tiempo">
-      {n > 1 && <ProgressBar clock={clock} frames={frames} totalMs={totalMs} onSeek={onSeek} />}
+      {n > 1 && !compact && <ProgressBar clock={clock} frames={frames} totalMs={totalMs} onSeek={onSeek} />}
       <div className="flex items-center gap-1.5 overflow-x-auto overscroll-x-contain [scrollbar-width:thin]">
         {playBtn}
         <div className="flex items-center gap-1.5" role="list" aria-label="Cuadros">
@@ -217,14 +221,14 @@ export function TacticalTimeline(props: TacticalTimelineProps) {
         >
           <Plus className="h-4 w-4" /> Cuadro
         </button>
-        {n < 2 && (
+        {n < 2 && !compact && (
           <span className="text-[11px] text-white/60 leading-tight min-w-40">
             Agrega cuadros y mueve a los jugadores en cada uno para animar la jugada.
           </span>
         )}
       </div>
 
-      {n > 1 && (
+      {n > 1 && !compact && (
         <div className="flex items-center gap-1.5 overflow-x-auto overscroll-x-contain [scrollbar-width:thin]">
           <span className="text-[11px] font-semibold text-white/80 whitespace-nowrap px-1">
             Cuadro {currentIndex + 1} de {n}
