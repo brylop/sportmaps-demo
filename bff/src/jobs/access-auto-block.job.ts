@@ -118,7 +118,9 @@ async function reconcileSchool(schoolId: string): Promise<{ blocked: number; unb
     .eq('school_id', schoolId)
     .in('command_type', BLOCK_COMMAND_TYPES)
     .not('issued_by', 'is', null)
-    .gte('created_at', dayStartUtc.toISOString());
+    // device_commands no tiene created_at: con esa columna la consulta fallaba en
+    // silencio y la excepción manual nunca aplicaba (se re-bloqueaba a los 15 min).
+    .gte('issued_at', dayStartUtc.toISOString());
   const manuallyEnabledToday = new Set<number>();
   (manualCmds ?? []).forEach((c: any) => {
     const isUnblock = c.command_type === 'enable_user' || (c.command_type === 'set_group' && c.metadata?.group === 1);
@@ -151,19 +153,43 @@ async function reconcileSchool(schoolId: string): Promise<{ blocked: number; unb
   // el estado "bloqueado" —que solo cuenta comandos ejecutados— no cambia, y cada
   // corrida de 15 min volvía a encolar lo mismo (93 comandos duplicados y una
   // notificación al owner por corrida el 2026-10-06). Se omite el comando si ya hay
-  // uno igual (mismo tipo, PIN y lector) encolado en los últimos 30 min; pasado ese
-  // tiempo se reintenta, por si el puente lo reclamó y murió antes de ejecutarlo.
+  // uno igual (mismo tipo, PIN y lector) encolado en los últimos 30 min.
+  const nowIso = new Date().toISOString();
   const inFlightSince = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+
+  // Pendientes del job que ya no van a ejecutarse liberan su lugar en el índice
+  // único (uq_device_commands_bloqueo_job_pendiente, migración 20261014105326):
+  //  · vencidos — el puente por WS no los expira (solo lo hace el sondeo ADMS);
+  //  · reclamados por el puente hace >30 min y nunca confirmados (el puente murió
+  //    a mitad) — antes se reintentaban insertando otro igual; ahora el viejo
+  //    pasa a 'expired' y el reintento entra limpio.
+  // Solo issued_by NULL: los comandos manuales no se tocan. Ambos UPDATE son
+  // idempotentes, da igual si corren en las 3 instancias a la vez.
+  await supabase
+    .from('device_commands')
+    .update({ status: 'expired' })
+    .eq('school_id', schoolId)
+    .in('command_type', BLOCK_COMMAND_TYPES)
+    .eq('status', 'pending')
+    .is('issued_by', null)
+    .lt('expires_at', nowIso);
+  await supabase
+    .from('device_commands')
+    .update({ status: 'expired', error_message: 'reclamado por el puente y sin confirmar en 30 min' })
+    .eq('school_id', schoolId)
+    .in('command_type', BLOCK_COMMAND_TYPES)
+    .eq('status', 'pending')
+    .is('issued_by', null)
+    .lt('claimed_at', inFlightSince);
+
   const { data: inFlight } = await supabase
     .from('device_commands')
     .select('device_id, command_type, metadata')
     .eq('school_id', schoolId)
     .in('command_type', BLOCK_COMMAND_TYPES)
     .eq('status', 'pending')
-    .gt('expires_at', new Date().toISOString())
+    .gt('expires_at', nowIso)
     .gte('issued_at', inFlightSince);
-  const cmdKey = (deviceId: string, type: string, md: any) =>
-    `${deviceId}:${type}:${md?.pin}:${md?.group ?? ''}`;
   const inFlightKeys = new Set((inFlight ?? []).map((c: any) => cmdKey(c.device_id, c.command_type, c.metadata)));
 
   const commands: QueuedCommand[] = [
@@ -172,27 +198,76 @@ async function reconcileSchool(schoolId: string): Promise<{ blocked: number; unb
   ].filter(c => !inFlightKeys.has(cmdKey(c.device_id, c.command_type, c.metadata)));
 
   if (!commands.length) return { blocked: 0, unblocked: 0 };
-  await supabase.from('device_commands').insert(commands);
+
+  // El mismo cron corre a la vez en los 3 BFF (dev/stg/prod) contra una sola
+  // base: los tres leen "no hay nada en vuelo" en el mismo segundo. El índice
+  // único parcial deja entrar solo al primero; se cuenta y se avisa SOLO por lo
+  // que esta instancia insertó de verdad.
+  const inserted = await insertIgnoringDuplicates(commands);
+  if (!inserted.length) return { blocked: 0, unblocked: 0 };
+
   // El puente por WebSocket no sondea: hay que avisarle que revise (antes los
   // bloqueos esperaban a la reconexión de las 3 am — cuatro horas de retraso el
   // 2026-10-06). No-op si no hay un puente conectado a esta instancia.
   wakeSchool(schoolId);
 
-  if (toBlock.length || toUnblock.length) {
-    const { data: school } = await supabase.from('schools').select('owner_id').eq('id', schoolId).maybeSingle();
-    if (school?.owner_id) {
-      await supabase.from('notifications').insert({
-        user_id: school.owner_id,
-        school_id: schoolId,
-        type: 'access_auto_block',
-        title: '🔒 Bloqueo automático por mora',
-        message: `${toBlock.length} atleta(s) bloqueado(s) por pago vencido, ${toUnblock.length} desbloqueado(s) al ponerse al día.`,
-        link: '/school/access-control',
-      });
-    }
+  const blockedPins = new Set<number>();
+  const unblockedPins = new Set<number>();
+  inserted.forEach((c) => {
+    const pin = Number(c.metadata?.pin);
+    if (isBlockCommand(c.command_type, c.metadata)) blockedPins.add(pin);
+    else unblockedPins.add(pin);
+  });
+
+  const { data: school } = await supabase.from('schools').select('owner_id').eq('id', schoolId).maybeSingle();
+  if (school?.owner_id) {
+    await supabase.from('notifications').insert({
+      user_id: school.owner_id,
+      school_id: schoolId,
+      type: 'access_auto_block',
+      title: '🔒 Bloqueo automático por mora',
+      message: `${blockedPins.size} atleta(s) bloqueado(s) por pago vencido, ${unblockedPins.size} desbloqueado(s) al ponerse al día.`,
+      link: '/school/access-control',
+    });
   }
 
-  return { blocked: toBlock.length, unblocked: toUnblock.length };
+  return { blocked: blockedPins.size, unblocked: unblockedPins.size };
+}
+
+const cmdKey = (deviceId: string, type: string, md: any) =>
+  `${deviceId}:${type}:${md?.pin}:${md?.group ?? ''}`;
+
+const isBlockCommand = (type: string, md: any) =>
+  type === 'disable_user' || (type === 'set_group' && Number(md?.group) === 2);
+
+type InsertedCommand = Pick<QueuedCommand, 'device_id' | 'command_type' | 'metadata'>;
+
+/**
+ * Inserta los comandos y devuelve SOLO los que entraron. Un 23505 contra
+ * uq_device_commands_bloqueo_job_pendiente significa que otra instancia ya
+ * encoló ese mismo comando: no es error. Primero intenta el lote completo (caso
+ * normal, un viaje); si choca, reintenta fila por fila para quedarse con las
+ * que no chocaron. Sin el índice (migración aún no aplicada) se comporta igual
+ * que antes: todo entra.
+ */
+async function insertIgnoringDuplicates(commands: QueuedCommand[]): Promise<InsertedCommand[]> {
+  const cols = 'device_id, command_type, metadata';
+  const { data, error } = await supabase.from('device_commands').insert(commands).select(cols);
+  if (!error) return (data ?? []) as InsertedCommand[];
+  if (error.code !== '23505') {
+    console.error('[CRON] bloqueo automático por mora — error encolando comandos:', error.message);
+    return [];
+  }
+
+  const inserted: InsertedCommand[] = [];
+  for (const cmd of commands) {
+    const r = await supabase.from('device_commands').insert(cmd).select(cols);
+    if (!r.error) inserted.push(...((r.data ?? []) as InsertedCommand[]));
+    else if (r.error.code !== '23505') {
+      console.error('[CRON] bloqueo automático por mora — error encolando comando:', r.error.message);
+    }
+  }
+  return inserted;
 }
 
 export async function runAccessAutoBlockCycle(): Promise<void> {

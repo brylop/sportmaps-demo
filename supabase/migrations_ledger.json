@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs â€” no editar a mano. Toda migraciÃ³n nueva agrega una lÃ­nea al final; si dos ramas chocan aquÃ­, pÃ³nganse de acuerdo en la versiÃ³n ANTES de mergear.",
-  "count": 744,
-  "head": "20261013124655",
+  "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
+  "count": 759,
+  "head": "20261014113152",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -747,6 +747,21 @@
     {"v":"20261010201426","file":"20261010201426_coach_alcance_equipos_contactos.sql","sha256":"a36fa6e45d5c73283e335db2eca1c1151961f2eda5181d2c613644efe49bb27b","added":"2026-10-11","by":"Brayan Steven Lopez"},
     {"v":"20261010202857","file":"20261010202857_signup_rol_whitelist_y_gates_admin_por_rol.sql","sha256":"3f6d6ad69ebb8b44f87cb6b7216c4b9765c1d84bbfeb7c5575a2fc46939efb1c","added":"2026-10-11","by":"Brayan Steven Lopez"},
     {"v":"20261011101750","file":"20261011101750_dreamers_primer_cobro_sin_recargo.sql","sha256":"02d00b9c52b3386c389a01f7d88c60be378eee87d80b2eea5f012a1e322b73d9","added":"2026-10-11","by":"judegor99"},
-    {"v":"20261013124655","file":"20261013124655_wa_bandeja_autocierre_por_pago.sql","sha256":"dd6e54362f00c82704154f4edcb4c059a6d6593a275eb0b79a7b916a104a1099","added":"2026-10-13","by":"Brayan Steven Lopez"}
+    {"v":"20261013124655","file":"20261013124655_wa_bandeja_autocierre_por_pago.sql","sha256":"dd6e54362f00c82704154f4edcb4c059a6d6593a275eb0b79a7b916a104a1099","added":"2026-10-13","by":"Brayan Steven Lopez"},
+    {"v":"20261013170543","file":"20261013170543_tienda_cupones_por_empresa.sql","sha256":"7200d51d49609f625a7d30ca4b851d426e91dab23c98be08f7bc9dbdc9a1a0f1","added":"2026-10-13","by":"Brayan Steven Lopez"},
+    {"v":"20261013170548","file":"20261013170548_tienda_ingresos_en_finanzas.sql","sha256":"e058e851a91c8c29b3ce4e3fff3d0091e33a46fb7f708c03f90c75ec0d9656cd","added":"2026-10-13","by":"Brayan Steven Lopez"},
+    {"v":"20261013170553","file":"20261013170553_tienda_compra_sin_cuenta.sql","sha256":"0661801b93d651676ff1d4be71e92864c32cfcb9d7451092158b5beedba9ac09","added":"2026-10-13","by":"Brayan Steven Lopez"},
+    {"v":"20261013192838","file":"20261013192838_fix_aging_cartera_vencidos_meses.sql","sha256":"84ef5fa7d1ebb1de921d0f8efa41203ffbfc56aefeeb4a3cc4ec4ac0c81899bc","added":"2026-10-14","by":"Brayan Steven Lopez"},
+    {"v":"20261013192856","file":"20261013192856_nuevo_pago_mensualidad_estampa_plan.sql","sha256":"028f09e21e3cf9ae12d055ec927e8cc03666a230b1af14bd0bccc17575b77bd7","added":"2026-10-14","by":"Brayan Steven Lopez"},
+    {"v":"20261013192915","file":"20261013192915_reserve_hour_bank_periodo_de_la_fecha.sql","sha256":"834e3383f4ea653d0fb601566ca7da6b810d246844704cda5808461fe713760e","added":"2026-10-14","by":"Brayan Steven Lopez"},
+    {"v":"20261013192936","file":"20261013192936_sync_access_group_respeta_mecanismo.sql","sha256":"b07db5f321f17cd97b75fa4d2cd14a2c0f6bd6836e2f63b7679bc3368e73e173","added":"2026-10-14","by":"Brayan Steven Lopez"},
+    {"v":"20261013192946","file":"20261013192946_hermanos_escalonado_base.sql","sha256":"996cc785f4bc4d9d340425aa7fd60c55e8e9fbbfb66c4de70f57f00a54d90283","added":"2026-10-14","by":"Brayan Steven Lopez"},
+    {"v":"20261013192955","file":"20261013192955_hermanos_escalonado_funciones.sql","sha256":"499523c7b37bfc2b4ad2732990e2f05195f957b10d974bb3b7e1a8d90dbce06c","added":"2026-10-14","by":"Brayan Steven Lopez"},
+    {"v":"20261013193011","file":"20261013193011_qr_signup_cobra_inscripcion_seguro.sql","sha256":"2b9c6db20cbde244b17894f0eded4aba07fab17b73d30290d9f934751a3b897c","added":"2026-10-14","by":"Brayan Steven Lopez"},
+    {"v":"20261014105158","file":"20261014105158_indices_duplicados_y_parciales.sql","sha256":"dba58d4ba18d93eb09ec618a3b58d9a26ab46ce2b8ee1e14c7f002ab66942481","added":"2026-10-14","by":"Brayan Steven Lopez"},
+    {"v":"20261014105210","file":"20261014105210_adms_getrequest_rpc.sql","sha256":"a3ca0d1a9b294732e9d35a1e611cb0aaf3acc9d73566074a38aa4571c1a091eb","added":"2026-10-14","by":"Brayan Steven Lopez"},
+    {"v":"20261014105326","file":"20261014105326_idempotencia_jobs_concurrentes.sql","sha256":"1310782a669cb3694f72875290dea2e6d58bfca2f5321b9db7ab1370086a9249","added":"2026-10-14","by":"Brayan Steven Lopez"},
+    {"v":"20261014113038","file":"20261014113038_qr_signup_restaura_guarda_escuela_operativa.sql","sha256":"04c5fd92cd1199092a1310438d811e6e7cbb4530639f5cebe0c7bafe96d2b74c","added":"2026-10-14","by":"Brayan Steven Lopez"},
+    {"v":"20261014113152","file":"20261014113152_versiona_insert_exercise_tactical_scope.sql","sha256":"0bbfc719f33564c5acc9acf7af4f77eecf53a640d90a450f30337e1e92f7bade","added":"2026-10-14","by":"Brayan Steven Lopez"}
   ]
 }

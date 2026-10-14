@@ -360,6 +360,37 @@ async function leerPago(id: string): Promise<PagoDesenlace | null> {
     return (data as PagoDesenlace | null) ?? null;
 }
 
+/**
+ * Los pagos de todo el lote en UNA consulta. Antes era `leerPago` por fila en
+ * cada vuelta (cada minuto, en cada BFF): con una docena de comprobantes
+ * esperando revisión, cada pago se leía ~90 veces en 3 h (caída por Disk IO,
+ * 2026-10-14). Si la consulta falla devuelve null y la vuelta entera se salta:
+ * un mapa vacío haría que los links se dieran por «no pagados».
+ */
+async function leerPagos(ids: string[]): Promise<Map<string, PagoDesenlace> | null> {
+    const unicos = [...new Set(ids.filter(Boolean))];
+    const porId = new Map<string, PagoDesenlace>();
+    if (unicos.length === 0) return porId;
+    const columnas: string = sinMarcaDeRechazo ? COLUMNAS_PAGO : COLUMNAS_PAGO_CON_RECHAZO;
+    let { data, error }: { data: unknown; error: unknown } = await supabase.from('payments').select(columnas).in('id', unicos);
+    if (error && (error as { code?: string }).code === '42703' && !sinMarcaDeRechazo) {
+        sinMarcaDeRechazo = true;
+        ({ data, error } = await supabase.from('payments').select(COLUMNAS_PAGO).in('id', unicos));
+    }
+    if (error || !Array.isArray(data)) return null;
+    for (const p of data as unknown as PagoDesenlace[]) porId.set(p.id, p);
+    return porId;
+}
+
+/**
+ * El barrido de textos rechazados por ventana (webhook de estados) recorre
+ * `whatsapp_messages` sin índice que le sirva (~150 ms por vuelta). Esos
+ * rechazos son raros (6 en total al 2026-10-14) y la plantilla no tiene apuro
+ * de minutos: basta cada 10 min por proceso.
+ */
+const BARRIDO_VENTANA_CADA_MS = 10 * 60_000;
+let ultimoBarridoVentana = 0;
+
 /** Manda el desenlace por plantilla. Devuelve el estado final del aviso. */
 async function avisarPorPlantilla(pago: PagoDesenlace, telefono: string, desenlace: Desenlace): Promise<EstadoAviso> {
     const cual = plantillaDelDesenlace(desenlace, pago.concept, pago);
@@ -424,15 +455,23 @@ async function guardarAviso(
 
 export async function runWhatsAppPaymentOutcome(log?: Logger): Promise<{ avisados: number }> {
     // Primero lo que Meta rechazó DESPUÉS de aceptarlo (webhook de estados).
-    await reintentarAvisosFueraDeVentana(log).catch((err) =>
-        log?.warn?.({ err: err?.message ?? err }, '[wa-outcome] barrido de ventana cerrada falló'));
+    if (Date.now() - ultimoBarridoVentana >= BARRIDO_VENTANA_CADA_MS) {
+        ultimoBarridoVentana = Date.now();
+        await reintentarAvisosFueraDeVentana(log).catch((err) =>
+            log?.warn?.({ err: err?.message ?? err }, '[wa-outcome] barrido de ventana cerrada falló'));
+    }
 
     // Comprobantes que entraron por WhatsApp, se aplicaron a un pago, y ese pago
     // ya se resolvió sin que nadie se lo haya contado al acudiente.
+    // Filtro por result_type (no el .or con message_type) para que aplique el
+    // índice parcial idx_wa_queue_sin_avisar: con el .or tenía 0 usos y cada
+    // vuelta era seq scan (caída por Disk IO 2026-10-14). Las filas de link
+    // guardadas con result_type 'none' no existen: el CHECK vivo admite
+    // 'payment_link' y en la base hay 0 (verificado 2026-10-14).
     const { data: filas, error } = await supabase
         .from('whatsapp_inbound_queue')
         .select('id, integration_id, school_id, wa_phone_number, result_ref_id, error_message, message_type, created_at')
-        .or(FILTRO_FILAS_CON_DESENLACE)
+        .in('result_type', ['payment_receipt', MESSAGE_TYPE_LINK])
         .is('outcome_notified_at', null)
         .not('result_ref_id', 'is', null)
         .limit(LOTE);
@@ -445,6 +484,11 @@ export async function runWhatsAppPaymentOutcome(log?: Logger): Promise<{ avisado
 
     let avisados = 0;
     const ahora = Date.now();
+    const pagos = await leerPagos(filas.map((f) => f.result_ref_id as string));
+    if (!pagos) {
+        log?.warn?.('[wa-outcome] no se pudieron leer los pagos del lote');
+        return { avisados: 0 };
+    }
 
     for (const fila of filas) {
         const previo = separarAviso(fila.error_message as string | null);
@@ -452,7 +496,7 @@ export async function runWhatsAppPaymentOutcome(log?: Logger): Promise<{ avisado
         if (previo.aviso.tipo === 'reintento' && previo.aviso.proximo > ahora) continue;
         const intentosPrevios = previo.aviso.tipo === 'reintento' ? previo.aviso.intentos : 0;
 
-        const pago = await leerPago(fila.result_ref_id as string);
+        const pago = pagos.get(fila.result_ref_id as string) ?? null;
 
         const porLink = (fila as any).message_type === MESSAGE_TYPE_LINK;
         // Link de pago: solo el pago confirmado es desenlace (un intento
