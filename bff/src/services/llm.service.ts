@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { conContextoLlm, registrarUsoLlm, tokensDeRespuesta, type ContextoUsoLlm } from './llm-usage.service';
+import { conContextoLlm, registrarUsoLlm, tokensDeRespuesta, type ContextoUsoLlm, type TokensUso } from './llm-usage.service';
 /**
  * llm.service — Abstracción de LLM con tool-calling para el bot de WhatsApp (WA2).
  *
@@ -471,4 +471,143 @@ export async function chatWithTools(params: {
 function safeParse(s: unknown): any {
     if (typeof s !== 'string') return s;
     try { return JSON.parse(s); } catch { return s; }
+}
+
+// ─── Salida JSON estructurada (pizarra IA, M3) ─────────────────────────────────
+//
+// Una sola llamada que devuelve un JSON con forma fija. Claude usa structured
+// outputs (`output_config.format` json_schema: la respuesta respeta el esquema);
+// los respaldos piden JSON (Gemini `responseMimeType`, Groq `json_object`) y el
+// esquema va en el sistema. En TODOS los casos quien llama valida la respuesta:
+// es dato no confiable. Cada proveedor que responde registra su consumo en
+// llm_usage con la función del contexto (`uso.feature`).
+
+export interface JsonEstructuradoParams {
+    system: string;
+    user: string;
+    schema: Record<string, unknown>;
+    /** Tope de salida (tokens). */
+    maxTokens?: number;
+    /** Tope por proveedor (ms). */
+    timeoutMs?: number;
+    uso?: ContextoUsoLlm;
+    /** Para pruebas o para forzar uno: si no, Claude (con llave) → Gemini → Groq. */
+    providers?: LlmProvider[];
+}
+
+export interface JsonEstructuradoResult {
+    /** Texto crudo del modelo (JSON sin validar). */
+    texto: string;
+    provider: LlmProvider;
+    model: string;
+    tokens: TokensUso | null;
+    fallas?: LlmFalla[];
+}
+
+/** Esfuerzo de Claude para la pizarra (TACTICAL_AI_EFFORT=low|medium|high). */
+function esfuerzoPizarra(modelo: string): Record<string, unknown> {
+    if (/haiku-4/i.test(modelo)) return {};
+    const e = (process.env.TACTICAL_AI_EFFORT || 'medium').trim();
+    return { effort: ['low', 'medium', 'high'].includes(e) ? e : 'medium' };
+}
+
+async function jsonClaude(p: JsonEstructuradoParams): Promise<JsonEstructuradoResult> {
+    const client = clienteClaude();
+    const model = modeloClaude(process.env.TACTICAL_AI_CLAUDE_MODEL || process.env.WHATSAPP_CLAUDE_MODEL);
+    const body: any = {
+        model,
+        max_tokens: p.maxTokens ?? 12_000,
+        system: [{ type: 'text', text: p.system, cache_control: cacheControlClaude('5m') }],
+        messages: [{ role: 'user', content: p.user }],
+        output_config: { ...esfuerzoPizarra(model), format: { type: 'json_schema', schema: p.schema } },
+    };
+    const res: any = await client.messages.create(body, { timeout: p.timeoutMs ?? 60_000, maxRetries: 0 });
+    const tokens = tokensDeRespuesta(res);
+    registrarUsoLlm({ provider: 'claude', model: res.model || model, tokens });
+    if (res.stop_reason === 'refusal') throw new Error('claude_refusal');
+    if (res.stop_reason === 'max_tokens') throw new Error('claude_max_tokens: respuesta cortada');
+    const texto = (res.content ?? []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('').trim();
+    return { texto, provider: 'claude', model: res.model || model, tokens };
+}
+
+const conEsquema = (p: JsonEstructuradoParams) =>
+    `${p.system}\n\nResponde SOLO con un objeto JSON que cumpla este JSON Schema, sin texto alrededor:\n${JSON.stringify(p.schema)}`;
+
+async function jsonGemini(p: JsonEstructuradoParams): Promise<JsonEstructuradoResult> {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error('GEMINI_API_KEY no configurado');
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            system_instruction: { parts: [{ text: conEsquema(p) }] },
+            contents: [{ role: 'user', parts: [{ text: p.user }] }],
+            generationConfig: { temperature: 0.4, maxOutputTokens: p.maxTokens ?? 12_000, responseMimeType: 'application/json' },
+        }),
+        signal: AbortSignal.timeout(p.timeoutMs ?? 60_000),
+    });
+    const json: any = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`gemini_${res.status}: ${json?.error?.message || 'error'}`);
+    const model = json?.modelVersion || GEMINI_MODEL;
+    const tokens = tokensDeRespuesta(json);
+    registrarUsoLlm({ provider: 'gemini', model, tokens });
+    const texto = (json?.candidates?.[0]?.content?.parts ?? []).filter((x: any) => x.text).map((x: any) => x.text).join('').trim();
+    return { texto, provider: 'gemini', model, tokens };
+}
+
+async function jsonGroq(p: JsonEstructuradoParams): Promise<JsonEstructuradoResult> {
+    const cfg = OPENAI_COMPAT.groq;
+    const apiKey = process.env[cfg.keyEnv];
+    if (!apiKey) throw new Error(`${cfg.keyEnv} no configurado`);
+    const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+            model: cfg.model,
+            messages: [{ role: 'system', content: conEsquema(p) }, { role: 'user', content: p.user }],
+            temperature: 0.4,
+            max_tokens: Math.min(p.maxTokens ?? 12_000, 16_000),
+            response_format: { type: 'json_object' },
+        }),
+        signal: AbortSignal.timeout(p.timeoutMs ?? 60_000),
+    });
+    const json: any = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`groq_${res.status}: ${json?.error?.message || 'error'}`);
+    const model = json?.model || cfg.model;
+    const tokens = tokensDeRespuesta(json);
+    registrarUsoLlm({ provider: 'groq', model, tokens });
+    return { texto: String(json?.choices?.[0]?.message?.content || '').trim(), provider: 'groq', model, tokens };
+}
+
+/**
+ * Una llamada con salida JSON. Recorre los proveedores en orden y devuelve el
+ * primero que responde; si fallan todos lanza un error con `fallas` (mismo
+ * contrato que chatWithTools). Sin reintentos por 429: el coach está mirando la
+ * pantalla y el tope total ya es largo.
+ */
+export async function generarJsonEstructurado(params: JsonEstructuradoParams): Promise<JsonEstructuradoResult> {
+    const orden: LlmProvider[] = (params.providers ?? [
+        ...(process.env.ANTHROPIC_API_KEY ? ['claude' as const] : []),
+        'gemini', 'groq',
+    ]).filter((x, i, a) => a.indexOf(x) === i && x !== 'deepseek');
+    const fallas: LlmFalla[] = [];
+    for (const prov of orden) {
+        const inicio = Date.now();
+        const correr = () => (prov === 'claude' ? jsonClaude(params) : prov === 'gemini' ? jsonGemini(params) : jsonGroq(params));
+        try {
+            const r = await (params.uso ? conContextoLlm(params.uso, correr) : correr());
+            if (!r.texto) throw new Error(`${prov}: respuesta vacía`);
+            return fallas.length ? { ...r, fallas } : r;
+        } catch (err: any) {
+            const msg = String(err?.message ?? err);
+            console.warn(`[llm.service] json ${prov} falló (${msg.slice(0, 200)})`);
+            fallas.push({ proveedor: prov, error: msg.slice(0, 300), ms: Date.now() - inicio });
+        }
+    }
+    const total = new Error(fallas.length
+        ? `todos los proveedores LLM fallaron — ${fallas.map((f) => `${f.proveedor}: ${f.error}`).join(' | ')}`
+        : 'no hay proveedores LLM configurados') as LlmErrorTotal;
+    total.fallas = fallas;
+    throw total;
 }
