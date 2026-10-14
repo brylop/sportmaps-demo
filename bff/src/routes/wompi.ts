@@ -96,6 +96,89 @@ export function buildFailureReason(
 }
 
 /**
+ * Concilia lo que entró por la pasarela contra lo que el cobro pide HOY.
+ *
+ * El enlace congela `base_amount` al crearse (y vive días: el de WhatsApp se
+ * paga cuando la familia puede). Entre la firma y el pago el cobro puede:
+ *   - BAJAR (un descuento) → sobrepago (I35): queda `paid` y a revisión.
+ *   - SUBIR (el recargo por mora de `apply_late_fees`, decisión 2026-10-14:
+ *     la mora nunca se condona en silencio y todo canal cobra el monto CON
+ *     recargo) → faltante: NO puede quedar `paid`. Queda `partial` con lo
+ *     recibido en `amount_paid`, a revisión, y el saldo se cobra aparte.
+ *
+ * Se compara `base_amount` (lo cobrado sin el recargo online, que es de la
+ * escuela) contra el saldo vigente: amount − amount_paid − pronto pago (misma
+ * regla que frontend/src/lib/cobrosYPagos.ts). Tolerancia de 1 COP, la misma
+ * del chequeo de monto del webhook.
+ *
+ * Si el cobro no se pudo leer o no tiene monto, no se concilia (0/0): se
+ * conserva el comportamiento de siempre antes que inventar una diferencia.
+ */
+export interface ConciliacionMonto {
+    /** Monto vigente del cobro (`payments.amount`). */
+    montoVigente: number;
+    /** Lo recibido sin el recargo online (`payment_links.base_amount`). */
+    recibidoBase: number;
+    /** Saldo que el cobro pedía antes de este pago. */
+    saldo: number;
+    /** > 0 → pagó de más. */
+    sobrepago: number;
+    /** > 0 → pagó de menos; el cobro queda `partial`. */
+    faltante: number;
+    /** `amount_paid` a escribir, o null si no hay que tocarlo. */
+    amountPaidNuevo: number | null;
+}
+
+export function conciliarMontoRecibido(
+    cobro: { amount?: unknown; amount_paid?: unknown; early_payment_discount_applied?: unknown } | null | undefined,
+    baseAmountLink: unknown,
+): ConciliacionMonto {
+    const montoVigente = Number(cobro?.amount);
+    const recibidoBase = Number(baseAmountLink);
+    const pagadoAntes = Math.max(0, Number(cobro?.amount_paid) || 0);
+    const pronto = Math.max(0, Number(cobro?.early_payment_discount_applied) || 0);
+
+    if (!Number.isFinite(montoVigente) || montoVigente <= 0 || !Number.isFinite(recibidoBase)) {
+        return { montoVigente, recibidoBase, saldo: NaN, sobrepago: 0, faltante: 0, amountPaidNuevo: null };
+    }
+
+    const saldo = montoVigente - pagadoAntes - pronto;
+    // El sobrepago se mide como siempre (contra amount, descontando solo los
+    // abonos previos): el pronto pago no entra para no marcar de más cobros
+    // que el enlace siempre cobró completos.
+    const sobrepago = recibidoBase > montoVigente - pagadoAntes + 1
+        ? Math.round(recibidoBase - (montoVigente - pagadoAntes))
+        : 0;
+    const faltante = recibidoBase < saldo - 1 ? Math.round(saldo - recibidoBase) : 0;
+
+    // amount_paid solo se escribe cuando aporta: si hubo diferencia o ya había
+    // abonos (el total pagado es la suma). Un pago exacto sin abonos lo deja
+    // como estaba, igual que antes.
+    const amountPaidNuevo = sobrepago > 0 || faltante > 0 || pagadoAntes > 0
+        ? Math.round(pagadoAntes + recibidoBase)
+        : null;
+
+    return { montoVigente, recibidoBase, saldo, sobrepago, faltante, amountPaidNuevo };
+}
+
+/**
+ * Motivo legible del pago parcial, para last_failure_reason (lo lee la escuela
+ * en el chip de revisión). Si el cobro tiene recargo por mora se dice; si no,
+ * se dice solo que el cobro subió.
+ */
+export function motivoPagoParcial(
+    base: string,
+    c: ConciliacionMonto,
+    lateFeeAmount: unknown,
+): string {
+    const cop = (n: number) => `$${Math.round(n).toLocaleString('es-CO')}`;
+    const causa = Number(lateFeeAmount) > 0
+        ? 'recargo por mora aplicado después de generar el enlace'
+        : 'el cobro subió después de generar el enlace';
+    return `${base} · Pagó ${cop(c.recibidoBase)}; faltan ${cop(c.faltante)} (${causa}; cobro ${cop(c.montoVigente)})`;
+}
+
+/**
  * Resuelve las credenciales Wompi del comercio dueño de una referencia.
  *
  * Necesario para escuelas con cuenta propia (payment_mode='direct'): cada una tiene su
@@ -394,7 +477,7 @@ async function handleSchoolPayment({
         //     para revisión con el motivo — la escuela decide si devuelve.
         const { data: actual } = await supabase
             .from('payments')
-            .select('status, wompi_transaction_id, amount, amount_paid')
+            .select('status, wompi_transaction_id, amount, amount_paid, early_payment_discount_applied, late_fee_amount')
             .eq('id', link.payment_id)
             .maybeSingle();
         if ((actual as any)?.status === 'paid' && (actual as any)?.wompi_transaction_id !== txId) {
@@ -449,16 +532,19 @@ async function handleSchoolPayment({
         //     que la escuela decida si devuelve. Nunca se reabre ni se pierde el
         //     descuento en silencio. Se compara `base_amount` (lo cobrado sin el
         //     recargo online, que es de la escuela) contra el `amount` vigente.
-        const montoVigente = Number((actual as any)?.amount);
-        const recibidoBase = Number(link.base_amount);
-        const sobrepago = Number.isFinite(montoVigente) && montoVigente > 0
-            && Number.isFinite(recibidoBase) && recibidoBase > montoVigente + 1
-            ? Math.round(recibidoBase - montoVigente)
-            : 0;
+        //
+        // 3.d Faltante (mora, decisión 2026-10-14). Lo inverso: el enlace se
+        //     generó ANTES de que `apply_late_fees` sumara el recargo y se pagó
+        //     DESPUÉS. Antes esto quedaba `paid` y la mora se condonaba en
+        //     silencio. Ahora el cobro queda `partial` con lo recibido sumado a
+        //     `amount_paid`, a revisión con el faltante, y el saldo se cobra aparte.
+        //     El enlace sí queda 'paid' y el split se registra: esa plata entró.
+        const conc = conciliarMontoRecibido(actual as any, link.base_amount);
+        const { montoVigente, recibidoBase, sobrepago, faltante } = conc;
         const { error: payUpdErr } = await supabase
             .from('payments')
             .update({
-                status: 'paid',
+                status: faltante > 0 ? 'partial' : 'paid',
                 payment_channel: 'online',
                 payment_method: payMethod,
                 payment_date: today,
@@ -475,7 +561,7 @@ async function handleSchoolPayment({
                 wompi_transaction_id: txId,
                 gross_amount: txAmountCop,
                 sportmaps_fee: link.sportmaps_fee,
-                ...(sobrepago > 0 ? { amount_paid: recibidoBase } : {}),
+                ...(conc.amountPaidNuevo !== null ? { amount_paid: conc.amountPaidNuevo } : {}),
                 updated_at: new Date().toISOString(),
             })
             .eq('id', link.payment_id);
@@ -501,6 +587,24 @@ async function handleSchoolPayment({
                 req.log?.error({ err: flagErr, paymentId: link.payment_id }, 'No se pudo marcar el sobrepago para revisión');
             }
             req.log?.warn({ paymentId: link.payment_id, txReference, sobrepago }, 'School payment: recibido mayor que el cobro vigente — a revisión');
+        }
+
+        // La marca va DESPUÉS del UPDATE: el trigger trg_clear_payment_review_on_settle
+        // baja requires_review al entrar a 'partial', así que marcarla antes se perdería.
+        if (faltante > 0) {
+            const { error: flagErr } = await supabase.rpc('flag_payment_for_review', {
+                p_kind: 'payment',
+                p_id: link.payment_id,
+                p_reason: motivoPagoParcial(
+                    buildFailureReason('wompi', 'pago_parcial', paymentMethodType, null, txId),
+                    conc,
+                    (actual as any)?.late_fee_amount,
+                ),
+            });
+            if (flagErr) {
+                req.log?.error({ err: flagErr, paymentId: link.payment_id }, 'No se pudo marcar el pago parcial para revisión');
+            }
+            req.log?.warn({ paymentId: link.payment_id, txReference, faltante }, 'School payment: recibido menor que el cobro vigente (mora posterior al enlace) — partial y a revisión');
         }
 
         // 5. Marcar payment_link
@@ -577,7 +681,14 @@ async function handleSchoolPayment({
         }
 
         req.log?.info({ paymentId: link.payment_id, txReference }, 'School payment confirmed');
-        return { status: 200, body: { status: 'ok', kind: 'school_payment', ...(sobrepago > 0 ? { overpayment: sobrepago } : {}) } };
+        return {
+            status: 200,
+            body: {
+                status: 'ok', kind: 'school_payment',
+                ...(sobrepago > 0 ? { overpayment: sobrepago } : {}),
+                ...(faltante > 0 ? { underpayment: faltante, partial: true } : {}),
+            },
+        };
     }
 
     // No-paid (declined/voided/error) → dejar rastro del intento.
