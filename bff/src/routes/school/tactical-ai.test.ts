@@ -147,6 +147,9 @@ describe('análisis', () => {
     expect(r.status).toBe(200);
     expect(r.body.cached).toBe(false);
     expect(r.body.balance.remaining).toBe(14);
+    // Mapa p1..pN → clave real: el cliente traduce cualquier «p5» de los textos.
+    expect(r.body.keys.p1).toBe(fakeKey(0)); // el arquero (más cerca del arco propio)
+    expect(Object.keys(r.body.keys)).toHaveLength(11);
     expect(st.rpcs.map((x) => x.name)).toEqual(['consume_tactical_ai_credit']);
     expect(llm.calls).toHaveLength(1);
     expect(llm.calls[0].uso).toEqual({ schoolId: 'esc-1', feature: 'pizarra_ia' });
@@ -175,6 +178,7 @@ describe('análisis', () => {
     const r = await post(body);
     expect(r.status).toBe(200);
     expect(r.body.cached).toBe(true);
+    expect(r.body.keys.p1).toBe(fakeKey(0));
     expect(llm.calls).toHaveLength(0);
     expect(st.rpcs.map((x) => x.name)).toEqual(['tactical_ai_balance']);
     expect(st.balance.used).toBe(0);

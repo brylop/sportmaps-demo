@@ -19,7 +19,7 @@ vi.mock('@/lib/api/bffClient', () => {
 import { BFFError } from '@/lib/api/bffClient';
 import { TacticalAiOverlay, TacticalAiPanel, type AiPreview } from '@/components/school/TacticalAiPanel';
 import {
-  balanceLabel, buildAnalyzeRequest, suggestionToBoardFrames, type AiResult, type AiSuggestion,
+  balanceLabel, buildAnalyzeRequest, humanizeResult, humanizeText, suggestionToBoardFrames, type AiResult, type AiSuggestion,
 } from '@/lib/school/tacticalAi';
 import { FULL_VIEW } from '@/lib/school/tacticalGeometry';
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
@@ -180,6 +180,48 @@ describe('TacticalAiPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Analizar jugada/ }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Pon al menos un jugador');
     expect(api.post).not.toHaveBeenCalled();
+  });
+});
+
+describe('ningún pN / rN llega a la pantalla', () => {
+  // Texto real de la corrida del 2026-10-14 (futbol-c1.png) + variantes.
+  const keys = { p5: K1, p2: K2, p9: 'athlete:99999999-9999-4999-8999-999999999999' };
+  const labelOf = (k: string) => ({ [K1]: 'Lateral der.', [K2]: '' } as Record<string, string>)[k];
+
+  it('pN → etiqueta del jugador en la cancha; rN → «rival N»; «(p5)» tras un puesto se quita', () => {
+    expect(humanizeText('r4 conduce por el espacio que dejó p5 y busca al delantero que se abre al lado de p3.', keys, labelOf))
+      .toBe('rival 4 conduce por el espacio que dejó Lateral der. y busca al delantero que se abre al lado de jugador 3.');
+    expect(humanizeText('El volante (p5) filtra el balón', keys, labelOf)).toBe('El volante filtra el balón');
+  });
+  it('sin etiqueta (o etiqueta vacía) → «jugador N»; sin mapa → igual', () => {
+    expect(humanizeText('p2 y p9 quedan lejos', keys, labelOf)).toBe('jugador 2 y jugador 9 quedan lejos');
+    expect(humanizeText('p7 sube', undefined, labelOf)).toBe('jugador 7 sube');
+    // No toca palabras ni números que no son claves.
+    expect(humanizeText('Presión alta en 3p, sp5 y la zona 4', keys, labelOf)).toBe('Presión alta en 3p, sp5 y la zona 4');
+  });
+  it('humanizeResult cubre lectura, riesgos, contraataques y variantes', () => {
+    const r = humanizeResult({
+      lectura: 'p5 sube', riesgos: [{ titulo: 'Hueco de p5', detalle: 'r4 corre', zona: 'detrás de p2' }],
+      contraataques: [{ ...counter, titulo: 'r4 al espacio de p5', explicacion: 'r1 y r2 salen' }],
+      variantes: [{ ...counter, titulo: 'p2 cierra', explicacion: 'p9 cubre' }],
+    }, keys, labelOf);
+    const all = JSON.stringify({ l: r.lectura, ri: r.riesgos, c: r.contraataques.map((s) => [s.titulo, s.explicacion]), v: r.variantes.map((s) => [s.titulo, s.explicacion]) });
+    expect(all).not.toMatch(/\b[pr]\d{1,2}\b/);
+    expect(r.riesgos[0]).toEqual({ titulo: 'Hueco de Lateral der.', detalle: 'rival 4 corre', zona: 'detrás de jugador 2' });
+    expect(r.contraataques[0].titulo).toBe('rival 4 al espacio de Lateral der.');
+    expect(r.variantes[0].explicacion).toBe('jugador 9 cubre');
+    // Los cuadros no se tocan (las claves de los cuadros sí se usan).
+    expect(r.contraataques[0].frames).toBe(counter.frames);
+  });
+  it('el panel muestra el texto traducido con la etiqueta que se mandó', async () => {
+    api.post.mockResolvedValue({
+      result: { ...result, lectura: 'El lateral (p1) sube y r4 ataca la espalda de p1; p2 no llega.' },
+      cached: false, balance: balance(11), keys: { p1: K1, p2: K2 },
+    });
+    setup();
+    fireEvent.click(await screen.findByRole('button', { name: /Analizar jugada/ }));
+    // labelOf del setup devuelve «Central» para todos.
+    expect(await screen.findByText('El lateral sube y rival 4 ataca la espalda de Central; Central no llega.')).toBeInTheDocument();
   });
 });
 

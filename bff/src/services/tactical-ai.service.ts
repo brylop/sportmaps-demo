@@ -35,7 +35,7 @@ export interface AiBalance {
 }
 
 export type AnalyzeOutcome =
-  | { status: 200; body: { result: AiResult; cached: boolean; balance: AiBalance | null; dropped?: string[] } }
+  | { status: 200; body: { result: AiResult; cached: boolean; balance: AiBalance | null; keys: Record<string, string>; dropped?: string[] } }
   | { status: 402; body: { error: string; needs_purchase: true; balance: AiBalance } }
   | { status: 422 | 502 | 503 | 504; body: { error: string; detalle?: string } };
 
@@ -89,6 +89,9 @@ export async function analyzeTacticalPlay(args: {
   const names = await rosterNames(schoolId, input.teamId);
   const { play, keyMap } = anonymizePlay(input, rosterNameTokens(names));
   const hash = boardHash(play);
+  // p1..pN → clave real del tablero: el cliente la usa para que ningún «p5»
+  // llegue a la pantalla aunque el modelo lo escriba en un texto.
+  const keys = Object.fromEntries(keyMap);
 
   // 2. Caché
   const { data: cachedRow, error: cacheErr } = await supabase
@@ -100,7 +103,7 @@ export async function analyzeTacticalPlay(args: {
   if (cacheErr && !isMissingRpc(cacheErr)) log?.warn({ err: cacheErr }, 'tactical-ai: no se pudo leer la caché');
   if (cachedRow && (cachedRow as any).result) {
     const balance = await getAiBalance(schoolId).catch(() => null);
-    return { status: 200, body: { result: deanonymizeResult((cachedRow as any).result as AiResult, keyMap), cached: true, balance } };
+    return { status: 200, body: { result: deanonymizeResult((cachedRow as any).result as AiResult, keyMap), cached: true, balance, keys } };
   }
 
   // 3. Cupo
@@ -195,6 +198,7 @@ export async function analyzeTacticalPlay(args: {
       result: deanonymizeResult(validated.result, keyMap),
       cached: false,
       balance: consumed,
+      keys,
       ...(validated.dropped.length ? { dropped: validated.dropped } : {}),
     },
   };

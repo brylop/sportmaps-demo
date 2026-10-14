@@ -31,7 +31,7 @@ import {
   MAX_FRAMES, VALID_ARROW_COLORS, sanitizeFrames, validateFrames,
 } from './footballShapes';
 
-export const PROMPT_VERSION = 'pizarra-ia-v1';
+export const PROMPT_VERSION = 'pizarra-ia-v2';
 
 export const AI_SPORTS = ['futbol', 'futbol7', 'futbol5', 'futsal', 'voleibol', 'baloncesto', 'balonmano'] as const;
 export type AiSport = (typeof AI_SPORTS)[number];
@@ -83,6 +83,17 @@ export const PLAYERS_PER_SIDE: Record<AiSport, number> = {
 
 const HAS_GOALKEEPER: Record<AiSport, boolean> = {
   futbol: true, futbol7: true, futbol5: true, futsal: true, voleibol: false, baloncesto: false, balonmano: true,
+};
+
+/** Cómo se nombran los puestos y las zonas en cada deporte (los textos del análisis). */
+const VOCABULARIO: Record<AiSport, string> = {
+  futbol: 'arquero, laterales, centrales, volantes (de contención, mixtos), extremos, delanteros; bandas, carriles, área, segundo palo.',
+  futbol7: 'arquero, defensas, volantes, delantero; bandas, área.',
+  futbol5: 'arquero, defensa (último), alas o volantes, delantero o pívot; bandas, área.',
+  futsal: 'arquero, cierre, alas, pívot (y arquero-jugador en el 5x4); bandas, área de 6 m.',
+  voleibol: 'armador (colocador), opuesto, centrales, receptores (puntas), líbero; zonas 1 a 6, red, bloqueo, línea de ataque, fondo. No uses palabras del fútbol (banda, volante, extremo).',
+  baloncesto: 'base, escolta, alero, ala-pívot, pívot; carriles, pintura, línea de 3, poste alto/bajo, rebote, transición. No uses palabras del fútbol (banda, volante, extremo, arco).',
+  balonmano: 'portero, extremos, laterales, central, pivote; área de 6 m, línea de 9 m, primera y segunda oleada.',
 };
 
 const SPORT_LABEL: Record<AiSport, string> = {
@@ -354,6 +365,7 @@ export function sportSection(sport: AiSport): string {
   };
   return [
     `DEPORTE: ${SPORT_LABEL[sport]} — ${PLAYERS_PER_SIDE[sport]} por lado.`,
+    `VOCABULARIO de este deporte para los textos: ${VOCABULARIO[sport]}`,
     `CANCHA: ${c.widthM} m de ancho × ${c.lengthM} m de largo. En el tablero ocupa x ∈ [${fmt(c.x0)}, ${fmt(c.x1)}], y ∈ [${fmt(c.y0)}, ${fmt(c.y1)}].`,
     `Escala: 1 m a lo ancho = ${mx.toFixed(2)} puntos de x; 1 m a lo largo = ${my.toFixed(2)} puntos de y.`,
     `Velocidad máxima realista (7 m/s): en un cuadro de 1500 ms nadie avanza más de ${fmt(10.5 * my)} puntos de y ni ${fmt(10.5 * mx)} de x.`,
@@ -366,7 +378,9 @@ export function sportSection(sport: AiSport): string {
 
 const SYSTEM_BASE = `Eres analista táctico de SportMaps para entrenadores de escuelas deportivas en Colombia. Analizas UNA jugada dibujada en la pizarra táctica y respondes SOLO con el JSON pedido.
 
-Escribe en español de Colombia, claro y práctico, de entrenador a entrenador (tutea; nunca uses «vos» ni «che»). Sin nombres de personas: refiérete a los jugadores por su puesto o su clave (p3, r2).
+Escribe en español de Colombia, claro y práctico, de entrenador a entrenador (tutea; nunca uses «vos» ni «che»). Sin nombres de personas.
+
+CÓMO NOMBRAR A LOS JUGADORES EN LOS TEXTOS (lectura, riesgos, títulos, explicaciones): por su puesto o su zona, como lo diría un entrenador de ESTE deporte (usa el vocabulario indicado abajo, no el de otro deporte), por ejemplo «el lateral derecho», «el base rival», «el rival más adelantado». NUNCA escribas las claves internas (p1, p5, r4…) en los textos: el entrenador no sabe quién es «p5». Las claves solo van dentro de los cuadros (players[].key). Si un propio no tiene puesto, descríbelo por su zona («el jugador que está en la banda derecha»).
 
 COORDENADAS (las mismas de la pizarra):
 - Todo va en % del tablero: x de 0 (izquierda) a 100 (derecha), y de 0 (arriba) a 100 (abajo). Números con un decimal.

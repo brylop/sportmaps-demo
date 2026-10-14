@@ -17,7 +17,7 @@ import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, Loader2, Play, Save, Sparkles, Square, X, ShoppingCart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
-  AI_PACK_SIZE, AI_PURCHASE_HREF, analyzePlay, balanceLabel, fetchAiBalance, isRivalKey, rivalColorOf,
+  AI_PACK_SIZE, AI_PURCHASE_HREF, analyzePlay, balanceLabel, fetchAiBalance, humanizeResult, isRivalKey, rivalColorOf,
   suggestionToBoardFrames, type AiBalance, type AiResult, type AiSuggestion, type AnalyzeRequest,
 } from '@/lib/school/tacticalAi';
 import { interpolateFrames, totalDurationMs } from '@/lib/school/tacticalAnimation';
@@ -236,7 +236,9 @@ function TacticalAiPanelBody({
     if (seq !== reqSeq.current) return;
     setLoading(false);
     if (out.kind === 'ok') {
-      setResult(out.data.result);
+      // Ningún «p5»/«r4» a la pantalla: etiqueta del jugador en la cancha
+      // (la misma que se mandó) o «jugador N» / «rival N».
+      setResult(humanizeResult(out.data.result, out.data.keys, (k) => req.labels[k]));
       setCached(out.data.cached);
       if (out.data.balance) setBalance(out.data.balance);
     } else if (out.kind === 'needs_purchase') {
