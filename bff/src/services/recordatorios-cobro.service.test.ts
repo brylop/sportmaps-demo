@@ -185,7 +185,7 @@ describe('planificar — canal correo', () => {
     it('sin WhatsApp con opt-in y la escuela con correo: sale por correo con el correo como clave', () => {
         const sinTel = familia('b@x.co', null, [{ id: 'p2', atleta: 'Beto', vence: '2026-10-09' }]);            // 0
         const sinOptin = familia('A@X.co', '573111111111', [{ id: 'p1', atleta: 'Ana', vence: '2026-10-06' }]); // +3
-        const plan = planificar(entrada([sinTel, sinOptin], [pago('p1', '2026-10-06'), pago('p2', '2026-10-09')], { canalCorreo: true, diaCorte: 10 }));
+        const plan = planificar(entrada([sinTel, sinOptin], [pago('p1', '2026-10-06'), pago('p2', '2026-10-09')], { canalCorreo: true, diaCorte: 10, avisoPolitica: 'Sin servicio con más de un mes de retraso.' }));
         expect(plan.contactos.map((c) => [c.canal, c.familyKey, c.concepto])).toEqual([
             ['email', 'b@x.co', 'vence_hoy'],
             ['email', 'a@x.co', 'pendiente_suave'],
@@ -193,6 +193,7 @@ describe('planificar — canal correo', () => {
         expect(plan.contactos[0].email).toBe('b@x.co');
         expect(plan.contactos[0].waId).toBeNull();
         expect(plan.contactos[0].diaCorte).toBe(10);
+        expect(plan.contactos[0].avisoPolitica).toBe('Sin servicio con más de un mes de retraso.');
     });
 
     it('con opt-in de WhatsApp va SOLO por WhatsApp (un canal por familia)', () => {

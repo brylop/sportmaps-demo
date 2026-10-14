@@ -245,6 +245,8 @@ export const BrandedEmailTemplates = {
         paymentLink: string;
         schoolId: string | null;
         cutoffDay?: number | null; // 10 → "los primeros 10 días de cada mes"
+        /** Política de cobranza de la escuela (school_settings.collection_policy_notice): recuadro destacado. */
+        policyNotice?: string | null;
     }): Promise<{ subject: string; html: string }> => {
         const branding = await resolveSchoolBranding(params.schoolId);
         const escuela = branding.schoolName.replace(/&amp;/g, '&');
@@ -340,6 +342,23 @@ export const BrandedEmailTemplates = {
                 </table>`
             : '';
 
+        const politica = params.policyNotice?.trim()
+            ? `
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                       style="margin: 20px 0 4px 0; border: 2px solid #dc2626; border-radius: 10px; border-collapse: separate; overflow: hidden;">
+                    <tr>
+                        <td style="background-color: #dc2626; padding: 10px 16px;">
+                            <p style="margin: 0; color: #ffffff; font-size: 14px; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase;">&#9888;&#65039; Importante</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="background-color: #fef2f2; padding: 14px 16px;">
+                            <p style="margin: 0; color: #7f1d1d; font-size: 16px; font-weight: 700; line-height: 1.45;">${escapeHtml(params.policyNotice.trim())}</p>
+                        </td>
+                    </tr>
+                </table>`
+            : '';
+
         return {
             subject: t.subject,
             html: buildBrandedEmail({
@@ -364,6 +383,7 @@ export const BrandedEmailTemplates = {
                         </tr>
                         ${filas.map(([k, v], i) => fila(k, v, i === filas.length - 1)).join('')}
                     </table>
+                    ${politica}
                     ${corte}
                 `,
                 cta: { label: 'Pagar ahora', url: params.paymentLink },
