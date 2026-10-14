@@ -57,3 +57,18 @@ export function dAreaPath(m: Meters, widthM: number, p1: number, p2: number, r: 
     `A ${m.rx(r)} ${m.ry(r)} 0 0 0 ${m.X(ex)} ${m.Y(yAtRight)}`,
   ].join(' ');
 }
+
+// ─── Dónde van arcos, red y canastas ────────────────────────────────────────
+// Medidas reales en metros que comparten el fondo 2D y el visor 3D
+// (components/school/tactical3d): una sola fuente. Las alturas, que el 2D no
+// usa, viven en lib/school/tactical3d.ts.
+
+/** Ancho del arco (entre palos) por deporte. */
+export const GOAL_WIDTH_M = { futbol: 7.32, futbol7: 6, futbol5: 3, futsal: 3, balonmano: 3 } as const;
+
+/** Canasta FIBA: tablero (1,8 m de ancho) a 1,2 m del fondo, centro del aro a
+ *  1,575 m, radio del aro 22,5 cm. */
+export const BASKET_M = { boardFromBaseline: 1.2, rimFromBaseline: 1.575, boardWidth: 1.8, rimRadius: 0.225 } as const;
+
+/** Postes de la red de voleibol: a 1 m por fuera de cada banda. */
+export const VOLLEY_POST_OUTSIDE_M = 1;

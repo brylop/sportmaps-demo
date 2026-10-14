@@ -6,9 +6,12 @@
  */
 import { SPORTS } from '@/lib/school/tacticalSports';
 import { CourtShell, Spot } from './CourtShell';
-import { MIRROR, lineProps, meters, type CourtBackgroundProps } from './courtGeometry';
+import { BASKET_M, MIRROR, lineProps, meters, type CourtBackgroundProps } from './courtGeometry';
 
-const RIM_Y = 1.575; // centro del aro desde la línea de fondo
+const RIM_Y = BASKET_M.rimFromBaseline; // centro del aro desde la línea de fondo
+const BOARD_Y = BASKET_M.boardFromBaseline;
+const BOARD_HALF = BASKET_M.boardWidth / 2;
+const RIM_R = BASKET_M.rimRadius;
 const THREE_R = 6.75;
 const THREE_SIDE = 0.9;
 
@@ -42,13 +45,13 @@ export function BasketballCourtBackground({ viewBox }: CourtBackgroundProps = {}
       />
       {/* No-carga (r 1,25 m). */}
       <path
-        d={`M ${m.X(cx - 1.25)} ${m.Y(1.2)} L ${m.X(cx - 1.25)} ${m.Y(RIM_Y)} A ${m.rx(1.25)} ${m.ry(1.25)} 0 0 0 ${m.X(cx + 1.25)} ${m.Y(RIM_Y)} L ${m.X(cx + 1.25)} ${m.Y(1.2)}`}
+        d={`M ${m.X(cx - 1.25)} ${m.Y(BOARD_Y)} L ${m.X(cx - 1.25)} ${m.Y(RIM_Y)} A ${m.rx(1.25)} ${m.ry(1.25)} 0 0 0 ${m.X(cx + 1.25)} ${m.Y(RIM_Y)} L ${m.X(cx + 1.25)} ${m.Y(BOARD_Y)}`}
         {...L} stroke="#ffffff" strokeOpacity={0.75} strokeWidth={1.1}
       />
       {/* Tablero y aro. */}
-      <line x1={m.X(cx - 0.9)} y1={m.Y(1.2)} x2={m.X(cx + 0.9)} y2={m.Y(1.2)} stroke="#f8fafc" strokeWidth={2.6} />
-      <line x1={m.X(cx)} y1={m.Y(1.2)} x2={m.X(cx)} y2={m.Y(RIM_Y) - Math.max(2.6, m.ry(0.225))} stroke="#f97316" strokeWidth={1.4} />
-      <ellipse cx={m.X(cx)} cy={m.Y(RIM_Y)} rx={Math.max(2.6, m.rx(0.225))} ry={Math.max(2.6, m.ry(0.225))} fill="none" stroke="#f97316" strokeWidth={1.6} />
+      <line x1={m.X(cx - BOARD_HALF)} y1={m.Y(BOARD_Y)} x2={m.X(cx + BOARD_HALF)} y2={m.Y(BOARD_Y)} stroke="#f8fafc" strokeWidth={2.6} />
+      <line x1={m.X(cx)} y1={m.Y(BOARD_Y)} x2={m.X(cx)} y2={m.Y(RIM_Y) - Math.max(2.6, m.ry(RIM_R))} stroke="#f97316" strokeWidth={1.4} />
+      <ellipse cx={m.X(cx)} cy={m.Y(RIM_Y)} rx={Math.max(2.6, m.rx(RIM_R))} ry={Math.max(2.6, m.ry(RIM_R))} fill="none" stroke="#f97316" strokeWidth={1.6} />
     </g>
   );
 

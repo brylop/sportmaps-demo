@@ -6,7 +6,7 @@
  */
 import { SPORTS } from '@/lib/school/tacticalSports';
 import { CourtShell, GoalTop, Spot } from './CourtShell';
-import { MIRROR, dAreaPath, lineProps, meters, type CourtBackgroundProps } from './courtGeometry';
+import { GOAL_WIDTH_M, MIRROR, dAreaPath, lineProps, meters, type CourtBackgroundProps } from './courtGeometry';
 
 export function FutsalCourtBackground({ viewBox }: CourtBackgroundProps = {}) {
   const def = SPORTS.futsal;
@@ -16,8 +16,8 @@ export function FutsalCourtBackground({ viewBox }: CourtBackgroundProps = {}) {
   const L = lineProps(line);
   const W = f.widthM;
   const mid = f.lengthM / 2;
-  const P1 = W / 2 - 1.5;
-  const P2 = W / 2 + 1.5;
+  const P1 = W / 2 - GOAL_WIDTH_M.futsal / 2;
+  const P2 = W / 2 + GOAL_WIDTH_M.futsal / 2;
   const area = dAreaPath(m, W, P1, P2, 6);
 
   const half = (

@@ -7,7 +7,7 @@
  */
 import { SPORTS } from '@/lib/school/tacticalSports';
 import { CourtShell, GoalTop } from './CourtShell';
-import { MIRROR, dAreaPath, lineProps, meters, type CourtBackgroundProps } from './courtGeometry';
+import { GOAL_WIDTH_M, MIRROR, dAreaPath, lineProps, meters, type CourtBackgroundProps } from './courtGeometry';
 
 export function HandballCourtBackground({ viewBox }: CourtBackgroundProps = {}) {
   const def = SPORTS.balonmano;
@@ -17,8 +17,8 @@ export function HandballCourtBackground({ viewBox }: CourtBackgroundProps = {}) 
   const L = lineProps(line);
   const W = f.widthM;
   const mid = f.lengthM / 2;
-  const P1 = W / 2 - 1.5;
-  const P2 = W / 2 + 1.5;
+  const P1 = W / 2 - GOAL_WIDTH_M.balonmano / 2;
+  const P2 = W / 2 + GOAL_WIDTH_M.balonmano / 2;
   const six = dAreaPath(m, W, P1, P2, 6);
   const nine = dAreaPath(m, W, P1, P2, 9);
 

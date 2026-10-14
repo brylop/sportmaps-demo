@@ -60,6 +60,7 @@ import {
 import { CourtBackground } from './courts/CourtBackground';
 import { PlayerCard } from './PlayerCard';
 import { TacticalExportMenu, type TacticalExportEvent } from './TacticalExportMenu';
+import { Tactical3DLauncher } from './tactical3d/Tactical3DLauncher';
 import { SaveToLibraryDialog } from './SaveToLibraryDialog';
 import type { TacticalExportInput } from '@/lib/export/tacticalExport';
 import type { TacticalStaticPlayer } from './TacticalStaticSvg';
@@ -2893,6 +2894,14 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                 getInput={buildExportInput}
                 frameCount={liveFrames.length}
                 onEvent={(e: TacticalExportEvent) => logEvent(e)}
+                disabled={playingSequence}
+                className="text-[11px] px-2 bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
+              />
+            )}
+            {/* «Ver en 3D» (M4): visor de los mismos cuadros, chunk aparte. */}
+            {!loading && (
+              <Tactical3DLauncher
+                getInput={buildExportInput}
                 disabled={playingSequence}
                 className="text-[11px] px-2 bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
               />
