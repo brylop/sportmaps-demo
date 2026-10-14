@@ -58,6 +58,7 @@ import { enlaceActivarAvisosParaPagador } from './whatsapp-activar-avisos';
 import { categoriaDeCobro, esCobroUnico } from './payment-accounts';
 import { findDuplicatePaymentIds } from './duplicatePayerGuard.service';
 import { debitoEnCurso, MENSAJE_DEBITO_EN_CURSO } from './autopay.service';
+import { saldoPorCobrar, ESTADOS_PAGABLES_EN_LINEA } from '../utils/saldo-cobro';
 
 /** Formato del token que emite la RPC: 18 bytes → 24 caracteres base64url. */
 export const TOKEN_COBRO_RE = /^[A-Za-z0-9_-]{24}$/;
@@ -250,7 +251,7 @@ const permiteSandbox = () => process.env.PAGO_PUBLICO_PERMITE_SANDBOX === 'true'
 // Lecturas
 // ─────────────────────────────────────────────────────────────────────────────
 
-const COLS_COBRO = 'id, school_id, amount, status, concept, payment_category, due_date, payment_date, period_year, period_month, '
+const COLS_COBRO = 'id, school_id, amount, amount_paid, early_payment_discount_applied, status, concept, payment_category, due_date, payment_date, period_year, period_month, '
     + 'child_id, user_id, parent_id, unregistered_athlete_id, requires_review';
 
 async function leerCobro(paymentId: string, schoolId: string) {
@@ -441,7 +442,8 @@ export async function vistaDelCobro(r: Extract<ResultadoResolver, { ok: true }>)
         fechaPago: estado === 'pagado' && p.payment_date ? String(p.payment_date).slice(0, 10) : null,
         enlaceVenceEn: r.venceEn,
         enLinea: pasarela
-            ? { proveedor: 'wompi', recargoPct: feePct, ...montosEnLinea(monto, feePct) }
+            // Sobre el saldo, como cobra prepararCheckoutDeCobro.
+            ? { proveedor: 'wompi', recargoPct: feePct, ...montosEnLinea(saldoPorCobrar(p), feePct) }
             : null,
         transferencia: pagable
             ? {
@@ -538,7 +540,8 @@ export async function prepararCheckoutDeCobro(
     const minutosUrl = Math.max(5, Math.floor(opts.minutosUrl ?? MINUTOS_LINK_CON_MONTO));
 
     if (p.status === 'paid') return NO_EN_LINEA('ya_pagado', 'Este cobro ya está pagado.');
-    if (!['pending', 'overdue'].includes(p.status)) {
+    // 'partial' también (2026-10-14): ver saldoPorCobrar.
+    if (!ESTADOS_PAGABLES_EN_LINEA.includes(p.status)) {
         return NO_EN_LINEA('no_pagable', 'Este cobro no se puede pagar en línea en este momento.');
     }
     if (p.requires_review) {
@@ -568,7 +571,11 @@ export async function prepararCheckoutDeCobro(
     const { creds } = pasarela;
 
     const feePct = await feePctDe(p.school_id);
-    const baseAmount = Number(p.amount);
+    // El SALDO (amount − amount_paid − descuento por pronto pago), igual que
+    // create-session: un 'partial' cobra lo que falta y la vigencia del link
+    // reusado se compara contra este saldo.
+    const baseAmount = saldoPorCobrar(p);
+    if (!(baseAmount > 0)) return NO_EN_LINEA('no_pagable', 'Este cobro no tiene saldo por pagar.');
     const { recargo: sportmapsFee, total: grossAmount } = montosEnLinea(baseAmount, feePct);
 
     const ahora = Date.now();
@@ -622,11 +629,13 @@ export async function prepararCheckoutDeCobro(
 
     // Reuso solo si los montos siguen vigentes (create-session §5.b: el caso
     // Dynasty de un link con fee_pct=0 cobrando la tarifa vieja).
+    //     También la mora (2026-10-14): `apply_late_fees()` suma el recargo a
+    //     `payments.amount`; un link de antes de la mora cobraría de menos.
+    const vigente = (l: any) => Number(l?.fee_pct) === feePct
+        && Math.abs(Number(l?.base_amount) - baseAmount) <= 0.5;
     const { data: existente } = await linkActivo();
     if (existente && ref(existente)) {
-        const igual = Number((existente as any).fee_pct) === feePct
-            && Math.abs(Number((existente as any).base_amount) - baseAmount) <= 0.5;
-        if (igual) return ok(desdeFila(existente), true);
+        if (vigente(existente)) return ok(desdeFila(existente), true);
         await supabase
             .from('payment_links')
             .update({ status: 'expired', updated_at: new Date().toISOString() })
@@ -665,8 +674,15 @@ export async function prepararCheckoutDeCobro(
         // 23505: otra pestaña/otro acudiente/otro BFF abrió el checkout del mismo
         // cobro a la vez (uq_payment_links_one_pending_per_payment). Se reusa el suyo.
         if ((insErr as any).code === '23505') {
+            // Mismo chequeo de vigencia que el reuso de arriba: la ganadora pudo
+            // leer el cobro antes de la mora o con otra tarifa. Una con montos
+            // viejos NO se reusa: se pide reintentar (la siguiente llamada la
+            // expira y crea la buena).
             const { data: ganador } = await linkActivo();
-            if (ganador && ref(ganador)) return ok(desdeFila(ganador), true);
+            if (ganador && ref(ganador)) {
+                if (vigente(ganador)) return ok(desdeFila(ganador), true);
+                return NO_EN_LINEA('monto_cambio', 'El valor de este cobro acaba de cambiar. Intenta de nuevo.');
+            }
             // La 'pending' que ganó es de otra pasarela (p.ej. un checkout MP abierto
             // desde la app). No se pisa: se pide esperar a que venza (72 h máx).
             return NO_EN_LINEA('checkout_en_curso', 'Ya hay un pago en curso para este cobro. Intenta de nuevo más tarde.');
