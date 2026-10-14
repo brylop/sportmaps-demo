@@ -2,6 +2,7 @@
  * Biblioteca de ejercicios — pizarra T3 (docs/specs/pizarra-nivel-tacticalpad.md).
  *
  *   GET    /api/v1/school/exercises                    lista (q, sport, tag, mine, templates)
+ *   GET    /api/v1/school/exercises/sports             deportes de la biblioteca de ESTA escuela
  *   GET    /api/v1/school/exercises/:id
  *   POST   /api/v1/school/exercises
  *   PUT    /api/v1/school/exercises/:id                autor o admin de la escuela
@@ -16,12 +17,20 @@
  *
  * Plantillas SportMaps (school_id NULL + is_template): se leen, se usan, no se
  * editan ni se borran desde acá (solo super admin, por SQL / RLS).
+ *
+ * D1 (docs/specs/pizarra-multideporte-3d-ia.md, M1): cada escuela ve SOLO las
+ * plantillas de sus deportes (∪ deporte de sus equipos activos ∪
+ * schools.sports, por el catálogo único lib/sportCatalog.ts) más las
+ * genéricas («Preparación física»). El filtro va en la consulta: las
+ * plantillas de otros deportes ni siquiera salen del BFF. Los ejercicios
+ * PROPIOS de la escuela se listan siempre (son suyos, de cualquier deporte).
  */
 import { Router, Response } from 'express';
 import { supabase } from '../../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../../middlewares/authMiddleware';
 import { userClient } from '../../utils/userClient';
 import { validateExerciseInput, sanitizeSearch, EXERCISE_SPORTS, UUID_RE } from './exerciseShapes';
+import { schoolBoardSports, type BoardSport } from '../../lib/sportCatalog';
 
 const router = Router();
 
@@ -42,6 +51,27 @@ const paramId = (req: AuthenticatedRequest) => String(req.params.id ?? '');
 const isTrue = (v: unknown) => v === 'true' || v === '1';
 const isFalse = (v: unknown) => v === 'false' || v === '0';
 
+/**
+ * Deportes de la biblioteca de una escuela: canchas de pizarra completa de sus
+ * equipos activos (un equipo "Fútbol 7 Sub 10" aporta Fútbol 7) y de
+ * schools.sports, más 'generico' siempre. Orden del catálogo.
+ */
+export async function loadSchoolLibrarySports(schoolId: string): Promise<BoardSport[]> {
+  const [teamsRes, schoolRes] = await Promise.all([
+    supabase.from('teams').select('sport, name, status').eq('school_id', schoolId),
+    supabase.from('schools').select('sports').eq('id', schoolId).maybeSingle(),
+  ]);
+  if (teamsRes.error) throw teamsRes.error;
+  if (schoolRes.error) throw schoolRes.error;
+  const teams = ((teamsRes.data ?? []) as { sport: string | null; name: string | null; status: string | null }[])
+    .filter((t) => t.status !== 'inactive');
+  const schoolSports = (schoolRes.data as { sports?: unknown } | null)?.sports;
+  return schoolBoardSports({
+    teams,
+    schoolSports: Array.isArray(schoolSports) ? (schoolSports as unknown[]).filter((x): x is string => typeof x === 'string') : [],
+  });
+}
+
 async function loadVisible(id: string, schoolId: string) {
   const { data, error } = await supabase
     .from('training_exercises')
@@ -60,6 +90,23 @@ function canManage(row: { created_by: string | null }, req: AuthenticatedRequest
   return row.created_by === req.user.id || ADMIN_ROLES.includes(req.role);
 }
 
+// GET /api/v1/school/exercises/sports → { sports: ['futbol', 'futbol7', 'generico'] }
+// Los chips de deporte del panel: solo los de esta escuela, 'generico' al final.
+// Va ANTES de /exercises/:id (si no, 'sports' caería como id inválido).
+router.get(
+  '/exercises/sports',
+  requireAuth,
+  requireRole(...STAFF_ROLES),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      res.json({ sports: await loadSchoolLibrarySports(req.schoolId) });
+    } catch (err: any) {
+      req.log?.error({ err }, 'school/exercises unhandled error');
+      res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+  },
+);
+
 // GET /api/v1/school/exercises?q=&sport=&include_generic=true&tag=&mine=true&templates=true|false&limit=
 // include_generic=true con un sport: ese deporte + los genéricos (calentamientos,
 // coordinación), que sirven para cualquier equipo. Un BFF viejo lo ignora y
@@ -73,25 +120,40 @@ router.get(
       const { schoolId, user } = req;
       const { q, sport, tag, mine, templates, limit, include_generic } = req.query as Record<string, string | undefined>;
 
+      // Deportes pedidos (null = todos): con include_generic, el deporte + los genéricos.
+      let wanted: string[] | null = null;
+      if (sport) {
+        if (!(EXERCISE_SPORTS as readonly string[]).includes(sport)) {
+          return res.status(400).json({ error: `sport inválido: ${sport.slice(0, 20)}` });
+        }
+        wanted = isTrue(include_generic) && sport !== 'generico' ? [sport, 'generico'] : [sport];
+      }
+
       let query = supabase
         .from('training_exercises')
         .select(LIST_COLUMNS)
         .eq('is_active', true);
 
       // templates=true → solo SportMaps; templates=false → solo de mi escuela;
-      // sin el parámetro → las dos.
-      if (isTrue(templates)) query = query.is('school_id', null).eq('is_template', true);
-      else if (isFalse(templates) || isTrue(mine)) query = query.eq('school_id', schoolId);
-      else query = query.or(`school_id.eq.${schoolId},and(school_id.is.null,is_template.eq.true)`);
+      // sin el parámetro → las dos. Las plantillas, SOLO de los deportes de la
+      // escuela (D1).
+      const ownOnly = !isTrue(templates) && (isFalse(templates) || isTrue(mine));
+      if (isTrue(templates)) {
+        const allowed: string[] = await loadSchoolLibrarySports(schoolId);
+        const templateSports = (wanted ?? allowed).filter((s) => allowed.includes(s));
+        if (templateSports.length === 0) return res.json([]);
+        query = query.is('school_id', null).eq('is_template', true).in('sport', templateSports);
+      } else if (ownOnly) {
+        query = query.eq('school_id', schoolId);
+      } else {
+        const allowed = await loadSchoolLibrarySports(schoolId);
+        query = query.or(`school_id.eq.${schoolId},and(school_id.is.null,is_template.eq.true,sport.in.(${allowed.join(',')}))`);
+      }
 
       if (isTrue(mine)) query = query.eq('created_by', user.id);
 
-      if (sport) {
-        if (!(EXERCISE_SPORTS as readonly string[]).includes(sport)) {
-          return res.status(400).json({ error: `sport inválido: ${sport.slice(0, 20)}` });
-        }
-        if (isTrue(include_generic) && sport !== 'generico') query = query.in('sport', [sport, 'generico']);
-        else query = query.eq('sport', sport);
+      if (wanted && !isTrue(templates)) {
+        query = wanted.length === 1 ? query.eq('sport', wanted[0]) : query.in('sport', wanted);
       }
       if (tag) {
         const t = tag.trim().toLowerCase().slice(0, 40);
@@ -125,6 +187,10 @@ router.get(
       if (!UUID_RE.test(paramId(req))) return res.status(400).json({ error: 'id inválido.' });
       const row = await loadVisible(paramId(req), req.schoolId);
       if (!row) return res.status(404).json({ error: 'Ejercicio no encontrado.' });
+      if (row.school_id === null) {
+        const allowed: string[] = await loadSchoolLibrarySports(req.schoolId);
+        if (!allowed.includes(row.sport)) return res.status(404).json({ error: 'Ejercicio no encontrado.' });
+      }
       res.json(row);
     } catch (err: any) {
       req.log?.error({ err }, 'school/exercises unhandled error');

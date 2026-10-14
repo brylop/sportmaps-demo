@@ -3,6 +3,11 @@
  * búsqueda, filtros por deporte y objetivo, «Plantillas SportMaps» vs «De mi
  * escuela», tarjetas con miniatura y «Usar en esta sesión» / «Ver».
  *
+ * D1 (docs/specs/pizarra-multideporte-3d-ia.md, M1): los chips de deporte son
+ * SOLO los de la escuela (GET /exercises/sports: sus equipos ∪ schools.sports)
+ * y «Preparación física» (lo genérico) siempre. Con un solo deporte la fila de
+ * chips no aparece. El BFF ya no manda plantillas de otros deportes.
+ *
  * Es un <Dialog> propio. Quien lo abre desde OTRO Dialog (SessionFormDialog,
  * TacticalBoard) tiene que ocultar el suyo mientras este está abierto —
  * dos Dialogs de Radix abiertos a la vez se cierran solos (ver el comentario
@@ -17,11 +22,12 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TacticalStaticSvg } from '@/components/school/TacticalStaticSvg';
-import { TACTICAL_SPORTS, isTacticalSport } from '@/lib/school/tacticalSports';
+import { isTacticalSport } from '@/lib/school/tacticalSports';
 import {
   EXERCISE_SPORT_LABEL,
   exerciseThumbnail,
   listExercises,
+  listLibrarySports,
   type ExerciseSport,
   type TrainingExercise,
 } from '@/lib/school/exerciseLibrary';
@@ -42,10 +48,22 @@ const OBJECTIVE_CHIPS: { tag: string; label: string }[] = [
   { tag: 'calentamiento', label: 'Calentamiento' },
 ];
 
-/** Todos los deportes de la pizarra (tacticalSports.ts), en el mismo orden:
- *  desde 20261013194057 cada uno tiene plantillas SportMaps, y «De mi escuela»
- *  puede tener ejercicios de cualquiera. Esconder un chip escondería ejercicios. */
-export const SPORT_CHIPS: ExerciseSport[] = [...TACTICAL_SPORTS];
+/**
+ * Chips de deporte a partir de los deportes de la escuela (ya en orden del
+ * catálogo). 'generico' («Preparación física») siempre, al final. Con UN solo
+ * deporte (además de lo genérico) no hay nada que elegir: sin fila de chips.
+ * Si el BFF no responde, el deporte del equipo + lo genérico (nunca todos).
+ */
+export function librarySportChips(
+  schoolSports: readonly ExerciseSport[] | undefined,
+  fallbackSport?: ExerciseSport,
+): { chips: ExerciseSport[]; showRow: boolean } {
+  const base = schoolSports && schoolSports.length > 0
+    ? schoolSports
+    : (fallbackSport && fallbackSport !== 'generico' ? [fallbackSport] : []);
+  const chips: ExerciseSport[] = [...base.filter((s) => s !== 'generico'), 'generico'];
+  return { chips, showRow: chips.length > 2 };
+}
 
 export interface ExerciseLibraryPanelProps {
   open: boolean;
@@ -75,9 +93,24 @@ export function ExerciseLibraryPanel({
   const [tag, setTag] = useState<string | undefined>();
   const [viewing, setViewing] = useState<TrainingExercise | null>(null);
 
+  const sportsQuery = useQuery({
+    queryKey: ['training-exercise-sports'],
+    queryFn: listLibrarySports,
+    enabled: open,
+    staleTime: 5 * 60_000,
+  });
+  const { chips, showRow: showSportRow } = librarySportChips(
+    sportsQuery.data,
+    isTacticalSport(defaultSport) ? defaultSport : undefined,
+  );
+  // Un deporte que la escuela no tiene (o la fila escondida con un solo
+  // deporte) = sin filtro: el BFF ya devuelve solo lo de la escuela.
+  const sportsKnown = sportsQuery.isSuccess || sportsQuery.isError;
+  const effectiveSport = sport && (!sportsKnown || (showSportRow && chips.includes(sport))) ? sport : undefined;
+
   const params = useMemo(
-    () => ({ q: search.trim() || undefined, sport, includeGeneric: true, tag, templates: source === 'templates' }),
-    [search, sport, tag, source],
+    () => ({ q: search.trim() || undefined, sport: effectiveSport, includeGeneric: true, tag, templates: source === 'templates' }),
+    [search, effectiveSport, tag, source],
   );
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -157,17 +190,19 @@ export function ExerciseLibraryPanel({
               />
             </div>
 
-            <ChipRow label="Deporte">
-              <Chip active={!sport} onClick={() => setSport(undefined)}>Todos</Chip>
-              {SPORT_CHIPS.map((s) => (
-                <Chip key={s} active={sport === s} onClick={() => setSport(sport === s ? undefined : s)}>
-                  {EXERCISE_SPORT_LABEL[s]}
-                </Chip>
-              ))}
-            </ChipRow>
-            {sport && sport !== 'generico' && (
+            {showSportRow && (
+              <ChipRow label="Deporte">
+                <Chip active={!effectiveSport} onClick={() => setSport(undefined)}>Todos</Chip>
+                {chips.map((s) => (
+                  <Chip key={s} active={effectiveSport === s} onClick={() => setSport(effectiveSport === s ? undefined : s)}>
+                    {EXERCISE_SPORT_LABEL[s]}
+                  </Chip>
+                ))}
+              </ChipRow>
+            )}
+            {effectiveSport && effectiveSport !== 'generico' && (
               <p className="text-xs text-muted-foreground -mt-2">
-                También ves los genéricos (calentamiento, coordinación), que sirven para cualquier deporte.
+                También ves la preparación física (calentamiento, coordinación), que sirve para cualquier deporte.
               </p>
             )}
 
