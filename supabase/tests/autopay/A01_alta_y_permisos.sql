@@ -112,12 +112,13 @@ begin
   update public.recurring_subscriptions set status = 'cancelled', cancel_reason = 'parent'
    where id = (r->>'subscription_id')::uuid;
 
-  -- Prueba 9: con la casilla pero el cobro ya vencido (hoy 10-15) → tampoco entra.
+  -- Prueba 9 (D14 revertida 2026-10-14, mig 20261014133326): con la casilla y el
+  -- cobro ya vencido (hoy 10-15) SÍ entra: se debita con la mora.
   r := public.autopay_create_subscription(current_setting('qa.padre_a')::uuid, current_setting('qa.school_a')::uuid,
          current_setting('qa.sofia')::uuid, null, current_setting('qa.token_a')::uuid, 200000,
          '00000000-0000-4000-e000-0000000000c1', true, '2026-10-15');
-  if (r->>'first_period_month')::int <> 11 then raise exception 'FALLO: 9 lo vencido entró → %', r; end if;
-  raise notice 'OK: 9 lo vencido nunca entra al débito, ni con la casilla';
+  if (r->>'first_period_month')::int <> 10 then raise exception 'FALLO: 9 con la casilla lo vencido no entró → %', r; end if;
+  raise notice 'OK: 9 con la casilla, lo vencido entra al débito (con la mora)';
   update public.recurring_subscriptions set status = 'cancelled', cancel_reason = 'parent'
    where id = (r->>'subscription_id')::uuid;
   update public.recurring_subscriptions set status = 'active', cancel_reason = null
