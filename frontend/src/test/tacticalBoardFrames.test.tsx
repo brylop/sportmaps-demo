@@ -78,6 +78,9 @@ beforeEach(() => {
   h.save = vi.fn().mockResolvedValue({});
 });
 
+// La pizarra tarda 1-2 s en montar en jsdom; con la máquina cargada el tope de 5 s daba falsos rojos.
+vi.setConfig({ testTimeout: 30_000 });
+
 describe('TacticalBoard — cuadros', () => {
   it('una jugada vieja (sin frames) abre como un solo cuadro', () => {
     renderBoard();
