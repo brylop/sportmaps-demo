@@ -225,6 +225,104 @@ export const BrandedEmailTemplates = {
         };
     },
 
+    /**
+     * Escalón de la cadencia de recordatorios de cobro por CORREO
+     * (recordatorios-cobro.service): mismo momento y mismo tono que la
+     * plantilla de WhatsApp del escalón. Uno por familia: si debe de varios
+     * hijos, los nombra juntos con el total. Ley 2300: respetuoso, sin
+     * amenazas; el botón abre /p/:token (paga sin iniciar sesión).
+     */
+    recordatorioCobro: async (params: {
+        concepto: 'recordatorio_previo' | 'vence_manana' | 'vence_hoy' | 'pendiente_suave' | 'pendiente_directo' | 'aviso_final';
+        parentName: string;
+        athletes: string;          // "Samuel" o "Samuel y Sofía"
+        amount: string;
+        period: string | null;     // "octubre 2026"
+        dueDate: string;           // "10 de octubre"
+        daysOverdue: number | null;
+        paymentLink: string;
+        schoolId: string | null;
+    }): Promise<{ subject: string; html: string }> => {
+        const branding = await resolveSchoolBranding(params.schoolId);
+        const escuela = branding.schoolName.replace(/&amp;/g, '&');
+        const atletas = `<strong>${escapeHtml(params.athletes)}</strong>`;
+        const mensualidad = params.period
+            ? `la mensualidad de ${escapeHtml(params.period)} de ${atletas}`
+            : `la mensualidad de ${atletas}`;
+        const fecha = escapeHtml(params.dueDate);
+        const dias = params.daysOverdue ?? 0;
+
+        const textos: Record<typeof params.concepto, { subject: string; title: string; body: string; tone: 'info' | 'warn' | 'late' }> = {
+            recordatorio_previo: {
+                subject: `Recordatorio: tu mensualidad vence el ${params.dueDate} — ${escuela}`,
+                title: 'Tu mensualidad vence pronto',
+                body: `Te recordamos que ${mensualidad} vence el <strong>${fecha}</strong>.`,
+                tone: 'info',
+            },
+            vence_manana: {
+                subject: `Tu mensualidad vence mañana — ${escuela}`,
+                title: 'Tu mensualidad vence mañana',
+                body: `Te recordamos que ${mensualidad} vence mañana, <strong>${fecha}</strong>.`,
+                tone: 'info',
+            },
+            vence_hoy: {
+                subject: `Hoy vence tu mensualidad — ${escuela}`,
+                title: 'Hoy vence tu mensualidad',
+                body: `Hoy, <strong>${fecha}</strong>, vence ${mensualidad}.`,
+                tone: 'warn',
+            },
+            pendiente_suave: {
+                subject: `Tu mensualidad está pendiente — ${escuela}`,
+                title: 'Tu mensualidad está pendiente',
+                body: `${mensualidad.charAt(0).toUpperCase()}${mensualidad.slice(1)} venció el <strong>${fecha}</strong> y aún no registramos el pago.
+                    Si tuviste algún inconveniente, escríbenos y lo resolvemos juntos.`,
+                tone: 'late',
+            },
+            pendiente_directo: {
+                subject: `Mensualidad con ${dias} días de vencida — ${escuela}`,
+                title: 'Mensualidad vencida',
+                body: `${mensualidad.charAt(0).toUpperCase()}${mensualidad.slice(1)} presenta <strong>${dias} días de vencida</strong>
+                    (venció el ${fecha}). Te invitamos a ponerte al día para que tu deportista siga entrenando sin novedad.`,
+                tone: 'late',
+            },
+            aviso_final: {
+                subject: `Último recordatorio de pago — ${escuela}`,
+                title: 'Último recordatorio de pago',
+                body: `${mensualidad.charAt(0).toUpperCase()}${mensualidad.slice(1)} sigue pendiente desde el ${fecha}
+                    (<strong>${dias} días</strong>). Este es el último recordatorio automático de este cobro;
+                    si necesitas un acuerdo de pago, comunícate con la escuela.`,
+                tone: 'late',
+            },
+        };
+        const t = textos[params.concepto];
+        const caja = {
+            info: 'background-color: #f3f4f6;',
+            warn: 'background-color: #fffbeb; border: 1px solid #fde68a;',
+            late: 'background-color: #fef2f2; border: 1px solid #fecaca;',
+        }[t.tone];
+
+        return {
+            subject: t.subject,
+            html: buildBrandedEmail({
+                branding,
+                title: t.title,
+                greeting: `Hola ${escapeHtml(params.parentName)},`,
+                bodyHtml: `
+                    <p>${t.body}</p>
+                    <table cellpadding="0" cellspacing="0" border="0" width="100%"
+                           style="${caja} border-radius: 8px; margin: 16px 0;">
+                        <tr><td style="padding: 16px;">
+                            <p style="margin: 4px 0;"><strong>Monto a pagar:</strong> ${escapeHtml(params.amount)}</p>
+                            <p style="margin: 4px 0;"><strong>${t.tone === 'late' ? 'Venció el' : 'Vence'}:</strong> ${fecha}</p>
+                        </td></tr>
+                    </table>
+                `,
+                cta: { label: 'Pagar Ahora', url: params.paymentLink },
+                closingHtml: 'Si ya realizaste el pago, puedes omitir este mensaje.',
+            }),
+        };
+    },
+
     // ── Glosas (aclaraciones de comprobante) ─────────────────────────────────
     /** Glosa creada → acudiente: necesita aclarar su comprobante. */
     glosaCreada: async (params: {

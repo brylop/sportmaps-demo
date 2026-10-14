@@ -52,6 +52,15 @@
  *     proceso; por escuela charge_notifications_enabled AND
  *     whatsapp_collection_reminders_enabled (default false). Mientras el estado
  *     de cuenta del mes de la escuela esté pendiente, la escuela espera.
+ *
+ * CANAL CORREO (2026-10-14, pedido para Besser)
+ *   Con school_settings.email_collection_reminders_enabled, la familia SIN
+ *   WhatsApp con opt-in recibe la misma escalera por correo, salvo
+ *   «vence_mañana» (ESCALONES_CORREO: -3 · 0 · +3 · +10 · +20). Cada familia va
+ *   por UN canal: WhatsApp si tiene opt-in, si no correo — nunca los dos, que
+ *   la Ley 2300 no permite contactar por varios canales en la misma semana.
+ *   Mismo candado familia-día y mismo estampado; family_key = el correo, que es
+ *   la clave que payment-lifecycle-emails consulta para no repetir el día.
  */
 
 import { supabase } from '../config/supabase';
@@ -61,6 +70,9 @@ import {
     type ConceptoCobro, type DatosCobro,
 } from './whatsapp-plantillas.service';
 import { emitirTokenCobro } from './cobro-enlace-publico.service';
+import { emailClient } from '../utils/emailClient';
+import { BrandedEmailTemplates } from '../utils/emailTemplates';
+import { appPublica, enlaceDeCobro } from '../utils/url-publica-familias';
 import { findDuplicatePaymentIds } from './duplicatePayerGuard.service';
 import { esMensualidad } from './tipo-de-cobro';
 import { COLUMNAS_CONTACTO_FICHA, COLUMNAS_CONTACTO_HIJO } from './contacto-acudiente';
@@ -87,6 +99,13 @@ export const ESCALONES: Escalon[] = [
 ];
 
 const SEVERIDAD = new Map(ESCALONES.map((e, i) => [e.concepto, i]));
+
+/** Escalones que también salen por correo: sin «mañana vence» (dos correos seguidos es ruido). */
+export const ESCALONES_CORREO: ReadonlySet<ConceptoRecordatorio> = new Set(
+    ESCALONES.map((e) => e.concepto).filter((c) => c !== 'vence_manana'),
+);
+
+export type CanalRecordatorio = 'whatsapp' | 'email';
 
 /** Días entre el vencimiento y hoy (ambos 'YYYY-MM-DD'): negativo = falta. */
 export function diasDesdeVencimiento(dueDate: string, hoyISO: string): number {
@@ -139,8 +158,10 @@ export function unirNombres(nombres: (string | null | undefined)[]): string {
 }
 
 export interface ContactoPlaneado {
-    familyKey: string;           // 'wa:<wa_id>'
-    waId: string;
+    canal: CanalRecordatorio;
+    familyKey: string;           // 'wa:<wa_id>' o el correo en minúscula
+    waId: string | null;
+    email: string | null;
     perfilId: string | null;
     concepto: ConceptoRecordatorio;
     /** Cobros que menciona el mensaje; el primero es el "líder" (el más viejo): botón y candado. */
@@ -170,6 +191,8 @@ export interface EntradaPlan {
     optin: Set<string>;
     /** Claves ('wa:<id>' o correo) que HOY ya recibieron un contacto de cobranza. */
     contactadosHoy: Set<string>;
+    /** La escuela tiene la cadencia por correo: la familia sin WhatsApp con opt-in la recibe por correo. */
+    canalCorreo?: boolean;
 }
 
 /**
@@ -185,7 +208,8 @@ export function planificar(e: EntradaPlan): Plan {
     const limitePrevio = `${sumarDias(e.hoy, -DIAS_SIN_REPETIR_PREVIO)}T05:00:00Z`; // 00:00 COT
 
     type Cand = { paymentId: string; escalon: Escalon; delta: number; atleta: string; saldo: number; vence: string };
-    const porTelefono = new Map<string, { familias: Familia[]; cands: Cand[] }>();
+    // Clave del destinatario: 'wa:<id>' (WhatsApp) o el correo (correo).
+    const porDestino = new Map<string, { canal: CanalRecordatorio; familias: Familia[]; cands: Cand[] }>();
 
     for (const f of e.familias) {
         const cands: Cand[] = [];
@@ -209,16 +233,29 @@ export function planificar(e: EntradaPlan): Plan {
         if (f.avisadaHoy || e.contactadosHoy.has(f.clave) || (f.waId && e.contactadosHoy.has(`wa:${f.waId}`))) {
             descartes.ya_contactada_hoy++; continue;
         }
-        if (!f.waId) { descartes.sin_telefono++; continue; }
-        if (!e.optin.has(f.waId)) { descartes.sin_optin++; continue; }
-        const g = porTelefono.get(f.waId) ?? { familias: [], cands: [] };
+        let destino: string;
+        let canal: CanalRecordatorio;
+        let suyos = cands;
+        if (f.waId && e.optin.has(f.waId)) {
+            destino = `wa:${f.waId}`;
+            canal = 'whatsapp';
+        } else if (e.canalCorreo && f.email) {
+            suyos = cands.filter((c) => ESCALONES_CORREO.has(c.escalon.concepto));
+            if (suyos.length === 0) { descartes.sin_escalon_hoy++; continue; }
+            destino = f.email.trim().toLowerCase();
+            canal = 'email';
+        } else {
+            if (!f.waId) descartes.sin_telefono++; else descartes.sin_optin++;
+            continue;
+        }
+        const g = porDestino.get(destino) ?? { canal, familias: [], cands: [] };
         g.familias.push(f);
-        g.cands.push(...cands);
-        porTelefono.set(f.waId, g);
+        g.cands.push(...suyos);
+        porDestino.set(destino, g);
     }
 
     const contactos: ContactoPlaneado[] = [];
-    for (const [waId, g] of porTelefono) {
+    for (const [destino, g] of porDestino) {
         const max = Math.max(...g.cands.map((c) => SEVERIDAD.get(c.escalon.concepto)!));
         const grupo = g.cands
             .filter((c) => SEVERIDAD.get(c.escalon.concepto) === max)
@@ -226,8 +263,10 @@ export function planificar(e: EntradaPlan): Plan {
         const lider = grupo[0];
         const fam = g.familias[0];
         contactos.push({
-            familyKey: `wa:${waId}`,
-            waId,
+            canal: g.canal,
+            familyKey: destino,
+            waId: g.canal === 'whatsapp' ? destino.slice(3) : null,
+            email: g.canal === 'email' ? destino : null,
             perfilId: g.familias.find((f) => f.perfilId)?.perfilId ?? null,
             concepto: lider.escalon.concepto,
             paymentIds: grupo.map((c) => c.paymentId),
@@ -348,14 +387,30 @@ export async function telefonosConOptin(integrationId: string): Promise<Set<stri
     return new Set(((data as any[]) ?? []).map((r) => String(r.contact_wa_id)));
 }
 
-export async function escuelasConRecordatorios(): Promise<string[]> {
+export interface CanalesEscuela { whatsapp: boolean; correo: boolean }
+
+/** Escuelas con la cadencia prendida en algún canal, y por cuál. */
+export async function escuelasConRecordatorios(): Promise<Map<string, CanalesEscuela>> {
+    const out = new Map<string, CanalesEscuela>();
     const { data, error } = await supabase.from('school_settings')
-        .select('school_id')
-        .eq('charge_notifications_enabled', true)
-        .eq('whatsapp_collection_reminders_enabled', true);
-    // Columna sin crear (migración pendiente) = apagado en los tres BFF.
-    if (error) return [];
-    return ((data as any[]) ?? []).map((r) => r.school_id);
+        .select('school_id, whatsapp_collection_reminders_enabled, email_collection_reminders_enabled')
+        .eq('charge_notifications_enabled', true);
+    if (error) {
+        // Sin la columna del correo (migración 20261014112226 sin aplicar): solo WhatsApp, como antes.
+        // Sin ninguna de las dos: apagado en los tres BFF.
+        const { data: soloWa, error: e2 } = await supabase.from('school_settings')
+            .select('school_id')
+            .eq('charge_notifications_enabled', true)
+            .eq('whatsapp_collection_reminders_enabled', true);
+        if (e2) return out;
+        for (const r of (soloWa as any[]) ?? []) out.set(r.school_id, { whatsapp: true, correo: false });
+        return out;
+    }
+    for (const r of (data as any[]) ?? []) {
+        const c = { whatsapp: r.whatsapp_collection_reminders_enabled === true, correo: r.email_collection_reminders_enabled === true };
+        if (c.whatsapp || c.correo) out.set(r.school_id, c);
+    }
+    return out;
 }
 
 export interface DiagnosticoEscuela {
@@ -372,9 +427,13 @@ export interface DiagnosticoEscuela {
 
 /**
  * Arma el plan de una escuela para el día de `ahora`. No escribe nada.
- * `hoyOverride` sirve al script para simular mañana.
+ * `hoyOverride` sirve al script para simular mañana. `canales` por defecto =
+ * solo WhatsApp (lo de siempre); el job pasa lo que la escuela tiene prendido.
  */
-export async function planDeEscuela(schoolId: string, ahora: Date, hoyOverride?: string): Promise<{ plan: Plan; diag: DiagnosticoEscuela }> {
+export async function planDeEscuela(
+    schoolId: string, ahora: Date, hoyOverride?: string,
+    canales: CanalesEscuela = { whatsapp: true, correo: false },
+): Promise<{ plan: Plan; diag: DiagnosticoEscuela }> {
     const hoy = hoyOverride ?? fechaColombia(ahora);
     const desde = sumarDias(hoy, -ESCALONES[ESCALONES.length - 1].hasta);
     const hasta = sumarDias(hoy, -ESCALONES[0].desde);
@@ -440,7 +499,8 @@ export async function planDeEscuela(schoolId: string, ahora: Date, hoyOverride?:
     }
 
     const [optin, estadoHoy, recordatorioHoy] = await Promise.all([
-        integracion ? telefonosConOptin(integracion) : Promise.resolve(new Set<string>()),
+        // Sin el canal WhatsApp prendido, nadie tiene opt-in para la cadencia: todo va por correo (si está).
+        integracion && canales.whatsapp ? telefonosConOptin(integracion) : Promise.resolve(new Set<string>()),
         contactosConEstadoDeCuentaHoy(schoolId, ahoraDelDia).catch(() => new Set<string>()),
         contactosConRecordatorioHoy(schoolId, ahoraDelDia),
     ]);
@@ -457,6 +517,7 @@ export async function planDeEscuela(schoolId: string, ahora: Date, hoyOverride?:
         pagos: new Map(cobrables.map((p) => [p.id, p])),
         enviados, optin,
         contactadosHoy: new Set([...estadoHoy, ...recordatorioHoy]),
+        canalCorreo: canales.correo,
     });
     return {
         plan,
@@ -471,6 +532,30 @@ export async function planDeEscuela(schoolId: string, ahora: Date, hoyOverride?:
 
 export type ResultadoContacto = 'enviado' | 'ya_reclamado' | `no_enviado:${string}`;
 
+type EnvioCanal = { enviado: true; waMessageId?: string | null; plantilla?: string | null } | { enviado: false; motivo: string };
+
+/** El escalón por correo. El botón abre /p/:token del cobro líder (paga sin iniciar sesión). */
+async function enviarPorCorreo(schoolId: string, c: ContactoPlaneado, lider: string): Promise<EnvioCanal> {
+    if (!c.email) return { enviado: false, motivo: 'sin_correo' };
+    // Sin token (falló la emisión) el botón cae a «Mis pagos», que pide iniciar sesión.
+    const token = await emitirTokenCobro(lider).catch(() => null);
+    const link = token ? enlaceDeCobro(appPublica(), token) : `${appPublica()}/my-payments`;
+    const tpl = await BrandedEmailTemplates.recordatorioCobro({
+        concepto: c.concepto,
+        parentName: c.datos.nombreContacto,
+        athletes: c.datos.nombreAtleta,
+        amount: c.datos.monto,
+        period: c.datos.periodo ?? null,
+        dueDate: c.datos.fechaVencimiento ?? '',
+        daysOverdue: c.datos.diasVencido ?? null,
+        paymentLink: link,
+        schoolId,
+    });
+    const r = await emailClient.send({ to: c.email, subject: tpl.subject, html: tpl.html });
+    if (!r?.success) return { enviado: false, motivo: 'correo_fallo' };
+    return { enviado: true, waMessageId: null, plantilla: `correo:${c.concepto}` };
+}
+
 /**
  * Reclama el contacto en la base y lo manda. Orden:
  *   1. fila líder (candado familia-día + cobro-escalón). 23505 = otro BFF o ya hecho.
@@ -481,7 +566,7 @@ export type ResultadoContacto = 'enviado' | 'ya_reclamado' | `no_enviado:${strin
  *      dentro de la ventana puede intentarse).
  */
 export async function enviarContacto(schoolId: string, c: ContactoPlaneado, ahora: Date, hoy = fechaColombia(ahora)): Promise<ResultadoContacto> {
-    const base = { school_id: schoolId, notice_type: c.concepto, channel: 'whatsapp', family_key: c.familyKey, contact_day: hoy, status: 'claimed' };
+    const base = { school_id: schoolId, notice_type: c.concepto, channel: c.canal, family_key: c.familyKey, contact_day: hoy, status: 'claimed' };
     const [lider, ...resto] = c.paymentIds;
     const { data: filaLider, error: errLider } = await supabase.from('collection_notices')
         .insert({ ...base, payment_id: lider, is_lead: true }).select('id').maybeSingle();
@@ -493,10 +578,12 @@ export async function enviarContacto(schoolId: string, c: ContactoPlaneado, ahor
         await supabase.from('collection_notices')
             .upsert(resto.map((payment_id) => ({ ...base, payment_id, is_lead: false })), { onConflict: 'payment_id,notice_type', ignoreDuplicates: true });
     }
-    const r = await enviarCobroPorPlantilla({
-        schoolId, concepto: c.concepto, telefono: c.waId, datos: c.datos,
-        tokenBoton: await emitirTokenCobro(lider), paymentId: lider, parentId: c.perfilId, ahora,
-    });
+    const r = c.canal === 'email'
+        ? await enviarPorCorreo(schoolId, c, lider)
+        : await enviarCobroPorPlantilla({
+            schoolId, concepto: c.concepto, telefono: c.waId!, datos: c.datos,
+            tokenBoton: await emitirTokenCobro(lider), paymentId: lider, parentId: c.perfilId, ahora,
+        });
 
     if (!r.enviado) {
         await supabase.from('collection_notices').delete()
@@ -507,7 +594,7 @@ export async function enviarContacto(schoolId: string, c: ContactoPlaneado, ahor
 
     const ahoraIso = new Date().toISOString();
     await supabase.from('collection_notices')
-        .update({ status: 'sent', sent_at: ahoraIso, wa_message_id: r.waMessageId, detail: r.plantilla })
+        .update({ status: 'sent', sent_at: ahoraIso, wa_message_id: r.waMessageId ?? null, detail: r.plantilla })
         .eq('school_id', schoolId).eq('family_key', c.familyKey).eq('contact_day', hoy)
         .eq('notice_type', c.concepto).in('payment_id', c.paymentIds);
     const esMora = ESCALONES.find((e) => e.concepto === c.concepto)!.mora;
@@ -533,14 +620,15 @@ export async function runRecordatoriosCobro(ahora: Date = new Date()): Promise<R
     if (!esHoraDeRecordatorios(ahora)) return out;
 
     const escuelas = await escuelasConRecordatorios();
-    if (escuelas.length === 0) return out;
+    if (escuelas.size === 0) return out;
     // El estado de cuenta del mes manda primero: la escuela espera hasta que salga.
-    const pendientes = await escuelasConEstadoPendiente(escuelas, ahora).catch(() => new Set(escuelas));
+    const ids = [...escuelas.keys()];
+    const pendientes = await escuelasConEstadoPendiente(ids, ahora).catch(() => new Set(ids));
 
-    for (const schoolId of escuelas) {
+    for (const [schoolId, canales] of escuelas) {
         if (pendientes.has(schoolId)) { out[schoolId] = 'estado de cuenta del mes pendiente: se espera'; continue; }
         try {
-            const { plan, diag } = await planDeEscuela(schoolId, ahora);
+            const { plan, diag } = await planDeEscuela(schoolId, ahora, undefined, canales);
             if (!diag.migracionAplicada) { out[schoolId] = 'migración 20261006101656 sin aplicar: no se manda nada'; continue; }
             const r: ResumenCorrida = {
                 escuela: diag.escuela, contactos: plan.contactos.length, enviados: 0, yaReclamados: 0,
