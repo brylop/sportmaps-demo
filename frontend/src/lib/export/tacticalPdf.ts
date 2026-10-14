@@ -10,6 +10,7 @@ import jsPDF from 'jspdf';
 import { format } from 'date-fns';
 import type { TacticalArrow } from '@/lib/school/footballQueries';
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
+import type { TacticalSport } from '@/lib/school/tacticalSports';
 import type { TacticalStaticPlayer } from '@/components/school/TacticalStaticSvg';
 import { renderTacticalPng } from './tacticalImage';
 import { frameToStatic } from './tacticalInterpolation';
@@ -28,6 +29,8 @@ export interface ExercisePdfInput {
   arrows: TacticalArrow[];
   playerLabels?: Record<string, string>;
   playerJerseys?: Record<string, number | null>;
+  /** Deporte de la cancha (T4). Sin él, fútbol 11. */
+  sport?: TacticalSport | null;
 }
 
 const BRAND_GREEN: [number, number, number] = [26, 97, 24]; // mismo verde que MesocycleExportButton/executivePdf
@@ -52,11 +55,11 @@ export async function exportExercisePdf(input: ExercisePdfInput): Promise<Blob> 
     : { players: input.players || [], arrows: input.arrows || [] };
   const { thumbs, more } = stripSlots(frames?.length ?? 0);
 
-  const main = await renderTacticalPng(first.players, first.arrows, 900);
+  const main = await renderTacticalPng(first.players, first.arrows, 900, input.sport);
   const thumbImgs: string[] = [];
   for (let i = 0; i < thumbs; i++) {
     const s = frameToStatic(frames![i], input.playerLabels, input.playerJerseys);
-    thumbImgs.push((await renderTacticalPng(s.players, s.arrows, 300)).dataUrl);
+    thumbImgs.push((await renderTacticalPng(s.players, s.arrows, 300, input.sport)).dataUrl);
   }
 
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });

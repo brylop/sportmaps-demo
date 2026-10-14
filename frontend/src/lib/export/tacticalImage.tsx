@@ -9,21 +9,29 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { TacticalArrow } from '@/lib/school/footballQueries';
 import { TacticalStaticSvg, type TacticalStaticPlayer } from '@/components/school/TacticalStaticSvg';
+import type { TacticalSport } from '@/lib/school/tacticalSports';
 
 /** Ancho en px del PNG. 600 px a ~70 mm ≈ 220 dpi: nítido impreso, liviano. */
 const DEFAULT_WIDTH_PX = 600;
 
-export function tacticalSvgMarkup(players: TacticalStaticPlayer[], arrows: TacticalArrow[], widthPx = DEFAULT_WIDTH_PX): string {
-  return renderToStaticMarkup(<TacticalStaticSvg players={players} arrows={arrows} width={widthPx} />);
+/** `sport` (T4): la cancha del deporte del equipo; sin él, fútbol 11 como siempre. */
+export function tacticalSvgMarkup(
+  players: TacticalStaticPlayer[],
+  arrows: TacticalArrow[],
+  widthPx = DEFAULT_WIDTH_PX,
+  sport?: TacticalSport | null,
+): string {
+  return renderToStaticMarkup(<TacticalStaticSvg players={players} arrows={arrows} width={widthPx} sport={sport} />);
 }
 
 export async function renderTacticalPng(
   players: TacticalStaticPlayer[],
   arrows: TacticalArrow[],
   widthPx = DEFAULT_WIDTH_PX,
+  sport?: TacticalSport | null,
 ): Promise<{ dataUrl: string; aspect: number }> {
   const heightPx = Math.round((widthPx * 340) / 300);
-  const markup = tacticalSvgMarkup(players, arrows, widthPx);
+  const markup = tacticalSvgMarkup(players, arrows, widthPx, sport);
   const blob = new Blob([markup], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   try {

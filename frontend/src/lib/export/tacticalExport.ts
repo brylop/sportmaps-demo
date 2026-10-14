@@ -5,11 +5,14 @@
  * Punto de entrada único; cada pieza vive en su archivo:
  *  - tacticalPdf.ts          ficha A4
  *  - tacticalVideo.ts        MediaRecorder sobre canvas
+ *  - tacticalGif.ts          GIF cuando no hay MediaRecorder (gifEncoder.ts)
+ *  - tacticalFrameRenderer.ts pintor de cuadros compartido por video y GIF
  *  - tacticalShare.ts        Web Share API / descarga + wa.me
  *  - tacticalInterpolation.ts interpolación pura de cuadros
  */
 import type { TacticalArrow } from '@/lib/school/footballQueries';
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
+import type { TacticalSport } from '@/lib/school/tacticalSports';
 import type { TacticalStaticPlayer } from '@/components/school/TacticalStaticSvg';
 import { renderTacticalPng } from './tacticalImage';
 import { canvasToBlob, loadImage } from './tacticalExportUtils';
@@ -25,7 +28,17 @@ export {
   type ExportVideoResult,
   type TacticalVideoFormat,
 } from './tacticalVideo';
-export { shareFile, whatsappTextUrl, isMobileDevice, type ShareResult, type ShareMethod } from './tacticalShare';
+export {
+  exportGif,
+  exportAnimation,
+  gifSampleTimes,
+  type ExportGifOptions,
+  type ExportGifResult,
+  type ExportAnimationOptions,
+  type ExportAnimationResult,
+} from './tacticalGif';
+export { pickAnimationKind, animationLabel, type TacticalAnimationKind } from './tacticalAnimationFormat';
+export { shareFile, canShareFiles, whatsappTextUrl, isMobileDevice, type ShareResult, type ShareMethod } from './tacticalShare';
 export { interpolateFrames, framesDuration, frameToStatic, easeInOutCubic, type InterpolatedState } from './tacticalInterpolation';
 export { exportFileName, cleanPdfText } from './tacticalExportUtils';
 
@@ -47,6 +60,8 @@ export interface TacticalExportInput {
   ageGroup?: string | null;
   materials?: string | null;
   description?: string | null;
+  /** Deporte de la cancha (T4). Sin él, fútbol 11. */
+  sport?: TacticalSport | null;
 }
 
 export interface ExportPngInput {
@@ -56,6 +71,8 @@ export interface ExportPngInput {
   teamName?: string | null;
   /** Ancho del PNG en px (1080 = nítido en WhatsApp sin pesar de más). */
   widthPx?: number;
+  /** Deporte de la cancha (T4). Sin él, fútbol 11. */
+  sport?: TacticalSport | null;
 }
 
 const BRAND_GREEN = '#1a6118';
@@ -70,7 +87,7 @@ function fitText(ctx: CanvasRenderingContext2D, text: string, maxW: number): str
 /** Jugada → PNG con una franja abajo: título + equipo a la izquierda, «SportMaps» a la derecha. */
 export async function exportPng(input: ExportPngInput): Promise<Blob> {
   const width = Math.round(input.widthPx ?? 1080);
-  const { dataUrl, aspect } = await renderTacticalPng(input.players || [], input.arrows || [], width);
+  const { dataUrl, aspect } = await renderTacticalPng(input.players || [], input.arrows || [], width, input.sport);
   const pitchH = Math.round(width * aspect);
   const band = Math.max(48, Math.round(width * 0.085));
   const img = await loadImage(dataUrl);
