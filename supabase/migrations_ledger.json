@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 746,
-  "head": "20261013165308",
+  "count": 747,
+  "head": "20261013200604",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -749,6 +749,7 @@
     {"v":"20261011101750","file":"20261011101750_dreamers_primer_cobro_sin_recargo.sql","sha256":"02d00b9c52b3386c389a01f7d88c60be378eee87d80b2eea5f012a1e322b73d9","added":"2026-10-11","by":"judegor99"},
     {"v":"20261013124655","file":"20261013124655_wa_bandeja_autocierre_por_pago.sql","sha256":"dd6e54362f00c82704154f4edcb4c059a6d6593a275eb0b79a7b916a104a1099","added":"2026-10-13","by":"Brayan Steven Lopez"},
     {"v":"20261013164839","file":"20261013164839_whatsapp_tipos_de_contacto.sql","sha256":"61419b5fe141df43ab6e680a045b181ff938c3310efdcd8a3910dacbec03f779","added":"2026-10-13","by":"Brayan Steven Lopez"},
-    {"v":"20261013165308","file":"20261013165308_wa_saldo_a_favor_y_huellas.sql","sha256":"d8b137ba239c1455dfaf8c0f1b053ed1c08a035374318fd4a2dce305554868d7","added":"2026-10-13","by":"Brayan Steven Lopez"}
+    {"v":"20261013165308","file":"20261013165308_wa_saldo_a_favor_y_huellas.sql","sha256":"d8b137ba239c1455dfaf8c0f1b053ed1c08a035374318fd4a2dce305554868d7","added":"2026-10-13","by":"Brayan Steven Lopez"},
+    {"v":"20261013200604","file":"20261013200604_pizarra_rls_biblioteca_y_rpc_ejercicio.sql","sha256":"bc523dbd622f86a87c321b7f928d7dc56fc5cdc3f43865fa3122300c659cb6ab","added":"2026-10-14","by":"Brayan Steven Lopez"}
   ]
 }
