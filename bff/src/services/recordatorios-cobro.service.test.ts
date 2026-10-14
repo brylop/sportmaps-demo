@@ -314,3 +314,42 @@ describe('runRecordatoriosCobro', () => {
         expect(h.llamadas).toHaveLength(0);
     });
 });
+
+// ─── Mora (2026-10-14): la familia ve el total CON mora y su desglose ────────
+
+describe('mora en la cadencia', () => {
+    const conMora = (clave: string, waId: string | null) => familia(clave, waId, [
+        { id: 'p1', atleta: 'Samuel R', vence: '2026-09-29', saldo: 165000 },   // +10 con mora de 15.000
+        { id: 'p2', atleta: 'Sofía R', vence: '2026-09-29', saldo: 150000 },    // +10 sin mora
+    ]);
+    const ponerMora = (f: Familia) => { f.filas[0].mora = 15000; return f; };
+
+    it('WhatsApp: el monto suma la mora y lo dice en la variable de la plantilla', () => {
+        const f = ponerMora(conMora('caro@x.co', '573001112233'));
+        const plan = planificar(entrada([f], [pago('p1', '2026-09-29'), pago('p2', '2026-09-29')]));
+        const c = plan.contactos[0];
+        expect(c.concepto).toBe('pendiente_directo');
+        expect(c.total).toBe(315000);
+        expect(c.mora).toBe(15000);
+        expect(c.datos.monto).toBe('$315.000, que incluye $15.000 de recargo por mora');
+    });
+
+    it('sin mora: el monto como siempre', () => {
+        const plan = planificar(entrada([conMora('caro@x.co', '573001112233')], [pago('p1', '2026-09-29'), pago('p2', '2026-09-29')]));
+        expect(plan.contactos[0].mora).toBe(0);
+        expect(plan.contactos[0].datos.monto).toBe('$315.000');
+    });
+
+    it('correo: la plantilla recibe el desglose (mensualidad + recargo; amount = total)', async () => {
+        const f = ponerMora(conMora('caro@x.co', null));
+        const plan = planificar(entrada([f], [pago('p1', '2026-09-29'), pago('p2', '2026-09-29')], { canalCorreo: true }));
+        const c = plan.contactos[0];
+        expect(c.canal).toBe('email');
+        h.correo.mockResolvedValue({ success: true });
+        expect(await enviarContacto('s', c, AHORA)).toBe('enviado');
+        const { BrandedEmailTemplates } = await import('../utils/emailTemplates');
+        const params = (BrandedEmailTemplates.recordatorioCobro as any).mock.calls.at(-1)[0];
+        expect(params.lateFee).toEqual({ base: '$300.000', fee: '$15.000' });
+        expect(params.amount).toBe('$315.000');
+    });
+});

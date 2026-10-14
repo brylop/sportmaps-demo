@@ -17,6 +17,23 @@
 import { resolveSchoolBranding, escapeHtml } from './schoolBrandingResolver';
 import { buildBrandedEmail } from './emailLayout';
 
+/**
+ * Desglose de un cobro con mora (2026-10-14): apply_late_fees() suma el
+ * recargo DENTRO de payments.amount, así que `amount` del correo ya es el
+ * total; esto solo explica de dónde sale. `base` = total - recargo, ya
+ * formateado como el resto de los montos (ver utils/desglose-mora).
+ */
+export interface DesgloseMoraCorreo {
+    base: string;
+    fee: string;
+}
+
+/** «Mensualidad $X · Recargo por mora $Y · Total $Z» (valores ya formateados). */
+function lineaMora(amount: string, mora: DesgloseMoraCorreo | null | undefined, etiquetaBase = 'Mensualidad'): string {
+    if (!mora) return '';
+    return `${escapeHtml(etiquetaBase)} ${escapeHtml(mora.base)} · Recargo por mora ${escapeHtml(mora.fee)} · Total ${escapeHtml(amount)}`;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // API moderna — async, con branding por escuela
 // ─────────────────────────────────────────────────────────────────────────────
@@ -192,6 +209,8 @@ export const BrandedEmailTemplates = {
         chargeLabel?: string | null;
         /** Concepto del cobro; si viene, se muestra en el recuadro. */
         concept?: string | null;
+        /** Cobro con mora (late_fee_amount > 0): desglose bajo el monto. `amount` ya es el total. */
+        lateFee?: DesgloseMoraCorreo | null;
     }): Promise<{ subject: string; html: string }> => {
         const branding = await resolveSchoolBranding(params.schoolId);
         const queCobro = params.chargeLabel
@@ -199,6 +218,10 @@ export const BrandedEmailTemplates = {
             : 'de la mensualidad';
         const lineaConcepto = params.concept
             ? `<p style="margin: 4px 0;"><strong>Concepto:</strong> ${escapeHtml(params.concept)}</p>`
+            : '';
+        const desglose = lineaMora(params.amount, params.lateFee, params.chargeLabel ? 'Valor del cobro' : 'Mensualidad');
+        const lineaDesglose = desglose
+            ? `<p style="margin: 4px 0; color: #991b1b; font-size: 13px;">${desglose}</p>`
             : '';
 
         return {
@@ -215,6 +238,7 @@ export const BrandedEmailTemplates = {
                         <tr><td style="padding: 16px;">
                             ${lineaConcepto}
                             <p style="margin: 4px 0;"><strong>Monto a pagar:</strong> ${escapeHtml(params.amount)}</p>
+                            ${lineaDesglose}
                             <p style="margin: 4px 0;"><strong>Venció el:</strong> ${escapeHtml(params.dueDate)}</p>
                         </td></tr>
                     </table>
@@ -247,6 +271,8 @@ export const BrandedEmailTemplates = {
         cutoffDay?: number | null; // 10 → "los primeros 10 días de cada mes"
         /** Política de cobranza de la escuela (school_settings.collection_policy_notice): recuadro destacado. */
         policyNotice?: string | null;
+        /** Mora incluida en `amount` (suma de late_fee_amount del mensaje): desglose bajo el total. */
+        lateFee?: DesgloseMoraCorreo | null;
     }): Promise<{ subject: string; html: string }> => {
         const branding = await resolveSchoolBranding(params.schoolId);
         const escuela = branding.schoolName.replace(/&amp;/g, '&');
@@ -320,6 +346,11 @@ export const BrandedEmailTemplates = {
             </tr>`;
         };
         const periodo = params.period ? params.period.charAt(0).toUpperCase() + params.period.slice(1) : null;
+        const desglose = lineaMora(params.amount, params.lateFee);
+        const lineaDesglose = desglose
+            ? `
+                                <p style="margin: 6px 0 0 0; color: #6b7280; font-size: 13px; line-height: 1.4;">${desglose}</p>`
+            : '';
         const filas: [string, string][] = [
             ['Deportista', escapeHtml(params.athletes)],
             ...(periodo ? [['Mensualidad', escapeHtml(periodo)] as [string, string]] : []),
@@ -378,7 +409,7 @@ export const BrandedEmailTemplates = {
                         <tr>
                             <td colspan="2" style="background-color: ${color.cardBg}; padding: 18px 20px; border-bottom: 1px solid #e5e7eb;">
                                 <p style="margin: 0; color: #6b7280; font-size: 12px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase;">Total a pagar</p>
-                                <p style="margin: 4px 0 0 0; color: ${color.amount}; font-size: 30px; font-weight: 800; line-height: 1.2;">${escapeHtml(params.amount)}</p>
+                                <p style="margin: 4px 0 0 0; color: ${color.amount}; font-size: 30px; font-weight: 800; line-height: 1.2;">${escapeHtml(params.amount)}</p>${lineaDesglose}
                             </td>
                         </tr>
                         ${filas.map(([k, v], i) => fila(k, v, i === filas.length - 1)).join('')}

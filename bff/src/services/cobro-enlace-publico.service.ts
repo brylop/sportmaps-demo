@@ -12,7 +12,8 @@
  * cobro"), así el webhook de Wompi lo concilia sin saber que vino de acá.
  *
  * Reglas que se respetan del checkout existente (create-session):
- *   · El monto se calcula en el servidor: base = payments.amount; en línea se
+ *   · El monto se calcula en el servidor: base = payments.amount - amount_paid
+ *     (la mora ya va dentro de amount: apply_late_fees la suma); en línea se
  *     suma `online_fee_pct` de school_settings (recargo de la escuela, ver
  *     memoria "recargo online = de la escuela"). Por transferencia, la base.
  *   · Solo se cobra en línea lo que está en 'pending' u 'overdue' y sin
@@ -58,7 +59,7 @@ import { enlaceActivarAvisosParaPagador } from './whatsapp-activar-avisos';
 import { categoriaDeCobro, esCobroUnico } from './payment-accounts';
 import { findDuplicatePaymentIds } from './duplicatePayerGuard.service';
 import { debitoEnCurso, MENSAJE_DEBITO_EN_CURSO } from './autopay.service';
-import { saldoPorCobrar, ESTADOS_PAGABLES_EN_LINEA } from '../utils/saldo-cobro';
+import { saldoPorCobrar, saldoDelCobro, ESTADOS_PAGABLES_EN_LINEA } from '../utils/saldo-cobro';
 
 /** Formato del token que emite la RPC: 18 bytes → 24 caracteres base64url. */
 export const TOKEN_COBRO_RE = /^[A-Za-z0-9_-]{24}$/;
@@ -77,8 +78,15 @@ export interface VistaCobroPublico {
     periodo: string | null;
     deportista: string | null;
     estado: EstadoCobro;
-    /** Lo que se paga por transferencia (sin recargo). */
+    /** Lo que se paga por transferencia (sin recargo): saldo = amount - amount_paid, mora incluida. */
     monto: number;
+    /**
+     * Recargo por mora que ya está DENTRO de `monto` (payments.late_fee_amount,
+     * lo suma apply_late_fees cada noche); 0 si no hay. Es solo para mostrar el
+     * desglose «Mensualidad $X · Recargo por mora $Y»: no se suma otra vez.
+     * Nombre en snake_case a propósito: es el contrato con la página /p/:token.
+     */
+    late_fee_amount: number;
     fechaVencimiento: string | null;
     fechaPago: string | null;
     enlaceVenceEn: string;
@@ -229,6 +237,15 @@ export function estadoPublico(status: string, dueDate: string | null, hoyISO: st
     }
 }
 
+/** Saldo del cobro y estados pagables en línea (pending/overdue/partial): ver utils/saldo-cobro. */
+export { saldoDelCobro, ESTADOS_PAGABLES_EN_LINEA };
+
+/** Recargo por mora del cobro (payments.late_fee_amount); 0 si no hay o no es número. */
+export function moraDelCobro(p: { late_fee_amount?: number | string | null }): number {
+    const v = Number(p.late_fee_amount);
+    return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
 /** Mismo cálculo que create-session (payments.routes.ts §5): recargo redondeado al peso. */
 export function montosEnLinea(base: number, feePct: number): { recargo: number; total: number } {
     const recargo = Math.round(base * (feePct / 100));
@@ -251,7 +268,7 @@ const permiteSandbox = () => process.env.PAGO_PUBLICO_PERMITE_SANDBOX === 'true'
 // Lecturas
 // ─────────────────────────────────────────────────────────────────────────────
 
-const COLS_COBRO = 'id, school_id, amount, amount_paid, early_payment_discount_applied, status, concept, payment_category, due_date, payment_date, period_year, period_month, '
+const COLS_COBRO = 'id, school_id, amount, amount_paid, early_payment_discount_applied, late_fee_amount, status, concept, payment_category, due_date, payment_date, period_year, period_month, '
     + 'child_id, user_id, parent_id, unregistered_athlete_id, requires_review';
 
 async function leerCobro(paymentId: string, schoolId: string) {
@@ -293,7 +310,7 @@ async function escuelaOperativa(schoolId: string): Promise<boolean> {
  * resueltas (para firmar) o null. No escribe nada.
  */
 async function pasarelaParaCobro(p: any) {
-    if (!['pending', 'overdue'].includes(p.status) || p.requires_review) return null;
+    if (!ESTADOS_PAGABLES_EN_LINEA.includes(p.status) || p.requires_review) return null;
     if (!(await escuelaOperativa(p.school_id))) return null;
 
     const resolved = await resolveProvider({ schoolId: p.school_id, preferredProvider: 'wompi' });
@@ -379,7 +396,7 @@ async function otrosPendientesDelPagador(p: any): Promise<VistaCobroPublico['otr
             concepto: String(o.concept || 'Mensualidad'),
             periodo: periodoDeCobro(o),
             deportista: await nombreDelDeportista(o),
-            monto: Number(o.amount),
+            monto: saldoDelCobro(o),
             fechaVencimiento: o.due_date ? String(o.due_date).slice(0, 10) : null,
             vencido: estadoPublico(o.status, o.due_date, hoy) === 'vencido',
         });
@@ -413,7 +430,9 @@ export async function vistaDelCobro(r: Extract<ResultadoResolver, { ok: true }>)
         otrosPendientesDelPagador(p),
     ]);
 
-    const monto = Number(p.amount);
+    // Saldo vigente, recalculado en cada clic: si anoche apply_late_fees sumó
+    // la mora a payments.amount, la familia ve (y paga) el monto ya con mora.
+    const monto = saldoDelCobro(p);
     const periodo = periodoDeCobro(p);
     const concepto = String(p.concept || 'Mensualidad');
     const estado = estadoPublico(p.status, p.due_date, hoyBogota());
@@ -438,12 +457,12 @@ export async function vistaDelCobro(r: Extract<ResultadoResolver, { ok: true }>)
         deportista,
         estado,
         monto,
+        late_fee_amount: moraDelCobro(p),
         fechaVencimiento: p.due_date ? String(p.due_date).slice(0, 10) : null,
         fechaPago: estado === 'pagado' && p.payment_date ? String(p.payment_date).slice(0, 10) : null,
         enlaceVenceEn: r.venceEn,
-        enLinea: pasarela
-            // Sobre el saldo, como cobra prepararCheckoutDeCobro.
-            ? { proveedor: 'wompi', recargoPct: feePct, ...montosEnLinea(saldoPorCobrar(p), feePct) }
+        enLinea: pasarela && monto > 0
+            ? { proveedor: 'wompi', recargoPct: feePct, ...montosEnLinea(monto, feePct) }
             : null,
         transferencia: pagable
             ? {
@@ -571,11 +590,12 @@ export async function prepararCheckoutDeCobro(
     const { creds } = pasarela;
 
     const feePct = await feePctDe(p.school_id);
-    // El SALDO (amount − amount_paid − descuento por pronto pago), igual que
-    // create-session: un 'partial' cobra lo que falta y la vigencia del link
-    // reusado se compara contra este saldo.
-    const baseAmount = saldoPorCobrar(p);
-    if (!(baseAmount > 0)) return NO_EN_LINEA('no_pagable', 'Este cobro no tiene saldo por pagar.');
+    // Saldo vigente (amount - amount_paid - pronto pago), mora incluida: se recalcula en cada
+    // clic, así que un link creado antes de que corriera apply_late_fees no se
+    // reusa con el monto viejo (ver la comparación de base_amount abajo).
+    const baseAmount = saldoDelCobro(p);
+    // Nada por cobrar (abonos + pronto pago ya cubren el total): Wompi no acepta $0.
+    if (baseAmount <= 0) return NO_EN_LINEA('sin_saldo', 'Este cobro no tiene saldo pendiente.');
     const { recargo: sportmapsFee, total: grossAmount } = montosEnLinea(baseAmount, feePct);
 
     const ahora = Date.now();
@@ -710,8 +730,11 @@ export async function prepararCheckoutDeCobro(
 // el tipo se valida por los bytes, no por el Content-Type; la respuesta no trae
 // ni el veredicto ni nada del pagador.
 
-/** Estados en que se acepta un comprobante (los mismos que estampa el bot). */
-export const ESTADOS_QUE_ACEPTAN_COMPROBANTE = ['pending', 'overdue'];
+/**
+ * Estados en que se acepta un comprobante: los que estampa el bot más
+ * 'partial' (abono): el comprobante debe ser del SALDO (saldoDelCobro).
+ */
+export const ESTADOS_QUE_ACEPTAN_COMPROBANTE = ['pending', 'overdue', 'partial'];
 
 /** 6 MB: un pantallazo de banco pesa < 1 MB; un PDF de comprobante, < 500 KB. */
 export const MAX_BYTES_COMPROBANTE = 6 * 1024 * 1024;
@@ -806,6 +829,10 @@ export async function subirComprobantePorToken(
     const estampado = await estamparComprobante(
         { schoolId: p.school_id, storagePath, sha, ocr, queueId: `enlace-publico:${p.id}`, log: log as any },
         { id: p.id, amount: Number(p.amount) } as any,
+        // Lo que el comprobante debe decir: el saldo (con mora, menos abonos y
+        // pronto pago). Sin esto un abono saldado marcaría MONTO_DIFIERE.
+        saldoDelCobro(p),
+        { estados: ESTADOS_QUE_ACEPTAN_COMPROBANTE },
     );
 
     if (!estampado.ok || !estampado.actualizado) {

@@ -85,6 +85,14 @@ describe('P7 yaPagoYReclama', () => {
         expect(texto).not.toMatch(/voy a revisar|te confirmo en un momento|vencid/i);
     });
 
+    it('lo pendiente con mora trae su desglose (la mora ya va dentro del saldo)', () => {
+        const { texto } = textoYaPague(
+            [{ concept: 'Mensualidad Octubre', status: 'overdue', debe_pagarse: true, saldo: 165000, late_fee_amount: 15000 }], []);
+        expect(texto).toContain('• Mensualidad Octubre: $165.000\n   Mensualidad $150.000 · Recargo por mora $15.000 · Total $165.000');
+        const sin = textoYaPague([{ concept: 'Mensualidad Octubre', status: 'pending', debe_pagarse: true, saldo: 180000 }], []);
+        expect(sin.texto).not.toContain('Recargo por mora');
+    });
+
     it('sin comprobante en ningún lado: lo dice y pide el archivo', () => {
         const { texto, hayAlgo } = textoYaPague(
             [{ concept: 'Mensualidad Octubre', status: 'pending', debe_pagarse: true, saldo: 180000 }], []);

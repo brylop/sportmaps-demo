@@ -68,6 +68,7 @@ import {
 } from './whatsapp-plantillas.service';
 import { cerrarEnvio, escaparHtml, fechaColombia, reservarEnvio, uuidDeClave } from './avisos-correo.service';
 import { emitirTokenCobro, enlaceWhatsApp, nombreCorto, whatsappDeLaEscuela } from './cobro-enlace-publico.service';
+import { saldoDelCobro } from '../utils/saldo-cobro';
 import { mediosDePago, type MediosDePago } from './whatsapp-medios-de-pago.service';
 // Los textos del link viven en payment-accounts (módulo puro): varias pruebas
 // moquean el servicio de medios entero y no exportarían estas constantes.
@@ -75,6 +76,7 @@ import { AVISO_LINK_DE_PAGO, TEXTO_BOTON_LINK_DE_PAGO, esCobroUnico, etiquetaDeC
 import { COLUMNAS_CONTACTO_FICHA, COLUMNAS_CONTACTO_HIJO, contactoDeFicha, contactoDeHijoSinCuenta, type FichaContacto } from './contacto-acudiente';
 import { escuelaFacturaElectronicamente } from './factura-pagador.service';
 import { enlaceActivarAvisos } from './whatsapp-activar-avisos';
+import { desgloseMora, montoConMora, recargoMora, textoDesgloseMora } from '../utils/desglose-mora';
 
 export const TIPO_ESTADO = 'estado_de_cuenta';
 export const TIPO_CORRIDA = 'estado_de_cuenta_corrida';
@@ -98,6 +100,10 @@ export interface PagoEstado {
     concept: string | null;
     amount: number | string;
     amount_paid?: number | string | null;
+    /** Descuento por pronto pago ya aplicado: resta del saldo (saldoDelCobro). */
+    early_payment_discount_applied?: number | string | null;
+    /** Recargo por mora que apply_late_fees ya sumó DENTRO de `amount` (0 si no hay). */
+    late_fee_amount?: number | string | null;
     status: string;
     due_date: string | null;
     payment_type?: string | null;
@@ -115,6 +121,8 @@ export interface FilaEstado {
     concepto: string;
     vence: string | null;
     saldo: number;
+    /** Parte del saldo que es recargo por mora (late_fee_amount, recortado al saldo); 0 o ausente si no hay. */
+    mora?: number;
     vencido: boolean;
     /** Cobro del mes del estado de cuenta (lo que menciona la plantilla de WhatsApp). */
     delMes: boolean;
@@ -213,8 +221,13 @@ export function elegirCanal(p: {
     return p.email ? 'correo' : 'ninguno';
 }
 
-const saldoDe = (p: PagoEstado) =>
-    Number(p.amount || 0) - (p.status === 'partial' ? Number(p.amount_paid || 0) : 0);
+/**
+ * Lo que falta por pagar: la MISMA regla que el enlace /p/:token y el modal de
+ * cobros (amount - amount_paid - early_payment_discount_applied, nunca
+ * negativo). Antes solo restaba amount_paid en 'partial' e ignoraba el pronto
+ * pago: el estado de cuenta podía decir más que la página del cobro.
+ */
+const saldoDe = (p: PagoEstado) => saldoDelCobro(p);
 
 /**
  * Agrupa los cobros vivos por familia. Contacto: mismo criterio que
@@ -277,6 +290,7 @@ export function agruparPorFamilia(
             concepto: p.concept || etiquetaDeCobro(p),
             vence: p.due_date ? p.due_date.slice(0, 10) : null,
             saldo,
+            mora: Math.min(recargoMora(p.late_fee_amount), saldo),
             vencido: p.status === 'overdue' || (!!p.due_date && p.due_date.slice(0, 10) < hoy),
             delMes,
             status: p.status,
@@ -346,7 +360,12 @@ export function datosWhatsAppDeFamilia(f: Familia, escuela: string, mes: string)
         nombreEscuela: escuela,
         periodo: etiquetaMes(mes),
         fechaVencimiento: vence ? (() => { const d = new Date(`${vence}T12:00:00Z`); return `${d.getUTCDate()} de ${MESES[d.getUTCMonth()]}`; })() : null,
-        monto: fmtCop(delMes.reduce((s, r) => s + r.saldo, 0)),
+        // Con mora: «$165.000, que incluye $15.000 de recargo por mora».
+        monto: montoConMora(
+            delMes.reduce((s, r) => s + r.saldo, 0),
+            delMes.reduce((s, r) => s + (r.mora ?? 0), 0),
+            fmtCop,
+        ),
         /** El botón abre el cobro del mes que vence primero; esa página lista los demás. */
         paymentIdBoton: delMes[0]?.paymentId ?? null,
     };
@@ -383,6 +402,14 @@ export interface ContenidoCorreo {
  * URL https — el de la escuela (su imagen cargada en school-assets) y el del
  * enlace de pago (PNG del BFF de producción).
  */
+/** Bajo el valor de la fila: «Mensualidad $X · Recargo por mora $Y · Total $Z», si tiene mora. */
+function lineaMoraFila(r: FilaEstado): string {
+    const d = desgloseMora(r.saldo, r.mora ?? 0);
+    if (!d) return '';
+    // white-space normal: el desglose es más ancho que la columna del valor.
+    return `<br><span style="color:#b91c1c;font-size:12px;white-space:normal;">${escaparHtml(textoDesgloseMora(d, fmtCop))}</span>`;
+}
+
 export function cuerpoCorreoEstado(c: ContenidoCorreo): string {
     const f = c.familia;
     const deuda = f.filas.reduce((s, r) => s + r.saldo, 0);
@@ -394,7 +421,7 @@ export function cuerpoCorreoEstado(c: ContenidoCorreo): string {
             <tr>
               <td style="padding:8px;border-bottom:1px solid #eee;">${escaparHtml(r.atleta)}<br><span style="color:#666;font-size:12px;">${escaparHtml(r.concepto)}</span></td>
               <td style="padding:8px;border-bottom:1px solid #eee;white-space:nowrap;">${fechaCorta(r.vence)}${r.vencido ? '<br><span style="color:#b91c1c;font-size:12px;">Vencido</span>' : ''}</td>
-              <td style="padding:8px;border-bottom:1px solid #eee;text-align:right;white-space:nowrap;">${fmtCop(r.saldo)}${r.token ? `<br>${boton(enlaceDeCobro(c.appBase, r.token), 'Pagar')}` : ''}</td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:right;white-space:nowrap;">${fmtCop(r.saldo)}${lineaMoraFila(r)}${r.token ? `<br>${boton(enlaceDeCobro(c.appBase, r.token), 'Pagar')}` : ''}</td>
             </tr>`).join('');
 
     const tokenQr = f.filas.find((r) => r.token)?.token ?? null;
@@ -464,7 +491,7 @@ async function leerPorIds(tabla: string, cols: string, ids: string[]): Promise<a
 /** Familias con deuda de una escuela, sin cobros duplicados por pagador. */
 export async function familiasConDeuda(schoolId: string, ahora: Date, mes = mesColombia(ahora)) {
     const pagos = await todas<PagoEstado>((desde) => supabase.from('payments')
-        .select('id, school_id, parent_id, user_id, child_id, unregistered_athlete_id, concept, amount, amount_paid, status, due_date, payment_type, payment_category, period_year, period_month, charge_notice_sent_at, overdue_notice_sent_at')
+        .select('id, school_id, parent_id, user_id, child_id, unregistered_athlete_id, concept, amount, amount_paid, early_payment_discount_applied, late_fee_amount, status, due_date, payment_type, payment_category, period_year, period_month, charge_notice_sent_at, overdue_notice_sent_at')
         .eq('school_id', schoolId).in('status', ['pending', 'overdue', 'partial'])
         .order('due_date').range(desde, desde + 999));
 
