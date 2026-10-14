@@ -198,6 +198,10 @@ describe('3. excedente', () => {
         // La recuperación: abono en revisión, no pago completo.
         const d = decidirRecuperacion({ ...base, ocr: { ...OCR, amount: 157500 }, pendientes: [cobro], recargos: m });
         expect(d.decision).toBe('abono_en_revision');
+        // Descuento por pronto pago: la base vigente es amount − descuento.
+        tablas.payment_links = [{ payment_id: 'oct', gross_amount: 141750, base_amount: 135000, fee_pct: 5 }];
+        tablas.payments = [{ id: 'oct', amount: 150000, amount_paid: 0, early_payment_discount_applied: 15000 }];
+        expect((await cargarRecargos('s1', [P('oct', 150000, '2026-10-05')])).get('oct')).toContain(141750);
         // Y con el valor actual + recargo del enlace sí es pago completo.
         expect(montoEsperado(cobro, 168000, m)).toBe(168000);
     });

@@ -26,6 +26,7 @@ import { extractReceipt } from '../services/ocr.service';
 import { evaluateVerdict, normalizeReference } from '../services/receipt-verdict';
 import { buildVerdictContext } from '../services/receipt-context.service';
 import { debitoEnCurso, MENSAJE_DEBITO_EN_CURSO } from '../services/autopay.service';
+import { saldoPorCobrar, ESTADOS_PAGABLES_EN_LINEA } from '../utils/saldo-cobro';
 
 const router = Router();
 
@@ -77,7 +78,7 @@ router.post(
             // 1. Pago debe existir y pertenecer a la escuela del request
             const { data: payment, error: paymentErr } = await supabase
                 .from('payments')
-                .select('id, amount, status, concept, child_id, user_id, parent_id, school_id, requires_review')
+                .select('id, amount, amount_paid, early_payment_discount_applied, status, concept, child_id, user_id, parent_id, school_id, requires_review')
                 .eq('id', paymentId)
                 .eq('school_id', schoolId)
                 .single();
@@ -136,8 +137,9 @@ router.post(
                 });
             }
 
-            // 2. Estado pagable
-            if (!['pending', 'overdue'].includes(payment.status)) {
+            // 2. Estado pagable. 'partial' también (2026-10-14): un pago en línea con
+            //    un link de antes de la mora deja el cobro parcial y falta el saldo.
+            if (!ESTADOS_PAGABLES_EN_LINEA.includes(payment.status)) {
                 return res.status(400).json({
                     error: `Este pago no se puede procesar (estado actual: ${payment.status}).`,
                 });
@@ -248,7 +250,14 @@ router.post(
             // 5. Calcular montos en el server (NUNCA confiar en el cliente).
             //    Va ANTES del reuso porque hacen falta para decidir si el link vigente
             //    sigue siendo válido.
-            const baseAmount = Number(payment.amount);
+            //    La base es el SALDO (amount − amount_paid − descuento por pronto
+            //    pago), no el valor total: un 'partial' cobra solo lo que falta y el
+            //    recargo en línea va sobre eso. El chequeo de vigencia del link de
+            //    abajo compara `base_amount` contra este mismo saldo.
+            const baseAmount = saldoPorCobrar(payment as any);
+            if (!(baseAmount > 0)) {
+                return res.status(400).json({ error: 'Este cobro no tiene saldo por pagar.', code: 'sin_saldo' });
+            }
             const sportmapsFee = Math.round(baseAmount * (feePct / 100));
             const grossAmount = baseAmount + sportmapsFee;
 
@@ -349,11 +358,11 @@ router.post(
                     // cobro antes de la mora, la ganadora tiene razón y no se pisa.
                     const { data: fresco } = await supabase
                         .from('payments')
-                        .select('amount')
+                        .select('amount, amount_paid, early_payment_discount_applied')
                         .eq('id', paymentId)
                         .maybeSingle();
                     const montoVigente = fresco && Number.isFinite(Number((fresco as any).amount))
-                        ? Number((fresco as any).amount)
+                        ? saldoPorCobrar(fresco as any)
                         : baseAmount;
                     const decision = decidirLinkDeCarrera(raced, { feePct, baseAmount, montoVigente });
                     if (decision === 'reusar') {

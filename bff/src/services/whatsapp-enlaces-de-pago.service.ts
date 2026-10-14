@@ -26,6 +26,7 @@ import { crearLinkWompiConMonto } from './wompi-link-con-monto.service';
 import { appPublica, enlaceDeCobro } from '../utils/url-publica-familias';
 import { etiquetaDelCobro, type CobroClasificable } from './tipo-de-cobro';
 import { linkDePago } from './payment-accounts';
+import { saldoPorCobrar } from '../utils/saldo-cobro';
 
 /** Máximo de enlaces por mensaje: más que eso es un muro de URLs. */
 export const MAX_ENLACES_POR_MENSAJE = 5;
@@ -79,6 +80,8 @@ interface FilaCobro {
     status: string | null;
     /** Mora ya sumada a `amount` por `apply_late_fees()` (2026-10-14). */
     late_fee_amount?: number | string | null;
+    amount_paid?: number | string | null;
+    early_payment_discount_applied?: number | string | null;
 }
 
 const dia = (d: unknown) => (d ? String(d).slice(0, 10) : '');
@@ -137,7 +140,7 @@ export async function conEnlacesDePago<T extends PagoConEnlace>(
         const base = appPublica();
         const { data, error } = await supabase
             .from('payments')
-            .select('id, concept, amount, due_date, status, late_fee_amount')
+            .select('id, concept, amount, amount_paid, early_payment_discount_applied, due_date, status, late_fee_amount')
             .eq('parent_id', parentId)
             .eq('school_id', schoolId)
             .in('status', ['pending', 'partial', 'overdue'])
@@ -151,15 +154,16 @@ export async function conEnlacesDePago<T extends PagoConEnlace>(
         // Link de pago propio de la escuela (2026-10-13, decisión de Dynasty):
         // si existe, es EL camino. La familia escribe el valor, sin recargo, y
         // manda el comprobante. No se genera el link de la app.
-        // El valor es el ACTUAL del cobro (`payments.amount`, que ya trae la mora
-        // sumada por `apply_late_fees()`, 2026-10-14) y se dice cuánto es mora.
+        // El valor es el SALDO ACTUAL del cobro (`saldoPorCobrar`: amount, que ya
+        // trae la mora de `apply_late_fees()`, menos lo abonado y el descuento por
+        // pronto pago; 2026-10-14) y se dice cuánto es mora.
         const propio = await linkPropioDeLaEscuela(schoolId);
         if (propio) {
             return lista.map((p, i) => {
                 if (!ids.has(i)) return p;
                 const fila = filaPorId.get(ids.get(i)!);
                 return { ...p, enlace_pago: propio, enlace_de_la_escuela: true,
-                    enlace_instrucciones: instruccionesDelLinkDeLaEscuela(fila?.amount ?? p.amount, fila?.late_fee_amount) };
+                    enlace_instrucciones: instruccionesDelLinkDeLaEscuela(fila ? saldoPorCobrar(fila) : p.amount, fila?.late_fee_amount) };
             });
         }
         // Los links con monto (Wompi y la página /p/:token) se crean o reusan en

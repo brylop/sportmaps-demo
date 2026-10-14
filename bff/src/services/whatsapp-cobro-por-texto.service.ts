@@ -242,7 +242,7 @@ export function elMasAntiguoDelMismoDeportista(cobros: PagoPendiente[]): PagoPen
 export function montosConRecargo(
     montoCobro: number,
     enlaces: { gross_amount: number | string | null; base_amount?: number | string | null; fee_pct: number | string | null }[],
-    /** `payments.amount_paid` del cobro (abonos ya aprobados). */
+    /** Lo ya cubierto del cobro: `amount_paid` + descuento por pronto pago. */
     pagado = 0,
 ): number[] {
     const out = new Set<number>();

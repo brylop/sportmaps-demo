@@ -263,6 +263,22 @@ describe('crearLinkWompiConMonto', () => {
         expect(params(b.url)['amount-in-cents']).toBe('18900000');
     });
 
+    it('el descuento por pronto pago se descuenta del saldo; un link con la base total no se reusa', async () => {
+        const a = await crearLinkWompiConMonto(COBRO); // base 150.000
+        estado.tablas.payments[0].early_payment_discount_applied = 15000;
+        const b = await crearLinkWompiConMonto(COBRO);
+        expect(a.ok && b.ok).toBe(true);
+        if (!a.ok || !b.ok) return;
+        expect(b.base).toBe(135000);
+        expect(b.reference).not.toBe(a.reference);
+    });
+
+    it('sin saldo por pagar no abre checkout', async () => {
+        Object.assign(estado.tablas.payments[0], { amount_paid: 150000, status: 'partial' });
+        const r = await crearLinkWompiConMonto(COBRO);
+        expect(r.ok).toBe(false);
+    });
+
     it('vigencia configurable', async () => {
         const r = await crearLinkWompiConMonto(COBRO, { minutos: 1440 });
         expect(r.ok).toBe(true);

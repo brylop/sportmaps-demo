@@ -50,7 +50,7 @@ export async function cargarRecargos(schoolId: string, cobros: PagoPendiente[]):
                 .in('payment_id', ids)
                 .limit(200),
             supabase.from('payments')
-                .select('id, amount, amount_paid')
+                .select('id, amount, amount_paid, early_payment_discount_applied')
                 .eq('school_id', schoolId)
                 .in('id', ids)
                 .limit(200),
@@ -61,7 +61,9 @@ export async function cargarRecargos(schoolId: string, cobros: PagoPendiente[]):
         if (!cobrosRes.error && Array.isArray(cobrosRes.data)) {
             for (const r of cobrosRes.data as any[]) {
                 const amount = Number(r?.amount);
-                if (r?.id && Number.isFinite(amount)) actuales.set(r.id, { amount, pagado: Number(r.amount_paid ?? 0) || 0 });
+                // Lo ya cubierto: abonos + descuento por pronto pago (saldoPorCobrar).
+                const pagado = (Number(r.amount_paid ?? 0) || 0) + (Number(r.early_payment_discount_applied ?? 0) || 0);
+                if (r?.id && Number.isFinite(amount)) actuales.set(r.id, { amount, pagado });
             }
         }
         for (const c of cobros) {
