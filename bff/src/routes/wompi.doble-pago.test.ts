@@ -113,7 +113,7 @@ describe('webhook Wompi — cobro de escuela', () => {
         expect(estado.rpcs.some(x => x.nombre === 'flag_payment_for_review')).toBe(false);
     });
 
-    it('faltante (mora, 2026-10-14): el enlace se generó antes del recargo → partial, amount_paid = recibido y a revisión con lo que falta', async () => {
+    it('faltante (mora, 2026-10-14): el enlace se generó antes del recargo → partial, amount_paid = recibido y rastro visible sin bloqueo', async () => {
         // El enlace firmó 150.000 (+ 7.500 de recargo online); apply_late_fees subió el cobro a 165.000.
         estado.tablas.payments[0] = { id: COBRO, status: 'overdue', wompi_transaction_id: null, amount: 165000, amount_paid: 0, late_fee_amount: 15000 };
         const r = await routeWompiTransaction({ realTx: tx('1298966-5-5') });
@@ -128,13 +128,13 @@ describe('webhook Wompi — cobro de escuela', () => {
         // El enlace sí queda pagado y el split registra la plata que entró.
         expect(estado.tablas.payment_links[0].status).toBe('paid');
         expect(estado.inserts.find(i => i.tabla === 'payment_splits')?.fila).toMatchObject({ wompi_transaction_id: '1298966-5-5', gross_amount: 157500 });
-        const flag = estado.rpcs.find(x => x.nombre === 'flag_payment_for_review');
+        const flag = estado.rpcs.find(x => x.nombre === 'record_payment_failure');
         expect(flag?.args).toMatchObject({ p_kind: 'payment', p_id: COBRO });
         expect(String(flag?.args.p_reason)).toContain('pago_parcial');
         expect(String(flag?.args.p_reason)).toContain('Pagó $150.000; faltan $15.000');
         expect(String(flag?.args.p_reason)).toContain('recargo por mora');
-        // La marca va después del UPDATE (el trigger la bajaría al entrar a 'partial').
-        expect(estado.orden.indexOf('rpc:flag_payment_for_review')).toBeGreaterThan(estado.orden.indexOf('update:payments'));
+        // Rastro SIN bloqueo: la familia tiene que poder pagar el saldo en línea.
+        expect(estado.rpcs.some(x => x.nombre === 'flag_payment_for_review')).toBe(false);
     });
 
     it('faltante con abono previo: amount_paid acumula y el faltante es sobre el saldo', async () => {
@@ -143,7 +143,7 @@ describe('webhook Wompi — cobro de escuela', () => {
         const r = await routeWompiTransaction({ realTx: tx('1298966-6-6') });
         expect(r.body).toMatchObject({ underpayment: 10000, partial: true });
         expect(estado.tablas.payments[0]).toMatchObject({ status: 'partial', amount_paid: 190000 });
-        expect(String(estado.rpcs.find(x => x.nombre === 'flag_payment_for_review')?.args.p_reason)).toContain('el cobro subió');
+        expect(String(estado.rpcs.find(x => x.nombre === 'record_payment_failure')?.args.p_reason)).toContain('el cobro subió');
     });
 
     it('lo recibido salda el resto de un abono previo: paid y amount_paid = total, sin revisión', async () => {

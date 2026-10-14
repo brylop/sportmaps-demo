@@ -98,7 +98,7 @@ describe('webhook Mercado Pago — cobro de escuela', () => {
         expect(estado.rpcs.map(x => x.nombre)).toEqual(expect.arrayContaining(['notify_school_payment_paid', 'notify_parent_payment_paid']));
     });
 
-    it('faltante por mora posterior al enlace: partial, amount_paid = recibido, link pagado, split y a revisión', async () => {
+    it('faltante por mora posterior al enlace: partial, amount_paid = recibido, link pagado, split y rastro sin bloqueo', async () => {
         estado.tablas.payments[0] = { id: COBRO, status: 'overdue', amount: 165000, amount_paid: 0, late_fee_amount: 15000 };
         const r = await routeMercadoPagoTransaction({ payment: pagoMp(9002) });
         expect(r.body).toMatchObject({ status: 'ok', kind: 'school_payment', underpayment: 15000, partial: true });
@@ -108,12 +108,13 @@ describe('webhook Mercado Pago — cobro de escuela', () => {
         });
         expect(estado.tablas.payment_links[0].status).toBe('paid');
         expect(estado.inserts.find(i => i.tabla === 'payment_splits')?.fila).toMatchObject({ provider_transaction_id: '9002', gross_amount: 157500 });
-        const flag = estado.rpcs.find(x => x.nombre === 'flag_payment_for_review');
+        const flag = estado.rpcs.find(x => x.nombre === 'record_payment_failure');
         expect(flag?.args).toMatchObject({ p_kind: 'payment', p_id: COBRO });
         expect(String(flag?.args.p_reason)).toContain('mp_pago_parcial');
         expect(String(flag?.args.p_reason)).toContain('Pagó $150.000; faltan $15.000');
         expect(String(flag?.args.p_reason)).toContain('recargo por mora');
-        expect(estado.orden.indexOf('rpc:flag_payment_for_review')).toBeGreaterThan(estado.orden.indexOf('update:payments'));
+        // Rastro SIN bloqueo: la familia tiene que poder pagar el saldo en línea.
+        expect(estado.rpcs.some(x => x.nombre === 'flag_payment_for_review')).toBe(false);
     });
 
     it('sobrepago: paid con amount_paid = recibido y a revisión (mismo criterio que Wompi)', async () => {

@@ -104,7 +104,8 @@ export function buildFailureReason(
  *   - SUBIR (el recargo por mora de `apply_late_fees`, decisión 2026-10-14:
  *     la mora nunca se condona en silencio y todo canal cobra el monto CON
  *     recargo) → faltante: NO puede quedar `paid`. Queda `partial` con lo
- *     recibido en `amount_paid`, a revisión, y el saldo se cobra aparte.
+ *     recibido en `amount_paid`, con rastro visible SIN bloqueo
+ *     (record_payment_failure), y el saldo se cobra aparte.
  *
  * Se compara `base_amount` (lo cobrado sin el recargo online, que es de la
  * escuela) contra el saldo vigente: amount − amount_paid − pronto pago (misma
@@ -537,7 +538,8 @@ async function handleSchoolPayment({
         //     generó ANTES de que `apply_late_fees` sumara el recargo y se pagó
         //     DESPUÉS. Antes esto quedaba `paid` y la mora se condonaba en
         //     silencio. Ahora el cobro queda `partial` con lo recibido sumado a
-        //     `amount_paid`, a revisión con el faltante, y el saldo se cobra aparte.
+        //     `amount_paid`, con el faltante como rastro visible pero SIN bloqueo
+        //     (la familia tiene que poder pagar el saldo), y el saldo se cobra aparte.
         //     El enlace sí queda 'paid' y el split se registra: esa plata entró.
         const conc = conciliarMontoRecibido(actual as any, link.base_amount);
         const { montoVigente, recibidoBase, sobrepago, faltante } = conc;
@@ -589,10 +591,14 @@ async function handleSchoolPayment({
             req.log?.warn({ paymentId: link.payment_id, txReference, sobrepago }, 'School payment: recibido mayor que el cobro vigente — a revisión');
         }
 
-        // La marca va DESPUÉS del UPDATE: el trigger trg_clear_payment_review_on_settle
-        // baja requires_review al entrar a 'partial', así que marcarla antes se perdería.
+        // Rastro SIN bloqueo (record_payment_failure: last_failure_reason, sin
+        // requires_review). NO flag_payment_for_review: ese lock frena todo
+        // checkout nuevo del pagador (payments.routes / is_user_payment_blocked)
+        // y la familia no podría pagar el saldo en línea — justo lo que hay que
+        // cobrar. La escuela lo ve en el chip del cobro (FailedAttemptChip,
+        // rótulo «Falta saldo» vía parsePaymentFailure) y el cobro queda 'partial'.
         if (faltante > 0) {
-            const { error: flagErr } = await supabase.rpc('flag_payment_for_review', {
+            const { error: flagErr } = await supabase.rpc('record_payment_failure', {
                 p_kind: 'payment',
                 p_id: link.payment_id,
                 p_reason: motivoPagoParcial(
@@ -602,9 +608,9 @@ async function handleSchoolPayment({
                 ),
             });
             if (flagErr) {
-                req.log?.error({ err: flagErr, paymentId: link.payment_id }, 'No se pudo marcar el pago parcial para revisión');
+                req.log?.error({ err: flagErr, paymentId: link.payment_id }, 'No se pudo dejar el rastro del pago parcial');
             }
-            req.log?.warn({ paymentId: link.payment_id, txReference, faltante }, 'School payment: recibido menor que el cobro vigente (mora posterior al enlace) — partial y a revisión');
+            req.log?.warn({ paymentId: link.payment_id, txReference, faltante }, 'School payment: recibido menor que el cobro vigente (mora posterior al enlace) — partial, saldo pendiente');
         }
 
         // 5. Marcar payment_link

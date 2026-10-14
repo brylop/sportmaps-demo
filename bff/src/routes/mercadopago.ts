@@ -442,7 +442,7 @@ async function handleSchoolPayment(args: HandlerArgs): Promise<HandlerResult> {
         // handleSchoolPayment). El enlace congeló `base_amount`; si entre la firma
         // y el pago `apply_late_fees` sumó la mora, lo recibido no salda el cobro
         // y NO puede quedar 'paid' (la mora se condonaba en silencio): queda
-        // 'partial' con lo recibido en amount_paid y a revisión con el faltante.
+        // 'partial' con lo recibido en amount_paid y el faltante como rastro visible.
         const { data: actual } = await supabase
             .from('payments')
             .select('status, amount, amount_paid, early_payment_discount_applied, late_fee_amount')
@@ -475,12 +475,15 @@ async function handleSchoolPayment(args: HandlerArgs): Promise<HandlerResult> {
             req.log?.error({ err: payUpdErr, paymentId: link.payment_id, externalRef }, 'MP school payment: FALLÓ actualizar el payment');
         }
 
-        // La marca va DESPUÉS del UPDATE: el trigger trg_clear_payment_review_on_settle
-        // baja requires_review al entrar a 'paid'/'partial'.
+        // Faltante: rastro SIN bloqueo (record_payment_failure). Ver wompi.ts §3.d:
+        // flag_payment_for_review frenaría todo checkout nuevo del pagador y la
+        // familia no podría pagar el saldo en línea.
+        // Sobrepago: a revisión como en Wompi. La marca va DESPUÉS del UPDATE: el
+        // trigger trg_clear_payment_review_on_settle baja requires_review al entrar a 'paid'.
         if (!payUpdErr && (faltante > 0 || sobrepago > 0)) {
             const base = buildFailureReason('mp', faltante > 0 ? 'pago_parcial' : 'sobrepago', paymentTypeId, null, paymentId);
             const cop = (n: number) => `$${Math.round(n).toLocaleString('es-CO')}`;
-            const { error: flagErr } = await supabase.rpc('flag_payment_for_review', {
+            const { error: flagErr } = await supabase.rpc(faltante > 0 ? 'record_payment_failure' : 'flag_payment_for_review', {
                 p_kind: 'payment',
                 p_id: link.payment_id,
                 p_reason: faltante > 0
@@ -488,9 +491,9 @@ async function handleSchoolPayment(args: HandlerArgs): Promise<HandlerResult> {
                     : `${base} · pagó de más ${cop(sobrepago)} (cobro ${cop(conc.montoVigente)}, recibido ${cop(conc.recibidoBase)})`,
             });
             if (flagErr) {
-                req.log?.error({ err: flagErr, paymentId: link.payment_id }, 'No se pudo marcar la diferencia de monto para revisión');
+                req.log?.error({ err: flagErr, paymentId: link.payment_id }, 'No se pudo dejar el rastro de la diferencia de monto');
             }
-            req.log?.warn({ paymentId: link.payment_id, externalRef, faltante, sobrepago }, 'MP school payment: lo recibido no coincide con el cobro vigente — a revisión');
+            req.log?.warn({ paymentId: link.payment_id, externalRef, faltante, sobrepago }, 'MP school payment: lo recibido no coincide con el cobro vigente');
         }
 
         await supabase
