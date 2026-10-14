@@ -411,7 +411,15 @@ export default function JoinSchoolPublicPage() {
     });
     setSubmitting(false);
     if (error) {
-      return toast({ title: 'No se pudo completar', description: error.message, variant: 'destructive' });
+      // La guarda school_is_operational (20261014113038) frena con 42501 tanto
+      // la prueba vencida como la escuela cancelada; el texto de la base solo
+      // habla de la prueba, así que al acudiente se le dice algo neutro.
+      const escuelaNoOperativa = error.code === '42501' && /periodo de prueba vencido/i.test(error.message);
+      return toast({
+        title: 'No se pudo completar',
+        description: escuelaNoOperativa ? 'Esta escuela no está recibiendo inscripciones en este momento.' : error.message,
+        variant: 'destructive',
+      });
     }
     const r = res as any;
     toast({ title: '¡Inscripción registrada!' });
