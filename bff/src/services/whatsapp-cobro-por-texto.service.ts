@@ -38,7 +38,18 @@ export interface CobroParcial {
 }
 
 export type DecisionPorTexto =
-    | { tipo: 'aplicar'; pago: PagoPendiente; motivo: 'mes_del_texto' | 'mas_antiguo' }
+    | {
+        tipo: 'aplicar'; pago: PagoPendiente;
+        /**
+         * `recargo`: el monto es el del enlace de pago (cobro + recargo online),
+         * es pago completo. `excedente`: el monto es MAYOR que el cobro; se toma
+         * igual y lo de más queda como saldo a favor al aprobarse (decisión de
+         * la escuela, 2026-10-13; lo registra la base, migración 20261013165308).
+         */
+        motivo: 'mes_del_texto' | 'mas_antiguo' | 'recargo' | 'excedente';
+        /** Solo con `excedente`: lo que pagó de más. */
+        excedente?: number;
+    }
     | { tipo: 'preguntar'; opciones: PagoPendiente[] }
     /** No se estampa: lo aplica (o lo revisa) la escuela. */
     | { tipo: 'a_la_escuela'; resumen: string; mensaje: string; codigo: 'saldo_de_parcial' | 'monto_no_cuadra'; pagoId: string | null }
@@ -107,8 +118,14 @@ export function decidirCobroPorTexto(e: {
     monto: number | null;
     lectura: LecturaDelComprobante;
     permiteAbonos: boolean;
+    /**
+     * Montos que valen como pago completo de cada cobro por el recargo de su
+     * enlace de pago (id del cobro → montos). Ver `montosConRecargo`.
+     */
+    recargos?: Map<string, number[]>;
 }): DecisionPorTexto {
     const { pendientes, parciales, monto, lectura } = e;
+    const conRecargo = (p: PagoPendiente) => monto !== null && (e.recargos?.get(p.id) ?? []).includes(monto);
     const saldoDe = (p: CobroParcial) => Math.max(Number(p.amount) - Number(p.amount_paid ?? 0), 0);
     const cita = lectura.texto ? ` («${lectura.texto}»)` : '';
 
@@ -130,16 +147,37 @@ export function decidirCobroPorTexto(e: {
         }
     }
 
-    const cuadra = (p: PagoPendiente) => monto !== null && Number(p.amount) === monto;
+    const igual = (p: PagoPendiente) => monto !== null && Number(p.amount) === monto;
+    const cuadra = (p: PagoPendiente) => igual(p) || conRecargo(p);
     const porMes = lectura.meses.length
         ? pendientes.filter((p) => { const m = mesDePago(p); return m !== null && lectura.meses.includes(m); })
         : [];
+
+    // 1b. El monto es el del enlace de pago de UN cobro (cobro + recargo
+    //     online, aunque hoy la escuela tenga otro %): pago completo de ese.
+    if (monto !== null && !pendientes.some(igual)) {
+        const porRecargo = pendientes.filter(conRecargo);
+        const elegido = porRecargo.length === 1 ? porRecargo[0] : elMasAntiguoDelMismoDeportista(porRecargo);
+        if (elegido) return { tipo: 'aplicar', pago: elegido, motivo: 'recargo' };
+    }
 
     // 2. No cuadra con nada y la escuela no recibe abonos: no en silencio.
     const algoCuadra = monto === null
         || pendientes.some(cuadra)
         || algunaSumaDa(pendientes, monto)
         || parciales.some((p) => saldoDe(p) === monto);
+    // 2a. MAYOR que el cobro al que va (el del mes que dice, el único, o el más
+    //     antiguo del mismo deportista): se toma el pago igual y lo de más queda
+    //     como saldo a favor (decisión de la escuela, 2026-10-13). Una suma
+    //     exacta de varios cobros ya «cuadra» y la reparte quien llama.
+    if (!algoCuadra && pendientes.length && monto !== null) {
+        const pool = porMes.length ? porMes : pendientes;
+        const destino = pool.length === 1 ? pool[0] : elMasAntiguoDelMismoDeportista(pool);
+        if (destino && monto > Number(destino.amount)) {
+            return { tipo: 'aplicar', pago: destino, motivo: 'excedente', excedente: monto - Number(destino.amount) };
+        }
+    }
+
     if (!algoCuadra && !e.permiteAbonos && pendientes.length) {
         const pool = porMes.length ? porMes : pendientes;
         if (pool.length > 1) return { tipo: 'preguntar', opciones: pool.slice(0, 5) };
@@ -163,15 +201,51 @@ export function decidirCobroPorTexto(e: {
 
     // 3b. Varios del mismo monto: mes del texto, o el más antiguo si son del
     //     mismo deportista. `pendientes` viene del más viejo al más nuevo.
-    const exactos = pendientes.filter(cuadra);
+    const exactos = pendientes.filter(igual);
     if (exactos.length > 1) {
         const delMes = exactos.filter((p) => porMes.includes(p));
         if (delMes.length === 1) return { tipo: 'aplicar', pago: delMes[0], motivo: 'mes_del_texto' };
-        const deportistas = new Set(exactos.map((p) => p.child_id ?? p.atleta ?? ''));
-        if (deportistas.size === 1 && !deportistas.has('')) {
-            const ordenados = [...exactos].sort((a, b) => String(a.due_date ?? '9999').localeCompare(String(b.due_date ?? '9999')));
-            return { tipo: 'aplicar', pago: ordenados[0], motivo: 'mas_antiguo' };
-        }
+        const masAntiguo = elMasAntiguoDelMismoDeportista(exactos);
+        if (masAntiguo) return { tipo: 'aplicar', pago: masAntiguo, motivo: 'mas_antiguo' };
     }
     return null;
+}
+
+/**
+ * LA regla «el más antiguo» (la de la escuela, 2026-09-15): entre varios
+ * cobros del MISMO deportista, el de vencimiento más viejo. De deportistas
+ * distintos (o sin saber de quién son) no se adivina: null. La usan el worker
+ * (`decidirCobroPorTexto`) y la recuperación (`decidirRecuperacion`). Pura.
+ */
+export function elMasAntiguoDelMismoDeportista(cobros: PagoPendiente[]): PagoPendiente | null {
+    if (cobros.length === 0) return null;
+    const deportistas = new Set(cobros.map((p) => p.child_id ?? p.atleta ?? ''));
+    if (deportistas.size !== 1 || deportistas.has('')) return null;
+    return [...cobros].sort((a, b) => String(a.due_date ?? '9999').localeCompare(String(b.due_date ?? '9999')))[0];
+}
+
+/**
+ * Montos que valen como pago COMPLETO de un cobro por el recargo de su enlace
+ * de pago: el `gross_amount` del enlace, y el cobro × (1 + fee_pct del ENLACE).
+ * El % es el del enlace con que se creó, no el vigente de la escuela: un link
+ * viejo del 5 % sigue vivo aunque hoy la escuela cobre 0 %. Sin el monto del
+ * cobro mismo. Pura.
+ */
+export function montosConRecargo(
+    montoCobro: number,
+    enlaces: { gross_amount: number | string | null; base_amount?: number | string | null; fee_pct: number | string | null }[],
+): number[] {
+    const out = new Set<number>();
+    for (const l of enlaces) {
+        const gross = Number(l.gross_amount);
+        if (Number.isFinite(gross) && gross > montoCobro) out.add(Math.round(gross));
+        const fee = Number(l.fee_pct);
+        if (Number.isFinite(fee) && fee > 0) {
+            out.add(Math.round(montoCobro * (1 + fee / 100)));
+            const base = Number(l.base_amount);
+            if (Number.isFinite(base) && base > 0) out.add(Math.round(base * (1 + fee / 100)));
+        }
+    }
+    out.delete(montoCobro);
+    return [...out];
 }

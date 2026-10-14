@@ -53,7 +53,10 @@ export async function pagosPendientesDe(
     const { data, error } = await supabase
         .from('payments')
         .select('id, amount, concept, due_date, child_id, payment_category, payment_type, child:children(full_name)')
-        .eq('parent_id', parentId)
+        // `user_id`: el atleta ADULTO identificado por su propio número llega
+        // como `parentId` (wa_identify_by_phone, migración 20261013165308) y
+        // sus cobros pueden tener user_id = él y parent_id vacío.
+        .or(`parent_id.eq.${parentId},user_id.eq.${parentId}`)
         .eq('school_id', schoolId)
         .in('status', ['pending', 'overdue'])
         .order('due_date', { ascending: true })

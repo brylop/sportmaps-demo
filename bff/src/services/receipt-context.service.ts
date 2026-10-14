@@ -70,6 +70,7 @@ export async function buildVerdictContext(
     let dateWindowDays = 5;
     let registeredAccounts: string[] = [];
     let restrictedAccounts: { value: string; onlyFor: string[] }[] = [];
+    let fueraDeSportmaps: string[] = [];
     const paymentCategory = await resolverCategoria(args);
     try {
         const { data: settings } = await supabase
@@ -119,7 +120,14 @@ export async function buildVerdictContext(
             //      categoría (Nequi de inscripciones de Dynasty) no cuenta como
             //      destino válido de ESTE cobro; va aparte, para que el veredicto
             //      la marque amarillo en vez de verde o rojo.
-            const cuentas = parseCuentasDePago(extraCols.payment_accounts);
+            //      Las «por fuera de SportMaps» no son destino de la escuela para
+            //      NINGÚN cobro: van aparte (cuentasFueraDeSportmaps) y tampoco
+            //      se cuelan por las columnas sueltas.
+            const todas = parseCuentasDePago(extraCols.payment_accounts);
+            const cuentas = todas.filter((c) => !c.fueraDeSportmaps);
+            fueraDeSportmaps = todas.filter((c) => c.fueraDeSportmaps)
+                .map((c) => normalizeDestination(c.value))
+                .filter((v): v is string => v !== null);
             const restringidas = cuentas
                 .filter((c) => !cuentaAplicaA(c, paymentCategory))
                 .map((c) => ({ value: normalizeDestination(c.value), onlyFor: c.onlyFor ?? [] }))
@@ -134,8 +142,9 @@ export async function buildVerdictContext(
                 .map((a) => normalizeDestination(a))
                 .filter((a): a is string => a !== null);
             // Una columna suelta que espeje una llave restringida no la vuelve general.
+            const valoresFuera = new Set(fueraDeSportmaps);
             registeredAccounts = Array.from(new Set([...registeredAccounts, ...extra]))
-                .filter((a) => !valoresRestringidos.has(a));
+                .filter((a) => !valoresRestringidos.has(a) && !valoresFuera.has(a));
             restrictedAccounts = restringidas;
         }
     } catch {
@@ -169,6 +178,7 @@ export async function buildVerdictContext(
         expectedAmount: args.expectedAmount ?? null,
         registeredAccounts,
         restrictedAccounts,
+        cuentasFueraDeSportmaps: fueraDeSportmaps,
         paymentCategory,
         dateWindowDays,
         today,

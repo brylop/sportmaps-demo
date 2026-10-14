@@ -27,6 +27,7 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
+import { esContactoSinContenido, leerConMarca } from '../services/whatsapp-tipo-contacto';
 import { requireAuth, type AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { downloadMedia } from '../services/whatsapp.service';
 import { administraEstaEscuela, enriquecerConversaciones, estadoDeVentana, integracionParaEnviar } from './whatsapp-admin.routes';
@@ -190,7 +191,11 @@ router.get('/:schoolId/buzon/buscar', requireAuth, async (req: AuthenticatedRequ
     for (let i = 0; i < ids.length; i += 200) {
         const lote = ids.slice(i, i + 200);
         let r: { data: any; error: any } = await supabase.from('whatsapp_conversations')
-            .select(`${COLUMNAS}, contact_kind`).eq('school_id', schoolId).in('id', lote);
+            .select(`${COLUMNAS}, contact_kind, tambien_familia`).eq('school_id', schoolId).in('id', lote);
+        if (r.error) {
+            r = await supabase.from('whatsapp_conversations')
+                .select(`${COLUMNAS}, contact_kind`).eq('school_id', schoolId).in('id', lote);
+        }
         if (r.error) {
             r = await supabase.from('whatsapp_conversations').select(COLUMNAS).eq('school_id', schoolId).in('id', lote);
             if (r.error) return res.status(500).json({ error: r.error.message });
@@ -222,13 +227,14 @@ router.get('/:schoolId/conversaciones/:conversationId/mensajes/:messageId/media'
         if (!(await administraEstaEscuela(req.user.id, schoolId))) {
             return res.status(403).json({ error: 'forbidden' });
         }
-        const { data: conv } = await supabase.from('whatsapp_conversations')
-            .select('id, contact_kind, integration_id')
-            .eq('id', conversationId).eq('school_id', schoolId).maybeSingle();
+        const { data: conv } = await leerConMarca((cols) => supabase.from('whatsapp_conversations')
+            .select(cols)
+            .eq('id', conversationId).eq('school_id', schoolId).maybeSingle(), 'id, integration_id');
         if (!conv) return res.status(404).json({ error: 'Conversacion no encontrada' });
-        // Privacidad (auditoría 2026-10-06): de un contacto personal la escuela
-        // no guarda ni muestra contenido. Tampoco se le hace de proxy a Meta.
-        if ((conv as any).contact_kind === 'personal') {
+        // Privacidad (auditoría 2026-10-06): de un contacto marcado como
+        // no-familia (personal, negocio…) la escuela no guarda ni muestra
+        // contenido. Tampoco se le hace de proxy a Meta.
+        if (esContactoSinContenido((conv as any).contact_kind, (conv as any).tambien_familia)) {
             return res.status(403).json({ error: 'contenido_personal' });
         }
 
@@ -289,14 +295,15 @@ router.get('/:schoolId/conversaciones/:conversationId/mensajes/:messageId/media'
 // ─── Plantillas desde el hilo ────────────────────────────────────────────────
 
 async function contextoDeEnvio(schoolId: string, conversationId: string) {
-    const { data: conv } = await supabase.from('whatsapp_conversations')
-        .select('id, contact_wa_id, contact_name, contact_kind, integration_id, last_inbound_at')
-        .eq('id', conversationId).eq('school_id', schoolId).maybeSingle();
+    const { data: conv } = await leerConMarca((cols) => supabase.from('whatsapp_conversations')
+        .select(cols)
+        .eq('id', conversationId).eq('school_id', schoolId).maybeSingle(),
+        'id, contact_wa_id, contact_name, integration_id, last_inbound_at');
     if (!conv) return { conv: null } as const;
     const integracion = await integracionParaEnviar(schoolId);
     let motivo: MotivoBloqueo | null = null;
     if (!integracion || !integracion.waba_id || integracion.id !== (conv as any).integration_id) motivo = 'sin_integracion';
-    else if ((conv as any).contact_kind === 'personal') motivo = 'contacto_personal';
+    else if (esContactoSinContenido((conv as any).contact_kind, (conv as any).tambien_familia)) motivo = 'contacto_personal';
     else {
         const c = await consentimientoDe(integracion.id, (conv as any).contact_wa_id);
         if (c !== 'ok') motivo = c;

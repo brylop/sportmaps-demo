@@ -42,9 +42,11 @@ import { vocativosDeEscuela } from '../services/whatsapp-bot.service';
 import { contarBorradoresHuerfanos, ponerseAlDia } from '../services/whatsapp-ponerse-al-dia.service';
 import { prospectosDeConversaciones } from '../services/whatsapp-prospecto-lead.service';
 import { medioDelMensaje } from '../services/whatsapp-medios';
-import { ESTADOS_BANDEJA, PREFIJO_CERRADA, clasificarFila, contarCierres, estaCerrada, filasParaAutocierre,
-         filasParaAutocierrePorDecision, huellasDeFila, marcaDeCierre, motivoDeFila, referenciaUsada, resumenDeGrupos,
-         type GrupoBandeja, type PagoDecidible, type PagoMinimo } from '../services/whatsapp-bandeja.service';
+import { ESTADOS_BANDEJA, PREFIJO_CERRADA, candidatosASugerir, clasificarFila, contarCierres, estaCerrada,
+         filaCuentaEnBandeja, filasParaAutocierre, filasParaAutocierrePorDecision, filasParaCierrePorMarca, huellasDeFila,
+         marcaDeCierre, motivoDeCierrePorMarca, motivoDeFila, referenciaUsada, resumenDeGrupos,
+         type GrupoBandeja, type PagoDecidible, type PagoMinimo, type SugerenciaDeMarca } from '../services/whatsapp-bandeja.service';
+import { TIPOS_MARCADOS, esMarcaNoFamilia, type TipoMarcado } from '../services/whatsapp-tipo-contacto';
 
 const router = Router();
 
@@ -444,28 +446,117 @@ async function filasAbiertasDeBandeja(schoolId: string): Promise<{ filas: any[];
     return { filas: ((data ?? []) as any[]).filter((f) => !estaCerrada(f.error_message)), error: null };
 }
 
-/** Conversación de cada número: id (para «Ver chat»), nombre y tipo de contacto. */
+/** Lo que la bandeja necesita de la conversación de cada número. */
+export interface ConvDeBandeja {
+    id: string;
+    contact_name: string | null;
+    contact_kind: string | null;
+    tambien_familia: boolean;
+    identified: boolean | null;
+    parent_id: string | null;
+}
+
+/** Conversación de cada número: id (para «Ver chat»), nombre, tipo de contacto y «también es familia». */
 async function conversacionesPorNumero(integrationId: string, numeros: string[]) {
-    const mapa = new Map<string, { id: string; contact_name: string | null; contact_kind: string | null }>();
+    const mapa = new Map<string, ConvDeBandeja>();
     const unicos = [...new Set(numeros.filter(Boolean))];
+    const BASE = 'id, contact_wa_id, contact_name, identified, parent_id';
     for (let i = 0; i < unicos.length; i += 100) {
         const lote = unicos.slice(i, i + 100);
-        let r: { data: any; error: any } = await supabase.from('whatsapp_conversations')
-            .select('id, contact_wa_id, contact_name, contact_kind')
+        const consulta = (cols: string) => supabase.from('whatsapp_conversations')
+            .select(cols)
             .eq('integration_id', integrationId)
             .in('contact_wa_id', lote);
-        // Sin la migración de Fase A no hay contact_kind: sin tipo, igual que el buzón.
-        if (r.error && esColumnaInexistente(r.error)) {
-            r = await supabase.from('whatsapp_conversations')
-                .select('id, contact_wa_id, contact_name')
-                .eq('integration_id', integrationId)
-                .in('contact_wa_id', lote);
-        }
+        // De la más completa a la más pobre: `tambien_familia` (20261013164839) y
+        // `contact_kind` (Fase A) se aplican a mano. Sin ellas: sin marca.
+        let r: { data: any; error: any } = await consulta(`${BASE}, contact_kind, tambien_familia`);
+        if (r.error && esColumnaInexistente(r.error)) r = await consulta(`${BASE}, contact_kind`);
+        if (r.error && esColumnaInexistente(r.error)) r = await consulta(BASE);
         for (const c of (r.data ?? []) as any[]) {
-            mapa.set(c.contact_wa_id, { id: c.id, contact_name: c.contact_name ?? null, contact_kind: c.contact_kind ?? null });
+            mapa.set(c.contact_wa_id, {
+                id: c.id,
+                contact_name: c.contact_name ?? null,
+                contact_kind: c.contact_kind ?? null,
+                tambien_familia: c.tambien_familia === true,
+                identified: c.identified ?? null,
+                parent_id: c.parent_id ?? null,
+            });
         }
     }
     return mapa;
+}
+
+const tel10 = (s: string | null | undefined) => String(s ?? '').replace(/\D/g, '').slice(-10);
+
+/**
+ * De estos números, los que ALGUNA VEZ estuvieron en una ficha de la escuela:
+ * `children.parent_phone_temp` (activos o no), `unregistered_athletes`
+ * (`guardian_phone`/`phone`, activos o no), o el `profiles.phone` de un
+ * acudiente de la escuela o de un miembro. Solo lectura. Ante un error, el
+ * número cuenta como «con ficha» (no se sugiere marcar a una posible familia).
+ */
+async function numerosConFicha(schoolId: string, numeros: string[]): Promise<Set<string>> {
+    const con = new Set<string>();
+    const porTel = new Map<string, string[]>();
+    for (const n of numeros) {
+        const t = tel10(n);
+        if (t.length < 7) { con.add(n); continue; }
+        if (!porTel.has(t)) porTel.set(t, []);
+        porTel.get(t)!.push(n);
+    }
+    const tels = [...porTel.keys()];
+    if (!tels.length) return con;
+    const marcar = (valor: string | null | undefined) => {
+        const t = tel10(valor);
+        for (const n of porTel.get(t) ?? []) con.add(n);
+    };
+    const or = (col: string) => tels.map((t) => `${col}.ilike.%${t}`).join(',');
+    try {
+        const [hijos, sinReg, perfiles] = await Promise.all([
+            supabase.from('children').select('parent_phone_temp')
+                .eq('school_id', schoolId).or(or('parent_phone_temp')).limit(500),
+            supabase.from('unregistered_athletes').select('guardian_phone, phone')
+                .eq('school_id', schoolId).or(`${or('guardian_phone')},${or('phone')}`).limit(500),
+            supabase.from('profiles').select('id, phone').or(or('phone')).limit(500),
+        ]);
+        if (hijos.error || sinReg.error || perfiles.error) return new Set(numeros);
+        for (const h of (hijos.data ?? []) as any[]) marcar(h.parent_phone_temp);
+        for (const u of (sinReg.data ?? []) as any[]) { marcar(u.guardian_phone); marcar(u.phone); }
+        const perfilesConTel = ((perfiles.data ?? []) as any[]).filter((p) => porTel.has(tel10(p.phone)));
+        const ids = perfilesConTel.map((p) => p.id as string);
+        if (ids.length) {
+            const [comoAcudiente, comoMiembro] = await Promise.all([
+                supabase.from('children').select('parent_id').eq('school_id', schoolId).in('parent_id', ids).limit(500),
+                supabase.from('school_members').select('profile_id').eq('school_id', schoolId).in('profile_id', ids).limit(500),
+            ]);
+            if (comoAcudiente.error || comoMiembro.error) return new Set(numeros);
+            const deLaEscuela = new Set<string>([
+                ...((comoAcudiente.data ?? []) as any[]).map((c) => c.parent_id),
+                ...((comoMiembro.data ?? []) as any[]).map((m) => m.profile_id),
+            ]);
+            for (const p of perfilesConTel) if (deLaEscuela.has(p.id)) marcar(p.phone);
+        }
+    } catch {
+        return new Set(numeros);
+    }
+    return con;
+}
+
+/**
+ * Sugerencias «¿Marcar como negocio/personal…?» para la bandeja. Nunca marca:
+ * solo propone. Ver `candidatosASugerir`. Ante un error, ninguna.
+ */
+async function sugerenciasDeMarca(schoolId: string, filas: any[], convs: Map<string, ConvDeBandeja>,
+                                  log?: any): Promise<SugerenciaDeMarca[]> {
+    try {
+        const candidatos = candidatosASugerir(filas, convs);
+        if (!candidatos.length) return [];
+        const conFicha = await numerosConFicha(schoolId, candidatos.map((c) => c.wa_phone_number));
+        return candidatos.filter((c) => !conFicha.has(c.wa_phone_number)).slice(0, 20);
+    } catch (err: any) {
+        log?.warn?.({ schoolId, err: err?.message || err }, '[wa-bandeja] sugerencias de marca fallaron');
+        return [];
+    }
 }
 
 /**
@@ -525,11 +616,12 @@ const COLUMNAS_PAGO_DECIDIBLE = 'id, school_id, status, concept, ocr_reference, 
     + 'receipt_rejected_at, receipt_image_sha256, receipt_reference_norm';
 
 async function autocerrarPorDecision(schoolId: string, filas: any[], log?: any): Promise<string[]> {
-    const conEnlace = filas.filter((f) => f.result_ref_id || huellasDeFila(f).sha || huellasDeFila(f).referencia);
+    const conEnlace = filas.filter((f) => f.result_ref_id || huellasDeFila(f).sha || huellasDeFila(f).referencias.length);
     if (!conEnlace.length) return [];
     const ids = [...new Set(conEnlace.map((f) => f.result_ref_id).filter(Boolean))] as string[];
     const shas = [...new Set(conEnlace.map((f) => huellasDeFila(f).sha).filter(Boolean))] as string[];
-    const refs = [...new Set(conEnlace.map((f) => huellasDeFila(f).referencia).filter(Boolean))] as string[];
+    // Todas las referencias de la fila (la del OCR y las alternativas).
+    const refs = [...new Set(conEnlace.flatMap((f) => huellasDeFila(f).referencias))].slice(0, 500);
     const vacio = Promise.resolve({ data: [], error: null } as any);
     const lecturas = await Promise.all([
         ids.length ? supabase.from('payments').select(COLUMNAS_PAGO_DECIDIBLE).eq('school_id', schoolId).in('id', ids) : vacio,
@@ -581,18 +673,26 @@ function sinHuellas<T extends Record<string, any>>(f: T): Omit<T, 'pregunta_ocr'
     return resto;
 }
 
-/** Clasifica y ordena: acción primero, después revisar, después informativo. */
-function armarBandeja(filas: any[], convs: Map<string, { id: string; contact_name: string | null; contact_kind: string | null }>) {
+/**
+ * Clasifica y ordena: acción primero, después revisar, después informativo.
+ * Las filas de contactos marcados como no-familia (personal, negocio, otro
+ * club, plataforma, sin «también es familia») NO entran: ni en la lista ni en
+ * los contadores. Al marcar se cierran (PATCH …/tipo); esto cubre las que
+ * quedaran abiertas por una carrera o porque se marcó antes de este cambio.
+ */
+function armarBandeja(filas: any[], convs: Map<string, Partial<ConvDeBandeja> & { id: string }>) {
     const orden: Record<GrupoBandeja, number> = { accion: 0, revisar: 1, informativo: 2 };
-    const enriquecidas = filas.map((f) => {
+    const enriquecidas = filas.flatMap((f) => {
         const c = convs.get(f.wa_phone_number) ?? null;
-        return {
+        if (!filaCuentaEnBandeja(c?.contact_kind ?? null, c?.tambien_familia ?? false)) return [];
+        return [{
             ...f,
-            ...clasificarFila(f, c?.contact_kind ?? null),
+            ...clasificarFila(f, c?.contact_kind ?? null, c?.tambien_familia ?? false),
             conversacion_id: c?.id ?? null,
             contacto: c?.contact_name ?? null,
             tipo_contacto: c?.contact_kind ?? null,
-        };
+            tambien_familia: c?.tambien_familia === true,
+        }];
     });
     enriquecidas.sort((a, b) => (orden[a.grupo as GrupoBandeja] - orden[b.grupo as GrupoBandeja])
         || String(b.created_at).localeCompare(String(a.created_at)));
@@ -617,7 +717,10 @@ router.get('/:schoolId/bandeja', requireAuth, async (req: AuthenticatedRequest, 
         ? await conversacionesPorNumero(integracion.id, abiertas.map((f) => f.wa_phone_number))
         : new Map();
     const { filas, resumen } = armarBandeja(abiertas, convs);
-    const cierres = await cierresRecientes(schoolId);
+    const [cierres, sugerencias] = await Promise.all([
+        cierresRecientes(schoolId),
+        sugerenciasDeMarca(schoolId, filas, convs, req.log),
+    ]);
 
     // Miniatura firmada del comprobante (15 min). Las rutas son de ESTA escuela
     // (salen de filas filtradas por school_id); el bucket es privado.
@@ -638,6 +741,9 @@ router.get('/:schoolId/bandeja', requireAuth, async (req: AuthenticatedRequest, 
         cerradas_solas: cerradasSolas.size,
         // Cierres de los últimos 30 días (null si no se pudo contar).
         cierres_30d: cierres,
+        // «¿Marcar como negocio/personal…?»: números sin ficha con ráfaga de
+        // adjuntos o nombre de negocio. Solo sugerencias; marcar es de la escuela.
+        sugerencias_marca: sugerencias,
     });
 });
 
@@ -1076,7 +1182,7 @@ export async function enriquecerConversaciones(schoolId: string, data: any[]): P
     // conversación (otro frente, whatsapp-atencion.service), leerla de ahí.
     const prospectos = new Set<string>();
     const noFamilia = data.filter((c: any) => vistaDeTipo(c.contact_kind) === 'otros'
-        && c.contact_kind !== 'personal' && c.contact_kind !== 'staff').map((c: any) => c.id);
+        && !esMarcaNoFamilia(c.contact_kind) && c.contact_kind !== 'staff').map((c: any) => c.id);
     if (noFamilia.length) {
         const [enviados, propuestos] = await Promise.all([
             supabase.from('whatsapp_messages')
@@ -1199,12 +1305,17 @@ router.get('/:schoolId/conversaciones', requireAuth, async (req: AuthenticatedRe
     // conteos de las tres pestañas en el mismo viaje, y se filtra acá.
     const COLUMNAS = 'id, contact_wa_id, contact_name, identified, status, unread_count, '
                    + 'last_message_at, last_inbound_at, parent_id';
-    const conTipo = await supabase
+    const listar = (cols: string) => supabase
         .from('whatsapp_conversations')
-        .select(`${COLUMNAS}, contact_kind`)
+        .select(cols)
         .eq('school_id', schoolId)
         .order('last_message_at', { ascending: false, nullsFirst: false })
         .limit(500);
+    // `tambien_familia` llega con 20261013164839 (a mano): sin ella, false.
+    let conTipo: { data: any; error: any } = await listar(`${COLUMNAS}, contact_kind, tambien_familia`);
+    if (conTipo.error && esColumnaInexistente(conTipo.error)) {
+        conTipo = await listar(`${COLUMNAS}, contact_kind`);
+    }
 
     let todas: any[] = (conTipo.data as any[]) ?? [];
     let clasificacionDisponible = true;
@@ -1247,17 +1358,76 @@ router.get('/:schoolId/conversaciones', requireAuth, async (req: AuthenticatedRe
 
 const VistaSchema = z.enum(['familias', 'otros', 'todas']);
 
-const TipoSchema = z.object({ personal: z.boolean() }).strict();
+/**
+ * Cuerpo del PATCH …/tipo. La forma nueva es `{ tipo, tambien_familia? }`; la
+ * vieja `{ personal: boolean }` se sigue aceptando (pantallas en caché).
+ */
+const TipoSchema = z.union([
+    z.object({
+        tipo: z.enum(['familia', ...TIPOS_MARCADOS] as [string, ...string[]]),
+        tambien_familia: z.boolean().optional(),
+    }).strict(),
+    z.object({ personal: z.boolean() }).strict(),
+]);
+
+/** `{ personal }` o `{ tipo, tambien_familia }` → la marca a guardar. Pura. */
+export function marcaPedida(body: z.infer<typeof TipoSchema>): { tipo: TipoMarcado | null; tambienFamilia: boolean } {
+    if ('personal' in body) return { tipo: body.personal ? 'personal' : null, tambienFamilia: false };
+    const tipo = esMarcaNoFamilia(body.tipo) ? body.tipo : null;
+    return { tipo, tambienFamilia: tipo ? body.tambien_familia === true : false };
+}
+
+/**
+ * Cierra en lote las filas abiertas de la bandeja de un número recién marcado
+ * como no-familia. Mismo formato que el cierre manual (`descartado`, por quien
+ * marcó) y la misma guarda de concurrencia (cada UPDATE exige el estado y el
+ * `error_message` leídos). Con «también es familia» se quedan las que pueden
+ * ser el pago de un hijo (`filasParaCierrePorMarca`). Nunca lanza.
+ */
+async function cerrarFilasDeContactoMarcado(
+    schoolId: string, waPhone: string, tipo: TipoMarcado, tambienFamilia: boolean, userId: string, log?: any,
+): Promise<string[]> {
+    const { data, error } = await supabase.from('whatsapp_inbound_queue')
+        .select('id, status, error_message, matched_child_id')
+        .eq('school_id', schoolId)
+        .eq('wa_phone_number', waPhone)
+        .in('status', [...ESTADOS_BANDEJA])
+        .limit(TECHO_BANDEJA);
+    if (error) { log?.warn?.({ schoolId, err: error.message }, '[wa-admin] no se pudieron leer las filas del contacto'); return []; }
+    const motivo = motivoDeCierrePorMarca(tipo);
+    const cerradas: string[] = [];
+    for (const f of filasParaCierrePorMarca((data ?? []) as any[], tambienFamilia)) {
+        const previo = (f.error_message ?? null) as string | null;
+        let upd = supabase.from('whatsapp_inbound_queue')
+            .update({
+                status: 'ignored',
+                error_message: marcaDeCierre('descartado', motivo, userId, previo),
+                locked_until: null,
+                updated_at: new Date().toISOString(),
+            })
+            .eq('id', f.id)
+            .eq('school_id', schoolId)
+            .eq('status', f.status);
+        upd = previo === null ? upd.is('error_message', null) : upd.eq('error_message', previo);
+        const r = await upd.select('id');
+        if (r.error) { log?.warn?.({ schoolId, fila: f.id, err: r.error.message }, '[wa-admin] cierre por marca falló'); continue; }
+        if ((r.data ?? []).length) cerradas.push(f.id);
+    }
+    return cerradas;
+}
 
 /**
  * PATCH /api/v1/whatsapp/:schoolId/conversaciones/:conversationId/tipo
  *
- * `{ personal: true }`  → contact_kind='personal': el asistente no le habla
- *                          nunca y la conversación sale de la pestaña Familias.
- * `{ personal: false }` → contact_kind=NULL: se reclasifica sola con el próximo
- *                          mensaje entrante (clasificarContacto). No se adivina
- *                          acá el tipo, porque eso exige `wa_identify_by_phone`,
- *                          que además VINCULA la conversación.
+ * `{ tipo: 'personal'|'negocio'|'otro_club'|'plataforma', tambien_familia? }`
+ *     → marca manual de no-familia: el asistente no le habla, no se guarda el
+ *       contenido de sus mensajes y sus filas abiertas de la bandeja se cierran
+ *       («contacto marcado como …»). Con `tambien_familia` sus comprobantes se
+ *       siguen aplicando en silencio a los cobros de sus hijos.
+ * `{ tipo: 'familia' }` → contact_kind=NULL: se reclasifica sola con el próximo
+ *       mensaje entrante (clasificarContacto). No se adivina acá el tipo,
+ *       porque eso exige `wa_identify_by_phone`, que además VINCULA la conversación.
+ * `{ personal: boolean }` → forma vieja (= personal / familia).
  */
 router.patch('/:schoolId/conversaciones/:conversationId/tipo', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     const { schoolId, conversationId } = req.params as { schoolId: string; conversationId: string };
@@ -1270,26 +1440,58 @@ router.patch('/:schoolId/conversaciones/:conversationId/tipo', requireAuth, asyn
         return res.status(400).json({ error: 'datos_invalidos', details: parsed.error.issues });
     }
 
+    const { tipo, tambienFamilia } = marcaPedida(parsed.data);
+    const viejo = 'personal' in parsed.data;
+
     // El school_id en el FILTRO: un admin de A no marca conversaciones de B.
-    const { data, error } = await supabase
+    // La forma vieja no toca `tambien_familia` (puede no existir la columna).
+    const cambios: Record<string, unknown> = { contact_kind: tipo, updated_at: new Date().toISOString() };
+    if (!viejo) cambios.tambien_familia = tambienFamilia;
+    let r: { data: any; error: any } = await supabase
         .from('whatsapp_conversations')
-        .update({ contact_kind: parsed.data.personal ? 'personal' : null, updated_at: new Date().toISOString() })
+        .update(cambios)
         .eq('id', conversationId)
         .eq('school_id', schoolId)
-        .select('id, contact_kind')
+        .select('id, contact_wa_id, contact_kind')
         .maybeSingle();
 
+    if (r.error && esColumnaInexistente(r.error) && !viejo) {
+        // Sin `tambien_familia` (migración 20261013164839 sin aplicar) ni el
+        // CHECK nuevo: solo se puede guardar personal / familia.
+        if (tambienFamilia || (tipo && tipo !== 'personal')) {
+            return res.status(409).json({ error: 'clasificacion_no_disponible',
+                detalle: 'Falta aplicar la migración 20261013164839 (tipos de contacto).' });
+        }
+        r = await supabase.from('whatsapp_conversations')
+            .update({ contact_kind: tipo, updated_at: new Date().toISOString() })
+            .eq('id', conversationId).eq('school_id', schoolId)
+            .select('id, contact_wa_id, contact_kind').maybeSingle();
+    }
+    const { data, error } = r;
     if (error) {
         if (esColumnaInexistente(error)) {
             return res.status(409).json({ error: 'clasificacion_no_disponible',
                 detalle: 'Falta aplicar la migración de Fase A (contact_kind).' });
         }
+        // 23514 = el CHECK viejo no admite negocio/otro_club/plataforma.
+        if (String(error.code) === '23514') {
+            return res.status(409).json({ error: 'clasificacion_no_disponible',
+                detalle: 'Falta aplicar la migración 20261013164839 (tipos de contacto).' });
+        }
         return res.status(500).json({ error: error.message });
     }
     if (!data) return res.status(404).json({ error: 'Conversacion no encontrada' });
 
-    req.log?.info({ schoolId, conversationId, personal: parsed.data.personal }, '[wa-admin] tipo de contacto marcado');
-    return res.json({ ok: true, id: (data as any).id, contact_kind: (data as any).contact_kind });
+    // Marcar es decir «esto no es de la escuela»: lo que ya estaba en la
+    // bandeja de ese número se cierra (antes la marca solo frenaba lo nuevo).
+    const cerradas = tipo && (data as any).contact_wa_id
+        ? await cerrarFilasDeContactoMarcado(schoolId, (data as any).contact_wa_id, tipo, tambienFamilia, req.user.id, req.log)
+        : [];
+
+    req.log?.info({ schoolId, conversationId, tipo, tambienFamilia, cerradas: cerradas.length },
+        '[wa-admin] tipo de contacto marcado');
+    return res.json({ ok: true, id: (data as any).id, contact_kind: (data as any).contact_kind,
+                      tambien_familia: viejo ? undefined : tambienFamilia, filas_cerradas: cerradas.length });
 });
 
 /**

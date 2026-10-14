@@ -47,11 +47,8 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
-    AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-    AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import {
-    DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+    DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
+    DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { bffClient } from '@/lib/api/bffClient';
 import { useToast } from '@/hooks/use-toast';
@@ -60,9 +57,14 @@ import { useAltoDisponible } from '@/hooks/useAltoDisponible';
 import { useOcultarFabSoporte } from '@/lib/supportFab';
 import { AdjuntoDelMensaje, type MedioDelMensaje } from './AdjuntoDelMensaje';
 import { EnviarPlantilla } from './EnviarPlantilla';
+import { TipoDeContactoDialog } from './TipoDeContactoDialog';
+import {
+    OPCIONES_DE_TIPO, esMarcaNoFamilia, esSoloNoFamilia, pedidoDeTipo, textoDelResultado,
+    type OpcionDeTipo, type RespuestaDeTipo,
+} from './tipoDeContacto';
 import {
     MessageSquare, Send, Bot, User, Clock, Loader2, ChevronLeft, ChevronDown, ChevronRight, Sparkles, X,
-    EyeOff, Eye, CheckCircle2, Hand, Unlock, Search, MoreVertical, RefreshCw, MessageCircle, FileText,
+    CheckCircle2, Hand, Unlock, Search, MoreVertical, RefreshCw, MessageCircle, FileText, Tags,
 } from 'lucide-react';
 
 interface UltimoMensaje {
@@ -84,6 +86,8 @@ export interface Conversacion {
     borradores_pendientes: number;
     /** Quién es el contacto. null/ausente si el backend todavía no lo calcula. */
     contact_kind?: TipoDeContacto | null;
+    /** Marcado no-familia pero también acudiente (sus comprobantes sí entran). Ausente en backends viejos. */
+    tambien_familia?: boolean;
     /** El último mensaje entrante no tiene respuesta. Ausente en backends viejos. */
     pendiente?: boolean;
     /** Pendiente y lo último NO es un cierre («gracias», «ok», 👍). Ausente en backends viejos. */
@@ -110,7 +114,9 @@ function textoDeToma(t: Toma): string {
 }
 
 export type TipoDeContacto =
-    | 'familia' | 'familia_sin_cuenta' | 'ambiguo' | 'staff' | 'desconocido' | 'personal'
+    | 'familia' | 'familia_sin_cuenta' | 'ambiguo' | 'staff' | 'desconocido'
+    // Marcas manuales de no-familia (ver tipoDeContacto.ts).
+    | 'personal' | 'negocio' | 'otro_club' | 'plataforma'
     // Reservado: si el backend llega a guardar la detección de prospectos como tipo.
     | 'prospecto';
 
@@ -122,6 +128,9 @@ const ETIQUETA_TIPO: Record<TipoDeContacto, { texto: string; clase: string }> = 
     staff:              { texto: 'Equipo',      clase: 'border-violet-300 text-violet-700 dark:text-violet-400' },
     desconocido:        { texto: 'Desconocido', clase: 'text-muted-foreground' },
     personal:           { texto: 'Personal',    clase: 'border-slate-400 text-slate-600 dark:text-slate-300' },
+    negocio:            { texto: 'Negocio',     clase: 'border-slate-400 text-slate-600 dark:text-slate-300' },
+    otro_club:          { texto: 'Otro club',   clase: 'border-slate-400 text-slate-600 dark:text-slate-300' },
+    plataforma:         { texto: 'Plataforma',  clase: 'border-slate-400 text-slate-600 dark:text-slate-300' },
     prospecto:          { texto: 'Prospecto',   clase: 'border-fuchsia-300 text-fuchsia-700 dark:text-fuchsia-400' },
 };
 
@@ -159,7 +168,7 @@ const esFamilia = (c: Conversacion) => !!c.contact_kind && TIPOS_FAMILIA.include
  * clasifique prospectos por su cuenta, dejar solo `es_prospecto`.
  */
 function esProspectoMarcado(c: Pick<Conversacion, 'contact_kind' | 'es_prospecto' | 'prospecto'>): boolean {
-    if (c.contact_kind === 'personal' || c.contact_kind === 'staff') return false;
+    if (esMarcaNoFamilia(c.contact_kind) || c.contact_kind === 'staff') return false;
     return c.es_prospecto === true || !!c.prospecto || c.contact_kind === 'prospecto';
 }
 const esProspecto = (c: Conversacion) =>
@@ -361,8 +370,8 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
     const [total, setTotal] = useState<number | null>(null);
     // Sin la migración de Fase A el BFF devuelve todo sin tipo: las bandejas por tipo mentirían.
     const [clasificacion, setClasificacion] = useState(true);
-    /** Conversación que espera confirmación para marcarse como personal. */
-    const [confirmarPersonal, setConfirmarPersonal] = useState<Conversacion | null>(null);
+    /** Conversación cuyo tipo se está eligiendo (Familia / Personal / Negocio…), con la opción preseleccionada. */
+    const [tipoDialogo, setTipoDialogo] = useState<{ c: Conversacion; tipo: OpcionDeTipo } | null>(null);
     const [accionando, setAccionando] = useState(false);
     // Sin la migración de «tomar» el BFF manda toma_disponible=false: el botón se deshabilita.
     const [tomaDisponible, setTomaDisponible] = useState(true);
@@ -571,7 +580,8 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
         }
     };
 
-    const esPersonal = abierta?.contact_kind === 'personal';
+    // Marcado como no-familia y sin «también es familia»: el canal de la escuela no le escribe.
+    const esPersonal = esSoloNoFamilia(abierta?.contact_kind, abierta?.tambien_familia);
 
     /** Cambia una conversación en la lista y, si es la abierta, también en el hilo. */
     const parchar = (id: string, cambio: Partial<Conversacion>) => {
@@ -580,27 +590,70 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
         setAbierta((a) => (a && a.id === id ? { ...a, ...cambio } : a));
     };
 
-    /** Marca o desmarca una conversación como personal (desde la fila o desde el hilo). */
-    const cambiarPersonal = async (c: Conversacion, personal: boolean) => {
+    /** Lo que el contacto tiene hoy, como opción del selector. */
+    const tipoActual = (c: Conversacion): OpcionDeTipo => (esMarcaNoFamilia(c.contact_kind) ? c.contact_kind : 'familia');
+
+    /** Después de marcar (desde el diálogo o el menú): la lista y el hilo, y la recarga. */
+    const tipoCambiado = async (c: Conversacion, tipo: OpcionDeTipo, tambienFamilia: boolean) => {
+        // El tipo real al quitar la marca lo recalcula el servidor; llega con la
+        // recarga de la lista (ver el efecto que sincroniza `abierta`).
+        parchar(c.id, {
+            contact_kind: tipo === 'familia' ? null : tipo,
+            tambien_familia: tipo === 'familia' ? false : tambienFamilia,
+            es_prospecto: tipo === 'familia' ? c.es_prospecto : false,
+        });
+        await cargarLista();
+    };
+
+    /**
+     * Cambios directos desde el menú, sin diálogo: volver a «Familia» (quitar la
+     * marca) y prender/apagar «También es familia» de un contacto ya marcado.
+     * Marcar como personal/negocio/… pasa siempre por el diálogo.
+     */
+    const cambiarTipo = async (c: Conversacion, tipo: OpcionDeTipo, tambienFamilia: boolean) => {
         setAccionando(true);
         try {
-            await bffClient.patch(`/api/v1/whatsapp/${schoolId}/conversaciones/${c.id}/tipo`, { personal });
-            toast({
-                title: personal ? 'Marcada como personal' : 'Se quitó la marca de personal',
-                description: personal
-                    ? 'Pasa a «Personal y otros» y el asistente no le va a responder.'
-                    : 'Vuelve a clasificarse según el número.',
-            });
-            setConfirmarPersonal(null);
-            // El tipo real al desmarcar lo recalcula el servidor; llega con la
-            // recarga de la lista (ver el efecto que sincroniza `abierta`).
-            parchar(c.id, { contact_kind: personal ? 'personal' : null, es_prospecto: personal ? false : c.es_prospecto });
-            await cargarLista();
+            const { ruta, cuerpo } = pedidoDeTipo(schoolId, c.id, tipo, tambienFamilia);
+            const r = await bffClient.patch<RespuestaDeTipo>(ruta, cuerpo);
+            toast(textoDelResultado(tipo, r?.filas_cerradas ?? 0));
+            await tipoCambiado(c, tipo, cuerpo.tambien_familia);
         } catch (e: any) {
             toast({ title: 'No se pudo cambiar', description: e?.message, variant: 'destructive' });
         } finally {
             setAccionando(false);
         }
+    };
+
+    /** «Tipo de contacto ▸ Familia / Personal / Negocio / Otro club / Plataforma» + «También es familia». */
+    const submenuTipo = (c: Conversacion) => {
+        const actual = tipoActual(c);
+        return (
+            <DropdownMenuSub>
+                <DropdownMenuSubTrigger disabled={accionando} className="min-h-touch md:min-h-0">
+                    <Tags className="h-4 w-4 mr-2" /> Tipo de contacto
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-56">
+                    {OPCIONES_DE_TIPO.map((o) => (
+                        <DropdownMenuCheckboxItem key={o.valor} checked={actual === o.valor} disabled={accionando}
+                                                  className="min-h-touch md:min-h-0"
+                                                  onSelect={() => {
+                                                      if (o.valor === actual) return;
+                                                      if (o.valor === 'familia') void cambiarTipo(c, 'familia', false);
+                                                      else setTipoDialogo({ c, tipo: o.valor });
+                                                  }}>
+                            {o.texto}
+                        </DropdownMenuCheckboxItem>
+                    ))}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuCheckboxItem checked={c.tambien_familia === true}
+                                              disabled={accionando || actual === 'familia'}
+                                              className="min-h-touch md:min-h-0"
+                                              onSelect={() => { if (actual !== 'familia') void cambiarTipo(c, actual, !c.tambien_familia); }}>
+                        También es familia
+                    </DropdownMenuCheckboxItem>
+                </DropdownMenuSubContent>
+            </DropdownMenuSub>
+        );
     };
 
     /** Mejora 9: tomar (el asistente calla) o soltar (vuelve a atender). */
@@ -735,15 +788,7 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                             )}
                             {clasificacion && (<>
                                 <DropdownMenuSeparator />
-                                {c.contact_kind === 'personal' ? (
-                                    <DropdownMenuItem disabled={accionando} onSelect={() => void cambiarPersonal(c, false)}>
-                                        <Eye className="h-4 w-4 mr-2" /> Quitar marca de personal
-                                    </DropdownMenuItem>
-                                ) : (
-                                    <DropdownMenuItem disabled={accionando} onSelect={() => setConfirmarPersonal(c)}>
-                                        <EyeOff className="h-4 w-4 mr-2" /> Marcar como personal
-                                    </DropdownMenuItem>
-                                )}
+                                {submenuTipo(c)}
                             </>)}
                         </DropdownMenuContent>
                     </DropdownMenu>
@@ -962,12 +1007,7 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                         <Hand className="h-4 w-4 mr-2" /> Tomar (el asistente calla)
                     </DropdownMenuItem>
                 )}
-                <DropdownMenuItem disabled={accionando}
-                                  onSelect={() => esPersonal ? void cambiarPersonal(abierta, false) : setConfirmarPersonal(abierta)}>
-                    {esPersonal
-                        ? <><Eye className="h-4 w-4 mr-2" /> Quitar marca de personal</>
-                        : <><EyeOff className="h-4 w-4 mr-2" /> Es personal</>}
-                </DropdownMenuItem>
+                {submenuTipo(abierta)}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem disabled={accionando || abierta.status === 'closed'} onSelect={() => void cerrar()}>
                     <CheckCircle2 className="h-4 w-4 mr-2" />
@@ -1018,10 +1058,8 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                                 </Button>
                             )}
                             <Button variant="outline" size="sm" disabled={accionando}
-                                    onClick={() => esPersonal ? void cambiarPersonal(abierta, false) : setConfirmarPersonal(abierta)}>
-                                {esPersonal
-                                    ? <><Eye className="h-3.5 w-3.5 mr-1" /> Quitar personal</>
-                                    : <><EyeOff className="h-3.5 w-3.5 mr-1" /> Es personal</>}
+                                    onClick={() => setTipoDialogo({ c: abierta, tipo: tipoActual(abierta) })}>
+                                <Tags className="h-3.5 w-3.5 mr-1" /> Tipo de contacto
                             </Button>
                             <Button variant="outline" size="sm" disabled={accionando || abierta.status === 'closed'}
                                     onClick={() => void cerrar()}>
@@ -1036,7 +1074,13 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                 </div>
                 {esPersonal && (
                     <p className="text-xs text-muted-foreground">
-                        Conversación personal: el asistente no le responde. Contéstala desde tu celular.
+                        Contacto marcado como {ETIQUETA_TIPO[abierta.contact_kind as TipoDeContacto]?.texto.toLowerCase() ?? 'personal'}:
+                        el asistente no le responde. Contéstala desde tu celular.
+                    </p>
+                )}
+                {esMarcaNoFamilia(abierta.contact_kind) && abierta.tambien_familia && (
+                    <p className="text-xs text-muted-foreground">
+                        También es familia: sus comprobantes de pago se aplican sin escribirle; el asistente no le contesta.
                     </p>
                 )}
                 {abierta.toma && (
@@ -1193,28 +1237,16 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
             {panelLista}
             {panelHilo}
 
-            <AlertDialog open={!!confirmarPersonal} onOpenChange={(v) => { if (!accionando && !v) setConfirmarPersonal(null); }}>
-                <AlertDialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-md">
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>¿Marcar como personal?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            {confirmarPersonal?.contact_name || confirmarPersonal?.contact_wa_id} pasa a «Personal y
-                            otros» y el asistente <strong>no le va a responder nunca</strong>. Los mensajes los
-                            sigues viendo y respondiendo desde tu celular, y puedes quitar la marca cuando quieras.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel disabled={accionando}>Cancelar</AlertDialogCancel>
-                        <AlertDialogAction
-                            disabled={accionando}
-                            onClick={(e) => { e.preventDefault(); if (confirmarPersonal) void cambiarPersonal(confirmarPersonal, true); }}
-                        >
-                            {accionando && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                            Marcar como personal
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
+            <TipoDeContactoDialog
+                schoolId={schoolId}
+                conversacionId={tipoDialogo?.c.id ?? null}
+                nombre={tipoDialogo ? (tipoDialogo.c.contact_name || tipoDialogo.c.contact_wa_id) : null}
+                tipoInicial={tipoDialogo?.tipo ?? 'familia'}
+                tambienFamiliaInicial={tipoDialogo?.c.tambien_familia === true}
+                abierto={!!tipoDialogo}
+                onAbiertoChange={(v) => { if (!v) setTipoDialogo(null); }}
+                onHecho={(r) => { if (tipoDialogo) void tipoCambiado(tipoDialogo.c, r.tipo, r.tambienFamilia); }}
+            />
         </div>
     );
 }

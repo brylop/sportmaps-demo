@@ -1191,6 +1191,38 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
             </div>
           )}
 
+          {/* Tipo del cobro NUEVO. Decide si lleva «Mes que cubre» (solo la
+              mensualidad) y si pagarlo extiende la vigencia (un cobro único
+              no). Por defecto se deduce del concepto; la escuela lo corrige.
+              Al aplicar a un pendiente no se muestra: ese cobro ya tiene el suyo. */}
+          {selectedPaymentId === 'new' && (
+            <div className="space-y-3">
+              <Label htmlFor="charge-category" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                <FileText className="h-3.5 w-3.5" /> Tipo de cobro
+              </Label>
+              <Select
+                value={newChargeCategory ?? ''}
+                onValueChange={(v) => setChosenCategory(v as PaymentChargeCategory)}
+              >
+                <SelectTrigger id="charge-category" className="h-12 bg-background/50 border-border/40 rounded-xl font-bold">
+                  <SelectValue placeholder="Selecciona el tipo de cobro" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-border/40 bg-background/95 backdrop-blur-md">
+                  {MANUAL_CHARGE_CATEGORY_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value} className="rounded-lg py-2.5">
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {newChargeCategory && newChargeCategory !== 'mensualidad' && (
+                <p className="text-[10px] text-muted-foreground leading-relaxed">
+                  Cobro único: no cubre un mes ni extiende la vigencia de la inscripción.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Mes que cubre el cobro. NO es la fecha del pago: se puede registrar
               hoy (julio) un pago que cubre agosto. Poblarlo mete el cobro en los
               indices uniq_payment_active_period_* — sin esto la app le volveria a
