@@ -212,9 +212,8 @@ export async function deliverPublishedReports(
 
     const emailPorId = new Map(((perfiles ?? []) as any[]).map((p) => [p.id, p.email]));
 
-    const batch: EmailItem[] = [];
-    const enviados: string[] = [];
-    const notificaciones: any[] = [];
+    // Candidatos a enviar: se arma todo primero y se RECLAMA antes de mandar.
+    const candidatos: { id: string; email: EmailItem; notificacion: any }[] = [];
 
     for (const informe of conDestinatario) {
         const email = emailPorId.get(informe.recipient_id);
@@ -238,56 +237,139 @@ export async function deliverPublishedReports(
             : `${FRONTEND_URL}/stats`;
 
         const { subject, html } = renderReportEmail(snapshot, link, branding);
-        // Con marca blanca el remitente es la escuela, no SportMaps.
-        batch.push({ to: email, subject, html, ...(branding.hasWhitelabel ? { from_name: remitente } : {}) });
-        enviados.push(informe.id);
-
-        notificaciones.push({
-            user_id: informe.recipient_id,
-            school_id: schoolId,
-            type: 'report',
-            title: subject,
-            message: `Ya está disponible el informe de ${snapshot.period.label}.`,
-            link: informe.subject_type === 'child'
-                ? `/children/${informe.subject_id}/reports/${informe.id}`
-                : '/stats',
+        candidatos.push({
+            id: informe.id,
+            // Con marca blanca el remitente es la escuela, no SportMaps.
+            email: { to: email, subject, html, ...(branding.hasWhitelabel ? { from_name: remitente } : {}) },
+            notificacion: {
+                user_id: informe.recipient_id,
+                school_id: schoolId,
+                type: 'report',
+                title: subject,
+                message: `Ya está disponible el informe de ${snapshot.period.label}.`,
+                link: informe.subject_type === 'child'
+                    ? `/children/${informe.subject_id}/reports/${informe.id}`
+                    : '/stats',
+            },
         });
-
-        results.push({ report_id: informe.id, sent: true, channel: 'email' });
     }
 
-    if (batch.length > 0) {
-        const envio = await sendEmailBatch(batch);
+    if (candidatos.length === 0) {
+        return { results, sent: 0, skipped: results.length };
+    }
 
-        if (!envio.ok) {
-            // No se marca sent_at: si falla el lote, estos informes se reintentan
-            // en la próxima corrida. Marcarlos igual los perdería en silencio.
-            return {
-                results: results.map((r) =>
-                    r.sent ? { ...r, sent: false, channel: 'none', reason: `error de envío: ${envio.error}` } : r,
-                ),
-                sent: 0,
-                skipped: results.length,
-            };
+    // El emisor diario corre a la vez en los 3 BFF (dev/stg/prod) contra una
+    // sola base: sin reclamo, los tres leían los mismos informes con sent_at
+    // NULL y la familia recibía el correo hasta 3 veces. Solo se manda lo que
+    // ESTE proceso logró reclamar.
+    const reclamo = await claimReports(candidatos.map((c) => c.id));
+    const reclamados = new Set(reclamo.ids);
+    for (const c of candidatos) {
+        if (!reclamados.has(c.id)) {
+            results.push({ report_id: c.id, sent: false, channel: 'none', reason: 'ya lo está enviando otro proceso' });
         }
+    }
+    const aEnviar = candidatos.filter((c) => reclamados.has(c.id));
+    if (aEnviar.length === 0) {
+        return { results, sent: 0, skipped: results.length };
+    }
+    const enviados = aEnviar.map((c) => c.id);
 
-        await supabase
+    const envio = await sendEmailBatch(aEnviar.map((c) => c.email));
+
+    if (!envio.ok) {
+        // Se libera el reclamo: estos informes se reintentan en la próxima
+        // corrida. Marcarlos igual los perdería en silencio.
+        await releaseReports(enviados, reclamo.mode);
+        return {
+            results: [
+                ...results,
+                ...enviados.map((id) => ({
+                    report_id: id, sent: false, channel: 'none' as const, reason: `error de envío: ${envio.error}`,
+                })),
+            ],
+            sent: 0,
+            skipped: results.length + enviados.length,
+        };
+    }
+
+    // En modo 'sent_at' el reclamo YA selló sent_at; en modo 'lease' se sella
+    // ahora. Si este UPDATE falla, el lease vence y otro proceso lo reenvía:
+    // un duplicado eventual es mejor que perder el informe.
+    if (reclamo.mode === 'lease') {
+        const { error: selloErr } = await supabase
             .from('athlete_reports')
             .update({ sent_at: new Date().toISOString() })
             .in('id', enviados);
-
-        // La notificación in-app dispara el push por el trigger que ya existe
-        // sobre `notifications` (despachador unificado). Si falla, el correo ya
-        // salió: no se revierte el envío por eso.
-        if (notificaciones.length > 0) {
-            const { error: notifErr } = await supabase.from('notifications').insert(notificaciones);
-            if (notifErr) console.error('[informes] no se pudo encolar la notificación in-app:', notifErr.message);
-        }
+        if (selloErr) console.error('[informes] correo enviado pero no se pudo sellar sent_at:', selloErr.message);
     }
+
+    for (const id of enviados) results.push({ report_id: id, sent: true, channel: 'email' });
+
+    // La notificación in-app dispara el push por el trigger que ya existe
+    // sobre `notifications` (despachador unificado). Si falla, el correo ya
+    // salió: no se revierte el envío por eso.
+    const { error: notifErr } = await supabase.from('notifications').insert(aEnviar.map((c) => c.notificacion));
+    if (notifErr) console.error('[informes] no se pudo encolar la notificación in-app:', notifErr.message);
 
     return {
         results,
         sent: enviados.length,
         skipped: results.length - enviados.length,
     };
+}
+
+/**
+ * Lease del reclamo de envío. Debe superar con holgura lo que tarda un lote
+ * (≤100 correos por la edge function, segundos). Si el proceso muere entre el
+ * reclamo y el sello de sent_at, el informe se retoma al vencer el lease.
+ */
+export const SEND_LEASE_MS = 15 * 60 * 1000;
+
+type ClaimMode = 'lease' | 'sent_at';
+
+/**
+ * Reclama los informes para este proceso con un UPDATE condicional: solo
+ * vuelven las filas que seguían sin enviar y sin un reclamo vigente de otro.
+ *
+ * Modo 'lease' (send_claimed_at, migración 20261014105326). Si la columna aún
+ * no existe (BFF desplegado antes que la migración) cae al modo 'sent_at':
+ * reclama sellando sent_at directamente — igual de exclusivo, pero si el
+ * proceso muere a mitad el informe queda marcado sin haber salido.
+ */
+export async function claimReports(ids: string[]): Promise<{ ids: string[]; mode: ClaimMode }> {
+    if (ids.length === 0) return { ids: [], mode: 'lease' };
+    const ahora = new Date();
+    const leaseVencido = new Date(ahora.getTime() - SEND_LEASE_MS).toISOString();
+
+    const { data, error } = await supabase
+        .from('athlete_reports')
+        .update({ send_claimed_at: ahora.toISOString() })
+        .in('id', ids)
+        .is('sent_at', null)
+        .or(`send_claimed_at.is.null,send_claimed_at.lt.${leaseVencido}`)
+        .select('id');
+
+    if (!error) return { ids: ((data ?? []) as any[]).map((r) => r.id), mode: 'lease' };
+
+    const sinColumna = error.code === '42703' || error.code === 'PGRST204'
+        || /send_claimed_at/.test(error.message ?? '');
+    if (!sinColumna) throw error;
+
+    console.warn('[informes] athlete_reports.send_claimed_at no existe todavía (falta 20261014105326): reclamo por sent_at');
+    const { data: d2, error: e2 } = await supabase
+        .from('athlete_reports')
+        .update({ sent_at: ahora.toISOString() })
+        .in('id', ids)
+        .is('sent_at', null)
+        .select('id');
+    if (e2) throw e2;
+    return { ids: ((d2 ?? []) as any[]).map((r) => r.id), mode: 'sent_at' };
+}
+
+/** Devuelve los informes a la cola tras un envío fallido. */
+async function releaseReports(ids: string[], mode: ClaimMode): Promise<void> {
+    const patch = mode === 'lease' ? { send_claimed_at: null } : { sent_at: null };
+    const { error } = await supabase.from('athlete_reports').update(patch).in('id', ids);
+    if (error) console.error('[informes] no se pudo liberar el reclamo tras el fallo de envío:', error.message);
 }

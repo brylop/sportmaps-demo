@@ -20,7 +20,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  AlertTriangle, ArrowLeft, Banknote, Building2, CreditCard, Loader2, Lock, MapPin, School, ShoppingBag, Truck,
+  AlertTriangle, ArrowLeft, Banknote, Building2, CreditCard, Loader2, Lock, MapPin, School, ShoppingBag, Tag, Truck, X, UserRound, LogIn,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,7 +40,11 @@ import { isRetryableWithSameKey, storeErrorView, type StoreErrorView } from '@/l
 import {
   createStoreOrder, fetchPaymentMethods, rememberPickupCode, storeOffersShipping, type CreatedOrder, type PublicPaymentMethod,
 } from '@/lib/api/storeApi';
+import {
+  createGuestStoreOrder, fetchPublicPaymentMethods, rememberGuestPickupCode, type GuestPaymentMethod,
+} from '@/lib/api/storeGuestApi';
 import { buyerCopy } from '@/lib/store/buyerCopy';
+import { couponErrorText, normalizeCouponCode } from '@/lib/store/coupons';
 import { openWompiCheckout } from '@/lib/api/wompi';
 import { MercadoPagoBrick } from '@/components/checkout/MercadoPagoBrick';
 
@@ -67,7 +71,13 @@ function newKey(): string {
 export default function StoreCheckoutPage() {
   const { vendorProfileId } = useParams<{ vendorProfileId: string }>();
   const navigate = useNavigate();
-  const { user, profile } = useAuth();
+  const { user, profile, loading: authLoading } = useAuth();
+  // Compra sin cuenta (mig. 20261013170553): sin sesión se elige "Iniciar
+  // sesión" o "Continuar sin cuenta". El socio sin cuenta deja correo y nombre
+  // (teléfono opcional) y recibe el enlace de su pedido por correo.
+  const [guestChosen, setGuestChosen] = useState(false);
+  const guest = !user;
+  const [honeypot, setHoneypot] = useState('');
   const { items, removeItems } = useCart();
   const { toast } = useToast();
 
@@ -105,9 +115,10 @@ export default function StoreCheckoutPage() {
   });
 
   const { data: methodsRes, isLoading: methodsLoading } = useQuery({
-    queryKey: ['store', 'payment-methods', vendorProfileId],
-    queryFn: () => fetchPaymentMethods(vendorProfileId!),
-    enabled: !!vendorProfileId,
+    queryKey: ['store', 'payment-methods', vendorProfileId, !!user],
+    // Sin sesión, la ruta pública (la de /api/v1/store exige sesión).
+    queryFn: () => (user ? fetchPaymentMethods(vendorProfileId!) : fetchPublicPaymentMethods(vendorProfileId!)),
+    enabled: !!vendorProfileId && !authLoading,
     retry: false,
   });
 
@@ -139,6 +150,10 @@ export default function StoreCheckoutPage() {
   const [placed, setPlaced] = useState(false);
   const keyRef = useRef<string | null>(null);
   const inFlight = useRef(false);
+  // Cupón (F3b): el comprador escribe el código; quote_cart lo valida y calcula.
+  const [couponOpen, setCouponOpen] = useState(false);
+  const [couponInput, setCouponInput] = useState('');
+  const [couponApplied, setCouponApplied] = useState<string | null>(null);
 
   // Externo: envío por defecto. Escolar: retiro en sede. Solo retiro: siempre retiro.
   useEffect(() => {
@@ -167,10 +182,12 @@ export default function StoreCheckoutPage() {
     const all = methodsRes?.methods ?? [];
     return all.filter((m) => {
       if (m.method === 'cash_pickup') return fulfillment === 'pickup';
+      // Mercado Pago necesita sesión (el BFF crea el pago con el usuario): sin cuenta no se ofrece.
+      if (m.method === 'mercadopago' && guest) return false;
       if (m.method === 'wompi' || m.method === 'mercadopago') return !!m.public_key;
       return true;
     });
-  }, [methodsRes, fulfillment]);
+  }, [methodsRes, fulfillment, guest]);
 
   useEffect(() => {
     if (method && !methods.some((m) => m.method === method)) setMethod(null);
@@ -180,18 +197,29 @@ export default function StoreCheckoutPage() {
   const address = fulfillment === 'shipping' && departamento
     ? { departamento, ciudad: ciudad.trim(), direccion: direccion.trim() }
     : null;
-  const { quote, isFetching: quoting, notices, blocked, refetch: requote } = useCartQuote(lines, { fulfillment, address });
+  const { quote, isFetching: quoting, notices, blocked, refetch: requote } = useCartQuote(lines, { fulfillment, address, couponCode: couponApplied });
+  const couponProblem = couponApplied && quote && !quoting ? couponErrorText(quote.coupon_error, quote.coupon_error_detail) : null;
+  const couponOk = !!couponApplied && !!quote?.coupon && !quote.coupon_error;
+  const applyCoupon = () => {
+    const code = normalizeCouponCode(couponInput);
+    if (code) setCouponApplied(code);
+  };
+  const removeCoupon = () => { setCouponApplied(null); setCouponInput(''); };
 
   // Cualquier cambio del pedido = intento nuevo (otra idempotency key).
-  const intentSignature = JSON.stringify([toCheckoutItems(lines), fulfillment, branchId, address, method]);
+  const intentSignature = JSON.stringify([toCheckoutItems(lines), fulfillment, branchId, address, method, couponApplied]);
   useEffect(() => { keyRef.current = null; }, [intentSignature]);
 
   const addressReady = fulfillment === 'pickup' || (!!departamento && ciudad.trim().length > 1 && direccion.trim().length > 4);
-  const buyerReady = buyer.name.trim().length > 1 && /\S+@\S+\.\S+/.test(buyer.email.trim()) && buyer.phone.trim().length >= 7;
+  // Sin cuenta el celular es opcional (si lo escribe, que sea válido); el correo, obligatorio.
+  const phoneDigits = buyer.phone.replace(/[\s().-]/g, '');
+  const buyerReady = buyer.name.trim().length > 1 && /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(buyer.email.trim())
+    && (guest ? (phoneDigits === '' || /^\+?[0-9]{7,15}$/.test(phoneDigits)) : buyer.phone.trim().length >= 7);
   // Sin zona de envío para el departamento: mensaje claro (nunca el código crudo).
   const shippingProblem = fulfillment === 'shipping' && !!departamento && !!quote?.shipping_error;
+  // Un código con problema no se cobra a ciegas: se corrige o se quita antes de pagar.
   const canPay = !!quote && !blocked && !quoting && !!method && addressReady && buyerReady && !shippingProblem
-    && lines.length > 0 && !paying && quote.store_enabled !== false;
+    && lines.length > 0 && !paying && quote.store_enabled !== false && !(couponApplied && !couponOk);
 
   const onPay = async () => {
     if (!canPay || !method || inFlight.current) return;
@@ -200,6 +228,41 @@ export default function StoreCheckoutPage() {
     setError(null);
     if (!keyRef.current) keyRef.current = newKey();
     try {
+      if (guest) {
+        // Sin cuenta: el BFF crea el pedido (service role) y devuelve el enlace /pedido/:token UNA vez.
+        const g = await createGuestStoreOrder({
+          items: toCheckoutItems(lines),
+          fulfillment,
+          pickupBranchId: fulfillment === 'pickup' ? branchId : null,
+          address: fulfillment === 'shipping' ? { departamento, ciudad: ciudad.trim(), direccion: direccion.trim() } : null,
+          buyer: {
+            name: buyer.name.trim(), email: buyer.email.trim(), phone: phoneDigits || undefined,
+            document: buyer.document.trim() || undefined, notes: buyer.notes.trim() || undefined,
+          },
+          paymentMethod: method as GuestPaymentMethod,
+          idempotencyKey: keyRef.current,
+          couponCode: couponOk ? couponApplied : null,
+          website: honeypot,
+        });
+        keyRef.current = null;
+        removeItems(lines.map((l) => l.id));
+        if (!g.accessToken || !g.orderPath) {
+          // Reintento del mismo clic: el pedido ya existía y su enlace salió por correo.
+          setError({ code: 'GUEST_ALREADY_CREATED', title: 'Tu pedido ya está creado', description: 'Te enviamos el enlace del pedido a tu correo: ábrelo desde ahí para pagar o subir el comprobante.', action: 'none' });
+          return;
+        }
+        setPlaced(true);
+        if (g.pickupCode) rememberGuestPickupCode(g.orderId, g.pickupCode);
+        if (g.paymentMethod === 'wompi' && g.publicKey && g.signature && g.amountInCents) {
+          await openWompiCheckout({
+            reference: g.reference, amountInCents: g.amountInCents, publicKey: g.publicKey, signature: g.signature,
+            customerEmail: buyer.email.trim(), customerName: buyer.name.trim(), customerPhone: phoneDigits,
+            redirectUrl: `${window.location.origin}${g.orderPath}`,
+          } as Parameters<typeof openWompiCheckout>[0]);
+        }
+        navigate(g.orderPath, { replace: true, state: { created: true, transfer: g.transfer ?? null, emailSent: g.emailSent } });
+        return;
+      }
       const order = await createStoreOrder({
         items: toCheckoutItems(lines),
         fulfillment,
@@ -211,6 +274,7 @@ export default function StoreCheckoutPage() {
         },
         paymentMethod: method,
         idempotencyKey: keyRef.current,
+        couponCode: couponOk ? couponApplied : null,
       });
       keyRef.current = null;
       setPlaced(true);
@@ -248,8 +312,9 @@ export default function StoreCheckoutPage() {
       const view = storeErrorView(err);
       const orderId = (err as { body?: { orderId?: string } })?.body?.orderId;
       if (!isRetryableWithSameKey(err)) keyRef.current = null;
-      if (view.action === 'review_cart') requote();
-      if (view.action === 'login') navigate(`/login?redirect=/checkout/tienda/${vendorProfileId}`);
+      if (view.action === 'review_cart' || view.action === 'fix_coupon') requote();
+      // Con cuenta, la sesión venció: al login. Sin cuenta se ofrece el botón (no se saca de la pantalla).
+      if (view.action === 'login' && !guest) navigate(`/login?redirectTo=${encodeURIComponent(`/checkout/tienda/${vendorProfileId}`)}`);
       if (orderId) removeItems(lines.map((l) => l.id));
       setError({ ...view, orderId });
     } finally {
@@ -282,6 +347,39 @@ export default function StoreCheckoutPage() {
 
   const storeName = vendor?.display_name ?? lines[0]?.metadata.vendorName ?? 'la tienda';
   const total = quote?.total ?? 0;
+
+  if (authLoading) {
+    return <div className="min-h-screen grid place-items-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+  }
+
+  // ── Sin sesión: iniciar sesión o continuar sin cuenta ─────────────────────
+  if (guest && !guestChosen) {
+    const loginUrl = `/login?redirectTo=${encodeURIComponent(`/checkout/tienda/${vendorProfileId}`)}`;
+    return (
+      <div className="min-h-screen bg-muted/20 px-4 py-6">
+        <div className="max-w-md mx-auto space-y-4">
+          <Button variant="ghost" size="sm" className="gap-1 -ml-2" onClick={() => navigate(-1)}>
+            <ArrowLeft className="h-4 w-4" /> Volver
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Pagar en {storeName}</h1>
+            <p className="text-sm text-muted-foreground">{lines.length} {lines.length === 1 ? 'producto' : 'productos'} en tu carrito.</p>
+          </div>
+          <section className="rounded-xl border bg-card p-4 space-y-3" data-testid="guest-choice">
+            <Button className="w-full h-12 text-base gap-2" onClick={() => setGuestChosen(true)} data-testid="guest-continue">
+              <UserRound className="h-5 w-5" /> Continuar sin cuenta
+            </Button>
+            <p className="text-xs text-muted-foreground">Solo te pedimos tu nombre y tu correo. Te enviamos el enlace de tu pedido para pagar, subir el comprobante y ver el código de retiro.</p>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className="h-px flex-1 bg-border" />o<span className="h-px flex-1 bg-border" /></div>
+            <Button variant="outline" className="w-full h-11 gap-2" onClick={() => navigate(loginUrl)} data-testid="guest-login">
+              <LogIn className="h-4 w-4" /> Iniciar sesión
+            </Button>
+            <p className="text-xs text-muted-foreground">Con tu cuenta ves todas tus compras en «Mis compras».</p>
+          </section>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-muted/20 pb-36 md:pb-12">
@@ -381,7 +479,18 @@ export default function StoreCheckoutPage() {
                 <Field id="b-name" label="Nombre completo" value={buyer.name} onChange={(v) => setBuyer({ ...buyer, name: v })} autoComplete="name" />
                 <Field id="b-doc" label="Documento (opcional)" value={buyer.document} onChange={(v) => setBuyer({ ...buyer, document: v })} />
                 <Field id="b-email" label="Correo" type="email" value={buyer.email} onChange={(v) => setBuyer({ ...buyer, email: v })} autoComplete="email" />
-                <Field id="b-phone" label="Celular" type="tel" value={buyer.phone} onChange={(v) => setBuyer({ ...buyer, phone: v })} autoComplete="tel" />
+                <Field id="b-phone" label={guest ? 'Celular (opcional)' : 'Celular'} type="tel" value={buyer.phone} onChange={(v) => setBuyer({ ...buyer, phone: v })} autoComplete="tel" />
+                {guest && (
+                  <p className="sm:col-span-2 text-xs text-muted-foreground" data-testid="guest-email-hint">
+                    Compras sin cuenta: a este correo te llega el enlace de tu pedido. Revisa que esté bien escrito.
+                  </p>
+                )}
+                {guest && (
+                  // Trampa para bots: invisible para las personas (y para los lectores de pantalla).
+                  <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true"
+                    value={honeypot} onChange={(e) => setHoneypot(e.target.value)}
+                    className="absolute -left-[9999px] h-0 w-0 opacity-0" />
+                )}
                 <div className="sm:col-span-2 space-y-1.5">
                   <Label htmlFor="b-notes">Nota para la tienda (opcional)</Label>
                   <Textarea id="b-notes" rows={2} value={buyer.notes} onChange={(e) => setBuyer({ ...buyer, notes: e.target.value })} placeholder={buyerCopy(profile?.role).notesPlaceholder} />
@@ -435,8 +544,25 @@ export default function StoreCheckoutPage() {
             {notices.map((n) => (
               <p key={`${n.lineId}-${n.kind}`} className="text-xs text-amber-700 dark:text-amber-400 flex gap-1" role="status"><AlertTriangle className="h-3.5 w-3.5 mt-px shrink-0" /> {n.message}</p>
             ))}
+            <CouponBox
+              open={couponOpen || !!couponApplied}
+              onOpen={() => setCouponOpen(true)}
+              input={couponInput}
+              onInput={setCouponInput}
+              onApply={applyCoupon}
+              onRemove={removeCoupon}
+              applied={couponOk ? quote?.coupon ?? null : null}
+              checking={!!couponApplied && quoting}
+              problem={couponProblem}
+            />
             <div className="border-t pt-2 space-y-1 text-sm">
               <Row label="Productos" value={quote ? formatCurrency(quote.subtotal) : '—'} />
+              {couponOk && quote && quote.discount_total > 0 && (
+                <div className="flex justify-between text-emerald-700 dark:text-emerald-400" data-testid="checkout-discount">
+                  <span>Descuento ({quote.coupon?.code})</span>
+                  <span className="tabular-nums">−{formatCurrency(quote.discount_total)}</span>
+                </div>
+              )}
               <Row label="Envío" value={fulfillment === 'pickup' ? 'Gratis' : shippingProblem ? 'No disponible' : quote?.shipping != null ? formatCurrency(quote.shipping) : '—'} />
               <div className="flex justify-between font-bold text-base pt-1">
                 <span>Total</span>
@@ -453,6 +579,12 @@ export default function StoreCheckoutPage() {
                 )}
                 {error.action === 'review_cart' && (
                   <Button size="sm" variant="outline" className="mt-1" onClick={() => navigate('/carrito')}>Revisar carrito</Button>
+                )}
+                {error.action === 'login' && guest && (
+                  <Button size="sm" variant="outline" className="mt-1 gap-1.5"
+                    onClick={() => navigate(`/login?redirectTo=${encodeURIComponent(`/checkout/tienda/${vendorProfileId}`)}`)}>
+                    <LogIn className="h-4 w-4" /> Iniciar sesión
+                  </Button>
                 )}
               </div>
             )}
@@ -501,6 +633,51 @@ function PayButton({ canPay, paying, total, onPay }: { canPay: boolean; paying: 
       {paying ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : null}
       {paying ? 'Creando tu pedido…' : `Pagar ${total > 0 ? formatCurrency(total) : ''}`}
     </Button>
+  );
+}
+
+function CouponBox({ open, onOpen, input, onInput, onApply, onRemove, applied, checking, problem }: {
+  open: boolean; onOpen: () => void; input: string; onInput: (v: string) => void; onApply: () => void; onRemove: () => void;
+  applied: { code: string; discount_total: number; description: string | null } | null; checking: boolean; problem: string | null;
+}) {
+  if (!open) {
+    return (
+      <button type="button" className="text-sm text-primary underline-offset-2 hover:underline flex items-center gap-1" onClick={onOpen} data-testid="coupon-toggle">
+        <Tag className="h-3.5 w-3.5" /> ¿Tienes un código de descuento?
+      </button>
+    );
+  }
+  if (applied) {
+    return (
+      <div className="rounded-lg border border-emerald-600/40 bg-emerald-50 dark:bg-emerald-950/30 p-2 text-sm flex items-start gap-2" data-testid="coupon-applied">
+        <Tag className="h-4 w-4 mt-0.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
+        <span className="min-w-0 flex-1">
+          <span className="block font-semibold">{applied.code} · −{formatCurrency(applied.discount_total)}</span>
+          {applied.description && <span className="block text-xs text-muted-foreground line-clamp-2">{applied.description}</span>}
+        </span>
+        <button type="button" onClick={onRemove} aria-label="Quitar el código" className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor="coupon">Código de descuento</Label>
+      <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); onApply(); }}>
+        <Input
+          id="coupon" value={input} onChange={(e) => onInput(e.target.value.toUpperCase())} maxLength={30}
+          autoCapitalize="characters" autoComplete="off" placeholder="Ej: SOCIOS10" className="uppercase"
+        />
+        <Button type="submit" variant="outline" disabled={!input.trim() || checking} data-testid="coupon-apply">
+          {checking ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Aplicar'}
+        </Button>
+      </form>
+      {problem && (
+        <p className="text-xs text-destructive flex items-start gap-1" role="alert" data-testid="coupon-error">
+          <AlertTriangle className="h-3.5 w-3.5 mt-px shrink-0" />
+          <span>{problem} <button type="button" className="underline" onClick={onRemove}>Quitar</button></span>
+        </p>
+      )}
+    </div>
   );
 }
 

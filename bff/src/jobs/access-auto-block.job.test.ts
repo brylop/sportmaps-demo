@@ -13,9 +13,15 @@ const estado = vi.hoisted(() => ({
 }));
 
 vi.mock('../config/supabase', () => {
+    const esPendienteDelJob = (f: any) =>
+        f.status === 'pending' && (f.issued_by ?? null) === null
+        && ['set_group', 'disable_user', 'enable_user'].includes(f.command_type);
+    const claveUnica = (f: any) => `${f.device_id}:${f.command_type}:${f.metadata?.pin}:${f.metadata?.group ?? ''}`;
     function builder(tabla: string) {
         let filas = [...(estado.tablas[tabla] ?? [])];
         let insertadas: any[] | null = null;
+        let parche: any = null;
+        let errorInsert: any = null;
         const api: any = {
             select: () => api,
             eq: (c: string, v: any) => { filas = filas.filter((f) => f[c] === v); return api; },
@@ -39,14 +45,37 @@ vi.mock('../config/supabase', () => {
                 filas = [...filas].sort((a, b) => (a[c] < b[c] ? -1 : a[c] > b[c] ? 1 : 0) * (asc ? 1 : -1));
                 return api;
             },
+            lt: (c: string, v: any) => { filas = filas.filter((f) => f[c] != null && f[c] < v); return api; },
+            is: (c: string, _v: null) => { filas = filas.filter((f) => (f[c] ?? null) === null); return api; },
             maybeSingle: () => Promise.resolve({ data: filas[0] ?? null, error: null }),
+            // El UPDATE se aplica al resolverse (después de todos los filtros).
+            update: (patch: any) => { parche = patch; return api; },
             insert: (rows: any) => {
-                insertadas = Array.isArray(rows) ? rows : [rows];
+                const nuevas = Array.isArray(rows) ? rows : [rows];
+                // Simula uq_device_commands_bloqueo_job_pendiente (migración 20261014105326):
+                // si alguna fila choca, el INSERT entero falla con 23505 y no entra nada.
+                if (tabla === 'device_commands') {
+                    const tabla_ = (estado.tablas.device_commands ??= []);
+                    const vistas = new Set(tabla_.filter(esPendienteDelJob).map(claveUnica));
+                    for (const n of nuevas) {
+                        if (!esPendienteDelJob(n)) continue;
+                        if (vistas.has(claveUnica(n))) {
+                            errorInsert = { code: '23505', message: 'duplicate key value violates unique constraint' };
+                            insertadas = [];
+                            return api;
+                        }
+                        vistas.add(claveUnica(n));
+                    }
+                    tabla_.push(...nuevas.map((n) => ({ ...n })));
+                }
+                insertadas = nuevas;
                 (estado.inserts[tabla] ??= []).push(...insertadas);
                 return api;
             },
-            then: (ok: any, ko: any) =>
-                Promise.resolve({ data: insertadas ?? filas, error: null }).then(ok, ko),
+            then: (ok: any, ko: any) => {
+                if (parche) filas.forEach((f) => Object.assign(f, parche));
+                return Promise.resolve({ data: insertadas ?? filas, error: errorInsert }).then(ok, ko);
+            },
         };
         return api;
     }
@@ -157,5 +186,73 @@ describe('runAccessAutoBlockCycle — solo la mensualidad', () => {
     it('bloqueado solo por un cobro único vencido → se desbloquea', async () => {
         await runAccessAutoBlockCycle();
         expect(comandos('enable_user').filter((p: number) => p === 7)).toHaveLength(2);
+    });
+});
+
+/**
+ * Crons concurrentes: el mismo job corre a la vez en los 3 BFF (dev/stg/prod)
+ * contra una sola base. El índice único parcial (migración 20261014105326) deja
+ * entrar un solo comando pendiente por (lector, tipo, PIN, grupo); el job no
+ * cuenta ni avisa por lo que no insertó.
+ */
+describe('runAccessAutoBlockCycle — idempotente entre instancias', () => {
+    const notifs = () => estado.inserts.notifications ?? [];
+    const pendientes = () => (estado.tablas.device_commands ?? []).filter((c) => c.status === 'pending');
+
+    it('tres instancias a la vez: un solo juego de comandos y una sola notificación', async () => {
+        await Promise.all([runAccessAutoBlockCycle(), runAccessAutoBlockCycle(), runAccessAutoBlockCycle()]);
+        expect(pendientes().filter((c) => c.command_type === 'disable_user').map((c) => c.metadata.pin)).toEqual([1, 1]);
+        expect(pendientes().filter((c) => c.command_type === 'enable_user')).toHaveLength(4);
+        expect(notifs()).toHaveLength(1);
+        expect(notifs()[0].message).toContain('1 atleta(s) bloqueado(s)');
+        expect(notifs()[0].message).toContain('2 desbloqueado(s)');
+    });
+
+    it('si otra instancia ya encoló una parte, inserta solo el resto y avisa solo por eso', async () => {
+        const viejo = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // fuera de la ventana de 30 min
+        const venceManana = new Date(Date.now() + 23 * 60 * 60 * 1000).toISOString();
+        estado.tablas.device_commands.push(...[DEV_IN, DEV_OUT].map((device_id) => ({
+            school_id: ESCUELA, device_id, command_type: 'disable_user', status: 'pending',
+            issued_by: null, issued_at: viejo, expires_at: venceManana, claimed_at: null, metadata: { pin: 1 },
+        })));
+        await runAccessAutoBlockCycle();
+        expect(comandos('disable_user')).toEqual([]); // chocó contra el índice: no entró
+        expect(comandos('enable_user').sort()).toEqual([2, 2, 3, 3]);
+        expect(notifs()).toHaveLength(1);
+        expect(notifs()[0].message).toContain('0 atleta(s) bloqueado(s)');
+    });
+
+    it('todo ya encolado por otra instancia: no inserta ni notifica', async () => {
+        await runAccessAutoBlockCycle();
+        estado.inserts = {};
+        await runAccessAutoBlockCycle();
+        expect(estado.inserts.device_commands ?? []).toHaveLength(0);
+        expect(notifs()).toHaveLength(0);
+    });
+
+    it('un pendiente del job reclamado hace >30 min y sin confirmar se expira y se reintenta', async () => {
+        const hace40 = new Date(Date.now() - 40 * 60 * 1000).toISOString();
+        const venceManana = new Date(Date.now() + 23 * 60 * 60 * 1000).toISOString();
+        const muerto = {
+            school_id: ESCUELA, device_id: DEV_IN, command_type: 'disable_user', status: 'pending',
+            issued_by: null, issued_at: hace40, claimed_at: hace40, expires_at: venceManana, metadata: { pin: 1 },
+        };
+        estado.tablas.device_commands.push(muerto);
+        await runAccessAutoBlockCycle();
+        expect(muerto.status).toBe('expired');
+        expect(comandos('disable_user')).toEqual([1, 1]);
+    });
+
+    it('un comando MANUAL pendiente no se expira ni bloquea el índice', async () => {
+        const hace40 = new Date(Date.now() - 40 * 60 * 1000).toISOString();
+        const manual = {
+            school_id: ESCUELA, device_id: DEV_IN, command_type: 'disable_user', status: 'pending',
+            issued_by: 'admin-1', issued_at: hace40, claimed_at: hace40,
+            expires_at: new Date(Date.now() - 1000).toISOString(), metadata: { pin: 1 },
+        };
+        estado.tablas.device_commands.push(manual);
+        await runAccessAutoBlockCycle();
+        expect(manual.status).toBe('pending');
+        expect(comandos('disable_user')).toEqual([1, 1]);
     });
 });

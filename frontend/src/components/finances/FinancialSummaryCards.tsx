@@ -4,10 +4,16 @@ import { isOverdueCharge, isUpcomingCharge, remainingBalance, type ChargeState }
 
 interface FinancialSummaryCardsProps {
   payments: Array<ChargeState & { amount: number | string; amount_paid?: number | string | null }> | undefined;
+  /**
+   * Ventas cobradas de la tienda escolar (histórico, neto de reembolsos).
+   * `undefined` = la escuela no tiene tienda (la tarjeta queda igual que antes);
+   * `null` = la lectura falló ("—", nunca $0). La tienda no está en `payments`.
+   */
+  storeIncome?: number | null;
 }
 
 /** Las 3 tarjetas KPI de arriba de los tabs — siempre visibles, no son un tab más. */
-export function FinancialSummaryCards({ payments }: FinancialSummaryCardsProps) {
+export function FinancialSummaryCards({ payments, storeIncome }: FinancialSummaryCardsProps) {
   // Histórico a propósito: el acumulado del mes en curso vive en la tarjeta
   // "Ingresos del Mes" del Dashboard. El rótulo decía "(Mes)" pero la cuenta
   // nunca filtró por mes.
@@ -33,9 +39,15 @@ export function FinancialSummaryCards({ payments }: FinancialSummaryCardsProps) 
           <DollarSign className="h-4 w-4 text-green-500" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold text-green-500">
-            ${financialSummary.totalIncome.toLocaleString()}
+          <div className="text-2xl font-bold text-green-500" data-testid="finances-total-income">
+            ${(financialSummary.totalIncome + (storeIncome ?? 0)).toLocaleString()}
           </div>
+          {storeIncome !== undefined && (
+            <p className="text-xs text-muted-foreground mt-1" data-testid="finances-income-breakdown">
+              Mensualidades ${financialSummary.totalIncome.toLocaleString()} · Tienda{' '}
+              {storeIncome === null ? '—' : `$${storeIncome.toLocaleString()}`}
+            </p>
+          )}
         </CardContent>
       </Card>
 

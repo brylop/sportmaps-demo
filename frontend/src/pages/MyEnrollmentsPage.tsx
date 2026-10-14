@@ -838,7 +838,7 @@ function ModalTab({ active, onClick, children }: { active: boolean; onClick: () 
 function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, childId }: {
   enrollment: any; creditsLeft: number | null; isUnlimited: boolean; planName: string; childId?: string;
 }) {
-  const { data, isLoading } = useAvailableSessions(childId);
+  const { data, isLoading, error: sessionsError, refetch: refetchSessions, isFetching: fetchingSessions } = useAvailableSessions(childId);
   const { mutate: book, isPending } = useBookSession(childId);
   const { toast } = useToast();
   const [confirming, setConfirming] = useState<BookableSession | null>(null);
@@ -983,7 +983,36 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
 
   const noCredits = !isUnlimited && (creditsLeft ?? 0) <= 0;
   if (noCredits) return <EmptyCenter icon={Zap} title="Sin créditos disponibles" desc={`Tu plan ${planName} no tiene más clases este período`} color="amber" />;
-  if (allSessions.length === 0) return <EmptyCenter icon={CalendarCheck} title="Sin clases disponibles" desc="No hay horarios programados. Consulta con tu academia." />;
+  if (allSessions.length === 0) {
+    // Un error al cargar NO es "no hay clases": antes un 500 del BFF se
+    // pintaba como «Sin clases disponibles» y el acudiente creía que la
+    // academia no tenía horario.
+    if (sessionsError) {
+      return (
+        <div className="space-y-3">
+          <EmptyCenter
+            icon={AlertCircle}
+            title="No pudimos cargar los horarios"
+            desc={`${(sessionsError as Error)?.message || 'Error de conexión'}. Intenta de nuevo en un momento.`}
+            color="amber"
+          />
+          <div className="flex justify-center">
+            <Button size="sm" variant="outline" onClick={() => refetchSessions()} disabled={fetchingSessions}>
+              {fetchingSessions ? 'Cargando…' : 'Reintentar'}
+            </Button>
+          </div>
+        </div>
+      );
+    }
+    const noScheduleReason = data?.no_schedule_reason_by_enrollment?.[enrollment.id];
+    if (noScheduleReason === 'team_without_coach') {
+      return <EmptyCenter icon={CalendarCheck} title="El equipo no tiene entrenador asignado" desc="Tu academia todavía no asignó un entrenador al grupo de este plan, por eso no hay horarios para reservar. Avísale a la academia." color="amber" />;
+    }
+    if (noScheduleReason === 'team_without_schedule') {
+      return <EmptyCenter icon={CalendarCheck} title="El equipo no tiene horario cargado" desc="Los entrenadores del grupo de este plan todavía no tienen horario en SportMaps, por eso no hay clases para reservar. Avísale a la academia." color="amber" />;
+    }
+    return <EmptyCenter icon={CalendarCheck} title="Sin clases disponibles" desc="No hay horarios programados. Consulta con tu academia." />;
+  }
 
   // Piloto "agendamiento flexible de banco de horas": si ALGUNA sesión trae
   // default_minutes, este plan es de banco de horas con el piloto activo en

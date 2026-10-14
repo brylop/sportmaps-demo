@@ -820,15 +820,23 @@ export function PaymentCheckoutModal({
             throw new Error(`Ya existe un pago activo para ${effectivePeriod.label}.`);
           }
         }
-      } else if (conceptType !== 'mensualidad') {
+      } else if (conceptType !== 'mensualidad' && conceptType !== 'articulos' && conceptType !== 'torneo') {
         // No-mensualidad (inscripcion / abono): reutilizar cualquier impago sin
         // periodo; si hay uno en validacion/pagado, bloquear (legacy).
+        // Artículos y torneos quedan FUERA: cada compra es su propia fila
+        // (period_uniqueness_exempt). Antes un cobro viejo sin periodo ya pagado
+        // bloqueaba la compra con un falso "pendiente de aprobación", y uno impago
+        // se quedaba con el comprobante del artículo (Dreamers, 2026-10-13).
         const reusable = (pendingPayments || []).find((p: any) =>
           !p.period_year && !p.period_month && REUSABLE.includes(p.status));
         const blocking = (pendingPayments || []).find((p: any) =>
           !p.period_year && !p.period_month && BLOCKING.includes(p.status));
         if (reusable) reuseId = reusable.id;
-        else if (blocking) throw new Error('Ya existe un pago pendiente de aprobación para este deportista.');
+        else if (blocking) {
+          throw new Error(blocking.status === 'awaiting_approval'
+            ? 'Ya existe un pago pendiente de aprobación para este deportista.'
+            : 'Este deportista ya tiene ese pago registrado.');
+        }
       }
 
       if (mode === 'update' && paymentId && paymentId !== '') {

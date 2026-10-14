@@ -292,6 +292,31 @@ export default function ParentCheckoutPage() {
       .then(({ data }) => { if (data) setQrPayment(data as any); });
   }, [paymentIdParam]);
 
+  // Otros cobros abiertos del mismo deportista en la escuela. El alta por QR emite
+  // hasta tres (inscripción + seguro + mensualidad, migración 20261013193011) y el
+  // checkout paga uno por vez: sin esta lista el acudiente pagaba la mensualidad y
+  // la inscripción y el seguro quedaban colgados sin que nadie se los mostrara.
+  const [otherOpenCharges, setOtherOpenCharges] = useState<Array<{
+    id: string; amount: number; amount_paid: number | null; concept: string;
+    payment_category: string | null; due_date: string | null;
+  }>>([]);
+
+  const goToCharge = (id: string) => {
+    const next = new URLSearchParams(searchParams);
+    next.set('payment_id', id);
+    next.delete('amount');
+    next.delete('concept');
+    setSuccess(false);
+    setManualReceiptUrl('');
+    setManualOcrResult(null);
+    setReceiptNumber('');
+    setWompiTxId('');
+    setPaymentMethodUsed('');
+    setMpReference('');
+    navigate(`/parent-checkout?${next.toString()}`);
+    window.scrollTo({ top: 0 });
+  };
+
   const pdfBranding = usePdfBranding();
 
   const handleDownloadReceipt = async () => {
@@ -339,6 +364,27 @@ export default function ParentCheckoutPage() {
     })();
     return () => { cancelled = true; };
   }, [childId, teamId, schoolIdParam]);
+
+  // Cobros hermanos del alta (ver otherOpenCharges). Se recarga al pagar (success)
+  // para que la pantalla de éxito muestre lo que todavía falta.
+  const chargesSchoolId = resolvedSchoolId ?? schoolIdParam;
+  useEffect(() => {
+    if (!childId || !chargesSchoolId || !paymentIdParam) { setOtherOpenCharges([]); return; }
+    let cancelled = false;
+    supabase.from('payments')
+      .select('id, amount, amount_paid, concept, payment_category, due_date')
+      .eq('child_id', childId)
+      .eq('school_id', chargesSchoolId)
+      .in('status', ['pending', 'overdue'])
+      .in('payment_category', ['inscripcion', 'seguro', 'mensualidad'])
+      .neq('id', paymentIdParam)
+      .order('due_date', { ascending: true })
+      .then(({ data, error }) => {
+        if (error) console.warn('[checkout] no se pudieron cargar los otros cobros:', error.message);
+        if (!cancelled) setOtherOpenCharges((data as any[]) ?? []);
+      });
+    return () => { cancelled = true; };
+  }, [childId, chargesSchoolId, paymentIdParam, success]);
 
   // Periodo objetivo (solo si es mensualidad y hay hijo)
   // Un cobro único (categoría explícita ≠ mensualidad) nunca es mensualidad,
@@ -698,6 +744,27 @@ export default function ParentCheckoutPage() {
     }
   };
 
+  const otherChargesBlock = (title: string) => otherOpenCharges.length > 0 && (
+    <div className="rounded-xl border p-4 mb-6 text-left bg-background">
+      <p className="font-semibold text-sm mb-1">{title}</p>
+      <p className="text-xs text-muted-foreground mb-2">Se pagan por separado: elige uno y continúa.</p>
+      {otherOpenCharges.map((c) => {
+        const due = Math.max(Number(c.amount) - (Number(c.amount_paid) || 0), 0);
+        return (
+          <div key={c.id} className="flex items-center justify-between gap-3 py-2 border-t first:border-t-0">
+            <div className="min-w-0">
+              <p className="text-sm truncate">{c.concept}</p>
+              <p className="text-xs text-muted-foreground">{formatPrice(due)}</p>
+            </div>
+            <Button size="sm" variant="outline" className="shrink-0" onClick={() => goToCharge(c.id)}>
+              Pagar
+            </Button>
+          </div>
+        );
+      })}
+    </div>
+  );
+
   if (loadingSettings) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -720,6 +787,8 @@ export default function ParentCheckoutPage() {
             <div className="bg-muted/50 rounded-xl p-4 mb-6 text-left">
               <div className="flex justify-between font-bold text-lg"><span>Pagado</span><span className="text-green-600">{formatPrice(chargeAmount)}</span></div>
             </div>
+
+            {otherChargesBlock('Todavía tienes estos cobros pendientes')}
 
             <div className="flex gap-3">
               <Button variant="outline" className="flex-1" onClick={handleDownloadReceipt}>
@@ -782,6 +851,8 @@ export default function ParentCheckoutPage() {
             <div className="flex justify-between"><span className="text-muted-foreground">Deportista</span><span>{studentName}</span></div>
           </CardContent>
         </Card>
+
+        {otherChargesBlock(`Otros cobros pendientes de ${studentName}`)}
 
         <Card className="mb-6">
           <CardHeader><CardTitle className="text-lg">Método de Pago</CardTitle></CardHeader>

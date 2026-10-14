@@ -75,6 +75,7 @@ export type StoreErrorAction =
     | 'review_cart'        // volver al carrito: stock, producto, talla
     | 'choose_other_method'
     | 'fix_delivery'
+    | 'fix_coupon'         // cupón (F3b): corregir o quitar el código
     | 'login'
     | 'store_off'
     | 'reload_order'
@@ -100,7 +101,17 @@ const STORE_ERRORS: Record<string, Omit<StoreErrorView, 'code'>> = {
     INSUFFICIENT_STOCK: { title: 'No hay unidades suficientes', description: 'Alguien compró antes que tú. Ajustamos tu carrito con lo que queda.', action: 'review_cart' },
     INVALID_QTY: { title: 'Cantidad no válida', description: 'Puedes llevar de 1 a 20 unidades por producto.', action: 'review_cart' },
     EMPTY_CART: { title: 'Tu carrito está vacío', description: 'Agrega productos antes de pagar.', action: 'review_cart' },
-    COUPONS_NOT_AVAILABLE: { title: 'Cupones no disponibles', description: 'Todavía no recibimos cupones de descuento.', action: 'none' },
+    COUPONS_NOT_AVAILABLE: { title: 'Cupones no disponibles', description: 'Todavía no recibimos cupones de descuento.', action: 'fix_coupon' },
+    // Cupones por tienda (F3b, mig. 20261013170543): el pedido NO se creó; se corrige o quita el código.
+    COUPON_INVALID: { title: 'Código no válido', description: 'Ese código no existe en esta tienda o no está activo. Revísalo o quítalo para pagar.', action: 'fix_coupon' },
+    COUPON_EXPIRED: { title: 'Código vencido', description: 'Ese código ya venció. Quítalo para pagar sin descuento.', action: 'fix_coupon' },
+    COUPON_NOT_STARTED: { title: 'Código aún no vigente', description: 'Ese código todavía no se puede usar.', action: 'fix_coupon' },
+    COUPON_LIMIT: { title: 'Código agotado', description: 'Alguien usó el último cupo de ese código. Quítalo para pagar sin descuento.', action: 'fix_coupon' },
+    COUPON_BUYER_LIMIT: { title: 'Ya usaste este código', description: 'Llegaste al máximo de usos de este código.', action: 'fix_coupon' },
+    COUPON_MIN_PURCHASE: { title: 'No alcanza el mínimo', description: 'Tu compra no alcanza el mínimo para este código.', action: 'fix_coupon' },
+    COUPON_NOT_APPLICABLE: { title: 'El código no aplica', description: 'Ese código no aplica a los productos de tu carrito.', action: 'fix_coupon' },
+    COUPON_TOO_MANY_ATTEMPTS: { title: 'Demasiados intentos', description: 'Probaste demasiados códigos. Intenta de nuevo en 15 minutos.', action: 'fix_coupon' },
+    COUPON_LOGIN_REQUIRED: { title: 'Inicia sesión', description: 'Para usar un código de descuento necesitas iniciar sesión.', action: 'login' },
     PAYMENT_METHOD_NOT_ACCEPTED: { title: 'Medio de pago no disponible', description: 'Esta tienda no recibe ese medio de pago. Elige otro.', action: 'choose_other_method' },
     GATEWAY_NOT_CONFIGURED: { title: 'Pago en línea no disponible', description: 'La tienda todavía no tiene su pasarela lista. Elige transferencia o efectivo.', action: 'choose_other_method' },
     SELLER_GATEWAY_NOT_CONFIGURED: { title: 'Pago en línea no disponible', description: 'La tienda no tiene su pasarela lista. Tu pedido quedó reservado: cancélalo desde Mis compras o elige otro medio.', action: 'choose_other_method' },
@@ -130,6 +141,16 @@ const STORE_ERRORS: Record<string, Omit<StoreErrorView, 'code'>> = {
     NOT_A_CASH_ORDER: { title: 'No es un pedido en efectivo', description: 'Este pedido no se cobra en efectivo al retirar.', action: 'reload_order' },
     USER_PAYMENT_BLOCKED: { title: 'Pagos bloqueados', description: 'Tu cuenta tiene los pagos en línea bloqueados. Escribe a soporte.', action: 'none' },
     RPC_NOT_AVAILABLE: { title: 'La tienda se está actualizando', description: 'Intenta de nuevo en unos minutos.', action: 'retry' },
+    // Compra sin cuenta (mig. 20261013170553).
+    LOGIN_REQUIRED: { title: 'Productos solo para miembros', description: 'Tu carrito tiene productos que solo pueden comprar los miembros. Inicia sesión para pagarlos.', action: 'login' },
+    GUEST_CHECKOUT_DISABLED: { title: 'Inicia sesión para pagar', description: 'La compra sin cuenta no está disponible en este momento.', action: 'login' },
+    GUEST_EMAIL_REQUIRED: { title: 'Revisa tu correo', description: 'Escribe un correo válido: ahí te llega el enlace de tu pedido.', action: 'none' },
+    GUEST_NAME_REQUIRED: { title: 'Falta tu nombre', description: 'Escribe tu nombre completo.', action: 'none' },
+    INVALID_PHONE: { title: 'Celular no válido', description: 'Revisa el número de celular o déjalo vacío.', action: 'none' },
+    GUEST_METHOD_NOT_AVAILABLE: { title: 'Ese medio necesita cuenta', description: 'Elige otro medio de pago o inicia sesión.', action: 'choose_other_method' },
+    GUEST_RATE_LIMITED: { title: 'Varios pedidos seguidos', description: 'Hiciste varios pedidos en poco tiempo. Espera un rato o inicia sesión.', action: 'none' },
+    GUEST_OPEN_ORDERS_LIMIT: { title: 'Tienes pedidos sin pagar', description: 'Ya tienes pedidos sin pagar con este correo. Págalos o cancélalos desde el enlace que te enviamos.', action: 'none' },
+    GUEST_AMOUNT_LIMIT: { title: 'Pedido muy grande para comprar sin cuenta', description: 'Este pedido supera el monto permitido sin cuenta. Crea tu cuenta o inicia sesión para continuar.', action: 'login' },
 };
 
 /** Extrae el código del contrato de un error del BFF (`{ok:false, error:CODE}`) o de una RPC. */

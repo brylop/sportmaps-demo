@@ -662,6 +662,8 @@ export async function listAvailableSessions(identity: AthleteIdentity) {
           .in('team_id', tIds)
           .eq('is_bookable', true)
           .eq('finalized', false)
+          // sin hora no es una franja agendable (asistencia por equipo sin horario)
+          .not('start_time', 'is', null)
           .gte('session_date', today)
         : Promise.resolve({ data: [] }),
       oIds.length
@@ -675,6 +677,7 @@ export async function listAvailableSessions(identity: AthleteIdentity) {
             .in('offering_id', oIds)
             .eq('is_bookable', true)
             .eq('finalized', false)
+            .not('start_time', 'is', null)
             .gte('session_date', today)
         : Promise.resolve({ data: [] }),
     ]);
@@ -688,6 +691,20 @@ export async function listAvailableSessions(identity: AthleteIdentity) {
     const coachIds = [...new Set((availData || []).map(a => a.coach_id))];
     const availIds = (availData || []).map(a => a.id);
 
+    // Por qué una inscripción "agendar por equipo" no tiene franjas: el front
+    // lo dice explícito en vez de un genérico «Sin clases disponibles» (R4 del
+    // spec dreamers-cierre-total). Solo para inscripciones con equipo de
+    // agendamiento; las demás no traen motivo.
+    const noScheduleReasonByEnrollment: Record<string, 'team_without_coach' | 'team_without_schedule'> = {};
+    planEnrollments.forEach((e: any) => {
+      const tid = getSchedulingTeamId(e) as string | null;
+      if (!tid) return;
+      const coaches = teamCoachMap[tid] ?? [];
+      if (coaches.length === 0) { noScheduleReasonByEnrollment[e.id] = 'team_without_coach'; return; }
+      const hasAvail = (availData || []).some((a: any) => a.school_id === e.school_id && coaches.includes(a.coach_id));
+      if (!hasAvail) noScheduleReasonByEnrollment[e.id] = 'team_without_schedule';
+    });
+
     // Fetch attendance_sessions vinculadas a estos slots para:
     // (a) marcar el slot como ocupado si el coach tiene otra clase a esa hora
     // (b) obtener current_bookings POR FECHA (no acumulado entre semanas)
@@ -695,11 +712,14 @@ export async function listAvailableSessions(identity: AthleteIdentity) {
       .from('attendance_sessions')
       .select('id, coach_id, facility_id, session_date, start_time, coach_availability_id, facility_availability_id, current_bookings, max_capacity')
       .in('school_id', allSchoolIds)
+      .not('start_time', 'is', null)
       .gte('session_date', today);
 
     const busySet = new Set(
       (existingSessions || [])
-        .filter((s: any) => !s.coach_availability_id) // solo sesiones sin vínculo de disponibilidad bloquean
+        // solo sesiones sin vínculo de disponibilidad bloquean; las que no tienen
+        // hora (asistencia tomada sin horario, p. ej. Dreamers) no ocupan ninguna franja
+        .filter((s: any) => !s.coach_availability_id && s.start_time)
         .map((s: any) => `${s.coach_id}_${s.session_date}_${s.start_time.substring(0, 5)}`)
     );
 
@@ -1036,6 +1056,7 @@ export async function listAvailableSessions(identity: AthleteIdentity) {
 
     const realSlotKeys = new Set<string>();
     [...teamSessions, ...offeringSessions].forEach((s: any) => {
+      if (!s.start_time) return; // sesión sin hora: no corresponde a ninguna franja
       realSlotKeys.add(`${resourceKey(s)}_${s.session_date}_${s.start_time.substring(0, 5)}`);
     });
 
@@ -1046,6 +1067,7 @@ export async function listAvailableSessions(identity: AthleteIdentity) {
     const seenPseudoKey = new Set<string>();
     allGeneratedSessions.sort((a, b) => (b.max_capacity ?? 0) - (a.max_capacity ?? 0));
     for (const gs of allGeneratedSessions) {
+      if (!gs.start_time) continue; // defensivo: una franja sin hora no se puede ofrecer
       const rKey = resourceKey(gs);
       const typeStr = gs.id.startsWith('avail_p_') ? 'p' : 'g';
       const key = `${rKey}_${gs.session_date}_${gs.start_time.substring(0, 5)}_${typeStr}`;
@@ -1058,7 +1080,9 @@ export async function listAvailableSessions(identity: AthleteIdentity) {
       }
     }
 
-    const baseSessions = [...teamSessions, ...offeringSessions, ...dedupedGenerated];
+    // Sesiones reales sin hora no son agendables (ya se filtran en la query; esto es defensivo).
+    const baseSessions = [...teamSessions, ...offeringSessions, ...dedupedGenerated]
+      .filter((s: any) => !!s.start_time);
     const allSessions: any[] = [];
 
     baseSessions.forEach((s: any) => {
@@ -1095,7 +1119,7 @@ export async function listAvailableSessions(identity: AthleteIdentity) {
       return a.start_time.localeCompare(b.start_time);
     });
 
-    if (!allSessions.length) return { sessions: [] };
+    if (!allSessions.length) return { sessions: [], no_schedule_reason_by_enrollment: noScheduleReasonByEnrollment };
 
     // ── Bookings del atleta para marcar already_booked ────────────────────
     // IMPORTANTE: limpiar IDs de desdoblamiento (_p, _g) para consultar DB
@@ -1206,6 +1230,7 @@ export async function listAvailableSessions(identity: AthleteIdentity) {
       sessions: sessions.filter((s: any) => dayOk(s.enrollment_id, s.session_date)),
       flexible_hour_grid: flexibleHourGrid.filter((g: any) => dayOk(g.enrollment_id, g.session_date)),
       allowed_days_by_enrollment: allowedDaysByEnrollment,
+      no_schedule_reason_by_enrollment: noScheduleReasonByEnrollment,
     };
   }
 }
@@ -1442,11 +1467,14 @@ export async function bookSession(
             .select('start_time')
             .eq('coach_id', coach_id)
             .eq('session_date', dateStr)
-            .is('coach_availability_id', null),
+            .is('coach_availability_id', null)
+            .not('start_time', 'is', null),
         ]);
 
         const busySetForCoach = new Set(
-          (manualSessions || []).map((m: any) => `${coach_id}_${dateStr}_${m.start_time.substring(0, 5)}`)
+          (manualSessions || [])
+            .filter((m: any) => m.start_time)
+            .map((m: any) => `${coach_id}_${dateStr}_${m.start_time.substring(0, 5)}`)
         );
         const sorted = [...(siblingSlots || [])].sort((a: any, b: any) => a.start_time.localeCompare(b.start_time));
         const startIdx = sorted.findIndex((sl: any) => sl.id === availId);

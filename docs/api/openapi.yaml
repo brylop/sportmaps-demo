@@ -3061,10 +3061,130 @@ paths:
                 customerDocument: { type: string }
                 notes: { type: string }
                 preferredProvider: { type: string, enum: [wompi, mercadopago] }
+                couponCode:
+                  type: string
+                  maxLength: 60
+                  description: >
+                    Cupón de la tienda (F3b, mig. 20261013170543). La base lo valida y aplica
+                    (create_cart_order); la respuesta trae discountTotal y couponCode. Errores:
+                    COUPON_INVALID / COUPON_EXPIRED / COUPON_NOT_STARTED / COUPON_MIN_PURCHASE /
+                    COUPON_NOT_APPLICABLE (422), COUPON_LIMIT / COUPON_BUYER_LIMIT (409),
+                    COUPON_TOO_MANY_ATTEMPTS (429). Contrato §2.6.
       responses:
-        '201': { description: Orden creada con reference de pago }
+        '201': { description: 'Orden creada (subtotal antes del descuento, discountTotal, couponCode; grossAmount = subtotal − discountTotal + envío)' }
         '400': { description: Datos invalidos / stock insuficiente }
-        '409': { description: Usuario bloqueado por pagos pendientes }
+        '409': { description: Usuario bloqueado por pagos pendientes / COUPON_LIMIT / COUPON_BUYER_LIMIT }
+        '422': { description: 'Cupón no aplicable (COUPON_INVALID, COUPON_EXPIRED, COUPON_MIN_PURCHASE…)' }
+        '429': { description: COUPON_TOO_MANY_ATTEMPTS o RATE_LIMITED }
+  /api/v1/marketplace/checkout/cart/quote:
+    post:
+      tags: [marketplace]
+      summary: Cotiza el carrito (quote_cart con el JWT del comprador), con cupón opcional
+      security: [{ bearerAuth: [] }]
+      description: >
+        Mismo body que /checkout/cart. Con couponCode responde discount_total y coupon
+        {code, kind, value, description, discount_total}, o coupon_error + coupon_error_detail
+        (p.ej. {min_subtotal}) y coupon_message en español. No crea nada; los intentos
+        fallidos de cupón sí se registran (10 códigos distintos en 15 min → COUPON_TOO_MANY_ATTEMPTS).
+      responses:
+        '200': { description: 'Cotización: lines con discount_amount, subtotal, discount_total, tax_total, total' }
+        '400': { description: Datos invalidos }
+  /api/v1/store/coupons/validate:
+    post:
+      tags: [marketplace]
+      summary: Valida un código de descuento contra el carrito (comprador; nunca lista cupones)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, items]
+              properties:
+                code: { type: string, maxLength: 60 }
+                items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      productId: { type: string, format: uuid }
+                      variantId: { type: string, format: uuid }
+                      quantity: { type: integer, minimum: 1, maximum: 20 }
+                fulfillment: { type: string, enum: [pickup, shipping] }
+                address: { type: object }
+      responses:
+        '200': { description: 'valid, code, error, message, detail, coupon, subtotal, discountTotal, taxTotal, total' }
+        '400': { description: Código vacío o items inválidos }
+        '429': { description: 'RATE_LIMITED (escrituras de la tienda, 20/min)' }
+  /api/v1/store/vendor/{vendorProfileId}/coupons:
+    parameters:
+      - { name: vendorProfileId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [marketplace]
+      summary: Cupones de la tienda con usos y estado (quien la administra; no coach)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: 'Columnas de store_coupons + usage {reserved, consumed, released, discountGiven} + state (active, paused, archived, scheduled, expired, exhausted)' }
+        '403': { description: NOT_OWNER }
+    post:
+      tags: [marketplace]
+      summary: Crear cupón de la tienda
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, kind, value]
+              additionalProperties: false
+              properties:
+                code: { type: string, pattern: '^[A-Za-z0-9_-]{3,30}$', description: 'Se guarda en mayúsculas; único por tienda sin importar mayúsculas' }
+                kind: { type: string, enum: [percent, fixed] }
+                value: { type: number, description: 'percent 1–90; fixed en pesos enteros' }
+                description: { type: string, maxLength: 200, nullable: true }
+                minSubtotal: { type: integer, minimum: 0, description: 'Mínimo sobre lo elegible (IVA incluido, sin envío)' }
+                maxDiscount: { type: integer, nullable: true, description: Tope en pesos }
+                startsAt: { type: string, format: date-time }
+                endsAt: { type: string, format: date-time, nullable: true }
+                maxRedemptions: { type: integer, nullable: true }
+                maxPerBuyer: { type: integer, nullable: true, description: 'Default 1; null = sin límite' }
+                appliesTo: { type: string, enum: [store, products, categories] }
+                productIds: { type: array, items: { type: string, format: uuid } }
+                categoryIds: { type: array, items: { type: string, format: uuid } }
+                schoolId: { type: string, format: uuid, nullable: true, description: Solo lo redimen miembros activos de esa escuela }
+      responses:
+        '201': { description: 'Cupón creado (funded_by = vendor en v1)' }
+        '400': { description: COUPON_INVALID_DATA / COUPON_INVALID_SCOPE }
+        '403': { description: NOT_OWNER }
+        '409': { description: COUPON_CODE_TAKEN }
+  /api/v1/store/vendor/{vendorProfileId}/coupons/{couponId}:
+    parameters:
+      - { name: vendorProfileId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: couponId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [marketplace]
+      summary: Editar, pausar (status=paused), reactivar o archivar un cupón
+      security: [{ bearerAuth: [] }]
+      description: 'Mismos campos que el POST más status (active, paused, archived). Con usos, code/kind/value quedan congelados (COUPON_LOCKED).'
+      responses:
+        '200': { description: Cupón actualizado }
+        '400': { description: COUPON_INVALID_DATA }
+        '403': { description: NOT_OWNER }
+        '404': { description: NOT_FOUND }
+        '409': { description: COUPON_LOCKED / COUPON_CODE_TAKEN }
+  /api/v1/store/vendor/{vendorProfileId}/coupons/{couponId}/redemptions:
+    parameters:
+      - { name: vendorProfileId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: couponId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [marketplace]
+      summary: 'Usos del cupón: pedido, comprador, descuento y estado (reserved, consumed, released)'
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: 'Redenciones con orders(reference, status, total_amount, customer_name)' }
+        '403': { description: NOT_OWNER }
   /api/v1/marketplace/checkout/pay:
     post:
       tags: [marketplace]

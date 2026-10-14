@@ -110,6 +110,11 @@ interface BillingSettings {
    */
   sibling_discount_enabled: boolean;
   sibling_discount_percentage: number;
+  /**
+   * F2 hermanos escalonados: tiers[0] = % del 2.º hijo; el último vale para
+   * todos los siguientes. NULL = se usa `sibling_discount_percentage`.
+   */
+  sibling_discount_tiers?: number[] | null;
   // Validación automática de comprobantes (Fase 5)
   auto_approve_enabled: boolean;
   auto_approve_max_amount: number;
@@ -550,6 +555,9 @@ export default function PaymentsAutomationPage() {
   const accountsColumnReady = useRef(false);
   const coachPhotoColumnsReady = useRef(false);
   const remainingClassesColumnReady = useRef(false);
+  // Escalones de hermanos (F2): si la columna no existe aún en este ambiente,
+  // mandarla tumbaría el upsert completo.
+  const siblingTiersColumnReady = useRef(false);
   const [billingSaving, setBillingSaving] = useState(false);
   const [showSensitive, setShowSensitive] = useState(false);
 
@@ -642,6 +650,7 @@ export default function PaymentsAutomationPage() {
     coachPhotoColumnsReady.current = 'coach_can_upload_enrollment_forms' in data;
     // Y con el cobro por clases restantes (mig 20261005214250).
     remainingClassesColumnReady.current = 'remaining_classes_billing_enabled' in data;
+    siblingTiersColumnReady.current = 'sibling_discount_tiers' in data;
     // `onlyActive: false` porque el admin también edita las llaves apagadas. Si la
     // escuela nunca guardó la lista (deploy recién hecho), se arma desde las
     // columnas viejas para que no vea el formulario en blanco teniendo datos.
@@ -716,7 +725,14 @@ export default function PaymentsAutomationPage() {
         early_payment_discount_days: billing.early_payment_discount_days,
         early_payment_discount_percentage: billing.early_payment_discount_percentage,
         sibling_discount_enabled: billing.sibling_discount_enabled,
-        sibling_discount_percentage: billing.sibling_discount_percentage,
+        // Los escalones mandan: el % plano queda igual al del 2.º hijo (el
+        // trigger de la base hace lo mismo; se manda igual por si no está).
+        ...(siblingTiersColumnReady.current
+            ? (() => {
+                const tiers = normalizeSiblingTiers(billing.sibling_discount_tiers, billing.sibling_discount_percentage);
+                return { sibling_discount_tiers: tiers, sibling_discount_percentage: tiers[0] };
+              })()
+            : { sibling_discount_percentage: billing.sibling_discount_percentage }),
         auto_approve_enabled: billing.auto_approve_enabled,
         auto_approve_max_amount: billing.auto_approve_max_amount,
         auto_glosa_enabled: billing.auto_glosa_enabled,
@@ -2557,19 +2573,12 @@ export default function PaymentsAutomationPage() {
                   </div>
                   {billing.sibling_discount_enabled && (
                     <div className="space-y-3 p-3 rounded-lg border bg-muted/30" data-testid="sibling-discount-percentage-block">
-                      <div className="space-y-2">
-                        <Label htmlFor="sib_pct">Porcentaje de descuento</Label>
-                        <div className="flex items-center gap-2">
-                          <NumberStepper
-                            min={1} max={50} className="w-28 h-9"
-                            value={billing.sibling_discount_percentage}
-                            onChange={v => updateBilling('sibling_discount_percentage', v === "" ? 0 : v)}
-                          />
-                          <span className="text-sm text-muted-foreground">% de descuento</span>
-                        </div>
-                      </div>
+                      <SiblingTiersEditor
+                        tiers={normalizeSiblingTiers(billing.sibling_discount_tiers, billing.sibling_discount_percentage)}
+                        onChange={tiers => setBilling(b => b ? { ...b, sibling_discount_tiers: tiers, sibling_discount_percentage: tiers[0] ?? 0 } : b)}
+                      />
                       <p className="text-[11px] text-muted-foreground leading-snug">
-                        El primer hijo (la inscripción activa más antigua) paga completo; el resto de hermanos activos en esta escuela lleva el descuento. Se recalcula cada mes: si un hermano se retira, el descuento desaparece solo.
+                        El primer hijo (la inscripción activa más antigua) paga completo; desde el 2.º cada hermano activo en esta escuela lleva el descuento de su escalón. Se recalcula cada mes: si un hermano se retira, los demás suben de puesto solos.
                       </p>
                     </div>
                   )}
@@ -3178,5 +3187,106 @@ function BackfillPaymentsCard({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ─── Descuento por hermanos escalonado (F2) ─────────────────────────────────
+
+const SIBLING_TIERS_MAX = 10;
+
+/** tiers null/vacío → [percentage] (comportamiento previo a F2). */
+function normalizeSiblingTiers(tiers: number[] | null | undefined, percentage: number): number[] {
+  const clean = (tiers ?? [])
+    .map(t => Number(t))
+    .filter(t => Number.isFinite(t))
+    .map(t => Math.min(100, Math.max(0, t)))
+    .slice(0, SIBLING_TIERS_MAX);
+  return clean.length > 0 ? clean : [Math.min(100, Math.max(0, Number(percentage) || 0))];
+}
+
+function siblingOrdinal(n: number): string {
+  return `${n}.º`;
+}
+
+function SiblingTiersEditor({ tiers, onChange }: { tiers: number[]; onChange: (tiers: number[]) => void }) {
+  const BASE = 100000;
+  const setAt = (idx: number, raw: string) => {
+    const n = raw === '' ? 0 : Math.min(100, Math.max(0, Number(raw)));
+    const next = [...tiers];
+    next[idx] = Number.isFinite(n) ? n : 0;
+    onChange(next);
+  };
+  const add = () => {
+    if (tiers.length >= SIBLING_TIERS_MAX) return;
+    onChange([...tiers, tiers[tiers.length - 1] ?? 0]);
+  };
+  const remove = (idx: number) => {
+    if (tiers.length <= 1) return;
+    onChange(tiers.filter((_, i) => i !== idx));
+  };
+  const decreasing = tiers.some((t, i) => i > 0 && t < tiers[i - 1]);
+  const example = [
+    `1.º ${formatCurrency(BASE)}`,
+    ...tiers.map((t, i) => {
+      const label = i === tiers.length - 1 ? `${siblingOrdinal(i + 2)} en adelante` : siblingOrdinal(i + 2);
+      return `${label} ${formatCurrency(Math.round(BASE * (1 - t / 100)))}`;
+    }),
+  ].join(' · ');
+
+  return (
+    <div className="space-y-2">
+      <Label>Descuento por puesto del hijo</Label>
+      <div className="space-y-2">
+        {tiers.map((t, i) => {
+          const isLast = i === tiers.length - 1;
+          return (
+            <div key={i} className="flex items-center gap-2" data-testid={`sibling-tier-row-${i}`}>
+              <span className="text-sm w-40 shrink-0">
+                {siblingOrdinal(i + 2)} hijo{isLast ? ' en adelante' : ''}
+              </span>
+              <Input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                max={100}
+                step={0.5}
+                className="w-24 h-9"
+                value={t}
+                onChange={e => setAt(i, e.target.value)}
+                data-testid={`sibling-tier-input-${i}`}
+                aria-label={`Porcentaje de descuento del ${siblingOrdinal(i + 2)} hijo`}
+              />
+              <span className="text-sm text-muted-foreground">%</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2 text-muted-foreground"
+                disabled={tiers.length <= 1}
+                onClick={() => remove(i)}
+                data-testid={`sibling-tier-remove-${i}`}
+                aria-label={`Quitar escalón del ${siblingOrdinal(i + 2)} hijo`}
+              >
+                <XCircle className="h-4 w-4" />
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+      {tiers.length < SIBLING_TIERS_MAX && (
+        <Button type="button" variant="outline" size="sm" onClick={add} data-testid="sibling-tier-add">
+          + Agregar escalón
+        </Button>
+      )}
+      {decreasing && (
+        <p className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400" data-testid="sibling-tier-warning">
+          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          Ojo: hay un escalón con menos descuento que el anterior. Se puede guardar así, pero revisa que sea lo que quieres.
+        </p>
+      )}
+      <p className="text-xs text-muted-foreground" data-testid="sibling-tier-example">
+        Ejemplo con mensualidad de {formatCurrency(BASE)}: {example}
+      </p>
+    </div>
   );
 }
