@@ -47,7 +47,13 @@ export interface AiResult {
   contraataques: AiSuggestion[];
   variantes: AiSuggestion[];
 }
-export interface AiAnalysisResponse { result: AiResult; cached: boolean; balance: AiBalance | null }
+export interface AiAnalysisResponse {
+  result: AiResult;
+  cached: boolean;
+  balance: AiBalance | null;
+  /** Clave interna del análisis (p1..pN) → clave real del tablero. */
+  keys?: Record<string, string>;
+}
 
 export interface AnalyzeRequest {
   team_id: string;
@@ -137,6 +143,48 @@ export function normalizeResult(raw: unknown): AiResult {
     riesgos: Array.isArray(r.riesgos) ? r.riesgos.filter((x) => x && typeof x.titulo === 'string') : [],
     contraataques: sugg(r.contraataques),
     variantes: sugg(r.variantes),
+  };
+}
+
+// ─── Textos sin claves internas ─────────────────────────────────────────────
+//
+// El análisis nombra a los jugadores por puesto, pero si el modelo escribe una
+// clave interna («p5», «r4») el coach no sabe quién es. Antes de mostrar
+// CUALQUIER texto se cambia: pN → etiqueta del jugador en la cancha (o «jugador
+// N»), rN → «rival N». «(p5)» después de un puesto sobra y se quita.
+
+const PAREN_KEY_RE = /\s*\(\s*[pr]\d{1,2}\s*\)/g;
+const KEY_RE = /\b([pr])(\d{1,2})\b/g;
+
+export function humanizeText(
+  text: string,
+  keys: Record<string, string> | undefined,
+  labelOf: (boardKey: string) => string | undefined,
+): string {
+  if (!text) return text;
+  return text
+    .replace(PAREN_KEY_RE, '')
+    .replace(KEY_RE, (_m, kind: string, n: string) => {
+      if (kind === 'r') return `rival ${Number(n)}`;
+      const real = keys?.[`p${Number(n)}`];
+      const label = real ? labelOf(real)?.trim() : undefined;
+      return label || `jugador ${Number(n)}`;
+    });
+}
+
+/** Todo el texto del análisis (lectura, riesgos, contraataques, variantes) sin claves internas. */
+export function humanizeResult(
+  r: AiResult,
+  keys: Record<string, string> | undefined,
+  labelOf: (boardKey: string) => string | undefined,
+): AiResult {
+  const h = (t: string) => humanizeText(t, keys, labelOf);
+  const sug = (s: AiSuggestion): AiSuggestion => ({ ...s, titulo: h(s.titulo), explicacion: h(s.explicacion) });
+  return {
+    lectura: h(r.lectura),
+    riesgos: r.riesgos.map((x) => ({ ...x, titulo: h(x.titulo), detalle: h(x.detalle), ...(x.zona ? { zona: h(x.zona) } : {}) })),
+    contraataques: r.contraataques.map(sug),
+    variantes: r.variantes.map(sug),
   };
 }
 

@@ -504,11 +504,14 @@ export interface JsonEstructuradoResult {
     fallas?: LlmFalla[];
 }
 
-/** Esfuerzo de Claude para la pizarra (TACTICAL_AI_EFFORT=low|medium|high). */
+/** Esfuerzo de Claude para la pizarra (TACTICAL_AI_EFFORT=low|medium|high).
+ *  'low' por defecto (2026-10-14): comparado contra 'medium' en fútbol,
+ *  baloncesto y voleibol, los contraataques salen igual de coherentes y cuesta
+ *  ~15 % menos (la salida es casi toda el JSON de los cuadros, no razonamiento). */
 function esfuerzoPizarra(modelo: string): Record<string, unknown> {
     if (/haiku-4/i.test(modelo)) return {};
-    const e = (process.env.TACTICAL_AI_EFFORT || 'medium').trim();
-    return { effort: ['low', 'medium', 'high'].includes(e) ? e : 'medium' };
+    const e = (process.env.TACTICAL_AI_EFFORT || 'low').trim();
+    return { effort: ['low', 'medium', 'high'].includes(e) ? e : 'low' };
 }
 
 async function jsonClaude(p: JsonEstructuradoParams): Promise<JsonEstructuradoResult> {

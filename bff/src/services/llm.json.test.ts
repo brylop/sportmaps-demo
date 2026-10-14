@@ -28,7 +28,7 @@ describe('generarJsonEstructurado', () => {
     const r = await generarJsonEstructurado({ system: 'S', user: 'U', schema: SCHEMA, timeoutMs: 1234 });
     const [body, opts] = h.create.mock.calls[0];
     expect(body.output_config.format).toEqual({ type: 'json_schema', schema: SCHEMA });
-    expect(body.output_config.effort).toBe('medium');
+    expect(body.output_config.effort).toBe('low');
     expect(body.messages).toEqual([{ role: 'user', content: 'U' }]);
     expect(opts).toEqual({ timeout: 1234, maxRetries: 0 });
     expect(r).toMatchObject({ texto: '{"a":"b"}', provider: 'claude', tokens: { input: 10, output: 20, cacheRead: 0, cacheWrite: 5 } });

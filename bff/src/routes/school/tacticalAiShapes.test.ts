@@ -85,6 +85,11 @@ describe('nombres e ids de atletas NO llegan al prompt', () => {
     expect(promptLeaks(prompt, [...FAKE_ROSTER_NAMES, 'Sofi', 'Sofía', ...keyMap.values()])).toEqual([]);
     expect(prompt).not.toContain('presiona'); // la figura de texto de la cancha no viaja
   });
+  it('el prompt pide nombrar por puesto y NUNCA por clave en los textos', () => {
+    const sys = buildSystemPrompt('futbol');
+    expect(sys).toContain('NUNCA escribas las claves internas');
+    expect(sys).not.toMatch(/por su puesto o su clave/);
+  });
   it('la etiqueta con nombre se borra; la de puesto pasa', () => {
     const { play } = prepared('futbol');
     expect(Object.values(play.puestos)).not.toContain('Sofi');
