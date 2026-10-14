@@ -20,7 +20,8 @@ export const EXERCISE_SPORT_LABEL: Record<ExerciseSport, string> = {
   voleibol: 'Voleibol',
   baloncesto: 'Baloncesto',
   balonmano: 'Balonmano',
-  generico: 'Genérico',
+  // D1: lo genérico (calentamiento, coordinación) se muestra a todos con este nombre.
+  generico: 'Preparación física',
 };
 
 /** Puesto de la jugada guardada: sin atleta real, solo etiqueta y posición.
@@ -108,6 +109,17 @@ export async function listExercises(params: ExerciseListParams = {}): Promise<Tr
   if (params.limit) query.set('limit', String(params.limit));
   const qs = query.toString();
   return bffClient.get<TrainingExercise[]>(qs ? `${BASE}?${qs}` : BASE);
+}
+
+const EXERCISE_SPORT_KEYS = Object.keys(EXERCISE_SPORT_LABEL) as ExerciseSport[];
+
+/** D1: deportes de la biblioteca de la escuela activa (sus equipos ∪
+ *  schools.sports, más 'generico'), en el orden del catálogo. El BFF ya filtra
+ *  las plantillas con esto; el panel lo usa para los chips. */
+export async function listLibrarySports(): Promise<ExerciseSport[]> {
+  const res = await bffClient.get<{ sports?: unknown }>(`${BASE}/sports`);
+  const raw = Array.isArray(res?.sports) ? res.sports : [];
+  return EXERCISE_SPORT_KEYS.filter((s) => raw.includes(s));
 }
 
 export async function getExercise(id: string): Promise<TrainingExercise> {

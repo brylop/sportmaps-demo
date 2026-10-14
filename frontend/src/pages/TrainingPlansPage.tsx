@@ -36,7 +36,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { dayToLocalDate } from '@/lib/dateUtils';
 import { fetchCoachTeams } from '@/lib/coachTeamScope';
-import { sportFromTeam } from '@/lib/school/tacticalSports';
+import { teamBoardAccess } from '@/lib/sports/sportCatalog';
 
 export default function TrainingPlansPage() {
   const { user } = useAuth();
@@ -316,9 +316,15 @@ export default function TrainingPlansPage() {
   };
 
   const selectedTeam = teams?.find((t: any) => t.id === selectedTeamId);
-  const isFootballTeam = selectedTeam?.sport?.toLowerCase() === 'futbol' || selectedTeam?.sport?.toLowerCase() === 'fútbol';
+  // D3 (docs/specs/pizarra-multideporte-3d-ia.md): la pizarra, sus jugadas y
+  // la biblioteca se abren a todo deporte de pizarra completa (fútbol 11/7/5,
+  // futsal, voleibol, baloncesto, balonmano); lo futbolero de verdad
+  // (panorama «Fútbol», principios de juego, evaluación) sigue con isFootball.
+  const boardAccess = selectedTeam ? teamBoardAccess(selectedTeam) : null;
+  const isFootballTeam = !!boardAccess?.isFootball;
+  const teamHasBoard = !!boardAccess?.hasTacticalBoard;
   // Filtro inicial de la Biblioteca de ejercicios (deporte de la pizarra).
-  const teamSport = selectedTeam ? sportFromTeam(selectedTeam) : undefined;
+  const teamSport = boardAccess?.sport;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -432,6 +438,7 @@ export default function TrainingPlansPage() {
               roster={roster}
               sessions={sessions || []}
               isFootball={isFootballTeam}
+              hasTacticalBoard={teamHasBoard}
               teamSport={teamSport}
               teamName={selectedName}
               onEditSession={(session) => { setEditingSession(session); setDialogOpen(true); }}
@@ -514,7 +521,7 @@ export default function TrainingPlansPage() {
                                     {block.minutes && (
                                       <Badge variant="outline">{block.minutes} min</Badge>
                                     )}
-                                    {isFootballTeam && (
+                                    {teamHasBoard && (
                                       <Button
                                         variant="outline"
                                         size="sm"
@@ -835,6 +842,7 @@ export default function TrainingPlansPage() {
           teamId={selectedTeamId}
           teamName={selectedName}
           isFootball={isFootballTeam}
+          hasTacticalBoard={teamHasBoard}
           teamSport={teamSport}
           session={editingSession}
           isLoading={createMutation.isPending || updateMutation.isPending}

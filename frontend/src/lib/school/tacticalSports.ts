@@ -18,6 +18,7 @@
  */
 import { FORMATIONS as FOOTBALL_FORMATIONS } from './tacticalFormations';
 import { OBJECT_TYPES, type ObjectType } from './tacticalGeometry';
+import { boardSportFromTeam, type BoardSport, type TeamSportInput } from '@/lib/sports/sportCatalog';
 
 export const TACTICAL_SPORTS = [
   'futbol',
@@ -30,6 +31,12 @@ export const TACTICAL_SPORTS = [
   'generico',
 ] as const;
 export type TacticalSport = (typeof TACTICAL_SPORTS)[number];
+
+// Las canchas son las mismas del catálogo único de deportes (sportCatalog.ts):
+// si una lista cambia sin la otra, esto no compila.
+type SameUnion<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+const SAME_SPORTS: SameUnion<TacticalSport, BoardSport> = true;
+void SAME_SPORTS;
 
 export const DEFAULT_SPORT: TacticalSport = 'futbol';
 
@@ -403,57 +410,15 @@ export const SPORT_OPTIONS = TACTICAL_SPORTS.map((k) => ({ value: k, label: SPOR
 
 // ─── Deporte a partir del equipo ────────────────────────────────────────────
 
-/** Minúsculas, sin tildes y con `_` como espacio ("Fútbol Sala" y el slug
- *  "futbol_sala" → "futbol sala"). */
-const norm = (s: string | null | undefined) =>
-  (s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/_/g, ' ').trim();
-
-type Family = 'futbol' | 'futsal' | 'voleibol' | 'baloncesto' | 'balonmano';
-
-function familyOf(text: string): Family | null {
-  if (!text) return null;
-  // Futsal ANTES que fútbol: "fútbol sala" contiene "fútbol".
-  if (/\bfutsal\b|futbol\s*(de\s*)?sala|futbol\s*de\s*salon|micro\s*-?\s*futbol|\bmicro\b/.test(text)) return 'futsal';
-  if (/volei|voley|volley|\bvolei?bol\b|voleibol/.test(text)) return 'voleibol';
-  if (/balonce|basket|basquet|\bbasquetbol|\bbaloncesto/.test(text)) return 'baloncesto';
-  if (/balonmano|handball|hand\s*ball/.test(text)) return 'balonmano';
-  if (/futbol|soccer|\bfut\b/.test(text)) return 'futbol';
-  return null;
-}
-
-/** Modalidad 7 / 5 / 11 escrita explícitamente ("F7", "Fútbol 7", "7 vs 7",
- *  "7x7"). OJO: "Sub 7" o "Sub-5" son categorías de EDAD, no modalidad. */
-function footballSize(text: string): 7 | 5 | 11 | null {
-  for (const n of [7, 5, 11] as const) {
-    const re = new RegExp(
-      `(^|[^a-z0-9])(f|fut|futbol|soccer)\\s*-?\\s*${n}(?![0-9])|(^|[^0-9])${n}\\s*(vs|v|x|contra)\\s*${n}(?![0-9])`,
-    );
-    if (re.test(text)) return n;
-  }
-  return null;
-}
-
 /**
- * Deporte de la pizarra para un equipo. Lee el NOMBRE VISIBLE del deporte
- * (`teams.sport` guarda "Fútbol", "Voleibol", "Baloncesto"…, no el slug) y,
- * si no alcanza, el nombre del equipo y de la categoría. "Fútbol Sala" y
- * "Microfútbol" = futsal. Fútbol 7/5 solo si está escrito ("F7", "Fútbol 5",
- * "7 vs 7"); "Sub 7" es edad y no cuenta. Lo que no tiene cancha propia
- * (natación, tenis, porrismo…) cae a 'generico'.
+ * Deporte de la pizarra para un equipo. UNA sola fuente de verdad desde M1:
+ * delega en boardSportFromTeam de lib/sports/sportCatalog.ts (resolveSport
+ * sobre `teams.sport`, que guarda el NOMBRE VISIBLE: "Fútbol", "Voleibol"…).
+ * "Fútbol Sala" y "Microfútbol" = futsal. Fútbol 7/5 solo si está escrito
+ * ("F7", "Fútbol 5", "7 vs 7"); "Sub 7" es edad y no cuenta. Lo que no tiene
+ * cancha propia (natación, tenis, porrismo…) cae a 'generico'. Si el equipo
+ * abre o no la pizarra lo dice teamBoardAccess / hasTacticalBoard, no esto.
  */
-export function sportFromTeam(team: { sport?: string | null; name?: string | null; category_name?: string | null } | null | undefined): TacticalSport {
-  if (!team) return DEFAULT_SPORT;
-  const sport = norm(team.sport);
-  const extra = `${norm(team.name)} ${norm(team.category_name)}`.trim();
-  const family = familyOf(sport) ?? (sport ? null : familyOf(extra));
-  if (!family) return sport ? 'generico' : DEFAULT_SPORT;
-  if (family !== 'futbol') {
-    return family;
-  }
-  // Fútbol: ¿el equipo/categoría dice futsal (deporte "Fútbol", equipo "Futsal Sub 12")?
-  if (familyOf(extra) === 'futsal') return 'futsal';
-  const size = footballSize(sport) ?? footballSize(extra);
-  if (size === 7) return 'futbol7';
-  if (size === 5) return 'futbol5';
-  return 'futbol';
+export function sportFromTeam(team: TeamSportInput | null | undefined): TacticalSport {
+  return boardSportFromTeam(team);
 }

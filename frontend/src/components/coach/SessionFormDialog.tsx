@@ -21,6 +21,7 @@ import { logTacticalEvent } from '@/lib/school/tacticalUsage';
 import { useTeamTacticalSport } from '@/hooks/useTeamTacticalSport';
 import { useToast } from '@/hooks/use-toast';
 import type { TacticalSport } from '@/lib/school/tacticalSports';
+import { sessionFormLayout } from '@/lib/school/sessionFormLayout';
 
 const sessionSchema = z.object({
   session_date: z.string().min(1, 'Fecha es requerida'),
@@ -84,6 +85,15 @@ const FOOTBALL_BLOCK_TEMPLATE: SessionBlock[] = [
   { name: 'Vuelta a la calma', minutes: '', activity: '', objective: '', description: '', component: '' },
 ];
 
+/** Bloques de arranque para los demás deportes de pizarra (voleibol,
+ *  baloncesto, balonmano, futsal): sin la estructura del Excel de fútbol.
+ *  El calentamiento va en su propio campo, como antes. */
+const GENERIC_BLOCK_TEMPLATE: SessionBlock[] = [
+  { name: 'Parte principal — Técnica', minutes: '', activity: '', objective: '', description: '', component: '' },
+  { name: 'Parte principal — Juego', minutes: '', activity: '', objective: '', description: '', component: '' },
+  { name: 'Vuelta a la calma', minutes: '', activity: '', objective: '', description: '', component: '' },
+];
+
 type ObjectivesMet = 'si' | 'parcial' | 'no';
 
 interface Evaluation {
@@ -118,9 +128,12 @@ interface SessionFormDialogProps {
   /** Solo para el contexto del tablero táctico por bloque (título del modal
    *  fullscreen) -- no se usa para nada más acá. */
   teamName?: string;
-  /** Solo fútbol ve bloques editables, principios de juego y evaluación
-   *  post-sesión (Excel "Sesión Diaria Fútbol C.C.C", Club Carmel). */
+  /** Solo fútbol ve principios de juego, evaluación post-sesión y la
+   *  plantilla de bloques del Excel "Sesión Diaria Fútbol C.C.C" (Club Carmel). */
   isFootball?: boolean;
+  /** D3: deporte con pizarra completa → bloques con «Tablero táctico» y
+   *  «Desde la biblioteca». Sin el prop vale lo mismo que isFootball. */
+  hasTacticalBoard?: boolean;
   /** Deporte de la pizarra del equipo (sportFromTeam): filtro inicial de la
    *  Biblioteca de ejercicios. */
   teamSport?: TacticalSport;
@@ -135,12 +148,15 @@ export function SessionFormDialog({
   teamId,
   teamName,
   isFootball,
+  hasTacticalBoard,
   teamSport,
   isLoading,
   session = null
 }: SessionFormDialogProps) {
+  const layout = sessionFormLayout({ isFootball, hasTacticalBoard, teamSport, session });
+  const blockTemplate = layout.blockTemplate === 'futbol' ? FOOTBALL_BLOCK_TEMPLATE : GENERIC_BLOCK_TEMPLATE;
   const [drills, setDrills] = useState<Drill[]>([{ name: '', focus: '', duration: '' }]);
-  const [blocks, setBlocks] = useState<SessionBlock[]>(FOOTBALL_BLOCK_TEMPLATE);
+  const [blocks, setBlocks] = useState<SessionBlock[]>(blockTemplate);
   const [evaluation, setEvaluation] = useState<Evaluation>({});
   // Índice del bloque cuyo tablero táctico está abierto (no el id -- el id
   // puede no existir todavía, ver ensureBlockId más abajo).
@@ -180,7 +196,7 @@ export function SessionFormDialog({
         game_principles: session.game_principles || '',
       });
       setDrills(session.drills && session.drills.length > 0 ? session.drills : [{ name: '', focus: '', duration: '' }]);
-      setBlocks(session.session_blocks && session.session_blocks.length > 0 ? session.session_blocks : FOOTBALL_BLOCK_TEMPLATE);
+      setBlocks(session.session_blocks && session.session_blocks.length > 0 ? session.session_blocks : blockTemplate);
       setEvaluation(session.evaluation || {});
     } else {
       form.reset({
@@ -192,7 +208,7 @@ export function SessionFormDialog({
         game_principles: '',
       });
       setDrills([{ name: '', focus: '', duration: '' }]);
-      setBlocks(FOOTBALL_BLOCK_TEMPLATE);
+      setBlocks(blockTemplate);
       setEvaluation({});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -293,7 +309,7 @@ export function SessionFormDialog({
 
   const resetLocalState = () => {
     setDrills([{ name: '', focus: '', duration: '' }]);
-    setBlocks(FOOTBALL_BLOCK_TEMPLATE);
+    setBlocks(blockTemplate);
     setEvaluation({});
   };
 
@@ -309,11 +325,11 @@ export function SessionFormDialog({
       warmup: data.warmup || undefined,
       materials: data.materials || undefined,
       notes: data.notes || undefined,
-      ...(isFootball
+      ...(layout.editor === 'blocks'
         ? {
-            game_principles: data.game_principles || undefined,
+            ...(layout.showGamePrinciples ? { game_principles: data.game_principles || undefined } : {}),
             session_blocks: validBlocks.length > 0 ? validBlocks : undefined,
-            evaluation: hasEvaluation ? evaluation : undefined,
+            ...(layout.showEvaluation ? { evaluation: hasEvaluation ? evaluation : undefined } : {}),
           }
         : {
             drills: validDrills.length > 0 ? validDrills : undefined,
@@ -435,7 +451,7 @@ export function SessionFormDialog({
             )}
           </div>
 
-          {isFootball && (
+          {layout.showGamePrinciples && (
             <div className="space-y-2">
               <Label htmlFor="game_principles">Principios de Juego a Trabajar</Label>
               <Textarea
@@ -447,7 +463,7 @@ export function SessionFormDialog({
             </div>
           )}
 
-          {!isFootball && (
+          {layout.showWarmup && (
             <div className="space-y-2">
               <Label htmlFor="warmup">Calentamiento</Label>
               <Textarea
@@ -459,7 +475,7 @@ export function SessionFormDialog({
             </div>
           )}
 
-          {isFootball ? (
+          {layout.editor === 'blocks' ? (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <Label>Bloques de la Sesión</Label>
@@ -485,16 +501,19 @@ export function SessionFormDialog({
                         onChange={(e) => updateBlock(index, 'minutes', e.target.value)}
                         className="w-20 shrink-0"
                       />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="shrink-0 gap-1"
-                        onClick={() => openBlockTacticalBoard(index)}
-                        title="Abrir tablero táctico para este bloque"
-                      >
-                        <Goal className="h-4 w-4" />
-                      </Button>
+                      {layout.showBoardButtons && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0 gap-1"
+                          onClick={() => openBlockTacticalBoard(index)}
+                          title="Abrir tablero táctico para este bloque"
+                          aria-label="Tablero táctico"
+                        >
+                          <Goal className="h-4 w-4" />
+                        </Button>
+                      )}
                       {blocks.length > 1 && (
                         <Button
                           type="button"
@@ -520,12 +539,13 @@ export function SessionFormDialog({
                           <SelectValue placeholder="Componente" />
                         </SelectTrigger>
                         <SelectContent>
-                          {BLOCK_COMPONENT_OPTIONS.map((o) => (
+                          {BLOCK_COMPONENT_OPTIONS.filter((o) => o.value !== 'arqueros' || layout.showGoalkeeperComponent || block.component === 'arqueros').map((o) => (
                             <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
+                    {layout.showBoardButtons && (
                     <div className="flex flex-wrap items-center gap-2">
                       <Button
                         type="button"
@@ -542,6 +562,7 @@ export function SessionFormDialog({
                         <span className="text-xs text-muted-foreground">Ejercicio de la biblioteca</span>
                       )}
                     </div>
+                    )}
                     <Input
                       placeholder="Objetivo específico"
                       value={block.objective}
@@ -616,7 +637,7 @@ export function SessionFormDialog({
             />
           </div>
 
-          {isFootball && (
+          {layout.showEvaluation && (
             <div className="space-y-4 p-4 rounded-lg border bg-muted/30 dark:bg-muted/10">
               <div>
                 <Label className="text-base">Evaluación de la Sesión</Label>

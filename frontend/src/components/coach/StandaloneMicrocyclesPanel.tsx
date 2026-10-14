@@ -34,6 +34,8 @@ interface StandaloneMicrocyclesPanelProps {
   schoolId: string;
   sessions: any[];
   isFootball?: boolean;
+  /** D3: pizarra completa (abre «Tablero táctico» y biblioteca en los bloques). */
+  hasTacticalBoard?: boolean;
   /** Deporte de la pizarra del equipo (sportFromTeam): filtro inicial de la
    *  Biblioteca de ejercicios. */
   teamSport?: TacticalSport;
@@ -49,7 +51,7 @@ interface StandaloneMicrocyclesPanelProps {
  *  puede tener semanas sueltas, sin haber creado nunca el mesociclo (el mes)
  *  que las contenga. MesocycleSection solo agrupa las semanas que SÍ cuelgan
  *  de un mesociclo; este panel es la vista para las que no. */
-export function StandaloneMicrocyclesPanel({ teamId, schoolId, sessions, isFootball, teamSport, onEditSession, readOnly: readOnlyProp }: StandaloneMicrocyclesPanelProps) {
+export function StandaloneMicrocyclesPanel({ teamId, schoolId, sessions, isFootball, hasTacticalBoard, teamSport, onEditSession, readOnly: readOnlyProp }: StandaloneMicrocyclesPanelProps) {
   const { toast } = useToast();
   const { currentUserRole } = useSchoolContext();
   const readOnly = readOnlyProp ?? isTrainingReadOnlyRole(currentUserRole);
@@ -225,6 +227,7 @@ export function StandaloneMicrocyclesPanel({ teamId, schoolId, sessions, isFootb
           onSubmit={(data) => createSessionForDay.mutate({ ...data, team_id: teamId, session_date: sessionDialogDay.day_date, dayId: sessionDialogDay.id })}
           teamId={teamId}
           isFootball={isFootball}
+          hasTacticalBoard={hasTacticalBoard}
           teamSport={teamSport}
           isLoading={createSessionForDay.isPending}
           session={sessionDialogSession}

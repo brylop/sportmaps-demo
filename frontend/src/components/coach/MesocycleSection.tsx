@@ -118,6 +118,8 @@ interface MesocycleSectionProps {
   roster: { id: string; full_name: string; athlete_type?: string }[];
   sessions: any[];
   isFootball?: boolean;
+  /** D3: pizarra completa (abre «Tablero táctico» y biblioteca en los bloques). */
+  hasTacticalBoard?: boolean;
   /** Deporte de la pizarra del equipo (sportFromTeam): filtro inicial de la
    *  Biblioteca de ejercicios. */
   teamSport?: TacticalSport;
@@ -142,6 +144,7 @@ export function MesocycleSection({
   roster,
   sessions,
   isFootball,
+  hasTacticalBoard,
   teamSport,
   teamName,
   onEditSession,
@@ -559,6 +562,7 @@ export function MesocycleSection({
           schoolId={schoolId}
           sessions={sessions}
           isFootball={isFootball}
+          hasTacticalBoard={hasTacticalBoard}
           teamSport={teamSport}
           onEditSession={openSession}
           readOnly={readOnly}
@@ -1167,6 +1171,7 @@ export function MesocycleSection({
           teamId={teamId}
           teamName={teamName}
           isFootball={isFootball}
+          hasTacticalBoard={hasTacticalBoard}
           teamSport={teamSport}
           isLoading={createSessionForDay.isPending}
           session={sessionDialogSession}

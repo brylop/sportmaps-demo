@@ -320,6 +320,7 @@
     "seguridad:rls-negativas": "node scripts/rls-pruebas-negativas.mjs",
     "seguridad:rls-clinicas": "node scripts/rls-pruebas-clinicas.mjs",
     "seguridad:rls-pizarra": "node scripts/rls-pruebas-pizarra.mjs",
+    "deportes:sin-mapear": "node --experimental-strip-types --no-warnings scripts/deportes-sin-mapear.mjs",
     "seguridad:blindaje-dinero": "node scripts/pruebas-blindaje-dinero.mjs",
     "verificar:runtime": "node scripts/verificar-nombres-sin-declarar.mjs",
     "migrations:pendientes": "node scripts/migraciones-pendientes.mjs",

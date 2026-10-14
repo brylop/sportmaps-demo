@@ -6108,6 +6108,8 @@ paths:
         Ejercicios activos de la escuela activa y plantillas del sistema (school_id NULL,
         is_template). Orden: primero los de la escuela, luego por veces usado. Roles de staff
         (owner, admin, school_admin, coach, staff, super_admin).
+        Las plantillas solo de los deportes de la escuela (ver /api/v1/school/exercises/sports);
+        los ejercicios propios de la escuela se listan siempre.
       security:
         - bearerAuth: []
       parameters:
@@ -6155,6 +6157,26 @@ paths:
       responses:
         '201': { description: Creado }
         '422': { description: Ejercicio o jugada inválidos (details) }
+  /api/v1/school/exercises/sports:
+    get:
+      tags: [school-performance]
+      summary: Deportes de la biblioteca de la escuela activa (pizarra M1, D1)
+      description: >
+        Canchas de pizarra completa de los equipos activos de la escuela y de schools.sports
+        (catálogo único bff/src/lib/sportCatalog.ts), más 'generico' («Preparación física»)
+        siempre, en el orden del catálogo. Roles de staff.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sports: { type: array, items: { type: string, enum: [futbol, futbol7, futbol5, futsal, voleibol, baloncesto, balonmano, generico] } }
+        '403': { description: Rol no permitido }
   /api/v1/school/exercises/{id}:
     get:
       tags: [school-performance]
