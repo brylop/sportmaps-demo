@@ -49,10 +49,16 @@ async function playbackPositions(page: Page): Promise<string[]> {
 
 const frameItems = (page: Page) => page.getByRole('list', { name: 'Cuadros' }).getByRole('listitem');
 
+/** Tiempo de llegada a cada cuadro nuevo. Largo a propósito: con 1,2 s la
+ *  jugada entera duraba ~2,4 s y en una máquina cargada terminaba antes de
+ *  tocar «Pausa» (prueba que dependía del reloj). */
+const FRAME_MS = '3000';
+
 async function addFrame(page: Page, expected: number) {
     await page.getByRole('button', { name: /^Cuadro$/ }).click();
     await expect(frameItems(page)).toHaveCount(expected);
     await expect(page.getByRole('listitem', { name: `Cuadro ${expected}` })).toHaveAttribute('aria-current', 'true');
+    await page.getByRole('combobox', { name: 'Tiempo para llegar a este cuadro' }).selectOption(FRAME_MS);
 }
 
 async function bytesOf(download: Download): Promise<Buffer> {
@@ -253,8 +259,8 @@ test('3 cuadros → reproducir, pausa, velocidad, deshacer/rehacer → exportar 
     // Cada cuadro tiene al jugador movido en otro lugar.
     const moved = (f: any) => f.players.map((p: any) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join('|');
     expect(new Set([moved(f1), moved(f2), moved(f3)]).size).toBe(3);
-    expect(f2.duration_ms).toBeGreaterThan(0);
-    expect(f3.duration_ms).toBeGreaterThan(0);
+    expect(f2.duration_ms).toBe(Number(FRAME_MS));
+    expect(f3.duration_ms).toBe(Number(FRAME_MS));
     expect(guard.mocked.some((m) => /^POST .*\/api\/v1\/school\/football\/lineups$/.test(m)), 'el guardado fue al mock').toBe(true);
 
     // Sin el menú montado, el export real del navegador igual se prueba con la

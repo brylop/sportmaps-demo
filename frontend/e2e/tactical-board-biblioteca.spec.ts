@@ -102,6 +102,13 @@ test('desde la pizarra: «Guardar en biblioteca» manda la ficha y la jugada con
 
 test('sesión → «Desde la biblioteca» → buscar y filtrar → «Usar en esta sesión» llama al BFF con los ids correctos', async ({ page, guard }) => {
     test.setTimeout(180_000);
+    // Deportes de la escuela (M1): el BFF de dev todavía no tiene
+    // GET /exercises/sports; se responde la LECTURA como el BFF nuevo para una
+    // escuela de fútbol 11/7/5 (con un solo deporte no hay fila de chips).
+    await page.route(/\/api\/v1\/school\/exercises\/sports$/, async (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        await route.fulfill({ json: { sports: ['futbol', 'futbol7', 'futbol5', 'generico'] } });
+    });
     await loginAs(page, COACH);
 
     // Equipo elegido (lo lee el roster al seleccionarlo).
@@ -130,21 +137,27 @@ test('sesión → «Desde la biblioteca» → buscar y filtrar → «Usar en est
     await lib.getByRole('textbox', { name: 'Buscar ejercicio' }).fill('rondo');
     expect((await searched).ok()).toBe(true);
 
-    // Filtrar por objetivo (etiqueta) y deporte.
-    const tagged = page.waitForResponse((r) => {
+    // Filtrar por objetivo (etiqueta) y deporte. El filtro de deporte arranca
+    // en el del equipo (Fútbol 11, M1): la consulta ya viaja con sport=futbol.
+    await expect(lib.getByRole('button', { name: 'Fútbol 11', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    const bySport = page.waitForResponse((r) => {
         const u = new URL(r.url());
-        return EXERCISES.test(r.url()) && u.searchParams.get('tag') === 'posesión' && u.searchParams.get('q') === 'rondo';
+        return EXERCISES.test(r.url()) && u.searchParams.get('tag') === 'posesión' && u.searchParams.get('q') === 'rondo'
+            && u.searchParams.get('sport') === 'futbol' && u.searchParams.get('templates') === 'true';
     });
     await lib.getByRole('button', { name: 'Posesión', exact: true }).click();
     await expect(lib.getByRole('button', { name: 'Posesión', exact: true })).toHaveAttribute('aria-pressed', 'true');
-    await tagged;
-    const bySport = page.waitForResponse((r) => {
-        const u = new URL(r.url());
-        return EXERCISES.test(r.url()) && u.searchParams.get('sport') === 'futbol' && u.searchParams.get('tag') === 'posesión'
-            && u.searchParams.get('templates') === 'true';
-    });
-    await lib.getByRole('button', { name: 'Fútbol 11', exact: true }).click();
     const list: any[] = await (await bySport).json();
+    // «Todos» quita el deporte (consulta sin sport) y «Fútbol 11» lo vuelve a
+    // poner (sale de la caché de la consulta anterior).
+    const allSports = page.waitForResponse((r) => {
+        const u = new URL(r.url());
+        return EXERCISES.test(r.url()) && !u.searchParams.get('sport') && u.searchParams.get('tag') === 'posesión';
+    });
+    await lib.getByRole('button', { name: 'Todos', exact: true }).first().click();
+    await allSports;
+    await lib.getByRole('button', { name: 'Fútbol 11', exact: true }).click();
+    await expect(lib.getByRole('button', { name: 'Fútbol 11', exact: true })).toHaveAttribute('aria-pressed', 'true');
     expect(list.length).toBeGreaterThan(0);
     for (const ex of list) {
         expect(ex.is_template).toBe(true);
