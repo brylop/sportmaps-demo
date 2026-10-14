@@ -224,5 +224,5 @@ plantillas de edición fijas (intro de 2 s con la marca, subtítulos siempre y C
 | D9 | Precios | **Gratis (≤2) / Canchas Pro $99k (≤5, bot sin tope) / Canchas Club $199k (ilimitadas)**; 3 meses Pro gratis a los primeros 50 |
 | D12 | Club piloto | **Una cancha sintética nueva** (no una escuela actual). Hay que conseguirla esta semana: entra al frente F (§6) como prioridad 1 |
 | D15 | Sin cuota al jugador | Sí |
-| — | Supabase Pro antes del 6-nov | **Sí** |
+| — | Supabase Pro antes del 6-nov | **Hecho (14-oct).** Las reglas de Disk IO de `CLAUDE.md` siguen vigentes igual |
 | — | Arranque | **F0 y landing/contenido en paralelo** desde el 14-oct |
