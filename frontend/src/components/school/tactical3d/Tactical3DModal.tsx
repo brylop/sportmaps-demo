@@ -21,8 +21,13 @@ export default function Tactical3DModal({ source: raw, onClose, onFallback, minF
   const input = useMemo(() => viewerFrames(source), [source]);
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      {/* Sin la animación de entrada (zoom 95 %): el canvas de three mide su
+          contenedor al montar y se quedaba al 95 % (franja oscura a la derecha
+          y abajo); ResizeObserver no ve el fin de una transformación.
+          !pb-0: .dialog-safe deja 1,5 rem abajo (franja oscura); la barra de
+          reproducción ya respeta el safe-area. */}
       <DialogContent
-        className="h-[100dvh] w-screen max-w-none gap-0 overflow-hidden rounded-none border-0 bg-slate-950 p-0 sm:rounded-none [&>button.absolute]:hidden"
+        className="h-[100dvh] w-screen max-w-none gap-0 overflow-hidden rounded-none border-0 bg-slate-950 p-0 sm:rounded-none !pb-0 data-[state=open]:!animate-none data-[state=closed]:!animate-none [&>button.absolute]:hidden"
         onPointerDownOutside={(e) => e.preventDefault()}
       >
         <DialogTitle className="sr-only">Jugada en 3D</DialogTitle>

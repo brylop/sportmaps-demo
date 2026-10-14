@@ -42,6 +42,8 @@ export interface TacticalExportMenuProps {
   onEvent?: (event: TacticalExportEvent) => void;
   disabled?: boolean;
   className?: string;
+  /** En el toolbar de la pizarra: mismo alto que los demás botones (h-8). */
+  compact?: boolean;
 }
 
 type Busy = null | 'png' | 'pdf' | 'video' | 'share';
@@ -52,7 +54,7 @@ function errorMessage(e: unknown): string {
   return e instanceof Error && e.message ? e.message : 'Inténtalo de nuevo.';
 }
 
-export function TacticalExportMenu({ getInput, frameCount, onEvent, disabled, className, animationKind }: TacticalExportMenuProps) {
+export function TacticalExportMenu({ getInput, frameCount, onEvent, disabled, className, animationKind, compact }: TacticalExportMenuProps) {
   const [busy, setBusy] = useState<Busy>(null);
   const videoReady = frameCount >= 2;
   const kind = useMemo<TacticalAnimationKind>(() => animationKind ?? pickAnimationKind(), [animationKind]);
@@ -210,7 +212,7 @@ export function TacticalExportMenu({ getInput, frameCount, onEvent, disabled, cl
         <Button
           type="button"
           variant="outline"
-          className={`min-h-touch gap-2 ${className ?? ''}`}
+          className={`${compact ? 'h-8 gap-1' : 'min-h-touch gap-2'} ${className ?? ''}`}
           disabled={disabled || !!busy}
           aria-label="Exportar la jugada"
         >

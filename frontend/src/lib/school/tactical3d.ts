@@ -297,6 +297,28 @@ export function createFpsMeter(windowMs = FPS_WINDOW_MS, minFps = MIN_FPS) {
 }
 
 /** prefers-reduced-motion: sin animación automática de cámara. */
+// ─── Carteles que no se montan ──────────────────────────────────────────────
+
+/** Rectángulo de un cartel en pantalla (px, y hacia abajo) y su distancia a la cámara. */
+export interface LabelRect { id: number; x: number; y: number; w: number; h: number; depth: number }
+
+/**
+ * Qué carteles se dejan ver: del más cercano a la cámara al más lejano, el que
+ * se monta (con `pad` px de aire) sobre uno ya puesto se esconde. Desde la
+ * vista del jugador los de lejos quedaban unos encima de otros («Ri Rival 6»).
+ */
+export function visibleLabels(rects: LabelRect[], pad = 2): Set<number> {
+  const placed: LabelRect[] = [];
+  const out = new Set<number>();
+  for (const r of [...rects].sort((a, b) => a.depth - b.depth)) {
+    const hit = placed.some((q) => r.x < q.x + q.w + pad && r.x + r.w + pad > q.x && r.y < q.y + q.h + pad && r.y + r.h + pad > q.y);
+    if (hit) continue;
+    placed.push(r);
+    out.add(r.id);
+  }
+  return out;
+}
+
 export function prefersReducedMotion(): boolean {
   try {
     return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;

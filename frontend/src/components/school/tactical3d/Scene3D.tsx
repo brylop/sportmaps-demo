@@ -13,7 +13,7 @@ import {
   type CameraMode, type LiveState, type Court3D as Court3DModel, type PlayerVisual,
 } from '@/lib/school/tactical3d';
 import { Court3D } from './Court3D';
-import { Ball3D, Players3D } from './Figures3D';
+import { Ball3D, LabelDeclutter, Players3D } from './Figures3D';
 import type { LiveRef } from './figureKit';
 import { Drawings3D } from './Drawings3D';
 
@@ -73,6 +73,7 @@ export function Scene3D(p: Scene3DProps) {
       <Players3D court={p.court} keys={p.keys} visuals={p.visuals} live={live} layer="main" selectedKey={p.playerKey} onSelect={p.onSelectPlayer} />
       {p.overlayFrames && <Players3D court={p.court} keys={p.overlayKeys} visuals={p.overlayVisuals} live={live} layer="overlay" />}
       <Ball3D court={p.court} live={live} />
+      <LabelDeclutter />
       <CameraRig court={p.court} mode={p.cameraMode} playerKey={p.playerKey} live={live} reducedMotion={p.reducedMotion} />
       <FpsProbe minFps={p.minFps} onVerdict={p.onFpsVerdict} />
     </>

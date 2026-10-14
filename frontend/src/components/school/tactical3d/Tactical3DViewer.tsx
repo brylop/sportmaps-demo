@@ -169,7 +169,7 @@ export default function Tactical3DViewer({
       <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-col gap-2 p-3 pt-[max(0.75rem,env(safe-area-inset-top))] bg-gradient-to-b from-black/70 to-transparent">
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-bold">{title || 'Jugada en 3D'}</p>
+            <p className="line-clamp-2 break-words text-sm font-bold">{title || 'Jugada en 3D'}</p>
             <p className="text-xs text-white/75">{fxLabel} · gira la cámara arrastrando con el dedo o el mouse</p>
           </div>
           <Button

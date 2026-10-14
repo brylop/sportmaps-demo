@@ -11,8 +11,8 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
-  ballFor, figureScale, isCompactAspect, toMeters,
-  type Court3D, type PlayerVisual,
+  ballFor, figureScale, isCompactAspect, toMeters, visibleLabels,
+  type Court3D, type LabelRect, type PlayerVisual,
 } from '@/lib/school/tactical3d';
 import { ballTexture, labelTexture } from './textures';
 import { track, useResources } from './resources';
@@ -88,10 +88,49 @@ export function PlayerFigure({
           scale={[LABEL_SCREEN * aspect, LABEL_SCREEN, 1]}
           center={new THREE.Vector2(0.5, 0)}
           renderOrder={10}
+          userData={{ label: true }}
         />
       )}
     </group>
   );
+}
+
+/**
+ * Esconde, cuadro a cuadro, los carteles que se montan sobre otro más cercano
+ * a la cámara (visibleLabels). Va DESPUÉS de las capas de jugadores en la
+ * escena: lee las posiciones que ellas acaban de escribir.
+ */
+export function LabelDeclutter() {
+  const scene = useThree((s) => s.scene);
+  const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
+  const size = useThree((s) => s.size);
+  const tmp = useMemo(() => ({ v: new THREE.Vector3(), c: new THREE.Vector3() }), []);
+  useFrame(() => {
+    const sprites: THREE.Sprite[] = [];
+    scene.traverse((o) => { if ((o as THREE.Sprite).isSprite && o.userData.label) sprites.push(o as THREE.Sprite); });
+    if (sprites.length < 2) return;
+    camera.getWorldPosition(tmp.c);
+    const px = camera.projectionMatrix.elements;
+    const rects: LabelRect[] = [];
+    sprites.forEach((s, id) => {
+      s.visible = true;
+      if (!s.parent?.visible) return;
+      s.updateWorldMatrix(true, false);
+      tmp.v.setFromMatrixPosition(s.matrixWorld);
+      const depth = tmp.v.distanceTo(tmp.c);
+      tmp.v.project(camera);
+      if (tmp.v.z < -1 || tmp.v.z > 1) return;
+      // Sprite sin atenuación: el tamaño en NDC es escala × proyección.
+      const w = s.scale.x * px[0] * size.width / 2;
+      const h = s.scale.y * px[5] * size.height / 2;
+      const x = (tmp.v.x + 1) / 2 * size.width - w / 2;
+      const y = (1 - tmp.v.y) / 2 * size.height - h;
+      rects.push({ id, x, y, w, h, depth });
+    });
+    const keep = visibleLabels(rects);
+    for (const r of rects) sprites[r.id].visible = keep.has(r.id);
+  });
+  return null;
 }
 
 /** Los jugadores de una capa (la jugada o la superposición del rival). */

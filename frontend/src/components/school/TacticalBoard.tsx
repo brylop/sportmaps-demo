@@ -2937,6 +2937,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                 frameCount={liveFrames.length}
                 onEvent={(e: TacticalExportEvent) => logEvent(e)}
                 disabled={playingSequence}
+                compact
                 className="text-[11px] px-2 bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
               />
             )}
@@ -2946,7 +2947,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                 getInput={buildExportInput}
                 onOpen={() => logEvent('view_3d')}
                 disabled={playingSequence}
-                className="text-[11px] px-2 bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
+                className="h-8 min-w-0 text-[11px] px-2 bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
               />
             )}
             {viewing ? (
@@ -3019,7 +3020,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                 tapa la cancha por abajo. El lado izquierdo se deja libre a
                 propósito (futuro panel de tácticas), sin agregar nada ahí
                 todavía para no saturar la pantalla. */}
-            <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
+            <div className="relative flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
               {/* Columna: cancha + línea de tiempo de los cuadros debajo. */}
               <div className="flex-1 min-h-0 min-w-0 flex flex-col">
               <div ref={pitchAreaRef} className="relative flex-1 min-h-0 flex items-center justify-center px-3 sm:px-6 py-3 overflow-hidden">
@@ -3655,27 +3656,29 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                   </div>
                 </div>
               )}
+              {/* Panel IA dentro de la fila de la cancha (no de todo el diálogo):
+                  así no tapa el toolbar (Exportar, Ver en 3D, Guardar, la X). */}
+              <TacticalAiPanel
+                open={aiOpen && !loading}
+                onClose={() => { setAiOpen(false); setAiPreview(null); }}
+                getRequest={() => {
+                  const list = committedFrames().map((f) => ({ ...f, players: f.players.filter((p) => subjectByKey.has(p.key)) }));
+                  if (!list.some((f) => f.players.length > 0)) return null;
+                  return buildAnalyzeRequest({ teamId, sport, frames: list, labelOf: (k) => (placed[k] ?? metaRef.current[k])?.slot_label });
+                }}
+                sport={sport}
+                canApply={roleCanEdit}
+                canBuy={['owner', 'super_admin', 'admin', 'school_admin'].includes(currentUserRole || '')}
+                preview={aiPreview}
+                onPreview={setAiPreview}
+                onApply={applyAiFrames}
+                isMobile={isMobile}
+                get3DSource={buildExportInput}
+                onEvent={(e) => logEvent(e)}
+              />
             </div>
           </DndContext>
         )}
-        <TacticalAiPanel
-          open={aiOpen && !loading}
-          onClose={() => { setAiOpen(false); setAiPreview(null); }}
-          getRequest={() => {
-            const list = committedFrames().map((f) => ({ ...f, players: f.players.filter((p) => subjectByKey.has(p.key)) }));
-            if (!list.some((f) => f.players.length > 0)) return null;
-            return buildAnalyzeRequest({ teamId, sport, frames: list, labelOf: (k) => (placed[k] ?? metaRef.current[k])?.slot_label });
-          }}
-          sport={sport}
-          canApply={roleCanEdit}
-          canBuy={['owner', 'super_admin', 'admin', 'school_admin'].includes(currentUserRole || '')}
-          preview={aiPreview}
-          onPreview={setAiPreview}
-          onApply={applyAiFrames}
-          isMobile={isMobile}
-          get3DSource={buildExportInput}
-          onEvent={(e) => logEvent(e)}
-        />
       </DialogContent>
     </Dialog>
     {cardSubject && roster && (

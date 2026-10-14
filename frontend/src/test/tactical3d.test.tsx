@@ -15,7 +15,7 @@ import { detectWebGL2 } from '@/lib/school/tactical3dLaunch';
 import { interpolateFrames, totalDurationMs } from '@/lib/school/tacticalAnimation';
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
 import { BASKET_M, GOAL_WIDTH_M, VOLLEY_POST_OUTSIDE_M, meters } from '@/components/school/courts/courtGeometry';
-import { BASKET_HEIGHTS_M } from '@/lib/school/tactical3d';
+import { BASKET_HEIGHTS_M, visibleLabels } from '@/lib/school/tactical3d';
 import { CourtBackground } from '@/components/school/courts/CourtBackground';
 
 const close = (a: number, b: number, eps = 1e-6) => expect(Math.abs(a - b)).toBeLessThan(eps);
@@ -303,5 +303,19 @@ describe('caída a 2D: WebGL2 y fps (simulados)', () => {
     expect(meter.tick(1000)).toBe('pending');
     expect(meter.tick(2500)).toBe('slow');
     expect(meter.tick(2600)).toBe('done');
+  });
+});
+
+describe('visibleLabels (carteles que no se montan)', () => {
+  const r = (id: number, x: number, depth: number) => ({ id, x, y: 100, w: 60, h: 20, depth });
+  it('el más cercano a la cámara gana; el que se monta encima se esconde', () => {
+    const keep = visibleLabels([r(0, 100, 50), r(1, 130, 10), r(2, 300, 80)]);
+    expect([...keep].sort()).toEqual([1, 2]);
+  });
+  it('separados (con aire) se ven todos', () => {
+    expect(visibleLabels([r(0, 0, 1), r(1, 70, 2), r(2, 140, 3)]).size).toBe(3);
+  });
+  it('sin carteles, nada', () => {
+    expect(visibleLabels([]).size).toBe(0);
   });
 });
