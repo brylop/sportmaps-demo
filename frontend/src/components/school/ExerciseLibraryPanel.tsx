@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TacticalStaticSvg } from '@/components/school/TacticalStaticSvg';
+import { TACTICAL_SPORTS, isTacticalSport } from '@/lib/school/tacticalSports';
 import {
   EXERCISE_SPORT_LABEL,
   exerciseThumbnail,
@@ -38,9 +39,13 @@ const OBJECTIVE_CHIPS: { tag: string; label: string }[] = [
   { tag: 'transición ofensiva', label: 'Transición' },
   { tag: 'balón parado', label: 'Balón parado' },
   { tag: 'conducción', label: 'Conducción' },
+  { tag: 'calentamiento', label: 'Calentamiento' },
 ];
 
-const SPORT_CHIPS: ExerciseSport[] = ['futbol', 'futbol7', 'futbol5', 'futsal', 'generico'];
+/** Todos los deportes de la pizarra (tacticalSports.ts), en el mismo orden:
+ *  desde 20261013194057 cada uno tiene plantillas SportMaps, y «De mi escuela»
+ *  puede tener ejercicios de cualquiera. Esconder un chip escondería ejercicios. */
+export const SPORT_CHIPS: ExerciseSport[] = [...TACTICAL_SPORTS];
 
 export interface ExerciseLibraryPanelProps {
   open: boolean;
@@ -48,7 +53,9 @@ export interface ExerciseLibraryPanelProps {
   /** Se llama al tocar «Usar en esta sesión». Si no viene, el panel es solo de consulta. */
   onPick?: (exercise: TrainingExercise) => void;
   pickLabel?: string;
-  /** Deporte con el que arranca el filtro (el del equipo). */
+  /** Deporte con el que arranca el filtro (el del equipo). Con un deporte
+   *  elegido la lista trae también los genéricos (calentamientos,
+   *  coordinación): sirven para cualquier equipo. */
   defaultSport?: ExerciseSport;
   /** Deshabilita «Usar» mientras el padre aplica el ejercicio. */
   picking?: boolean;
@@ -64,12 +71,12 @@ export function ExerciseLibraryPanel({
 }: ExerciseLibraryPanelProps) {
   const [source, setSource] = useState<Source>('templates');
   const [search, setSearch] = useState('');
-  const [sport, setSport] = useState<ExerciseSport | undefined>(defaultSport);
+  const [sport, setSport] = useState<ExerciseSport | undefined>(isTacticalSport(defaultSport) ? defaultSport : undefined);
   const [tag, setTag] = useState<string | undefined>();
   const [viewing, setViewing] = useState<TrainingExercise | null>(null);
 
   const params = useMemo(
-    () => ({ q: search.trim() || undefined, sport, tag, templates: source === 'templates' }),
+    () => ({ q: search.trim() || undefined, sport, includeGeneric: true, tag, templates: source === 'templates' }),
     [search, sport, tag, source],
   );
 
@@ -89,7 +96,10 @@ export function ExerciseLibraryPanel({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
+      {/* min-w-0 + overflow-x-hidden: DialogContent es un grid y una fila de chips
+          sin envolver lo ensanchaba más allá del diálogo (pestañas, buscador y
+          chips cortados a la derecha en escritorio). */}
+      <DialogContent className="max-w-3xl max-h-[90vh] grid-cols-[minmax(0,1fr)] overflow-y-auto overflow-x-hidden p-4 sm:p-6">
         <DialogHeader>
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
@@ -115,7 +125,7 @@ export function ExerciseLibraryPanel({
             picking={picking}
           />
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-4 min-w-0">
             {/* Origen: una acción por fila, botones grandes (celular). */}
             <div className="grid grid-cols-2 gap-2" role="tablist" aria-label="Origen de los ejercicios">
               {([
@@ -141,7 +151,7 @@ export function ExerciseLibraryPanel({
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar por nombre u objetivo (ej: rondo, presión)"
+                placeholder="Buscar (ej: rondo, saque, bandeja)"
                 className="pl-9 min-h-11"
                 aria-label="Buscar ejercicio"
               />
@@ -155,6 +165,11 @@ export function ExerciseLibraryPanel({
                 </Chip>
               ))}
             </ChipRow>
+            {sport && sport !== 'generico' && (
+              <p className="text-xs text-muted-foreground -mt-2">
+                También ves los genéricos (calentamiento, coordinación), que sirven para cualquier deporte.
+              </p>
+            )}
 
             <ChipRow label="Objetivo">
               <Chip active={!tag} onClick={() => setTag(undefined)}>Todos</Chip>
@@ -205,7 +220,9 @@ function ChipRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="space-y-1.5">
       <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">{children}</div>
+      {/* Envuelven en varias filas: con 9 deportes y 10 objetivos un scroll
+          lateral escondía la mitad y empujaba el ancho del diálogo. */}
+      <div className="flex flex-wrap gap-2">{children}</div>
     </div>
   );
 }
@@ -254,7 +271,7 @@ function ExerciseCard({
   return (
     <div className="rounded-xl border bg-card overflow-hidden flex flex-col">
       <button type="button" onClick={onView} className="block bg-emerald-800" aria-label={`Ver ${exercise.name}`}>
-        <TacticalStaticSvg players={thumb.players} arrows={thumb.arrows} width={300} className="w-full h-auto max-h-44" />
+        <TacticalStaticSvg sport={exercise.sport} players={thumb.players} arrows={thumb.arrows} width={300} className="w-full h-auto max-h-44" />
       </button>
       <div className="p-3 flex flex-col gap-2 flex-1">
         <div className="space-y-1">
@@ -262,10 +279,10 @@ function ExerciseCard({
           <ExerciseMeta exercise={exercise} />
         </div>
         {exercise.objective && <p className="text-xs text-muted-foreground line-clamp-2">{exercise.objective}</p>}
-        <div className="mt-auto grid grid-cols-2 gap-2 pt-1">
-          <Button type="button" variant="outline" className="min-h-11" onClick={onView}>Ver</Button>
+        <div className="mt-auto grid grid-cols-[auto_minmax(0,1fr)] gap-2 pt-1">
+          <Button type="button" variant="outline" className="min-h-11 px-4" onClick={onView}>Ver</Button>
           {onPick && (
-            <Button type="button" className="min-h-11 px-2 text-xs sm:text-sm" onClick={onPick} disabled={picking}>
+            <Button type="button" className="min-h-11 h-auto px-3 py-2 text-sm whitespace-normal leading-tight text-center" onClick={onPick} disabled={picking}>
               {picking ? 'Aplicando…' : pickLabel}
             </Button>
           )}
@@ -293,7 +310,7 @@ function ExerciseDetail({
       </Button>
       <div className="grid grid-cols-1 md:grid-cols-[minmax(0,320px)_1fr] gap-4">
         <div className="rounded-xl overflow-hidden bg-emerald-800 self-start">
-          <TacticalStaticSvg players={thumb.players} arrows={thumb.arrows} width={320} className="w-full h-auto" />
+          <TacticalStaticSvg sport={exercise.sport} players={thumb.players} arrows={thumb.arrows} width={320} className="w-full h-auto" />
         </div>
         <div className="space-y-3 text-sm">
           <ExerciseMeta exercise={exercise} />

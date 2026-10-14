@@ -36,6 +36,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { dayToLocalDate } from '@/lib/dateUtils';
 import { fetchCoachTeams } from '@/lib/coachTeamScope';
+import { sportFromTeam } from '@/lib/school/tacticalSports';
 
 export default function TrainingPlansPage() {
   const { user } = useAuth();
@@ -316,6 +317,8 @@ export default function TrainingPlansPage() {
 
   const selectedTeam = teams?.find((t: any) => t.id === selectedTeamId);
   const isFootballTeam = selectedTeam?.sport?.toLowerCase() === 'futbol' || selectedTeam?.sport?.toLowerCase() === 'fútbol';
+  // Filtro inicial de la Biblioteca de ejercicios (deporte de la pizarra).
+  const teamSport = selectedTeam ? sportFromTeam(selectedTeam) : undefined;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -429,6 +432,7 @@ export default function TrainingPlansPage() {
               roster={roster}
               sessions={sessions || []}
               isFootball={isFootballTeam}
+              teamSport={teamSport}
               teamName={selectedName}
               onEditSession={(session) => { setEditingSession(session); setDialogOpen(true); }}
             />
@@ -831,6 +835,7 @@ export default function TrainingPlansPage() {
           teamId={selectedTeamId}
           teamName={selectedName}
           isFootball={isFootballTeam}
+          teamSport={teamSport}
           session={editingSession}
           isLoading={createMutation.isPending || updateMutation.isPending}
         />
