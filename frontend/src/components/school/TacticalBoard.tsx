@@ -57,13 +57,23 @@ import {
   useFootballEvents,
   useFootballSeasonStats,
 } from '@/hooks/useFootballData';
-import { FootballPitchBackground } from './FootballPitchBackground';
+import { CourtBackground } from './courts/CourtBackground';
 import { PlayerCard } from './PlayerCard';
+import { TacticalExportMenu, type TacticalExportEvent } from './TacticalExportMenu';
+import { SaveToLibraryDialog } from './SaveToLibraryDialog';
+import type { TacticalExportInput } from '@/lib/export/tacticalExport';
+import type { TacticalStaticPlayer } from './TacticalStaticSvg';
+import { boardFromPitch, type ExerciseBoard } from '@/lib/school/exerciseLibrary';
+import { useTeamTacticalSport } from '@/hooks/useTeamTacticalSport';
+import type { TacticalSport } from '@/lib/school/tacticalSports';
+import { boardMetersFor, boardSportConfig, defaultBoardFormation, type BoardFormation } from '@/lib/school/tacticalBoardSport';
+import { logTacticalEvent, type TacticalBoardEvent } from '@/lib/school/tacticalUsage';
+import { emptyHistory, historyCommit, historyRedo, historySetBase, historyUndo, type HistoryState } from '@/lib/school/tacticalHistory';
 import { POSITION_LABEL, suggestLabel, legacyFallbackPosition } from '@/lib/school/footballDisplay';
 import type { LineupSourceType, LineupPlayerInput, TacticalPreset, TacticalSituation, TacticalArrow, TacticalArrowColor, TacticalShapeType, BallPathKind, EventSourceType } from '@/lib/school/footballQueries';
 import {
   FULL_VIEW, GK_VIEW, viewBoxOf, yToView, yFromView, curveControlPoint, hydrateShape,
-  BALL_PATH_BEND, isLoftedPath, ballPathPoint, OBJECT_TYPES, isPointShape, OBJECT_BOX,
+  BALL_PATH_BEND, isLoftedPath, ballPathPoint, isPointShape, OBJECT_BOX,
   OBJ_SIZE_MIN, OBJ_SIZE_MAX, type PitchView, type ArrowPoint, type ObjectType,
   buildFreehandShape, smoothPathD, pairsOf, eraserHits, offsetShape, TEXT_MAX_LENGTH,
 } from '@/lib/school/tacticalGeometry';
@@ -79,8 +89,7 @@ import {
 } from '@/lib/school/tacticalBoardLogic';
 import type { RosterSubject } from '@/lib/school/performanceQueries';
 import {
-  FORMATIONS, defaultFormationFor, placeInFormation, sortRosterForFormation, formationAsPresetSlots,
-  type Formation, type FormationKey,
+  placeInFormation, sortRosterForFormation, formationAsPresetSlots,
 } from '@/lib/school/tacticalFormations';
 import { DEFAULT_FRAME_MS, MAX_FRAMES, presetSlotIndex, presetSlotKey, type TacticalFrame } from '@/lib/school/tacticalFrames';
 import {
@@ -115,6 +124,9 @@ interface TacticalBoardProps {
    *  (TACTICAL_EDIT_ROLES) ve además un botón Editar que pasa a 'edit' ahí
    *  mismo. Un rol de solo lectura siempre ve el tablero como 'view'. */
   mode?: 'edit' | 'view';
+  /** Deporte de la cancha (T4). Sin él, la pizarra lo resuelve del equipo
+   *  (teams.sport con sportFromTeam); sin deporte reconocible → fútbol 11. */
+  sport?: TacticalSport | null;
 }
 
 const subjectKey = (t: string, id: string) => `${t}:${id}`;
@@ -1187,7 +1199,6 @@ function mapPresetFrames(
 /** Foto del tablero para deshacer/rehacer: todos los cuadros (el actual ya
  *  armado en vivo), cuál está abierto y las etiquetas/dorsales de la cancha. */
 interface BoardSnapshot { frames: TacticalFrame[]; frameIndex: number; placed: Record<string, PlacedSlot> }
-const HISTORY_CAP = 50;
 /** Un arrastre manda decenas de cambios: se agrupan en un solo paso de
  *  deshacer cuando la cancha queda quieta este tiempo. */
 const HISTORY_SETTLE_MS = 350;
@@ -1241,9 +1252,20 @@ function PlaybackPin({ subject, meta, x, top, opacity, pinStyle, showPhotos }: {
  *  lectura y se enteran desde el principio. */
 const TACTICAL_EDIT_ROLES = ['owner', 'coach', 'super_admin'];
 
-export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sourceId, contextLabel, mode = 'edit' }: TacticalBoardProps) {
+export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sourceId, contextLabel, mode = 'edit', sport: sportProp }: TacticalBoardProps) {
   const { toast } = useToast();
-  const { currentUserRole } = useSchoolContext();
+  const { currentUserRole, schoolId: activeSchoolId } = useSchoolContext();
+  // T4: el deporte del equipo manda la cancha. Quien abre puede pasarlo; si
+  // no, se resuelve del equipo (teams.sport) — fútbol 11 por defecto.
+  const teamSport = useTeamTacticalSport(teamId, { enabled: open });
+  const sport: TacticalSport = sportProp ?? teamSport.sport;
+  const sportCfg = useMemo(() => boardSportConfig(sport), [sport]);
+  const loadingSport = !sportProp && teamSport.isLoading;
+  // T0: la métrica va a la escuela del EQUIPO (fallback: la escuela activa).
+  const metricSchoolId = teamSport.schoolId ?? activeSchoolId ?? null;
+  const logEvent = useCallback((event: TacticalBoardEvent, source: string = sourceType) => {
+    logTacticalEvent({ schoolId: metricSchoolId, event, teamId, sourceType: source, sport });
+  }, [metricSchoolId, teamId, sourceType, sport]);
   /** El ROL puede modificar el tablero (espejo del BFF). */
   const roleCanEdit = TACTICAL_EDIT_ROLES.includes(currentUserRole || '');
   // Modo ver/editar: arranca en el que pida quien abre y se reinicia cada vez
@@ -1397,7 +1419,10 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   const [showPhotos, setShowPhotos] = useState<boolean>(() => readPinPhotos());
   // Zoom al área (modo arqueros): se prende solo al elegir esa situación y
   // se puede alternar a mano desde el toolbar en cualquier situación.
-  const [gkZoom, setGkZoom] = useState(false);
+  // Solo en deportes con arco (T4): voleibol, baloncesto y genérico no tienen
+  // área de arquero que mirar de cerca.
+  const [gkZoomPref, setGkZoom] = useState(false);
+  const gkZoom = gkZoomPref && sportCfg.allowGkZoom;
   const view = gkZoom ? GK_VIEW : FULL_VIEW;
   useEffect(() => { setGkZoom(situation === 'arqueros'); }, [situation]);
   // Balones fantasma de "Reproducir jugada" + balones reales que se esconden
@@ -1410,7 +1435,11 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   // Regla de medir -- consulta puntual, no viaja con la plantilla (mutuamente
   // excluyente con drawMode: no tiene sentido dibujar y medir con el mismo gesto).
   const [measureMode, setMeasureMode] = useState(false);
-  const [pitchLengthMeters, setPitchLengthMeters] = useState(90);
+  // «Largo cancha» es el largo REAL de la cancha del deporte (fútbol 11: 90 m
+  // como siempre); la regla mide sobre el tablero entero, de ahí boardScale.
+  const [courtLengthMeters, setPitchLengthMeters] = useState(sportCfg.courtLengthMeters);
+  useEffect(() => { setPitchLengthMeters(sportCfg.courtLengthMeters); }, [sportCfg]);
+  const pitchLengthMeters = boardMetersFor(sportCfg, courtLengthMeters);
 
   // Guías de alineación (mientras se arrastra un jugador ya puesto) --
   // puramente visuales, no se guardan en ningún lado.
@@ -1744,6 +1773,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     }
     try {
       const created = await createPreset.mutateAsync({ team_id: teamId, name, situation, slots, arrows: presetArrows, frames: presetFrames });
+      logEvent('save', 'preset');
       toast({ title: 'Guardada en Mis jugadas', description: `"${name}" para ${SITUATION_LABEL[situation]}.` });
       setSavingName(null);
       // Queda "cargada" la que se acaba de crear -- así un ajuste siguiente
@@ -1769,6 +1799,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     }
     try {
       await updatePreset.mutateAsync({ id: loadedPresetId, slots, arrows: presetArrows, frames: presetFrames });
+      logEvent('save', 'preset');
       toast({ title: 'Jugada actualizada en Mis jugadas' });
     } catch (err: any) {
       toast({ title: 'No se pudo actualizar la jugada', description: err?.message, variant: 'destructive' });
@@ -1892,13 +1923,14 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
 
   // ── Formaciones fijas (F2): la cancha arranca llena sin depender de
   // estadísticas de partidos (a diferencia de "Sugerir XI").
-  const [formationKey, setFormationKey] = useState<FormationKey | null>(null);
+  // T4: las formaciones del menú son las del deporte (fútbol 11: las de siempre).
+  const [formationKey, setFormationKey] = useState<string | null>(null);
   // "Empieza aquí" se cierra solo cuando hay algo en la cancha; "Dibujar un
   // ejercicio" o "Prefiero arrastrarlos yo" lo cierran a mano (la cancha
   // sigue vacía y el aviso taparía el ejercicio).
   const [emptyHintDismissed, setEmptyHintDismissed] = useState(false);
   useEffect(() => { if (open) setEmptyHintDismissed(false); }, [open]);
-  const defaultFormation = defaultFormationFor(subjects.length);
+  const defaultFormation = defaultBoardFormation(sportCfg, subjects.length);
   const loadedPresetName = loadedPresetId ? (presets?.find((p) => p.id === loadedPresetId)?.name ?? null) : null;
   const pitchIsEmpty = Object.keys(placed).length === 0 && arrows.length === 0 && emptySlots.length === 0 && frames.length === 1;
 
@@ -1907,7 +1939,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
    *  huecos quedan como marcadores. Con jugadores ya puestos: los reubica en
    *  la posición más cercana de la formación (misma lógica que cargar una
    *  jugada guardada) y las posiciones sin jugador quedan como marcadores. */
-  function applyFormation(formation: Formation) {
+  function applyFormation(formation: BoardFormation) {
     if (!canEdit) return;
     if (playingSequence) stopPlayback();
     exitFramePlayback();
@@ -2056,6 +2088,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       });
       return;
     }
+    logEvent('play');
 
     // Un balón real puesto en el origen de un recorrido se esconde mientras
     // corre el fantasma: si no, se verían dos balones (uno quieto, uno en juego).
@@ -2248,6 +2281,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
         // null = un solo cuadro: la fila no carga una animación de 1 cuadro.
         frames: serializeFrames(allFrames),
       });
+      logEvent('save');
       toast({
         title: 'Jugada guardada',
         description: missingCount > 0
@@ -2306,6 +2340,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     if (playingSequence) stopPlayback();
     const r = duplicateFrameAt(list, frameIndex);
     loadFrame(r.frames, r.index, meta);
+    logEvent('frame_add');
   }
   function deleteFrame(index: number) {
     if (!canEdit) return;
@@ -2350,11 +2385,15 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     if (list.length < 2) return;
     if (playingSequence) stopPlayback();
     setSelectedShape(null);
+    // Métrica: una reproducción = darle ▶ desde el principio (seguir tras una
+    // pausa no es otra reproducción).
     if (!playbackFrames) {
       setPlaybackFrames(list);
       clock.set(0);
+      logEvent('play');
     } else if (clock.get() >= totalDurationMs(list)) {
       clock.set(0); // terminó: ▶ vuelve a empezar
+      logEvent('play');
     }
     setPlayState('playing');
   }
@@ -2379,6 +2418,51 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   /** Mis jugadas: slots = cuadro 1 (+ marcadores sin jugador); con varios
    *  cuadros, las claves pasan de jugador a índice de slot (una jugada
    *  guardada es layout, no personas). */
+  /** «Exportar ▾» (T2): lo que se ve AHORA (PNG) + todos los cuadros (PDF y
+   *  video), con el deporte para que salga la cancha correcta. */
+  function buildExportInput(): TacticalExportInput {
+    const list = committedFrames();
+    const now = realPlaced();
+    const jerseyOf = (s: PlacedSlot) => (s.jersey_number === '' ? null : Number(s.jersey_number));
+    const playerLabels: Record<string, string> = {};
+    const playerJerseys: Record<string, number | null> = {};
+    for (const [key, s] of Object.entries({ ...metaRef.current, ...now })) {
+      playerLabels[key] = s.slot_label;
+      playerJerseys[key] = jerseyOf(s);
+    }
+    const players: TacticalStaticPlayer[] = Object.values(now).map((s) => ({
+      x: s.x, y: s.y, label: s.slot_label, jersey: jerseyOf(s), role: 'starter',
+    }));
+    return {
+      title: contextLabel,
+      teamName,
+      frames: list.length > 1 ? list : null,
+      players,
+      arrows: list[frameIndex]?.arrows ?? arrows,
+      playerLabels,
+      playerJerseys,
+      sport,
+    };
+  }
+
+  /** «Guardar en biblioteca» (T3): la jugada con los PUESTOS del cuadro 1,
+   *  nunca los atletas (boardFromPitch). Se abre diferido un tick: el menú
+   *  que lo dispara todavía se está cerrando. */
+  const [libraryBoard, setLibraryBoard] = useState<ExerciseBoard | null>(null);
+  function openLibrarySave() {
+    const list = committedFrames();
+    const first = list[0];
+    const firstPlaced = frameIndex === 0 ? realPlaced() : placedFromFrame(first, realPlaced(), metaRef.current);
+    const board = boardFromPitch({
+      players: Object.entries(firstPlaced).map(([key, s]) => ({
+        key, x: s.x, y: s.y, slot_label: s.slot_label, jersey_number: s.jersey_number,
+      })),
+      arrows: first.arrows,
+      frames: list,
+    });
+    window.setTimeout(() => setLibraryBoard(board), 0);
+  }
+
   function buildPresetPayload(): { slots: { slot_label: string; x: number; y: number }[]; arrows: TacticalArrow[]; frames: TacticalFrame[] | null } {
     const list = committedFrames();
     const first = list[0];
@@ -2399,37 +2483,42 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   // loadingList: sin esperar la lista, el aviso "Empieza aquí" aparecía un
   // instante sobre una sesión que SÍ tenía jugada, y la hidratación pisaba lo
   // que el coach alcanzara a poner.
-  const loading = loadingRoster || loadingList || (!!existingLineupId && loadingLineup);
+  // loadingSport: sin esperar el deporte, un equipo de voleibol veía un
+  // instante la cancha de fútbol (y su formación de arranque).
+  const loading = loadingRoster || loadingList || (!!existingLineupId && loadingLineup) || loadingSport;
+
+  // ── Métrica de uso (T0) ─────────────────────────────────────────────────
+  // «open» UNA vez por apertura: cuando terminó de cargar (ya se sabe el
+  // deporte y la escuela), no en cada render. El ref sobrevive al doble
+  // montaje de StrictMode en desarrollo y se rearma al cerrar.
+  const openLoggedRef = useRef(false);
+  useEffect(() => {
+    if (!open) { openLoggedRef.current = false; return; }
+    if (loading || openLoggedRef.current || !metricSchoolId) return;
+    openLoggedRef.current = true;
+    logEvent('open');
+  }, [open, loading, metricSchoolId, logEvent]);
 
   // ── Deshacer / rehacer (T1) ─────────────────────────────────────────────
   // Historial del tablero entero (todos los cuadros + el abierto + etiquetas),
   // no de cada acción: cualquier cambio queda registrado sin que cada función
   // tenga que acordarse. Un arrastre (decenas de cambios) es UN paso: se anota
   // cuando la cancha queda quieta HISTORY_SETTLE_MS.
-  const historyRef = useRef<{ undo: BoardSnapshot[]; redo: BoardSnapshot[]; base: BoardSnapshot | null; baseKey: string }>(
-    { undo: [], redo: [], base: null, baseKey: '' },
-  );
+  // La lógica (anotar, deshacer, rehacer) es pura: lib/school/tacticalHistory.ts.
+  const historyRef = useRef<HistoryState<BoardSnapshot>>(emptyHistory());
   const restoringRef = useRef(false);
   const [, setHistoryTick] = useState(0);
   // Al abrir o terminar de cargar, el historial arranca de cero (la carga no
   // es un paso que se pueda deshacer).
   useEffect(() => {
-    historyRef.current = { undo: [], redo: [], base: null, baseKey: '' };
+    historyRef.current = emptyHistory();
     setHistoryTick((v) => v + 1);
   }, [open, initialized, loading]);
 
   function commitHistory(snap: BoardSnapshot): boolean {
-    const h = historyRef.current;
-    if (!h.base) return false;
-    const key = snapshotKey(snap);
-    if (key === h.baseKey) return false;
-    h.undo.push(h.base);
-    if (h.undo.length > HISTORY_CAP) h.undo.shift();
-    h.redo = [];
-    h.base = snap;
-    h.baseKey = key;
-    setHistoryTick((v) => v + 1);
-    return true;
+    const ok = historyCommit(historyRef.current, snap, snapshotKey(snap));
+    if (ok) setHistoryTick((v) => v + 1);
+    return ok;
   }
   useEffect(() => {
     // "Reproducir jugada" mueve `placed` de verdad: no son cambios del coach.
@@ -2438,8 +2527,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     const snap: BoardSnapshot = { frames: liveFrames, frameIndex, placed };
     if (restoringRef.current || !h.base) {
       restoringRef.current = false;
-      h.base = snap;
-      h.baseKey = snapshotKey(snap);
+      historySetBase(h, snap, snapshotKey(snap));
       return;
     }
     const timer = window.setTimeout(() => commitHistory(snap), HISTORY_SETTLE_MS);
@@ -2461,23 +2549,15 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     const h = historyRef.current;
     // Lo que todavía no se anotó (menos de HISTORY_SETTLE_MS) cuenta como paso.
     commitHistory({ frames: liveFrames, frameIndex, placed });
-    const prev = h.undo.pop();
-    if (!prev || !h.base) return;
-    h.redo.push(h.base);
-    h.base = prev;
-    h.baseKey = snapshotKey(prev);
-    applySnapshot(prev);
+    const prev = historyUndo(h, snapshotKey);
+    if (prev) applySnapshot(prev);
   }
   function redo() {
     if (!canEdit || playingSequence) return;
     const h = historyRef.current;
     commitHistory({ frames: liveFrames, frameIndex, placed }); // un cambio nuevo anula el rehacer
-    const next = h.redo.pop();
-    if (!next || !h.base) return;
-    h.undo.push(h.base);
-    h.base = next;
-    h.baseKey = snapshotKey(next);
-    applySnapshot(next);
+    const next = historyRedo(h, snapshotKey);
+    if (next) applySnapshot(next);
   }
   const canUndo = historyRef.current.undo.length > 0;
   const canRedo = historyRef.current.redo.length > 0;
@@ -2633,13 +2713,13 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                 <DropdownMenuTrigger asChild>
                   <Button size="sm" variant="ghost" className={`${TB_BTN} ${TB_IDLE}`} title="Poner o reacomodar a los jugadores en una formación">
                     <LayoutGrid className="h-3.5 w-3.5" />
-                    {formationKey ? FORMATIONS.find((f) => f.key === formationKey)?.label : 'Formación'}
+                    {(formationKey ? sportCfg.formations.find((f) => f.key === formationKey)?.label : null) ?? 'Formación'}
                     <ChevronDown className="h-3 w-3 opacity-70" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-60">
                   <DropdownMenuLabel>Formación</DropdownMenuLabel>
-                  {FORMATIONS.map((f) => (
+                  {sportCfg.formations.map((f) => (
                     <DropdownMenuItem key={f.key} onSelect={() => applyFormation(f)}>
                       <span className="font-semibold">{f.label}</span>
                       <span className="ml-auto text-xs text-muted-foreground">{f.players} jugadores</span>
@@ -2744,14 +2824,20 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                   <DropdownMenuItem onSelect={() => setSavingName('')}>
                     <Plus className="h-4 w-4 mr-2" /> {loadedPresetId ? 'Guardar como jugada nueva…' : 'Guardar en Mis jugadas…'}
                   </DropdownMenuItem>
+                  {/* T3: la jugada a la biblioteca de la escuela (sin atletas). */}
+                  <DropdownMenuItem onSelect={openLibrarySave}>
+                    <Bookmark className="h-4 w-4 mr-2" /> Guardar en biblioteca…
+                  </DropdownMenuItem>
 
                   <DropdownMenuSeparator />
                   <DropdownMenuLabel>Vista</DropdownMenuLabel>
                   {/* preventDefault: prender/apagar no cierra el menú (se
                       pueden ajustar varias cosas de una). */}
-                  <DropdownMenuCheckboxItem checked={showZones} onSelect={(e) => e.preventDefault()} onCheckedChange={() => setShowZones((v) => !v)}>
-                    Zonas de la cancha
-                  </DropdownMenuCheckboxItem>
+                  {sportCfg.showZonesOption && (
+                    <DropdownMenuCheckboxItem checked={showZones} onSelect={(e) => e.preventDefault()} onCheckedChange={() => setShowZones((v) => !v)}>
+                      Zonas de la cancha
+                    </DropdownMenuCheckboxItem>
+                  )}
                   <DropdownMenuCheckboxItem checked={pinStyle === 'silhouette'} onSelect={(e) => e.preventDefault()} onCheckedChange={togglePinStyle}>
                     Jugadores como siluetas
                   </DropdownMenuCheckboxItem>
@@ -2763,9 +2849,11 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                       </span>
                     </DropdownMenuCheckboxItem>
                   )}
-                  <DropdownMenuCheckboxItem checked={gkZoom} onSelect={(e) => e.preventDefault()} onCheckedChange={() => setGkZoom((v) => !v)}>
-                    Zoom al área (arqueros)
-                  </DropdownMenuCheckboxItem>
+                  {sportCfg.allowGkZoom && (
+                    <DropdownMenuCheckboxItem checked={gkZoom} onSelect={(e) => e.preventDefault()} onCheckedChange={() => setGkZoom((v) => !v)}>
+                      Zoom al área (arqueros)
+                    </DropdownMenuCheckboxItem>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
 
@@ -2798,6 +2886,17 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
           {/* pr-8: la X nativa del Dialog (absolute right-4 top-4) queda
               encima del último botón si el toolbar llega hasta el borde. */}
           <div className="ml-auto flex items-center gap-1.5 pr-8">
+            {/* «Exportar ▾» (T2) en ver y en editar; cada exportación es un
+                evento de la métrica (T0). */}
+            {!loading && (
+              <TacticalExportMenu
+                getInput={buildExportInput}
+                frameCount={liveFrames.length}
+                onEvent={(e: TacticalExportEvent) => logEvent(e)}
+                disabled={playingSequence}
+                className="text-[11px] px-2 bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
+              />
+            )}
             {viewing ? (
               <>
                 {/* Con cuadros, Reproducir vive en la línea de tiempo de abajo. */}
@@ -2903,8 +3002,9 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                       : `min(${gkZoom ? 760 : 580}px, calc((100vh - 90px) * 300 / ${(view.y1 - view.y0) * 3.4}), 100%)`,
                   }}
                 >
-                  <FootballPitchBackground viewBox={viewBoxOf(view)} />
-                  {showZones && <ZoneOverlay view={view} />}
+                  {/* T4: fondo del deporte del equipo. Fútbol 11 = FootballPitchBackground tal cual. */}
+                  <CourtBackground sport={sport} viewBox={viewBoxOf(view)} />
+                  {showZones && sportCfg.showZonesOption && <ZoneOverlay view={view} />}
                   {!viewing && !framePlaybackActive && emptySlots.map((es) => (
                     <EmptySlotMarker
                       key={es.id}
@@ -3220,7 +3320,8 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                   <div ref={materialSectionRef} className={tabCls('material')}>
                     <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">Material</p>
                     <div className="grid grid-cols-3 md:grid-cols-2 gap-1.5">
-                      {OBJECT_TYPES.map((type) => (
+                      {/* T4: solo el material que tiene sentido en el deporte. */}
+                      {sportCfg.objects.map((type) => (
                         <button
                           key={type}
                           type="button"
@@ -3391,7 +3492,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                       <Input
                         type="number"
                         min={1}
-                        value={pitchLengthMeters}
+                        value={courtLengthMeters}
                         onChange={(e) => setPitchLengthMeters(Math.max(1, Number(e.target.value) || 1))}
                         className="h-6 text-[10px] px-1.5 bg-white/5 border-white/15 text-white"
                       />
@@ -3531,6 +3632,15 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+    {libraryBoard && (
+      <SaveToLibraryDialog
+        open={!!libraryBoard}
+        onOpenChange={(v) => { if (!v) setLibraryBoard(null); }}
+        board={libraryBoard}
+        defaultSport={sport}
+        onSaved={() => logEvent('library_save')}
+      />
+    )}
     </>
   );
 }

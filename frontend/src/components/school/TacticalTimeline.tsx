@@ -8,7 +8,7 @@
  * de progreso y la capa de reproducción, no el tablero entero 60 veces por
  * segundo.
  */
-import { memo, useMemo, useSyncExternalStore, type ReactNode, type DragEvent } from 'react';
+import { memo, useMemo, useState, useSyncExternalStore, type ReactNode, type DragEvent } from 'react';
 import { ChevronLeft, ChevronRight, Pause, Play, Plus, Repeat, Trash2 } from 'lucide-react';
 import type { TacticalArrow } from '@/lib/school/footballQueries';
 import {
@@ -122,6 +122,11 @@ export function TacticalTimeline(props: TacticalTimelineProps) {
   } = props;
   const n = frames.length;
   const playing = playState === 'playing';
+  // Reordenar arrastrando (escritorio): de dónde sale el cuadro y sobre cuál
+  // va a caer, para marcar el destino. En celular el drag de HTML5 no anda:
+  // ahí están ◀ ▶ (44 px) que mueven el cuadro abierto.
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dropAt, setDropAt] = useState<number | null>(null);
   const playBtn = (
     <button
       type="button"
@@ -147,14 +152,26 @@ export function TacticalTimeline(props: TacticalTimelineProps) {
   }
 
   const locked = playState !== 'stopped';
+  const resetDrag = () => { setDragFrom(null); setDropAt(null); };
   const handleDragStart = (i: number) => (e: DragEvent) => {
     e.dataTransfer.setData('text/x-frame-index', String(i));
     e.dataTransfer.effectAllowed = 'move';
+    setDragFrom(i);
+  };
+  // Solo se acepta como destino un cuadro de esta línea de tiempo (no texto
+  // ni archivos arrastrados desde afuera).
+  const handleDragOver = (i: number) => (e: DragEvent) => {
+    if (dragFrom === null || locked) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dropAt !== i) setDropAt(i);
   };
   const handleDrop = (i: number) => (e: DragEvent) => {
     e.preventDefault();
-    const from = Number(e.dataTransfer.getData('text/x-frame-index'));
-    if (Number.isInteger(from) && from !== i) onMove?.(from, i);
+    const raw = e.dataTransfer.getData('text/x-frame-index');
+    const from = dragFrom ?? (raw === '' ? NaN : Number(raw));
+    resetDrag();
+    if (!locked && Number.isInteger(from) && from >= 0 && from < n && from !== i) onMove?.(from, i);
   };
 
   return (
@@ -170,15 +187,19 @@ export function TacticalTimeline(props: TacticalTimelineProps) {
               role="listitem"
               draggable={!locked}
               onDragStart={handleDragStart(i)}
-              onDragOver={(e) => e.preventDefault()}
+              onDragOver={handleDragOver(i)}
               onDrop={handleDrop(i)}
+              onDragEnd={resetDrag}
               onClick={() => onSelect?.(i)}
               aria-label={`Cuadro ${i + 1}`}
               aria-current={i === currentIndex ? 'true' : undefined}
-              title={i === 0 ? 'Cuadro 1: posición inicial' : `Cuadro ${i + 1} (${secondsLabel(f.duration_ms)} para llegar)`}
+              data-drop-target={dropAt === i && dragFrom !== null && dragFrom !== i ? 'true' : undefined}
+              title={`${i === 0 ? 'Cuadro 1: posición inicial' : `Cuadro ${i + 1} (${secondsLabel(f.duration_ms)} para llegar)`}${n > 1 && !locked ? ' · arrastra para reordenar' : ''}`}
               className={`relative h-12 w-11 shrink-0 rounded-md p-0.5 ring-2 transition ${
-                i === currentIndex && !locked ? 'ring-emerald-400 bg-emerald-500/20' : 'ring-white/10 bg-white/5 hover:ring-white/30'
-              }`}
+                dropAt === i && dragFrom !== null && dragFrom !== i
+                  ? 'ring-amber-400 bg-amber-500/20'
+                  : i === currentIndex && !locked ? 'ring-emerald-400 bg-emerald-500/20' : 'ring-white/10 bg-white/5 hover:ring-white/30'
+              } ${dragFrom === i ? 'opacity-50' : ''}`}
             >
               <FrameThumb frame={f} />
               <span className="absolute -top-1 -left-1 h-4 min-w-4 px-0.5 rounded-full bg-zinc-950 ring-1 ring-white/40 text-[9px] font-black leading-4 text-white">

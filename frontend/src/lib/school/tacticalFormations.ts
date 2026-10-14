@@ -120,7 +120,9 @@ export function defaultFormationFor(rosterSize: number): Formation {
  */
 export function placeInFormation(
   keys: string[],
-  formation: Formation,
+  // Estructural (solo key + slots): acepta también las formaciones de otros
+  // deportes de tacticalSports.ts (T4), que tienen `key: string`.
+  formation: Pick<Formation, 'slots'> & { key: string },
 ): { placed: Record<string, PlacedSlot>; emptySlots: { id: string; slot_label: string; x: number; y: number }[] } {
   const placed: Record<string, PlacedSlot> = {};
   formation.slots.forEach((slot, i) => {
@@ -143,6 +145,6 @@ export function sortRosterForFormation<T extends { full_name: string }>(subjects
 
 /** Slots de la formación en el formato de applyPresetSlots (reubicar a los
  *  que ya están en cancha en el slot más cercano). */
-export function formationAsPresetSlots(formation: Formation): { slot_label: string; x: number; y: number }[] {
+export function formationAsPresetSlots(formation: Pick<Formation, 'slots'>): { slot_label: string; x: number; y: number }[] {
   return formation.slots.map((s) => ({ slot_label: s.label, x: s.x, y: s.y }));
 }

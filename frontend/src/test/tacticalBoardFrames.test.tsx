@@ -42,7 +42,11 @@ vi.mock('@/hooks/usePerformanceData', () => ({
 vi.mock('@/hooks/useSchoolContext', () => ({ useSchoolContext: () => ({ currentUserRole: h.role }) }));
 vi.mock('@/hooks/useUnsavedChanges', () => ({ useUnsavedChanges: () => undefined }));
 vi.mock('@/hooks/use-mobile', () => ({ useIsMobile: () => false }));
-vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: vi.fn() }) }));
+vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: vi.fn() }), toast: vi.fn() }));
+// T4: el deporte del equipo sale de una query (react-query); aquí, fútbol.
+vi.mock('@/hooks/useTeamTacticalSport', () => ({
+  useTeamTacticalSport: () => ({ sport: 'futbol', schoolId: null, isLoading: false }),
+}));
 
 import { TacticalBoard } from '@/components/school/TacticalBoard';
 

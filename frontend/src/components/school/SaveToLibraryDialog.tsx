@@ -137,7 +137,7 @@ export function SaveToLibraryDialog({
         >
           <div className="grid grid-cols-[96px_1fr] gap-3 items-start">
             <div className="rounded-lg overflow-hidden bg-emerald-800">
-              <TacticalStaticSvg players={thumb.players} arrows={thumb.arrows} width={96} className="w-full h-auto" />
+              <TacticalStaticSvg players={thumb.players} arrows={thumb.arrows} width={96} className="w-full h-auto" sport={sport} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="ex-name">Nombre *</Label>

@@ -17,6 +17,8 @@ import { es } from 'date-fns/locale';
 import { TacticalBoard } from '@/components/school/TacticalBoard';
 import { ExerciseLibraryPanel } from '@/components/school/ExerciseLibraryPanel';
 import { insertExerciseIntoSession, type TrainingExercise } from '@/lib/school/exerciseLibrary';
+import { logTacticalEvent } from '@/lib/school/tacticalUsage';
+import { useTeamTacticalSport } from '@/hooks/useTeamTacticalSport';
 import { useToast } from '@/hooks/use-toast';
 
 const sessionSchema = z.object({
@@ -142,6 +144,8 @@ export function SessionFormDialog({
   const [libraryBlockIndex, setLibraryBlockIndex] = useState<number | null>(null);
   const [applyingExercise, setApplyingExercise] = useState(false);
   const { toast } = useToast();
+  // Métrica T0 (library_insert): la escuela del EQUIPO, igual que la pizarra.
+  const { schoolId: teamSchoolId } = useTeamTacticalSport(teamId, { enabled: open });
   // Con la pizarra o la biblioteca abiertas, el Dialog de la sesión se oculta
   // (ver el comentario del <Dialog> de abajo: dos Dialogs de Radix abiertos a
   // la vez se cierran solos).
@@ -256,7 +260,10 @@ export function SessionFormDialog({
         session_id: session?.id ?? null,
         team_id: teamId,
       });
-      const fill = (current: string | undefined, value: string | null | undefined) =>
+      logTacticalEvent({
+        schoolId: teamSchoolId, event: 'library_insert', teamId, sourceType: 'session_block', sport: exercise.sport,
+      });
+      const fill =(current: string | undefined, value: string | null | undefined) =>
         current && current.trim() !== '' ? current : (value ?? '');
       setBlocks((prev) => prev.map((b, i) => (i !== index ? b : {
         ...b,
