@@ -261,10 +261,19 @@ router.post(
             //     Caso real (Dynasty, link creado 2026-07-31 con fee_pct=0): siguió abriendo
             //     el checkout en $180.000 después de subir la tarifa a 5% ($189.000).
             //     Si quedó obsoleto se expira y se crea uno nuevo con los montos vigentes.
+            //     También cubre la mora (2026-10-14): `apply_late_fees()` suma el recargo
+            //     a `payments.amount`, así que un link de antes de la mora queda con la
+            //     base vieja y cobraría de menos.
+            const linkObsoleto = (link: any) => linkDesactualizado(link, feePct, baseAmount);
+            const expirarLink = (linkId: string) => supabase
+                .from('payment_links')
+                .update({ status: 'expired', updated_at: new Date().toISOString() })
+                .eq('id', linkId)
+                .eq('status', 'pending');
+
             const { data: existingLink } = await fetchActiveLink();
             if (existingLink && (existingLink.provider_reference || existingLink.wompi_reference)) {
-                const staleFee = Number(existingLink.fee_pct) !== feePct;
-                const staleBase = Math.abs(Number(existingLink.base_amount) - baseAmount) > 0.5;
+                const { staleFee, staleBase } = linkObsoleto(existingLink);
 
                 if (!staleFee && !staleBase) {
                     return reuseResponse(existingLink);
@@ -284,11 +293,7 @@ router.post(
 
                 // Expirarlo libera el único parcial uq_payment_links_one_pending_per_payment
                 // para el INSERT de más abajo.
-                await supabase
-                    .from('payment_links')
-                    .update({ status: 'expired', updated_at: new Date().toISOString() })
-                    .eq('id', existingLink.id)
-                    .eq('status', 'pending');
+                await expirarLink(existingLink.id);
             }
 
             // 6. Generar referencia segun provider
@@ -310,7 +315,7 @@ router.post(
                 .lt('expires_at', new Date().toISOString());
 
             // 7. Persistir payment_link con columnas genericas + legacy mirror
-            const { error: linkErr } = await supabase
+            const insertarLink = () => supabase
                 .from('payment_links')
                 .insert({
                     payment_id: paymentId,
@@ -328,18 +333,58 @@ router.post(
                     failed_attempts: 0,
                     enrollment_id: enrollmentId || null,
                 });
+            let { error: linkErr } = await insertarLink();
 
-            if (linkErr) {
+            if (linkErr && (linkErr as any).code === '23505') {
                 // 23505: otra request concurrente ya creo la link 'pending' para esta
                 // deuda (carrera H-05, bloqueada por uq_payment_links_one_pending_per_payment).
-                // Reusar la existente en vez de crear una segunda referencia pagable.
-                if ((linkErr as any).code === '23505') {
-                    const { data: raced } = await fetchActiveLink();
-                    if (raced && (raced.provider_reference || raced.wompi_reference)) {
+                // Reusar la existente en vez de crear una segunda referencia pagable…
+                // pero con el MISMO chequeo de vigencia que el reuso de arriba: la
+                // ganadora pudo leer el cobro antes de que `apply_late_fees()` le
+                // sumara la mora (o con otra tarifa). Si quedó obsoleta se expira y se
+                // reintenta el INSERT una sola vez con los montos vigentes.
+                const { data: raced } = await fetchActiveLink();
+                if (raced && (raced.provider_reference || raced.wompi_reference)) {
+                    // El monto vigente se relee: si ESTA request es la que leyó el
+                    // cobro antes de la mora, la ganadora tiene razón y no se pisa.
+                    const { data: fresco } = await supabase
+                        .from('payments')
+                        .select('amount')
+                        .eq('id', paymentId)
+                        .maybeSingle();
+                    const montoVigente = fresco && Number.isFinite(Number((fresco as any).amount))
+                        ? Number((fresco as any).amount)
+                        : baseAmount;
+                    const decision = decidirLinkDeCarrera(raced, { feePct, baseAmount, montoVigente });
+                    if (decision === 'reusar') {
                         req.log?.info({ paymentId }, 'create-session: carrera resuelta, reusando link existente');
                         return reuseResponse(raced);
                     }
+                    req.log?.warn(
+                        {
+                            paymentId,
+                            linkId: raced.id,
+                            linkFeePct: Number(raced.fee_pct),
+                            currentFeePct: feePct,
+                            linkBaseAmount: Number(raced.base_amount),
+                            currentBaseAmount: baseAmount,
+                            montoVigente,
+                            decision,
+                        },
+                        'create-session: link de la carrera obsoleto (cambió la tarifa o el monto)',
+                    );
+                    if (decision === 'monto_cambio') {
+                        return res.status(409).json({
+                            error: 'El valor de este cobro acaba de cambiar. Vuelve a intentar el pago.',
+                            code: 'payment_amount_changed',
+                        });
+                    }
+                    await expirarLink(raced.id);
+                    ({ error: linkErr } = await insertarLink());
                 }
+            }
+
+            if (linkErr) {
                 req.log?.error({ err: linkErr }, 'Error inserting payment_link');
                 return res.status(500).json({ error: 'Error al registrar el enlace de pago.' });
             }
@@ -583,5 +628,42 @@ router.post(
         }
     },
 );
+
+/**
+ * ¿El link `pending` quedó con montos viejos? Congela `fee_pct` y `base_amount`
+ * al crearse: si la escuela cambió la tarifa, o el cobro cambió de valor (la
+ * mora de `apply_late_fees()` se SUMA a `payments.amount`, 2026-10-14), cobrar
+ * con ese link recibe un valor que ya no es el que se debe. Pura.
+ */
+export function linkDesactualizado(
+    link: { fee_pct: unknown; base_amount: unknown },
+    feePct: number,
+    baseAmount: number,
+): { staleFee: boolean; staleBase: boolean } {
+    return {
+        staleFee: Number(link.fee_pct) !== feePct,
+        staleBase: !(Math.abs(Number(link.base_amount) - baseAmount) <= 0.5),
+    };
+}
+
+/**
+ * Carrera H-05 (23505 al insertar): qué hacer con el link que insertó la otra
+ * request. Mismo criterio de vigencia que el reuso normal, contra el monto
+ * RELEÍDO del cobro (`montoVigente`):
+ *   · 'reusar'       — el link de la ganadora vale con la tarifa y el monto vigentes.
+ *   · 'monto_cambio' — ESTA request leyó un monto que ya no es el del cobro
+ *                      (p. ej. antes de la mora): no se crea nada, el cliente reintenta.
+ *   · 'recrear'      — el link de la ganadora quedó viejo: se expira y se reinserta.
+ * Pura.
+ */
+export function decidirLinkDeCarrera(
+    raced: { fee_pct: unknown; base_amount: unknown },
+    e: { feePct: number; baseAmount: number; montoVigente: number },
+): 'reusar' | 'monto_cambio' | 'recrear' {
+    const vigente = linkDesactualizado(raced, e.feePct, e.montoVigente);
+    if (!vigente.staleFee && !vigente.staleBase) return 'reusar';
+    if (Math.abs(e.montoVigente - e.baseAmount) > 0.5) return 'monto_cambio';
+    return 'recrear';
+}
 
 export default router;

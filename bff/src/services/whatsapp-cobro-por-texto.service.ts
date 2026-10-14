@@ -230,21 +230,33 @@ export function elMasAntiguoDelMismoDeportista(cobros: PagoPendiente[]): PagoPen
  * El % es el del enlace con que se creó, no el vigente de la escuela: un link
  * viejo del 5 % sigue vivo aunque hoy la escuela cobre 0 %. Sin el monto del
  * cobro mismo. Pura.
+ *
+ * Mora (2026-10-14): `apply_late_fees()` SUMA el recargo por mora a
+ * `payments.amount`. Un enlace creado ANTES de la mora congeló la base vieja,
+ * y su `gross_amount` (o base × (1 + fee)) es menos de lo que hoy se debe: un
+ * comprobante por ese valor NO es pago completo. Por eso lo derivado del
+ * enlace (gross y base × fee) solo vale si `base_amount` es el saldo ACTUAL
+ * del cobro (`montoCobro − pagado`, tolerancia 1). Un enlace sin base o con
+ * otra base aporta solo el cobro actual × (1 + su fee).
  */
 export function montosConRecargo(
     montoCobro: number,
     enlaces: { gross_amount: number | string | null; base_amount?: number | string | null; fee_pct: number | string | null }[],
+    /** `payments.amount_paid` del cobro (abonos ya aprobados). */
+    pagado = 0,
 ): number[] {
     const out = new Set<number>();
+    const saldo = montoCobro - (Number.isFinite(Number(pagado)) ? Number(pagado) : 0);
     for (const l of enlaces) {
-        const gross = Number(l.gross_amount);
-        if (Number.isFinite(gross) && gross > montoCobro) out.add(Math.round(gross));
+        const base = l.base_amount === null || l.base_amount === undefined ? NaN : Number(l.base_amount);
+        const vigente = Number.isFinite(base) && Math.abs(base - saldo) <= 1;
         const fee = Number(l.fee_pct);
-        if (Number.isFinite(fee) && fee > 0) {
-            out.add(Math.round(montoCobro * (1 + fee / 100)));
-            const base = Number(l.base_amount);
-            if (Number.isFinite(base) && base > 0) out.add(Math.round(base * (1 + fee / 100)));
+        if (vigente) {
+            const gross = l.gross_amount === null ? NaN : Number(l.gross_amount);
+            if (Number.isFinite(gross) && gross > montoCobro) out.add(Math.round(gross));
+            if (Number.isFinite(fee) && fee > 0) out.add(Math.round(base * (1 + fee / 100)));
         }
+        if (Number.isFinite(fee) && fee > 0) out.add(Math.round(montoCobro * (1 + fee / 100)));
     }
     out.delete(montoCobro);
     return [...out];

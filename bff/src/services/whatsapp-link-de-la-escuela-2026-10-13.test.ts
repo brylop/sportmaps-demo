@@ -72,6 +72,19 @@ describe('link de pago propio de la escuela', () => {
         expect(botonPagarUnico(out)).toEqual({ texto: 'Pagar', url: 'https://app.sportmaps.co/p/abcdefghijklmnopqrstuvwx' });
     });
 
+    it('mora (2026-10-14): el valor es el ACTUAL del cobro y dice cuánto es mora', async () => {
+        h.cuentas = [{ type: 'payment_link', value: LINK, active: true }];
+        h.cobros = [
+            { id: 'p1', concept: 'Mensualidad Octubre', amount: '160000.00', due_date: '2026-10-10', status: 'overdue', late_fee_amount: '10000.00' },
+        ];
+        const out = await conEnlacesDePago([{ ...pago('Mensualidad Octubre', 160000), status: 'overdue' }] as any[], 'parent-1', 'school-1');
+        expect(out[0].enlace_instrucciones).toBe('Toca «Ir a pagar», escribe $160.000 y, al terminar, mándame la foto del comprobante por aquí para que la escuela lo aplique. Incluye recargo por mora: $10.000.');
+        expect(lineaPagar(out[0])).toContain('Incluye recargo por mora: $10.000');
+        // Sin mora, nada extra.
+        expect(instruccionesDelLinkDeLaEscuela(150000, 0)).not.toContain('mora');
+        expect(instruccionesDelLinkDeLaEscuela(150000, null)).not.toContain('mora');
+    });
+
     it('sin monto, no inventa un valor', () => {
         expect(instruccionesDelLinkDeLaEscuela(null)).toContain('escribe el valor de tu cobro');
     });
