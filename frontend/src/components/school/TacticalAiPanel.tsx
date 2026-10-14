@@ -21,6 +21,7 @@ import {
   suggestionToBoardFrames, type AiBalance, type AiResult, type AiSuggestion, type AnalyzeRequest,
 } from '@/lib/school/tacticalAi';
 import type { Viewer3DSource } from '@/lib/school/tactical3dLaunch';
+import type { TacticalBoardEvent } from '@/lib/school/tacticalUsage';
 import { interpolateFrames, totalDurationMs } from '@/lib/school/tacticalAnimation';
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
 import { viewBoxOf, type PitchView } from '@/lib/school/tacticalGeometry';
@@ -30,6 +31,9 @@ import type { TacticalSport } from '@/lib/school/tacticalSports';
 import { TacticalStaticSvg } from './TacticalStaticSvg';
 // Liviano: el visor y three.js llegan con import() solo al tocar «Ver en 3D».
 import { Tactical3DLauncher } from './tactical3d/Tactical3DLauncher';
+
+/** Eventos de la métrica de uso (T0) que dispara el panel. */
+export type TacticalAiEvent = Extract<TacticalBoardEvent, 'ai_analyze' | 'ai_view_counter' | 'ai_save_variant' | 'view_3d'>;
 
 export type AiPreviewKind = 'contraataque' | 'variante';
 export interface AiPreview {
@@ -141,16 +145,19 @@ export interface TacticalAiPanelProps {
   /** La jugada del coach para «Ver en 3D» (lo mismo que arma «Exportar»).
    *  Sin esto las tarjetas no ofrecen 3D. */
   get3DSource?: () => Viewer3DSource;
+  /** Métrica de uso (T0), un evento por acción. */
+  onEvent?: (event: TacticalAiEvent) => void;
 }
 
 function SuggestionCard({
-  s, id, kind, rivalColor, sport, active, canApply, onPreview, onApply, get3DSource,
+  s, id, kind, rivalColor, sport, active, canApply, onPreview, onApply, get3DSource, onEvent,
 }: {
   s: AiSuggestion; id: string; kind: AiPreviewKind; rivalColor: TacticalArrowColor; sport: TacticalSport;
   active: boolean; canApply: boolean;
   onPreview: (p: AiPreview | null) => void;
   onApply: (frames: TacticalFrame[], titulo: string) => void;
   get3DSource?: () => Viewer3DSource;
+  onEvent?: (event: TacticalAiEvent) => void;
 }) {
   // Miniatura: último cuadro, con los rivales como material «Rival».
   const thumb = useMemo(() => {
@@ -178,7 +185,10 @@ function SuggestionCard({
           size="sm"
           variant="outline"
           className="h-8 gap-1 text-[11px] bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
-          onClick={() => onPreview(active ? null : { id, kind, frames: s.frames, rivalColor })}
+          onClick={() => {
+            if (!active) onEvent?.('ai_view_counter');
+            onPreview(active ? null : { id, kind, frames: s.frames, rivalColor });
+          }}
           aria-pressed={active}
         >
           {active ? <Square className="h-3.5 w-3.5 fill-current" /> : <Play className="h-3.5 w-3.5" />}
@@ -187,7 +197,7 @@ function SuggestionCard({
         {get3DSource && (
           <Tactical3DLauncher
             getInput={() => ({ ...get3DSource(), aiSuggestion: { kind, titulo: s.titulo, frames: s.frames } })}
-            onOpen={() => onPreview(null)}
+            onOpen={() => { onPreview(null); onEvent?.('view_3d'); }}
             label="Ver en 3D"
             ariaLabel={`Ver en 3D: ${s.titulo}`}
             className="h-8 min-w-0 gap-1 px-2 text-[11px] bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
@@ -197,7 +207,7 @@ function SuggestionCard({
           <Button
             size="sm"
             className="h-8 gap-1 text-[11px] bg-emerald-600 hover:bg-emerald-500 text-white"
-            onClick={() => onApply(suggestionToBoardFrames(s, rivalColor), s.titulo)}
+            onClick={() => { onEvent?.('ai_save_variant'); onApply(suggestionToBoardFrames(s, rivalColor), s.titulo); }}
           >
             <Save className="h-3.5 w-3.5" /> Guardar como nueva jugada
           </Button>
@@ -213,7 +223,7 @@ export function TacticalAiPanel(props: TacticalAiPanelProps) {
 }
 
 function TacticalAiPanelBody({
-  open, onClose, getRequest, sport, canApply, canBuy, preview, onPreview, onApply, isMobile, get3DSource,
+  open, onClose, getRequest, sport, canApply, canBuy, preview, onPreview, onApply, isMobile, get3DSource, onEvent,
 }: TacticalAiPanelProps) {
   const navigate = useNavigate();
   const [balance, setBalance] = useState<AiBalance | null>(null);
@@ -242,6 +252,7 @@ function TacticalAiPanelBody({
       setError('Pon al menos un jugador en la cancha para analizar la jugada.');
       return;
     }
+    onEvent?.('ai_analyze');
     const seq = ++reqSeq.current;
     setLoading(true);
     setError(null);
@@ -371,7 +382,7 @@ function TacticalAiPanelBody({
                 {result.contraataques.map((s, i) => (
                   <SuggestionCard key={`c${i}`} id={`c${i}`} kind="contraataque" s={s} sport={sport} rivalColor={rivalColor}
                     active={preview?.id === `c${i}`} canApply={canApply} onPreview={previewSuggestion} onApply={onApply}
-                    get3DSource={get3DSource} />
+                    get3DSource={get3DSource} onEvent={onEvent} />
                 ))}
               </section>
             )}
@@ -382,7 +393,7 @@ function TacticalAiPanelBody({
                 {result.variantes.map((s, i) => (
                   <SuggestionCard key={`v${i}`} id={`v${i}`} kind="variante" s={s} sport={sport} rivalColor={rivalColor}
                     active={preview?.id === `v${i}`} canApply={canApply} onPreview={previewSuggestion} onApply={onApply}
-                    get3DSource={get3DSource} />
+                    get3DSource={get3DSource} onEvent={onEvent} />
                 ))}
               </section>
             )}

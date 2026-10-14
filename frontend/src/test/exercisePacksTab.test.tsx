@@ -128,6 +128,19 @@ describe('ExercisePacksTab', () => {
     expect(within(card('Dos')).getByText('Oculto')).toBeTruthy();
   });
 
+  it('métrica de uso: activar y exportar registran pack_activate / pack_export (desactivar no)', async () => {
+    const onEvent = vi.fn();
+    api.exportExercisePack.mockResolvedValue({ format: 'sportmaps-ejercicios', version: 1, pack: { name: 'X', sport: 'futbol' }, exercises: [] });
+    setup(<ExercisePacksTab onEvent={onEvent} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Activar Fútbol: fundamentos y juego' }));
+    await waitFor(() => expect(onEvent).toHaveBeenCalledWith('pack_activate'));
+    fireEvent.click(screen.getByRole('button', { name: 'Desactivar Arqueros' }));
+    await waitFor(() => expect(api.deactivateExercisePack).toHaveBeenCalledWith('own'));
+    fireEvent.click(screen.getByRole('button', { name: 'Exportar Fútbol 7 y fútbol 5' }));
+    await waitFor(() => expect(onEvent).toHaveBeenCalledWith('pack_export'));
+    expect(onEvent.mock.calls.map((c) => c[0])).toEqual(['pack_activate', 'pack_export']);
+  });
+
   it('Exportar descarga el archivo del paquete; «Exportar mis ejercicios» usa «mine»', async () => {
     const file = { format: 'sportmaps-ejercicios', version: 1, pack: { name: 'X', sport: 'futbol' }, exercises: [] };
     api.exportExercisePack.mockResolvedValue(file);
@@ -153,7 +166,8 @@ describe('Importar paquete: vista previa → confirmar → resultado', () => {
   it('válido: muestra cuántos ejercicios y qué deportes; confirmar importa y muestra el resultado', async () => {
     api.previewPackImport.mockResolvedValue({ valid: true, errors: [], summary: { name: 'Arqueros', sport: 'futbol', exercises: 12, sports: ['futbol', 'generico'] } });
     api.importExercisePack.mockResolvedValue({ pack_id: 'n1', exercises: 12, summary: { name: 'Arqueros', sport: 'futbol', exercises: 12, sports: ['futbol', 'generico'] } });
-    setup();
+    const onEvent = vi.fn();
+    setup(<ExercisePacksTab onEvent={onEvent} />);
     await screen.findByText('Fútbol: fundamentos y juego');
     chooseFile(JSON.stringify(FILE), 'arqueros.json');
     const preview = await screen.findByTestId('pack-import-preview');
@@ -166,6 +180,8 @@ describe('Importar paquete: vista previa → confirmar → resultado', () => {
     const done = await screen.findByTestId('pack-import-done');
     expect(api.importExercisePack).toHaveBeenCalledWith(FILE);
     expect(done.textContent).toMatch(/se importaron 12 ejercicios en «Arqueros»/);
+    // Un pack_import por importación confirmada (la vista previa no cuenta).
+    expect(onEvent.mock.calls).toEqual([['pack_import']]);
   });
 
   it('inválido: lista de errores, sin botón de importar', async () => {

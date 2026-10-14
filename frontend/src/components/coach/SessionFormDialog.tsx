@@ -765,6 +765,7 @@ export function SessionFormDialog({
         pickLabel="Usar en esta sesión"
         defaultSport={teamSport}
         picking={applyingExercise}
+        onPackEvent={(event) => logTacticalEvent({ schoolId: teamSchoolId, event, teamId, sourceType: 'library_packs' })}
       />
     )}
     </>

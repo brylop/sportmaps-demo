@@ -2944,6 +2944,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
             {!loading && (
               <Tactical3DLauncher
                 getInput={buildExportInput}
+                onOpen={() => logEvent('view_3d')}
                 disabled={playingSequence}
                 className="text-[11px] px-2 bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
               />
@@ -3673,6 +3674,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
           onApply={applyAiFrames}
           isMobile={isMobile}
           get3DSource={buildExportInput}
+          onEvent={(e) => logEvent(e)}
         />
       </DialogContent>
     </Dialog>

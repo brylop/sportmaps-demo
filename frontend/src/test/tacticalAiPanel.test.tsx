@@ -234,13 +234,17 @@ describe('tacticalAi (lógica)', () => {
     expect(balanceLabel(balance(0, { paid_remaining: 7, remaining: 7 }) as any)).toBe('Te quedan 7 análisis comprados');
     expect(balanceLabel(null)).toBeNull();
   });
-  it('«Ver en 3D» en cada tarjeta (contraataques y variantes)', async () => {
+  it('«Ver en 3D» en cada tarjeta: abre el visor (sin WebGL2 cae a 2D) y registra ver/guardar/analizar', async () => {
+    const onEvent = vi.fn();
     const base = { frames: playFrames, players: [], arrows: [], playerLabels: { [K1]: 'Central' }, sport: 'futbol' as const, title: 'Mi jugada' };
-    setup({ get3DSource: () => base });
+    setup({ get3DSource: () => base, onEvent });
     fireEvent.click(await screen.findByRole('button', { name: /Analizar jugada/ }));
     const ver3d = await screen.findAllByRole('button', { name: /^Ver en 3D: / });
     expect(ver3d).toHaveLength(3); // 2 contraataques + 1 variante
     expect(ver3d[0]).toHaveAccessibleName('Ver en 3D: Salida rápida por la banda derecha');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Ver contraataque' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: /Guardar como nueva jugada/ })[0]);
+    expect(onEvent.mock.calls.map((c) => c[0])).toEqual(['ai_analyze', 'ai_view_counter', 'ai_save_variant']);
   });
 
   it('sin get3DSource las tarjetas no ofrecen 3D', async () => {

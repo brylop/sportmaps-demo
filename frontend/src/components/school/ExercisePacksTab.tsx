@@ -33,6 +33,7 @@ import {
   type PackImportResult,
   type PackPreview,
 } from '@/lib/school/exercisePacks';
+import type { TacticalPackEvent } from '@/lib/school/tacticalUsage';
 
 const sportLabel = (s: string | null | undefined) =>
   (s && EXERCISE_SPORT_LABEL[s as ExerciseSport]) || s || '—';
@@ -48,7 +49,10 @@ type ImportState =
   | { step: 'done'; result: PackImportResult }
   | { step: 'error'; message: string };
 
-export function ExercisePacksTab() {
+export function ExercisePacksTab({ onEvent }: {
+  /** Métrica de uso (T0): activar, importar y exportar, uno por acción. */
+  onEvent?: (event: TacticalPackEvent) => void;
+} = {}) {
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [imp, setImp] = useState<ImportState>({ step: 'idle' });
@@ -70,6 +74,7 @@ export function ExercisePacksTab() {
       activate ? activateExercisePack(pack.id) : deactivateExercisePack(pack.id),
     onSuccess: (_r, { pack, activate }) => {
       setNotice(activate ? `«${pack.name}» activado.` : `«${pack.name}» desactivado.`);
+      if (activate) onEvent?.('pack_activate');
       refreshAll();
     },
     onError: (e) => setNotice(errMessage(e)),
@@ -77,7 +82,10 @@ export function ExercisePacksTab() {
 
   const exportPack = useMutation({
     mutationFn: (id: string) => exportExercisePack(id),
-    onSuccess: (file) => setNotice(`Descargado: ${downloadPackFile(file)}`),
+    onSuccess: (file) => {
+      setNotice(`Descargado: ${downloadPackFile(file)}`);
+      onEvent?.('pack_export');
+    },
     onError: (e) => setNotice(errMessage(e)),
   });
 
@@ -114,6 +122,7 @@ export function ExercisePacksTab() {
     try {
       const result = await importExercisePack(fileData);
       setImp({ step: 'done', result });
+      onEvent?.('pack_import');
       refreshAll();
     } catch (e) {
       const body = (e as { body?: { details?: string[]; summary?: PackPreview['summary'] } }).body;

@@ -28,6 +28,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { TacticalStaticSvg } from '@/components/school/TacticalStaticSvg';
 import { ExercisePacksTab } from '@/components/school/ExercisePacksTab';
 import { isTacticalSport } from '@/lib/school/tacticalSports';
+import type { TacticalPackEvent } from '@/lib/school/tacticalUsage';
 import {
   EXERCISE_SPORT_LABEL,
   exerciseThumbnail,
@@ -82,6 +83,8 @@ export interface ExerciseLibraryPanelProps {
   defaultSport?: ExerciseSport;
   /** Deshabilita «Usar» mientras el padre aplica el ejercicio. */
   picking?: boolean;
+  /** Métrica de uso (T0) de la pestaña «Paquetes». */
+  onPackEvent?: (event: TacticalPackEvent) => void;
 }
 
 export function ExerciseLibraryPanel({
@@ -91,6 +94,7 @@ export function ExerciseLibraryPanel({
   pickLabel = 'Usar en esta sesión',
   defaultSport,
   picking,
+  onPackEvent,
 }: ExerciseLibraryPanelProps) {
   const [source, setSource] = useState<Source>('templates');
   const [search, setSearch] = useState('');
@@ -185,7 +189,7 @@ export function ExerciseLibraryPanel({
               ))}
             </div>
 
-            {source === 'packs' ? <ExercisePacksTab /> : (<>
+            {source === 'packs' ? <ExercisePacksTab onEvent={onPackEvent} /> : (<>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
