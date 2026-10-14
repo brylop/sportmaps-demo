@@ -41,4 +41,21 @@ export interface Viewer3DSource {
   playerJerseys?: Record<string, number | null>;
   sport?: TacticalSport | null;
   title?: string | null;
+  /** Segundo juego de cuadros encima (en rojo): los rivales de un
+   *  contraataque o variante de la IA (M3). Mismo reloj que la jugada. */
+  overlayFrames?: TacticalFrame[] | null;
+  /** Etiquetas ya humanizadas de la superposición («Rival 3»). */
+  overlayLabels?: Record<string, string>;
+  /** Leyenda de la superposición («Contraataque del rival»). */
+  overlayName?: string;
+  /** Tarjeta de la IA tal cual: el visor la convierte en jugada + superposición
+   *  al abrir (tactical3dSuggestion.ts, en el chunk del 3D, no en la pizarra). */
+  aiSuggestion?: { kind: 'contraataque' | 'variante'; titulo: string; frames: TacticalFrame[] } | null;
+}
+
+/** Piso de fps forzado desde afuera (solo lo usan los e2e con WebGL por
+ *  software: `window.__TACTICAL3D_MIN_FPS__ = 0`). */
+export function minFpsOverride(): number | undefined {
+  const v = typeof window === 'undefined' ? undefined : (window as { __TACTICAL3D_MIN_FPS__?: unknown }).__TACTICAL3D_MIN_FPS__;
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined;
 }

@@ -20,6 +20,7 @@ import {
   AI_PACK_SIZE, AI_PURCHASE_HREF, analyzePlay, balanceLabel, fetchAiBalance, humanizeResult, isRivalKey, rivalColorOf,
   suggestionToBoardFrames, type AiBalance, type AiResult, type AiSuggestion, type AnalyzeRequest,
 } from '@/lib/school/tacticalAi';
+import type { Viewer3DSource } from '@/lib/school/tactical3dLaunch';
 import { interpolateFrames, totalDurationMs } from '@/lib/school/tacticalAnimation';
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
 import { viewBoxOf, type PitchView } from '@/lib/school/tacticalGeometry';
@@ -27,6 +28,8 @@ import { ARROW_COLOR_HEX } from '@/lib/school/tacticalPalette';
 import type { TacticalArrowColor } from '@/lib/school/footballQueries';
 import type { TacticalSport } from '@/lib/school/tacticalSports';
 import { TacticalStaticSvg } from './TacticalStaticSvg';
+// Liviano: el visor y three.js llegan con import() solo al tocar «Ver en 3D».
+import { Tactical3DLauncher } from './tactical3d/Tactical3DLauncher';
 
 export type AiPreviewKind = 'contraataque' | 'variante';
 export interface AiPreview {
@@ -135,15 +138,19 @@ export interface TacticalAiPanelProps {
   /** Reemplaza los cuadros de la pizarra (con deshacer). */
   onApply: (frames: TacticalFrame[], titulo: string) => void;
   isMobile?: boolean;
+  /** La jugada del coach para «Ver en 3D» (lo mismo que arma «Exportar»).
+   *  Sin esto las tarjetas no ofrecen 3D. */
+  get3DSource?: () => Viewer3DSource;
 }
 
 function SuggestionCard({
-  s, id, kind, rivalColor, sport, active, canApply, onPreview, onApply,
+  s, id, kind, rivalColor, sport, active, canApply, onPreview, onApply, get3DSource,
 }: {
   s: AiSuggestion; id: string; kind: AiPreviewKind; rivalColor: TacticalArrowColor; sport: TacticalSport;
   active: boolean; canApply: boolean;
   onPreview: (p: AiPreview | null) => void;
   onApply: (frames: TacticalFrame[], titulo: string) => void;
+  get3DSource?: () => Viewer3DSource;
 }) {
   // Miniatura: último cuadro, con los rivales como material «Rival».
   const thumb = useMemo(() => {
@@ -177,6 +184,15 @@ function SuggestionCard({
           {active ? <Square className="h-3.5 w-3.5 fill-current" /> : <Play className="h-3.5 w-3.5" />}
           {active ? 'Detener' : verb}
         </Button>
+        {get3DSource && (
+          <Tactical3DLauncher
+            getInput={() => ({ ...get3DSource(), aiSuggestion: { kind, titulo: s.titulo, frames: s.frames } })}
+            onOpen={() => onPreview(null)}
+            label="Ver en 3D"
+            ariaLabel={`Ver en 3D: ${s.titulo}`}
+            className="h-8 min-w-0 gap-1 px-2 text-[11px] bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
+          />
+        )}
         {canApply && (
           <Button
             size="sm"
@@ -197,7 +213,7 @@ export function TacticalAiPanel(props: TacticalAiPanelProps) {
 }
 
 function TacticalAiPanelBody({
-  open, onClose, getRequest, sport, canApply, canBuy, preview, onPreview, onApply, isMobile,
+  open, onClose, getRequest, sport, canApply, canBuy, preview, onPreview, onApply, isMobile, get3DSource,
 }: TacticalAiPanelProps) {
   const navigate = useNavigate();
   const [balance, setBalance] = useState<AiBalance | null>(null);
@@ -354,7 +370,8 @@ function TacticalAiPanelBody({
                 <h4 className="text-xs font-bold uppercase tracking-wide text-white/60">Contraataques del rival</h4>
                 {result.contraataques.map((s, i) => (
                   <SuggestionCard key={`c${i}`} id={`c${i}`} kind="contraataque" s={s} sport={sport} rivalColor={rivalColor}
-                    active={preview?.id === `c${i}`} canApply={canApply} onPreview={previewSuggestion} onApply={onApply} />
+                    active={preview?.id === `c${i}`} canApply={canApply} onPreview={previewSuggestion} onApply={onApply}
+                    get3DSource={get3DSource} />
                 ))}
               </section>
             )}
@@ -364,7 +381,8 @@ function TacticalAiPanelBody({
                 <h4 className="text-xs font-bold uppercase tracking-wide text-white/60">Variantes de tu jugada</h4>
                 {result.variantes.map((s, i) => (
                   <SuggestionCard key={`v${i}`} id={`v${i}`} kind="variante" s={s} sport={sport} rivalColor={rivalColor}
-                    active={preview?.id === `v${i}`} canApply={canApply} onPreview={previewSuggestion} onApply={onApply} />
+                    active={preview?.id === `v${i}`} canApply={canApply} onPreview={previewSuggestion} onApply={onApply}
+                    get3DSource={get3DSource} />
                 ))}
               </section>
             )}

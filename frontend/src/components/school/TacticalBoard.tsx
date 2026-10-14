@@ -3672,6 +3672,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
           onPreview={setAiPreview}
           onApply={applyAiFrames}
           isMobile={isMobile}
+          get3DSource={buildExportInput}
         />
       </DialogContent>
     </Dialog>

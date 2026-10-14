@@ -19,8 +19,10 @@ vi.mock('@/lib/api/bffClient', () => {
 import { BFFError } from '@/lib/api/bffClient';
 import { TacticalAiOverlay, TacticalAiPanel, type AiPreview } from '@/components/school/TacticalAiPanel';
 import {
-  balanceLabel, buildAnalyzeRequest, humanizeResult, humanizeText, suggestionToBoardFrames, type AiResult, type AiSuggestion,
+  balanceLabel, buildAnalyzeRequest, humanizeResult, humanizeText, suggestionToBoardFrames,
+  type AiResult, type AiSuggestion,
 } from '@/lib/school/tacticalAi';
+import { resolveViewerSource, suggestionViewer3D } from '@/lib/school/tactical3dSuggestion';
 import { FULL_VIEW } from '@/lib/school/tacticalGeometry';
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
 
@@ -232,6 +234,53 @@ describe('tacticalAi (lógica)', () => {
     expect(balanceLabel(balance(0, { paid_remaining: 7, remaining: 7 }) as any)).toBe('Te quedan 7 análisis comprados');
     expect(balanceLabel(null)).toBeNull();
   });
+  it('«Ver en 3D» en cada tarjeta (contraataques y variantes)', async () => {
+    const base = { frames: playFrames, players: [], arrows: [], playerLabels: { [K1]: 'Central' }, sport: 'futbol' as const, title: 'Mi jugada' };
+    setup({ get3DSource: () => base });
+    fireEvent.click(await screen.findByRole('button', { name: /Analizar jugada/ }));
+    const ver3d = await screen.findAllByRole('button', { name: /^Ver en 3D: / });
+    expect(ver3d).toHaveLength(3); // 2 contraataques + 1 variante
+    expect(ver3d[0]).toHaveAccessibleName('Ver en 3D: Salida rápida por la banda derecha');
+  });
+
+  it('sin get3DSource las tarjetas no ofrecen 3D', async () => {
+    setup();
+    fireEvent.click(await screen.findByRole('button', { name: /Analizar jugada/ }));
+    await screen.findAllByRole('button', { name: 'Ver contraataque' });
+    expect(screen.queryByRole('button', { name: /^Ver en 3D/ })).toBeNull();
+  });
+
+  it('suggestionViewer3D: contraataque = jugada del coach + SOLO rivales encima, etiquetas «Rival N»', () => {
+    const base = { frames: playFrames, players: [], arrows: [], playerLabels: { [K1]: 'Central' }, sport: 'futbol' as const, title: 'Mi jugada' };
+    const src = suggestionViewer3D(base, { ...counter, kind: 'contraataque' });
+    expect(src.frames).toBe(playFrames);
+    expect(src.overlayName).toBe('Contraataque del rival');
+    expect(src.overlayFrames).toHaveLength(3);
+    for (const f of src.overlayFrames!) expect(f.players.every((p) => p.key.startsWith('rival:'))).toBe(true);
+    expect(src.overlayFrames![1].arrows).toEqual(counter.frames[1].arrows);
+    expect(src.overlayLabels).toEqual({ 'rival:1': 'Rival 1', 'rival:2': 'Rival 2' });
+    expect(JSON.stringify(src.overlayLabels)).not.toMatch(/\b[pr]\d\b/);
+  });
+
+  it('suggestionViewer3D: variante = los propios de la variante + rivales encima', () => {
+    const base = { frames: null, players: [], arrows: [], playerLabels: { [K1]: 'Central' }, sport: 'futbol' as const, title: 'Mi jugada' };
+    const src = suggestionViewer3D(base, { ...counter, kind: 'variante' });
+    expect(src.title).toBe(counter.titulo);
+    expect(src.frames!.map((f) => f.players.map((p) => p.key))).toEqual([[K1], [K1], [K1]]);
+    expect(src.frames![2].ball).toEqual({ x: 78, y: 70 });
+    expect(src.overlayFrames![1].arrows).toEqual([]);
+    expect(src.overlayName).toBe('Rivales');
+    expect(src.playerLabels).toEqual({ [K1]: 'Central' });
+  });
+
+  it('resolveViewerSource: sin tarjeta de IA deja la fuente igual; con tarjeta la resuelve y la suelta', () => {
+    const base = { frames: playFrames, players: [], arrows: [], sport: 'futbol' as const };
+    expect(resolveViewerSource(base)).toBe(base);
+    const out = resolveViewerSource({ ...base, aiSuggestion: { kind: 'contraataque', titulo: counter.titulo, frames: counter.frames } });
+    expect(out.aiSuggestion).toBeNull();
+    expect(out.overlayFrames).toHaveLength(3);
+  });
+
   it('suggestionToBoardFrames sin balón ni rivales (variante) deja solo propios y flechas', () => {
     const out = suggestionToBoardFrames({ titulo: 'v', explicacion: '', frames: [{ id: 'a', duration_ms: 900, players: [{ key: K1, x: 1, y: 2 }], ball: null, arrows: [] }] });
     expect(out[0]).toMatchObject({ duration_ms: 900, players: [{ key: K1, x: 1, y: 2 }], ball: null, arrows: [] });

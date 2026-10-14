@@ -8,7 +8,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { detectWebGL2, FALLBACK_TOAST, type Viewer3DSource } from '@/lib/school/tactical3dLaunch';
+import { detectWebGL2, FALLBACK_TOAST, minFpsOverride, type Viewer3DSource } from '@/lib/school/tactical3dLaunch';
 
 type ModalProps = { source: Viewer3DSource; onClose: () => void; onFallback: () => void; minFps?: number };
 
@@ -19,7 +19,7 @@ function ChunkFailed({ onFallback }: ModalProps) {
 }
 const Tactical3DModal = lazy(() => import('./Tactical3DModal').catch(() => ({ default: ChunkFailed })));
 
-export function Tactical3DLauncher({ getInput, disabled, className, onOpen, minFps }: {
+export function Tactical3DLauncher({ getInput, disabled, className, onOpen, minFps, label = 'Ver en 3D', ariaLabel }: {
   /** Lo mismo que arma «Exportar» (TacticalExportInput sirve tal cual). */
   getInput: () => Viewer3DSource;
   disabled?: boolean;
@@ -27,6 +27,9 @@ export function Tactical3DLauncher({ getInput, disabled, className, onOpen, minF
   onOpen?: () => void;
   /** Piso de fps para caer a 2D (por defecto 20; las pruebas lo cambian). */
   minFps?: number;
+  /** Texto del botón (por defecto «Ver en 3D»). */
+  label?: string;
+  ariaLabel?: string;
 }) {
   const { toast } = useToast();
   const [source, setSource] = useState<Viewer3DSource | null>(null);
@@ -44,12 +47,12 @@ export function Tactical3DLauncher({ getInput, disabled, className, onOpen, minF
 
   return (
     <>
-      <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={open} className={cn('h-11 min-w-11', className)}>
-        Ver en 3D
+      <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={open} className={cn('h-11 min-w-11', className)} aria-label={ariaLabel}>
+        {label}
       </Button>
       {source && (
         <Suspense fallback={<div className="fixed inset-0 z-50 grid place-items-center bg-slate-950 text-sm text-white">Cargando la cancha en 3D…</div>}>
-          <Tactical3DModal source={source} onClose={() => setSource(null)} onFallback={fallbackTo2D} minFps={minFps} />
+          <Tactical3DModal source={source} onClose={() => setSource(null)} onFallback={fallbackTo2D} minFps={minFps ?? minFpsOverride()} />
         </Suspense>
       )}
     </>

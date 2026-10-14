@@ -7,15 +7,17 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { useMemo } from 'react';
 import type { Viewer3DSource } from '@/lib/school/tactical3dLaunch';
 import { viewerFrames } from '@/lib/school/tactical3d';
+import { resolveViewerSource } from '@/lib/school/tactical3dSuggestion';
 import Tactical3DViewer from './Tactical3DViewer';
 
-export default function Tactical3DModal({ source, onClose, onFallback, minFps }: {
+export default function Tactical3DModal({ source: raw, onClose, onFallback, minFps }: {
   /** Foto de la jugada tomada al tocar el botón. */
   source: Viewer3DSource;
   onClose: () => void;
   onFallback: () => void;
   minFps?: number;
 }) {
+  const source = useMemo(() => resolveViewerSource(raw), [raw]);
   const input = useMemo(() => viewerFrames(source), [source]);
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
@@ -31,6 +33,9 @@ export default function Tactical3DModal({ source, onClose, onFallback, minFps }:
           playerLabels={input.labels}
           playerJerseys={input.jerseys}
           title={source.title}
+          overlayFrames={source.overlayFrames ?? null}
+          overlayLabels={source.overlayLabels}
+          overlayName={source.overlayName}
           onClose={onClose}
           onFallback={onFallback}
           minFps={minFps}
