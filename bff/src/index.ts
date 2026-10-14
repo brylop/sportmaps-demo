@@ -60,6 +60,7 @@ import whatsappBuzonRouter from './routes/whatsapp-buzon.routes';
 import publicBookingRouter from './routes/public-booking.routes';
 import cobroEnlacePublicoRouter from './routes/cobro-enlace-publico.routes';
 import { initMaintenanceJobs } from './jobs/maintenance.job';
+import { debenCorrerLosCrons } from './jobs/crons-solo-en-render';
 import organizerRouter from './routes/organizers.route';
 import eventsRouter from './routes/events.route';
 import templatesRouter from './routes/templates';
@@ -531,8 +532,13 @@ const httpServer = app.listen(PORT, () => {
     // configurado no debe tumbar el resto del BFF, pero tiene que verse en el log.
     logAiProvidersAtStartup();
 
-    // Iniciar trabajos de mantenimiento programados
-    initMaintenanceJobs();
+    // Iniciar trabajos de mantenimiento programados. Solo en Render: un BFF
+    // local comparte la base de producción y tomaba la cola de WhatsApp.
+    if (debenCorrerLosCrons()) {
+        initMaintenanceJobs();
+    } else {
+        console.log('   Crons APAGADOS: este BFF no corre en Render (CRONS_LOCALES=true para probarlos).');
+    }
 });
 
 // Bridges locales (ej. scripts/gymrm-door-bridge/) mantienen UNA conexión
