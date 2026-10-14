@@ -7,6 +7,8 @@
 //   · public.tactical_board_events + vista v_tactical_board_usage_weekly
 //   · RPCs log_tactical_board_event e insert_exercise_into_session_block
 //   · columnas `frames` de match_lineups / team_tactical_presets
+//   · paquetes de la biblioteca (M2): exercise_packs, school_exercise_packs,
+//     training_exercises.pack_id y las RPCs activate_/deactivate_/import_exercise_pack
 //
 // ── Por qué existe ──────────────────────────────────────────────────────────
 // Lo que creó la pizarra (migraciones 20261008155454, 20261008183744 y
@@ -26,6 +28,8 @@
 //   parent   padre de A (miembro, no staff de ninguna escuela)
 //   athlete  atleta de A (miembro, no staff; opcional)
 //   staff_b  coach de otra escuela B (staff = {B})
+//   reporter staff de alguna escuela R que NO es admin ni táctico (opcional;
+//            p. ej. rol reporter): lee, pero no gestiona paquetes
 //   anon     sin sesión
 //
 // Se prefieren escuelas demo (is_demo). La sesión se simula como lo hace
@@ -54,6 +58,12 @@
 // corrección escrita pero NO aplicada: fallan hoy (⏳) y deben pasar a verde
 // cuando se aplique esa migración. También hacen salir con 1: un hueco
 // abierto no es verde.
+//
+// Casos con `requiere` (los de paquetes, M2): dependen de objetos que crea una
+// migración escrita y todavía SIN aplicar. Si el objeto no existe en la base
+// se omiten (⏸️ «esperado tras <versión>») y NO hacen fallar la corrida; la
+// lógica de esos casos se revisó leyendo la migración. Apenas se aplique,
+// corren solos y tienen que dar verde.
 
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
@@ -66,6 +76,8 @@ const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // Migraciones de corrección escritas y pendientes de aplicar.
 const FIX_LECTURA_TACTICA = '20261005173002'; // pizarra_blindaje_datos_y_lectura (lectura solo staff)
 const FIX_PIZARRA = '20261013200604';         // pizarra_rls_biblioteca_y_rpc_ejercicio (H1/H2/H3)
+const MIG_PAQUETES = '20261014121142';        // pizarra_paquetes_biblioteca (M2: exercise_packs + RPCs)
+const PAQ = { requiere: 'public.exercise_packs', tras: MIG_PAQUETES };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Casos. Cada `sql` corre como `actor` y devuelve UN entero n:
@@ -86,6 +98,14 @@ const NUEVO_EJ = (school, autor, extra = '') =>
 const UPD_EJ = (id, set = `name = 'RLS editado'`) => W(`update public.training_exercises set ${set} where id = '${id}'`);
 const DEL_EJ = (id) => W(`delete from public.training_exercises where id = '${id}'`);
 const LEER = (tabla, where) => `select count(*)::int from public.${tabla} where ${where}`;
+const RPC_PAQ = (fn, school, pack) =>
+    `select ((public.${fn}('${school}'::uuid, '${pack}'::uuid)) ->> 'pack_id' is not null)::int`;
+// Archivo mínimo ya validado por el BFF (lo que le pasa a la RPC).
+const PAYLOAD = (nombre, ejercicios) =>
+    `'${JSON.stringify({ pack: { name: nombre, sport: 'futbol' }, exercises: ejercicios })}'::jsonb`;
+const RPC_IMPORT = (school, nombre, ejercicios) =>
+    `select ((public.import_exercise_pack('${school}'::uuid, ${PAYLOAD(nombre, ejercicios)})) ->> 'pack_id' is not null)::int`;
+const DOS_EJ = [{ name: 'RLS paq 1', minutes: 10 }, { name: 'RLS paq 2', sport: 'generico' }];
 
 const CASOS = [
     // ── 1. Biblioteca: lectura ───────────────────────────────────────────────
@@ -205,7 +225,99 @@ const CASOS = [
     ['athlete', 'atleta de A lee la plantilla táctica (con frames) de A', 'RECHAZAR', LEER('team_tactical_presets', `id = '{preset_a}'`), { tras: FIX_LECTURA_TACTICA }],
     ['anon', 'anon lee match_lineups', 'RECHAZAR', LEER('match_lineups', 'true')],
 
-    // ── 8. Invariantes estáticos (como postgres; n = 1 si se cumple) ─────────
+    // ── 8. Paquetes (M2): lectura ────────────────────────────────────────────
+    ['coach', 'coach de A lee un paquete del sistema', 'ACEPTAR', LEER('exercise_packs', `id = '{pk_sys}'`), PAQ],
+    ['coach', 'coach de A lee un paquete de su escuela', 'ACEPTAR', LEER('exercise_packs', `id = '{pk_a}'`), PAQ],
+    ['owner', 'owner de A lee un paquete de su escuela', 'ACEPTAR', LEER('exercise_packs', `id = '{pk_a}'`), PAQ],
+    ['reporter', 'staff no gestor de R lee los paquetes del sistema (leer = staff)', 'ACEPTAR', LEER('exercise_packs', `id = '{pk_sys}'`), PAQ],
+    ['coach', 'coach de A lee un paquete de la escuela B', 'RECHAZAR', LEER('exercise_packs', `id = '{pk_b}'`), PAQ],
+    ['staff_b', 'coach de B lee un paquete de la escuela A', 'RECHAZAR', LEER('exercise_packs', `id = '{pk_a}'`), PAQ],
+    ['parent', 'padre de A lee los paquetes del sistema', 'RECHAZAR', LEER('exercise_packs', `id = '{pk_sys}'`), PAQ],
+    ['parent', 'padre de A lee los paquetes de su escuela', 'RECHAZAR', LEER('exercise_packs', `school_id = '{sch_a}'`), PAQ],
+    ['athlete', 'atleta de A lee paquetes', 'RECHAZAR', LEER('exercise_packs', 'true'), PAQ],
+    ['anon', 'anon lee exercise_packs', 'RECHAZAR', LEER('exercise_packs', 'true'), PAQ],
+    ['coach', 'coach de A lee las activaciones de su escuela', 'ACEPTAR', LEER('school_exercise_packs', `school_id = '{sch_a}'`), PAQ],
+    ['parent', 'padre de A lee las activaciones de su escuela', 'RECHAZAR', LEER('school_exercise_packs', `school_id = '{sch_a}'`), PAQ],
+    ['staff_b', 'coach de B lee las activaciones de A', 'RECHAZAR', LEER('school_exercise_packs', `school_id = '{sch_a}'`), PAQ],
+    ['anon', 'anon lee school_exercise_packs', 'RECHAZAR', LEER('school_exercise_packs', 'true'), PAQ],
+
+    // ── 9. Paquetes: nadie escribe por la tabla; los del sistema son de solo lectura
+    ['coach', 'coach de A crea un paquete DIRECTO en A (solo por RPC)', 'RECHAZAR', W(`insert into public.exercise_packs (school_id, sport, name) values ('{sch_a}', 'futbol', 'RLS directo')`), PAQ],
+    ['owner', 'owner de A crea un paquete del sistema DIRECTO', 'RECHAZAR', W(`insert into public.exercise_packs (school_id, sport, name) values (null, 'futbol', 'RLS sistema')`), PAQ],
+    ['owner', 'owner de A edita un paquete del sistema', 'RECHAZAR', W(`update public.exercise_packs set name = 'RLS editado' where id = '{pk_sys}'`), PAQ],
+    ['owner', 'owner de A se apropia de un paquete del sistema', 'RECHAZAR', W(`update public.exercise_packs set school_id = '{sch_a}' where id = '{pk_sys}'`), PAQ],
+    ['owner', 'owner de A borra un paquete del sistema', 'RECHAZAR', W(`delete from public.exercise_packs where id = '{pk_sys}'`), PAQ],
+    ['owner', 'owner de A edita su propio paquete DIRECTO (solo por RPC)', 'RECHAZAR', W(`update public.exercise_packs set is_active = false where id = '{pk_a}'`), PAQ],
+    ['coach', 'coach de A se activa un paquete DIRECTO (insert en school_exercise_packs)', 'RECHAZAR', W(`insert into public.school_exercise_packs (school_id, pack_id) values ('{sch_a}', '{pk_sys2}')`), PAQ],
+    ['owner', 'owner de A borra activaciones DIRECTO', 'RECHAZAR', W(`delete from public.school_exercise_packs where school_id = '{sch_a}'`), PAQ],
+    ['coach', 'coach de A cuelga un ejercicio de A de un paquete del SISTEMA (trigger)', 'RECHAZAR', NUEVO_EJ(`'{sch_a}'`, `'{coach}'`, `pack_id|'{pk_sys}'`), PAQ],
+    ['coach', 'coach de A cuelga un ejercicio de A de un paquete de B (trigger)', 'RECHAZAR', NUEVO_EJ(`'{sch_a}'`, `'{coach}'`, `pack_id|'{pk_b}'`), PAQ],
+    ['coach', 'coach de A crea un ejercicio dentro de un paquete de A', 'ACEPTAR', NUEVO_EJ(`'{sch_a}'`, `'{coach}'`, `pack_id|'{pk_a}'`), PAQ],
+    ['coach', 'coach de A mueve un ejercicio de A al paquete del sistema (trigger)', 'RECHAZAR', UPD_EJ('{ex_a_coach}', `pack_id = '{pk_sys}'`), PAQ],
+
+    // ── 10. Paquetes: activar / desactivar (RPC, gate admin ∪ táctico) ───────
+    ['coach', 'coach de A activa un paquete del sistema en A', 'ACEPTAR', RPC_PAQ('activate_exercise_pack', '{sch_a}', '{pk_sys2}'),
+        { ...PAQ, chk: `select count(*)::int from public.school_exercise_packs where school_id = '{sch_a}' and pack_id = '{pk_sys2}' and activated_by = '{coach}'` }],
+    ['owner', 'owner de A desactiva un paquete del sistema en A', 'ACEPTAR', RPC_PAQ('deactivate_exercise_pack', '{sch_a}', '{pk_sys}'),
+        { ...PAQ, chk: `select (count(*) = 0)::int from public.school_exercise_packs where school_id = '{sch_a}' and pack_id = '{pk_sys}'` }],
+    ['nontac', 'admin (no táctico) de A activa un paquete (spec: admin ∪ táctico)', 'ACEPTAR', RPC_PAQ('activate_exercise_pack', '{sch_a}', '{pk_sys2}'), PAQ],
+    ['coach', 'coach de A desactiva (oculta) un paquete propio de A', 'ACEPTAR', RPC_PAQ('deactivate_exercise_pack', '{sch_a}', '{pk_a}'),
+        { ...PAQ, chk: `select (not is_active)::int from public.exercise_packs where id = '{pk_a}'` }],
+    ['reporter', 'staff NO gestor (ni admin ni táctico) activa un paquete en su escuela', 'RECHAZAR', RPC_PAQ('activate_exercise_pack', '{sch_r}', '{pk_sys2}'), PAQ],
+    ['reporter', 'staff NO gestor desactiva un paquete en su escuela', 'RECHAZAR', RPC_PAQ('deactivate_exercise_pack', '{sch_r}', '{pk_sys}'), PAQ],
+    ['coach', 'coach de A activa un paquete para la escuela B', 'RECHAZAR', RPC_PAQ('activate_exercise_pack', '{sch_b}', '{pk_sys2}'),
+        { ...PAQ, chk: `select count(*)::int from public.school_exercise_packs where school_id = '{sch_b}' and pack_id = '{pk_sys2}' and activated_by = '{coach}'` }],
+    ['staff_b', 'coach de B activa un paquete en la escuela A', 'RECHAZAR', RPC_PAQ('activate_exercise_pack', '{sch_a}', '{pk_sys2}'), PAQ],
+    ['coach', 'coach de A activa en A un paquete de la escuela B', 'RECHAZAR', RPC_PAQ('activate_exercise_pack', '{sch_a}', '{pk_b}'), PAQ],
+    ['coach', 'coach de A desactiva en A un paquete de la escuela B', 'RECHAZAR', RPC_PAQ('deactivate_exercise_pack', '{sch_a}', '{pk_b}'),
+        { ...PAQ, chk: `select count(*)::int from public.exercise_packs where id = '{pk_b}' and is_active = false` }],
+    ['parent', 'padre de A activa un paquete en A', 'RECHAZAR', RPC_PAQ('activate_exercise_pack', '{sch_a}', '{pk_sys2}'), PAQ],
+    ['athlete', 'atleta de A activa un paquete en A', 'RECHAZAR', RPC_PAQ('activate_exercise_pack', '{sch_a}', '{pk_sys2}'), PAQ],
+    ['anon', 'anon ejecuta activate_exercise_pack', 'RECHAZAR', RPC_PAQ('activate_exercise_pack', '{sch_a}', '{pk_sys2}'), PAQ],
+
+    // ── 11. Paquetes: importar (RPC transaccional) ───────────────────────────
+    ['coach', 'coach de A importa un paquete en A (paquete + 2 ejercicios, una transacción)', 'ACEPTAR', RPC_IMPORT('{sch_a}', 'RLS importado', DOS_EJ),
+        { ...PAQ, chk: `select (count(*) = 2)::int from public.training_exercises e join public.exercise_packs p on p.id = e.pack_id where p.school_id = '{sch_a}' and p.name = 'RLS importado' and p.created_by = '{coach}' and e.school_id = '{sch_a}' and e.created_by = '{coach}' and not e.is_template` }],
+    ['coach', 'coach de A importa con ids/escuela/autor inyectados: se ignoran', 'ACEPTAR',
+        RPC_IMPORT('{sch_a}', 'RLS inyectado', [{ name: 'RLS trampa', id: '{ex_b}', school_id: '{sch_b}', created_by: '{owner}', pack_id: '{pk_b}', is_template: true, times_used: 999 }]),
+        { ...PAQ, chk: `select (count(*) filter (where e.school_id = '{sch_a}' and e.created_by = '{coach}' and not e.is_template and e.times_used = 0 and e.id <> '{ex_b}') = 1 and count(*) filter (where e.id = '{ex_b}') = 0)::int from public.training_exercises e join public.exercise_packs p on p.id = e.pack_id where p.name = 'RLS inyectado'` }],
+    ['owner', 'owner de A importa en A', 'ACEPTAR', RPC_IMPORT('{sch_a}', 'RLS owner', DOS_EJ), PAQ],
+    ['coach', 'coach de A importa en la escuela B', 'RECHAZAR', RPC_IMPORT('{sch_b}', 'RLS ajeno', DOS_EJ),
+        { ...PAQ, chk: `select count(*)::int from public.exercise_packs where school_id = '{sch_b}' and name = 'RLS ajeno'` }],
+    ['staff_b', 'coach de B importa en la escuela A', 'RECHAZAR', RPC_IMPORT('{sch_a}', 'RLS ajeno', DOS_EJ), PAQ],
+    ['reporter', 'staff NO gestor importa en su escuela', 'RECHAZAR', RPC_IMPORT('{sch_r}', 'RLS reporter', DOS_EJ), PAQ],
+    ['parent', 'padre de A importa en A', 'RECHAZAR', RPC_IMPORT('{sch_a}', 'RLS padre', DOS_EJ), PAQ],
+    ['anon', 'anon ejecuta import_exercise_pack', 'RECHAZAR', RPC_IMPORT('{sch_a}', 'RLS anon', DOS_EJ), PAQ],
+    ['coach', 'coach de A importa 201 ejercicios (tope 200)', 'RECHAZAR',
+        RPC_IMPORT('{sch_a}', 'RLS gigante', Array.from({ length: 201 }, (_, i) => ({ name: `E${i}` }))), PAQ],
+    ['coach', 'coach de A importa con un ejercicio inválido al final: se rechaza TODO (sin paquete a medias)', 'RECHAZAR',
+        RPC_IMPORT('{sch_a}', 'RLS atomico', [{ name: 'Bien' }, { name: 'Mal', sport: 'quidditch' }]), PAQ],
+    ['coach', 'coach de A importa un paquete sin nombre', 'RECHAZAR',
+        `select ((public.import_exercise_pack('{sch_a}'::uuid, '{"pack":{"sport":"futbol"},"exercises":[{"name":"x"}]}'::jsonb)) ->> 'pack_id' is not null)::int`, PAQ],
+
+    // ── 12. Paquetes: invariantes estáticos ──────────────────────────────────
+    ...[
+        ['activate_exercise_pack', 'public.activate_exercise_pack(uuid,uuid)'],
+        ['deactivate_exercise_pack', 'public.deactivate_exercise_pack(uuid,uuid)'],
+        ['import_exercise_pack', 'public.import_exercise_pack(uuid,jsonb)'],
+    ].flatMap(([nombre, firma]) => [
+        ['postgres', `${nombre}: SECURITY DEFINER con search_path fijo (incluye pg_temp)`, 'ACEPTAR',
+            `select (p.prosecdef and exists (select 1 from unnest(p.proconfig) c where c like 'search_path=%pg_temp%'))::int from pg_proc p where p.oid = '${firma}'::regprocedure`, PAQ],
+        ['postgres', `${nombre}: sin EXECUTE para anon ni PUBLIC`, 'ACEPTAR',
+            `select (not has_function_privilege('anon', '${firma}', 'EXECUTE') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = '${firma}'::regprocedure and a.grantee = 0))::int`, PAQ],
+        ['postgres', `${nombre}: EXECUTE explícito para authenticated`, 'ACEPTAR',
+            `select has_function_privilege('authenticated', '${firma}', 'EXECUTE')::int`, PAQ],
+    ]),
+    ['postgres', 'exercise_packs / school_exercise_packs: solo policies SELECT y authenticated sin INSERT/UPDATE/DELETE', 'ACEPTAR',
+        `select ((select count(*) from pg_policies where schemaname = 'public' and tablename in ('exercise_packs', 'school_exercise_packs') and cmd <> 'SELECT') = 0 and not exists (select 1 from unnest(array['public.exercise_packs','public.school_exercise_packs']) t, unnest(array['INSERT','UPDATE','DELETE']) p where has_table_privilege('authenticated', t, p)))::int`, PAQ],
+    ['postgres', 'anon sin ningún privilegio en exercise_packs / school_exercise_packs', 'ACEPTAR',
+        `select (not exists (select 1 from unnest(array['public.exercise_packs','public.school_exercise_packs']) t, unnest(array['SELECT','INSERT','UPDATE','DELETE']) p where has_table_privilege('anon', t, p)))::int`, PAQ],
+    ['postgres', 'RLS activa en exercise_packs y school_exercise_packs', 'ACEPTAR',
+        `select (count(*) = 2)::int from pg_class where oid in ('public.exercise_packs'::regclass, 'public.school_exercise_packs'::regclass) and relrowsecurity`, PAQ],
+    ['postgres', 'paquetes del sistema: ninguna plantilla SportMaps sin paquete', 'ACEPTAR',
+        `select (count(*) = 0)::int from public.training_exercises where school_id is null and is_template and pack_id is null`, PAQ],
+
+    // ── 13. Invariantes estáticos (como postgres; n = 1 si se cumple) ────────
     ...[
         ['log_tactical_board_event', 'public.log_tactical_board_event(uuid,text,uuid,text,text)'],
         ['insert_exercise_into_session_block', 'public.insert_exercise_into_session_block(uuid,uuid,uuid,uuid)'],
@@ -218,9 +330,9 @@ const CASOS = [
             `select has_function_privilege('authenticated', '${firma}', 'EXECUTE')::int`],
     ]),
     ['postgres', 'I3: ninguna policy FOR ALL sin WITH CHECK en las tablas de la pizarra', 'ACEPTAR',
-        `select (count(*) = 0)::int from pg_policies where schemaname = 'public' and tablename in ('training_exercises','tactical_board_events','match_lineups','match_lineup_players','team_tactical_presets') and cmd = 'ALL' and with_check is null`],
+        `select (count(*) = 0)::int from pg_policies where schemaname = 'public' and tablename in ('training_exercises','tactical_board_events','match_lineups','match_lineup_players','team_tactical_presets','exercise_packs','school_exercise_packs') and cmd = 'ALL' and with_check is null`],
     ['postgres', 'I2: ninguna policy de escritura usa user_school_ids() en las tablas de la pizarra', 'ACEPTAR',
-        `select (count(*) = 0)::int from pg_policies where schemaname = 'public' and tablename in ('training_exercises','tactical_board_events','match_lineups','match_lineup_players','team_tactical_presets') and cmd in ('INSERT','UPDATE','DELETE','ALL') and (coalesce(qual, '') || coalesce(with_check, '')) ~ 'user_school_ids\\('`],
+        `select (count(*) = 0)::int from pg_policies where schemaname = 'public' and tablename in ('training_exercises','tactical_board_events','match_lineups','match_lineup_players','team_tactical_presets','exercise_packs','school_exercise_packs') and cmd in ('INSERT','UPDATE','DELETE','ALL') and (coalesce(qual, '') || coalesce(with_check, '')) ~ 'user_school_ids\\('`],
     ['postgres', 'tactical_board_events: sin policies de escritura y authenticated sin INSERT/UPDATE/DELETE', 'ACEPTAR',
         `select ((select count(*) from pg_policies where schemaname = 'public' and tablename = 'tactical_board_events' and cmd <> 'SELECT') = 0 and not has_table_privilege('authenticated', 'public.tactical_board_events', 'INSERT') and not has_table_privilege('authenticated', 'public.tactical_board_events', 'UPDATE') and not has_table_privilege('authenticated', 'public.tactical_board_events', 'DELETE'))::int`],
     ['postgres', 'anon sin ningún privilegio en training_exercises / tactical_board_events / vista', 'ACEPTAR',
@@ -241,7 +353,7 @@ function construirSql() {
         const texto = `${sql} ${extra.chk ?? ''} {${actor}}`;
         const needs = [...new Set([...texto.matchAll(/\{([a-z_0-9]+)\}/g)].map((m) => m[1]))]
             .filter((k) => !['postgres', 'anon'].includes(k));
-        return { i, actor, sql, chk: extra.chk ?? null, needs };
+        return { i, actor, sql, chk: extra.chk ?? null, needs, requiere: extra.requiere ?? null };
     });
     const json = JSON.stringify(casos);
     if (json.includes('$casos$')) throw new Error('delimitador $casos$ dentro de un caso');
@@ -261,7 +373,7 @@ DECLARE
   v     text;
   falta text;
   v_sch uuid; v_coach uuid; v_owner uuid; v_parent uuid; v_athlete uuid; v_nontac uuid; v_nontac_rol text;
-  v_schb uuid; v_staffb uuid; v_id uuid; pasada int;
+  v_schb uuid; v_staffb uuid; v_id uuid; pasada int; v_rep uuid; v_schr uuid;
 BEGIN
   -- ── Actores: usuarios reales validados con los helpers de RLS ─────────────
   -- Pasada 1: escuela A con TODOS los actores (incluidos atleta y admin no
@@ -346,11 +458,28 @@ BEGIN
   IF v_schb IS NULL THEN
     RAISE EXCEPTION 'PZERR no se encontró una escuela B con un coach válido';
   END IF;
+
+  -- Staff que NO gestiona (ni admin ni táctico: p. ej. reporter), en cualquier
+  -- escuela R. Opcional: si no hay, sus casos se omiten.
+  FOR m IN SELECT sm.profile_id, sm.school_id FROM public.school_members sm
+            WHERE sm.status = 'active'
+              AND sm.role NOT IN ('parent', 'athlete', 'accountant', 'owner', 'admin', 'school_admin', 'super_admin', 'coach')
+              AND EXISTS (SELECT 1 FROM auth.users u WHERE u.id = sm.profile_id)
+            ORDER BY sm.role, sm.profile_id
+  LOOP
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', m.profile_id, 'role', 'authenticated')::text, true);
+    IF NOT public.is_super_admin()
+       AND m.school_id = ANY (public.user_staff_school_ids())
+       AND NOT (m.school_id = ANY (public.user_admin_school_ids()))
+       AND NOT (m.school_id = ANY (public.user_tactical_edit_school_ids())) THEN
+      v_rep := m.profile_id; v_schr := m.school_id; EXIT;
+    END IF;
+  END LOOP;
   PERFORM set_config('request.jwt.claims', '', true);
 
   ids := jsonb_strip_nulls(jsonb_build_object(
     'sch_a', v_sch, 'sch_b', v_schb, 'coach', v_coach, 'owner', v_owner, 'parent', v_parent,
-    'athlete', v_athlete, 'nontac', v_nontac, 'staff_b', v_staffb));
+    'athlete', v_athlete, 'nontac', v_nontac, 'staff_b', v_staffb, 'reporter', v_rep, 'sch_r', v_schr));
 
   SELECT ts.id, ts.team_id INTO s FROM public.training_sessions ts
    WHERE ts.school_id = v_sch AND ts.team_id IS NOT NULL ORDER BY ts.created_at DESC LIMIT 1;
@@ -390,10 +519,39 @@ BEGIN
           '[{"slot_label":"Medio","x":50,"y":50}]'::jsonb, v_coach) RETURNING id INTO v_id;
   ids := ids || jsonb_build_object('preset_a', v_id);
 
+  -- Paquetes (M2): solo si la migración está aplicada. SQL dinámico para que
+  -- el bloque compile aunque las tablas no existan.
+  IF to_regclass('public.exercise_packs') IS NOT NULL THEN
+    EXECUTE 'SELECT id FROM public.exercise_packs WHERE school_id IS NULL AND is_active ORDER BY id LIMIT 1' INTO v_id;
+    ids := ids || jsonb_strip_nulls(jsonb_build_object('pk_sys', v_id));
+    EXECUTE 'SELECT id FROM public.exercise_packs WHERE school_id IS NULL AND is_active ORDER BY id OFFSET 1 LIMIT 1' INTO v_id;
+    ids := ids || jsonb_strip_nulls(jsonb_build_object('pk_sys2', v_id));
+    EXECUTE 'INSERT INTO public.exercise_packs (school_id, sport, name, created_by) VALUES ($1, ''futbol'', ''RLS paquete de A'', $2) RETURNING id'
+      INTO v_id USING v_sch, v_coach;
+    ids := ids || jsonb_build_object('pk_a', v_id);
+    EXECUTE 'INSERT INTO public.exercise_packs (school_id, sport, name, created_by) VALUES ($1, ''futbol'', ''RLS paquete de B'', $2) RETURNING id'
+      INTO v_id USING v_schb, v_staffb;
+    ids := ids || jsonb_build_object('pk_b', v_id);
+    IF ids ? 'pk_sys' THEN
+      -- A tiene activado pk_sys (y pk_sys2 no): para leer y desactivar.
+      EXECUTE 'DELETE FROM public.school_exercise_packs WHERE school_id = $1' USING v_sch;
+      EXECUTE 'INSERT INTO public.school_exercise_packs (school_id, pack_id, activated_by) VALUES ($1, $2, $3)'
+        USING v_sch, (ids->>'pk_sys')::uuid, v_owner;
+      IF v_schr IS NOT NULL THEN
+        EXECUTE 'INSERT INTO public.school_exercise_packs (school_id, pack_id, activated_by) VALUES ($1, $2, NULL) ON CONFLICT DO NOTHING'
+          USING v_schr, (ids->>'pk_sys')::uuid;
+      END IF;
+    END IF;
+  END IF;
+
   -- ── Casos: cada uno en su subbloque, que SIEMPRE termina en excepción ─────
   FOR c IN SELECT * FROM jsonb_to_recordset($casos$${json}$casos$::jsonb)
-                    AS x(i int, actor text, sql text, chk text, needs text[])
+                    AS x(i int, actor text, sql text, chk text, needs text[], requiere text)
   LOOP
+    IF c.requiere IS NOT NULL AND to_regclass(c.requiere) IS NULL THEN
+      res := res || jsonb_build_array(jsonb_build_object('i', c.i, 'pendiente', c.requiere));
+      CONTINUE;
+    END IF;
     falta := (SELECT string_agg(x, ',') FROM unnest(c.needs) AS x WHERE NOT ids ? x);
     IF falta IS NOT NULL THEN
       res := res || jsonb_build_array(jsonb_build_object('i', c.i, 'skip', falta));
@@ -488,7 +646,7 @@ const { ids, nontac_rol: nontacRol, res } = JSON.parse(m[1]);
 
 console.log('');
 console.log('Actores y datos elegidos (UUIDs):');
-for (const k of ['sch_a', 'coach', 'owner', 'nontac', 'parent', 'athlete', 'sch_b', 'staff_b', 'ses_a', 'ses_b']) {
+for (const k of ['sch_a', 'coach', 'owner', 'nontac', 'parent', 'athlete', 'sch_b', 'staff_b', 'reporter', 'sch_r', 'ses_a', 'ses_b']) {
     const extra = k === 'nontac' && nontacRol ? `  (rol ${nontacRol})` : '';
     console.log(`  ${k.padEnd(8)} ${ids[k] ?? '— (no hay; sus casos se omiten)'}${extra}`);
 }
@@ -497,9 +655,15 @@ console.log('');
 let fallas = 0;
 let pendientes = 0;
 let omitidos = 0;
+let sinAplicar = 0;
 const porIndice = new Map(res.map((r) => [r.i, r]));
 CASOS.forEach(([actor, nombre, esperado, , extra = {}], i) => {
     const r = porIndice.get(i);
+    if (r?.pendiente) {
+        sinAplicar++;
+        console.log(`⏸️  [${esperado}] (${actor}) ${nombre}  [esperado tras ${extra.tras}]  →  omitido: ${r.pendiente} no existe (migración sin aplicar)`);
+        return;
+    }
     if (!r || r.skip) {
         omitidos++;
         console.log(`⏭️  [${esperado}] (${actor}) ${nombre}  →  omitido: falta ${r?.skip ?? 'resultado'}`);
@@ -521,6 +685,6 @@ CASOS.forEach(([actor, nombre, esperado, , extra = {}], i) => {
 console.log('');
 console.log('─'.repeat(77));
 const total = CASOS.length;
-console.log(`${total - fallas - pendientes - omitidos} de ${total} casos como se esperaba · ${pendientes} hueco(s) conocido(s) pendiente(s) de migración · ${fallas} falla(s) nueva(s) · ${omitidos} omitido(s).`);
+console.log(`${total - fallas - pendientes - omitidos - sinAplicar} de ${total} casos como se esperaba · ${pendientes} hueco(s) conocido(s) pendiente(s) de migración · ${fallas} falla(s) nueva(s) · ${omitidos} omitido(s) · ${sinAplicar} a la espera de ${MIG_PAQUETES} sin aplicar (no cuentan como falla).`);
 console.log('Nada quedó escrito: el lote corrió en una sola sentencia que terminó en RAISE EXCEPTION.');
 process.exit(fallas + pendientes > 0 ? 1 : 0);

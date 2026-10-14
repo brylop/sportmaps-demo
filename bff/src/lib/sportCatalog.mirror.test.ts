@@ -21,6 +21,6 @@ describe('catálogo de deportes: espejo frontend ↔ BFF', () => {
   it('la copia del BFF resuelve igual (humo)', () => {
     expect(resolveSport('Fútbol Sala').key).toBe('futsal');
     expect(resolveSport('Cheerleading All-Star').key).toBe('cheerleading');
-    expect(schoolBoardSports({ teams: [{ sport: 'Voleibol' }], schoolSports: ['Fútbol'] })).toEqual(['futbol', 'voleibol', 'generico']);
+    expect(schoolBoardSports({ teams: [{ sport: 'Voleibol' }], schoolSports: ['Fútbol'] })).toEqual(['futbol', 'futbol7', 'futbol5', 'voleibol', 'generico']);
   });
 });

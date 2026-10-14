@@ -24,6 +24,12 @@
  * genéricas («Preparación física»). El filtro va en la consulta: las
  * plantillas de otros deportes ni siquiera salen del BFF. Los ejercicios
  * PROPIOS de la escuela se listan siempre (son suyos, de cualquier deporte).
+ *
+ * D4 (M2, paquetes — exercisePacks.ts / exercisePackState.ts): además, si la
+ * escuela activó paquetes, las plantillas son SOLO las de esos paquetes
+ * (∩ sus deportes); si no activó ninguno, todas las de sus deportes (modo
+ * «todos», compatibilidad). Los ejercicios de un paquete propio desactivado
+ * no se listan. Con la migración sin aplicar, todo sigue como antes.
  */
 import { Router, Response } from 'express';
 import { supabase } from '../../config/supabase';
@@ -31,6 +37,7 @@ import { requireAuth, requireRole, AuthenticatedRequest } from '../../middleware
 import { userClient } from '../../utils/userClient';
 import { validateExerciseInput, sanitizeSearch, EXERCISE_SPORTS, UUID_RE } from './exerciseShapes';
 import { schoolBoardSports, type BoardSport } from '../../lib/sportCatalog';
+import { loadPackVisibility } from './exercisePackState';
 
 const router = Router();
 
@@ -136,18 +143,26 @@ router.get(
 
       // templates=true → solo SportMaps; templates=false → solo de mi escuela;
       // sin el parámetro → las dos. Las plantillas, SOLO de los deportes de la
-      // escuela (D1).
+      // escuela (D1) y, si activó paquetes, solo de esos (D4).
       const ownOnly = !isTrue(templates) && (isFalse(templates) || isTrue(mine));
+      const packs = await loadPackVisibility(schoolId); // null = M2 sin aplicar
+      const packIn = packs?.mode === 'seleccion' ? packs.activatedSystemPackIds : null;
+      const hiddenOwn = packs && packs.hiddenOwnPackIds.length > 0 ? packs.hiddenOwnPackIds : null;
+      const ownVisible = hiddenOwn ? `or(pack_id.is.null,pack_id.not.in.(${hiddenOwn.join(',')}))` : null;
       if (isTrue(templates)) {
         const allowed: string[] = await loadSchoolLibrarySports(schoolId);
         const templateSports = (wanted ?? allowed).filter((s) => allowed.includes(s));
         if (templateSports.length === 0) return res.json([]);
         query = query.is('school_id', null).eq('is_template', true).in('sport', templateSports);
+        if (packIn) query = query.in('pack_id', packIn);
       } else if (ownOnly) {
         query = query.eq('school_id', schoolId);
+        if (ownVisible) query = query.or(ownVisible.slice(3, -1));
       } else {
         const allowed = await loadSchoolLibrarySports(schoolId);
-        query = query.or(`school_id.eq.${schoolId},and(school_id.is.null,is_template.eq.true,sport.in.(${allowed.join(',')}))`);
+        const ownCond = ownVisible ? `and(school_id.eq.${schoolId},${ownVisible})` : `school_id.eq.${schoolId}`;
+        const tplCond = `and(school_id.is.null,is_template.eq.true,sport.in.(${allowed.join(',')})${packIn ? `,pack_id.in.(${packIn.join(',')})` : ''})`;
+        query = query.or(`${ownCond},${tplCond}`);
       }
 
       if (isTrue(mine)) query = query.eq('created_by', user.id);
@@ -178,6 +193,8 @@ router.get(
 );
 
 // GET /api/v1/school/exercises/:id
+// No mira los paquetes a propósito: un bloque de sesión que ya usó una
+// plantilla de un paquete que la escuela después desactivó la sigue abriendo.
 router.get(
   '/exercises/:id',
   requireAuth,

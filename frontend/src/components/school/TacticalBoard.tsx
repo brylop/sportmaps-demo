@@ -42,6 +42,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Loader2, Square, X, Bookmark, Redo2, Trash2, ChevronDown, PenLine, Undo2, Eraser, Ruler, Sparkles, Plus, Play, Copy, RotateCw, Pencil, Type, Users, MoreHorizontal, Package, LayoutGrid } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { startHintFormationLabel } from '@/lib/school/tacticalStartHint';
 import { useTeamPerformanceRoster } from '@/hooks/usePerformanceData';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
@@ -3141,11 +3142,14 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                           Pon a tus jugadores en la cancha o dibuja un ejercicio. Todo se puede mover después.
                         </p>
                         <Button
-                          className="w-full h-11 gap-2 text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white"
+                          className="w-full h-auto min-h-11 py-2 gap-2 text-sm font-bold whitespace-normal bg-emerald-600 hover:bg-emerald-500 text-white"
                           onClick={() => applyFormation(defaultFormation)}
                         >
-                          <LayoutGrid className="h-4 w-4" />
-                          Poner jugadores ({defaultFormation.key === 'f7-2-3-1' ? 'F7 2-3-1' : defaultFormation.label})
+                          <LayoutGrid className="h-4 w-4 shrink-0" />
+                          <span className="flex min-w-0 flex-col items-center leading-tight">
+                            <span>Poner jugadores</span>
+                            <span className="text-xs font-semibold text-white/85 break-words">{startHintFormationLabel(defaultFormation)}</span>
+                          </span>
                         </Button>
                         <Button
                           variant="outline"

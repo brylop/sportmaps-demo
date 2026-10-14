@@ -8,6 +8,10 @@
  * y «Preparación física» (lo genérico) siempre. Con un solo deporte la fila de
  * chips no aparece. El BFF ya no manda plantillas de otros deportes.
  *
+ * M2 (D4): pestaña «Paquetes» (ExercisePacksTab) para activar, exportar e
+ * importar paquetes; la lista de plantillas ya llega filtrada por los
+ * paquetes activados desde el BFF.
+ *
  * Es un <Dialog> propio. Quien lo abre desde OTRO Dialog (SessionFormDialog,
  * TacticalBoard) tiene que ocultar el suyo mientras este está abierto —
  * dos Dialogs de Radix abiertos a la vez se cierran solos (ver el comentario
@@ -22,6 +26,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TacticalStaticSvg } from '@/components/school/TacticalStaticSvg';
+import { ExercisePacksTab } from '@/components/school/ExercisePacksTab';
 import { isTacticalSport } from '@/lib/school/tacticalSports';
 import {
   EXERCISE_SPORT_LABEL,
@@ -32,7 +37,7 @@ import {
   type TrainingExercise,
 } from '@/lib/school/exerciseLibrary';
 
-type Source = 'templates' | 'school';
+type Source = 'templates' | 'school' | 'packs';
 
 /** Objetivos frecuentes como atajo (son etiquetas: filtran por `tag`). */
 const OBJECTIVE_CHIPS: { tag: string; label: string }[] = [
@@ -116,7 +121,7 @@ export function ExerciseLibraryPanel({
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['training-exercises', params],
     queryFn: () => listExercises(params),
-    enabled: open,
+    enabled: open && source !== 'packs',
     staleTime: 60_000,
   });
 
@@ -160,10 +165,11 @@ export function ExerciseLibraryPanel({
         ) : (
           <div className="space-y-4 min-w-0">
             {/* Origen: una acción por fila, botones grandes (celular). */}
-            <div className="grid grid-cols-2 gap-2" role="tablist" aria-label="Origen de los ejercicios">
+            <div className="grid grid-cols-3 gap-2" role="tablist" aria-label="Origen de los ejercicios">
               {([
                 { value: 'templates', label: 'Plantillas SportMaps' },
                 { value: 'school', label: 'De mi escuela' },
+                { value: 'packs', label: 'Paquetes' },
               ] as const).map((o) => (
                 <Button
                   key={o.value}
@@ -171,7 +177,7 @@ export function ExerciseLibraryPanel({
                   role="tab"
                   aria-selected={source === o.value}
                   variant={source === o.value ? 'default' : 'outline'}
-                  className="min-h-11"
+                  className="min-h-11 h-auto px-2 py-2 whitespace-normal leading-tight text-center"
                   onClick={() => setSource(o.value)}
                 >
                   {o.label}
@@ -179,6 +185,7 @@ export function ExerciseLibraryPanel({
               ))}
             </div>
 
+            {source === 'packs' ? <ExercisePacksTab /> : (<>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -244,6 +251,7 @@ export function ExerciseLibraryPanel({
                 ))}
               </div>
             )}
+            </>)}
           </div>
         )}
       </DialogContent>
