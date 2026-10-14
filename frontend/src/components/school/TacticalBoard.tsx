@@ -97,6 +97,8 @@ import {
   removeFrameAt, serializeFrames, setFrameDuration, totalDurationMs, type InterpolatedPlayer,
 } from '@/lib/school/tacticalAnimation';
 import { TacticalTimeline, TacticalFramePlayback, type PlayState, type PlaybackSpeed } from './TacticalTimeline';
+import { TacticalAiOverlay, TacticalAiPanel, type AiPreview } from './TacticalAiPanel';
+import { buildAnalyzeRequest, hasAiAnalysis } from '@/lib/school/tacticalAi';
 
 const SITUATION_LABEL: Record<TacticalSituation, string> = {
   ataque: 'Ataque',
@@ -1279,6 +1281,11 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
    *  un camino aparte. */
   const canEdit = roleCanEdit && boardMode === 'edit';
   const viewing = !canEdit;
+  // M3 «Analizar jugada» con IA: acá solo el montaje (botón + panel + capa);
+  // la lógica vive en TacticalAiPanel.tsx y lib/school/tacticalAi.ts.
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiPreview, setAiPreview] = useState<AiPreview | null>(null);
+  useEffect(() => { if (!open) { setAiOpen(false); setAiPreview(null); } }, [open]);
   const { data: roster, isLoading: loadingRoster } = useTeamPerformanceRoster({ team_id: teamId });
   const { data: existingList, isLoading: loadingList } = useFootballLineups({ source_type: sourceType, source_id: sourceId });
   const existingLineupId = existingList?.[0]?.id;
@@ -2320,6 +2327,18 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     setArrows(target.arrows);
     setSelectedShape(null);
   }
+  /** M3: la sugerencia de la IA pasa a ser la jugada de la cancha. No se
+   *  guarda sola (Guardar jugada) y Deshacer vuelve a la del coach. */
+  function applyAiFrames(next: TacticalFrame[], titulo: string) {
+    if (next.length === 0) return;
+    setAiPreview(null);
+    if (playingSequence) stopPlayback();
+    exitFramePlayback();
+    const meta = realPlaced();
+    setBoardMode('edit');
+    loadFrame(next, 0, meta);
+    toast({ title: 'Sugerencia IA en la cancha', description: `«${titulo}». No se guarda hasta que toques Guardar jugada; Deshacer vuelve a tu jugada.` });
+  }
   function selectFrame(index: number) {
     exitFramePlayback();
     if (index === frameIndex) return;
@@ -2895,6 +2914,21 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
           <div className="ml-auto flex items-center gap-1.5 pr-8">
             {/* «Exportar ▾» (T2) en ver y en editar; cada exportación es un
                 evento de la métrica (T0). */}
+            {!loading && roleCanEdit && hasAiAnalysis(sport) && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className={`${TB_BTN} ${aiOpen ? TB_ON : TB_IDLE}`}
+                onClick={() => { setAiOpen((v) => !v); setAiPreview(null); }}
+                aria-pressed={aiOpen}
+                disabled={playingSequence}
+                title="La IA lee la jugada y sugiere riesgos, contraataques y variantes"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Analizar jugada</span>
+                <span className="sm:hidden">IA</span>
+              </Button>
+            )}
             {!loading && (
               <TacticalExportMenu
                 getInput={buildExportInput}
@@ -3012,6 +3046,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                   {/* T4: fondo del deporte del equipo. Fútbol 11 = FootballPitchBackground tal cual. */}
                   <CourtBackground sport={sport} viewBox={viewBoxOf(view)} />
                   {showZones && sportCfg.showZonesOption && <ZoneOverlay view={view} />}
+                  {aiPreview && <TacticalAiOverlay preview={aiPreview} view={view} />}
                   {!viewing && !framePlaybackActive && emptySlots.map((es) => (
                     <EmptySlotMarker
                       key={es.id}
@@ -3609,6 +3644,22 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
             </div>
           </DndContext>
         )}
+        <TacticalAiPanel
+          open={aiOpen && !loading}
+          onClose={() => { setAiOpen(false); setAiPreview(null); }}
+          getRequest={() => {
+            const list = committedFrames().map((f) => ({ ...f, players: f.players.filter((p) => subjectByKey.has(p.key)) }));
+            if (!list.some((f) => f.players.length > 0)) return null;
+            return buildAnalyzeRequest({ teamId, sport, frames: list, labelOf: (k) => (placed[k] ?? metaRef.current[k])?.slot_label });
+          }}
+          sport={sport}
+          canApply={roleCanEdit}
+          canBuy={['owner', 'super_admin', 'admin', 'school_admin'].includes(currentUserRole || '')}
+          preview={aiPreview}
+          onPreview={setAiPreview}
+          onApply={applyAiFrames}
+          isMobile={isMobile}
+        />
       </DialogContent>
     </Dialog>
     {cardSubject && roster && (
