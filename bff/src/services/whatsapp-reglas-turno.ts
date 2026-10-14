@@ -18,6 +18,8 @@
  * minúsculas y con la puntuación vuelta espacio.
  */
 
+import { desgloseMora, textoDesgloseMora } from '../utils/desglose-mora';
+
 export function normalizarFrase(t: string | null | undefined): string {
     return (t || '')
         .toLowerCase()
@@ -133,6 +135,8 @@ export interface PagoDeEstado {
     vencido?: boolean | null;
     /** /p/:token del cobro (whatsapp-enlaces-de-pago), si se pudo emitir. */
     enlace_pago?: string | null;
+    /** Recargo por mora que ya va DENTRO del saldo (payments.late_fee_amount), si la consulta lo trae. */
+    late_fee_amount?: number | string | null;
 }
 
 export interface FilaDeColaFamilia {
@@ -208,7 +212,10 @@ export function textoYaPague(
             ? 'Esto todavía figura pendiente en el sistema:'
             : 'Por ahora el sistema muestra pendiente:');
         for (const p of pendientes.slice(0, 5)) {
-            lineas.push(`• ${p.concept}: ${copFmt(Number(p.saldo ?? p.amount ?? 0))}`);
+            const saldo = Number(p.saldo ?? p.amount ?? 0);
+            lineas.push(`• ${p.concept}: ${copFmt(saldo)}`);
+            const mora = desgloseMora(saldo, p.late_fee_amount);
+            if (mora) lineas.push(`   ${textoDesgloseMora(mora, copFmt)}`);
             if (p.enlace_pago) lineas.push(`   Pagar: ${p.enlace_pago}`);
         }
         if (hayAlgo && (enCola.length || enRevision.length)) {

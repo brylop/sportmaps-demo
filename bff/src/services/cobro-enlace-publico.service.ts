@@ -12,7 +12,8 @@
  * cobro"), así el webhook de Wompi lo concilia sin saber que vino de acá.
  *
  * Reglas que se respetan del checkout existente (create-session):
- *   · El monto se calcula en el servidor: base = payments.amount; en línea se
+ *   · El monto se calcula en el servidor: base = payments.amount - amount_paid
+ *     (la mora ya va dentro de amount: apply_late_fees la suma); en línea se
  *     suma `online_fee_pct` de school_settings (recargo de la escuela, ver
  *     memoria "recargo online = de la escuela"). Por transferencia, la base.
  *   · Solo se cobra en línea lo que está en 'pending' u 'overdue' y sin
@@ -76,8 +77,15 @@ export interface VistaCobroPublico {
     periodo: string | null;
     deportista: string | null;
     estado: EstadoCobro;
-    /** Lo que se paga por transferencia (sin recargo). */
+    /** Lo que se paga por transferencia (sin recargo): saldo = amount - amount_paid, mora incluida. */
     monto: number;
+    /**
+     * Recargo por mora que ya está DENTRO de `monto` (payments.late_fee_amount,
+     * lo suma apply_late_fees cada noche); 0 si no hay. Es solo para mostrar el
+     * desglose «Mensualidad $X · Recargo por mora $Y»: no se suma otra vez.
+     * Nombre en snake_case a propósito: es el contrato con la página /p/:token.
+     */
+    late_fee_amount: number;
     fechaVencimiento: string | null;
     fechaPago: string | null;
     enlaceVenceEn: string;
@@ -228,6 +236,38 @@ export function estadoPublico(status: string, dueDate: string | null, hoyISO: st
     }
 }
 
+/**
+ * Lo que falta por pagar del cobro, misma regla que el modal de cobros
+ * (frontend/src/lib/cobrosYPagos.ts):
+ *   saldo = amount - amount_paid - early_payment_discount_applied   (nunca negativo)
+ * La mora ya está dentro de `amount` (apply_late_fees la suma ahí), así que el
+ * saldo la incluye. Un abono por debajo del total deja el cobro en 'partial'
+ * con amount_paid: se cobra solo lo que falta. Es la base de la vista, del
+ * checkout (recargo en línea sobre este saldo) y del reuso de links.
+ */
+export function saldoDelCobro(p: {
+    amount?: number | string | null;
+    amount_paid?: number | string | null;
+    early_payment_discount_applied?: number | string | null;
+}): number {
+    const total = Number(p.amount) || 0;
+    const pagado = Number(p.amount_paid) || 0;
+    const pronto = Number(p.early_payment_discount_applied) || 0;
+    return Math.max(total - pagado - pronto, 0);
+}
+
+/**
+ * Estados que se pueden pagar en línea: pendiente, vencido y abonado
+ * ('partial': pagó una parte, se cobra el saldo).
+ */
+export const ESTADOS_PAGABLES_EN_LINEA = ['pending', 'overdue', 'partial'];
+
+/** Recargo por mora del cobro (payments.late_fee_amount); 0 si no hay o no es número. */
+export function moraDelCobro(p: { late_fee_amount?: number | string | null }): number {
+    const v = Number(p.late_fee_amount);
+    return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
 /** Mismo cálculo que create-session (payments.routes.ts §5): recargo redondeado al peso. */
 export function montosEnLinea(base: number, feePct: number): { recargo: number; total: number } {
     const recargo = Math.round(base * (feePct / 100));
@@ -250,7 +290,7 @@ const permiteSandbox = () => process.env.PAGO_PUBLICO_PERMITE_SANDBOX === 'true'
 // Lecturas
 // ─────────────────────────────────────────────────────────────────────────────
 
-const COLS_COBRO = 'id, school_id, amount, status, concept, payment_category, due_date, payment_date, period_year, period_month, '
+const COLS_COBRO = 'id, school_id, amount, amount_paid, early_payment_discount_applied, late_fee_amount, status, concept, payment_category, due_date, payment_date, period_year, period_month, '
     + 'child_id, user_id, parent_id, unregistered_athlete_id, requires_review';
 
 async function leerCobro(paymentId: string, schoolId: string) {
@@ -292,7 +332,7 @@ async function escuelaOperativa(schoolId: string): Promise<boolean> {
  * resueltas (para firmar) o null. No escribe nada.
  */
 async function pasarelaParaCobro(p: any) {
-    if (!['pending', 'overdue'].includes(p.status) || p.requires_review) return null;
+    if (!ESTADOS_PAGABLES_EN_LINEA.includes(p.status) || p.requires_review) return null;
     if (!(await escuelaOperativa(p.school_id))) return null;
 
     const resolved = await resolveProvider({ schoolId: p.school_id, preferredProvider: 'wompi' });
@@ -378,7 +418,7 @@ async function otrosPendientesDelPagador(p: any): Promise<VistaCobroPublico['otr
             concepto: String(o.concept || 'Mensualidad'),
             periodo: periodoDeCobro(o),
             deportista: await nombreDelDeportista(o),
-            monto: Number(o.amount),
+            monto: saldoDelCobro(o),
             fechaVencimiento: o.due_date ? String(o.due_date).slice(0, 10) : null,
             vencido: estadoPublico(o.status, o.due_date, hoy) === 'vencido',
         });
@@ -412,7 +452,9 @@ export async function vistaDelCobro(r: Extract<ResultadoResolver, { ok: true }>)
         otrosPendientesDelPagador(p),
     ]);
 
-    const monto = Number(p.amount);
+    // Saldo vigente, recalculado en cada clic: si anoche apply_late_fees sumó
+    // la mora a payments.amount, la familia ve (y paga) el monto ya con mora.
+    const monto = saldoDelCobro(p);
     const periodo = periodoDeCobro(p);
     const concepto = String(p.concept || 'Mensualidad');
     const estado = estadoPublico(p.status, p.due_date, hoyBogota());
@@ -437,10 +479,11 @@ export async function vistaDelCobro(r: Extract<ResultadoResolver, { ok: true }>)
         deportista,
         estado,
         monto,
+        late_fee_amount: moraDelCobro(p),
         fechaVencimiento: p.due_date ? String(p.due_date).slice(0, 10) : null,
         fechaPago: estado === 'pagado' && p.payment_date ? String(p.payment_date).slice(0, 10) : null,
         enlaceVenceEn: r.venceEn,
-        enLinea: pasarela
+        enLinea: pasarela && monto > 0
             ? { proveedor: 'wompi', recargoPct: feePct, ...montosEnLinea(monto, feePct) }
             : null,
         transferencia: pagable
@@ -538,7 +581,7 @@ export async function prepararCheckoutDeCobro(
     const minutosUrl = Math.max(5, Math.floor(opts.minutosUrl ?? MINUTOS_LINK_CON_MONTO));
 
     if (p.status === 'paid') return NO_EN_LINEA('ya_pagado', 'Este cobro ya está pagado.');
-    if (!['pending', 'overdue'].includes(p.status)) {
+    if (!ESTADOS_PAGABLES_EN_LINEA.includes(p.status)) {
         return NO_EN_LINEA('no_pagable', 'Este cobro no se puede pagar en línea en este momento.');
     }
     if (p.requires_review) {
@@ -568,7 +611,12 @@ export async function prepararCheckoutDeCobro(
     const { creds } = pasarela;
 
     const feePct = await feePctDe(p.school_id);
-    const baseAmount = Number(p.amount);
+    // Saldo vigente (amount - amount_paid - pronto pago), mora incluida: se recalcula en cada
+    // clic, así que un link creado antes de que corriera apply_late_fees no se
+    // reusa con el monto viejo (ver la comparación de base_amount abajo).
+    const baseAmount = saldoDelCobro(p);
+    // Nada por cobrar (abonos + pronto pago ya cubren el total): Wompi no acepta $0.
+    if (baseAmount <= 0) return NO_EN_LINEA('sin_saldo', 'Este cobro no tiene saldo pendiente.');
     const { recargo: sportmapsFee, total: grossAmount } = montosEnLinea(baseAmount, feePct);
 
     const ahora = Date.now();
@@ -621,7 +669,9 @@ export async function prepararCheckoutDeCobro(
     });
 
     // Reuso solo si los montos siguen vigentes (create-session §5.b: el caso
-    // Dynasty de un link con fee_pct=0 cobrando la tarifa vieja).
+    // Dynasty de un link con fee_pct=0 cobrando la tarifa vieja). La base se
+    // compara contra el saldo ACTUAL: si la mora nocturna subió `amount` (o
+    // entró un abono), el link viejo se expira y se crea otro con el monto nuevo.
     const { data: existente } = await linkActivo();
     if (existente && ref(existente)) {
         const igual = Number((existente as any).fee_pct) === feePct
