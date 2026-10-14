@@ -64,6 +64,13 @@ export interface VerdictContext {
      * familia pagara dos veces.
      */
     restrictedAccounts?: { value: string; onlyFor: string[] }[];
+    /**
+     * Cuentas que la escuela acepta «por fuera de SportMaps» (2026-10-13), YA
+     * normalizadas. NO cuentan como destino de la escuela en el veredicto (un
+     * comprobante a ellas sale DESTINO_NO_COINCIDE); el worker y la
+     * recuperación las usan para clasificar el comprobante como informativo.
+     */
+    cuentasFueraDeSportmaps?: string[];
     /** Categoría resuelta del cobro (solo para el detalle del motivo). */
     paymentCategory?: string | null;
     /** Ventana de días hacia atrás permitida para la fecha (§2.6). Default 5. */

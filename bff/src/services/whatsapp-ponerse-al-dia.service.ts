@@ -56,6 +56,7 @@ import { esSalienteAutomatico, TIPOS_FAMILIA } from './whatsapp-buzon';
 import { tomadaVigente } from './whatsapp-tomada.service';
 import { esCierreSuelto, esAutoRespuesta } from './whatsapp-reglas-turno';
 import { intencionDeProspecto, interesesDeProspecto, puertaDeProspecto, temaEscolar } from './whatsapp-atencion.service';
+import { esMarcaNoFamilia } from './whatsapp-tipo-contacto';
 
 export const VENTANA_MS = 24 * 3600_000;
 /** Un borrador más viejo que esto, en modo auto, ya es un olvido (aviso y resumen diario). */
@@ -113,7 +114,7 @@ export function accionDeConversacion(
     const audios = conContenido.filter((e) => e.tipo === 'audio');
     const otros = conContenido.filter((e) => !TIPOS_TEXTO.has(e.tipo) && !TIPOS_ADJUNTO.has(e.tipo) && e.tipo !== 'audio');
 
-    if (tipo === 'personal') return { accion: 'revisar', motivo: 'contacto personal' };
+    if (esMarcaNoFamilia(tipo)) return { accion: 'revisar', motivo: 'contacto personal' };
     if (tipo === 'staff') return { accion: 'revisar', motivo: 'alguien del equipo' };
 
     // a) Cierre: nada con contenido, o solo «gracias / ok / 👍» (con o sin el

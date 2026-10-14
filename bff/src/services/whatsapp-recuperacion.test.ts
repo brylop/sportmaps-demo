@@ -206,8 +206,15 @@ describe('decidirRecuperacion', () => {
         expect(d).toMatchObject({ decision: 'en_revision', pago: { id: 'b' } });
     });
 
-    it('el monto no desempata → al buzón, no se adivina', () => {
-        const d = decidirRecuperacion({ ...base, pendientes: [PEND('a', 180000), PEND('b', 180000)] });
+    it('mismo monto y MISMO deportista → el más antiguo (la regla del worker, bug 3 del 2026-10-13)', () => {
+        const sep = { ...PEND('sep', 180000), due_date: '2026-09-05' };
+        const d = decidirRecuperacion({ ...base, pendientes: [PEND('oct', 180000), sep] });
+        expect(d).toMatchObject({ decision: 'en_revision', pago: { id: 'sep' } });
+        expect(d.motivo).toContain('el cobro más antiguo');
+    });
+
+    it('mismo monto y deportistas DISTINTOS → al buzón, no se adivina', () => {
+        const d = decidirRecuperacion({ ...base, pendientes: [PEND('a', 180000), { ...PEND('b', 180000), child_id: 'child-2' }] });
         expect(d.decision).toBe('varios_cobros');
     });
 
@@ -352,7 +359,7 @@ describe('recuperarFilaDeCola', () => {
 
     it('lo que va al buzón no le escribe a nadie, ni dentro de la ventana', async () => {
         state.ultimoEntrante = new Date(Date.now() - 3600_000).toISOString();
-        state.pendientes = [PEND('p-sep', 150000), PEND('p-oct', 150000)];
+        state.pendientes = [PEND('p-sep', 150000), { ...PEND('p-oct', 150000), child_id: 'child-2' }];
         const r = await recuperarFilaDeCola({ ...FILA }, WA, { aplicar: true, ocrFn });
         expect(r.decision).toBe('varios_cobros');
         expect(enviar).not.toHaveBeenCalled();
@@ -437,7 +444,8 @@ describe('importarAdjunto', () => {
 // ─── Reglas del 2026-10-06 ───────────────────────────────────────────────────
 
 const PEND_DE = (id: string, amount: number, concept: string, atleta: string | null, due = '2026-10-05') => ({
-    id, amount, concept, due_date: due, child_id: 'child-1', atleta,
+    // Cada deportista con su ficha (hermanos = child_id distintos).
+    id, amount, concept, due_date: due, child_id: atleta ? `child-${atleta.split(' ')[0].toLowerCase()}` : 'child-1', atleta,
 });
 
 describe('monto: abono, menor de la cuenta y mayor', () => {
@@ -450,13 +458,21 @@ describe('monto: abono, menor de la cuenta y mayor', () => {
         expect(d.decision).toBe('monto_distinto');
         expect(d.pago).toBeUndefined();
     });
-    it('MAYOR → al buzón con la sugerencia (varios meses o hermanos)', () => {
-        const d = decidirPorMonto(p, 360000, [p], 'x');
-        expect(d.decision).toBe('monto_distinto');
-        expect(d.pago).toBeUndefined();
-        expect(d.motivo).toContain('2 cobros de 180000');
+    it('MAYOR → se toma el pago y lo de más queda como saldo a favor (decisión 2026-10-13)', () => {
+        const d = decidirPorMonto(p, 210000, [p], 'x');
+        expect(d).toMatchObject({ decision: 'en_revision', pago: { id: 'oct' }, excedente: 30000 });
+        expect(d.motivo).toContain('saldo a favor');
+    });
+    it('MAYOR que suma justo todos los pendientes sin poder repartir → decide la escuela', () => {
         const otro = PEND('nov', 90000);
-        expect(decidirPorMonto(p, 270000, [p, otro], 'x').motivo).toContain('suma de los 2 cobros');
+        const d = decidirPorMonto(p, 270000, [p, otro], 'x');
+        expect(d.decision).toBe('monto_distinto');
+        expect(d.motivo).toContain('suma de los 2 cobros');
+    });
+    it('el monto con el recargo del enlace de pago es pago completo, no excedente', () => {
+        const d = decidirPorMonto(p, 189000, [p], 'x', new Map([['oct', [189000]]]));
+        expect(d).toMatchObject({ decision: 'en_revision', pago: { id: 'oct' }, esperado: 189000 });
+        expect(d.excedente).toBeUndefined();
     });
     it('igual o ilegible → en revisión normal', () => {
         expect(decidirPorMonto(p, 180000, [p], 'x').decision).toBe('en_revision');
@@ -516,7 +532,7 @@ describe('familia sin cuenta: cobros por la ficha', () => {
     it('con fichas del teléfono → mismas reglas (en revisión / varios / ya registrado)', () => {
         const familia = { tipo: 'sin_cuenta', childIds: ['child-9'] } as const;
         expect(decidirRecuperacion({ ...base, familia, pendientes: [PEND('a', 180000)] }).decision).toBe('en_revision');
-        expect(decidirRecuperacion({ ...base, familia, pendientes: [PEND('a', 180000), PEND('b', 180000)] }).decision).toBe('varios_cobros');
+        expect(decidirRecuperacion({ ...base, familia, pendientes: [PEND('a', 180000), { ...PEND('b', 180000), child_id: 'child-2' }] }).decision).toBe('varios_cobros');
         expect(decidirRecuperacion({ ...base, familia, pagadosQueCubren: [REG({})], pendientes: [] }).decision).toBe('ya_registrado');
     });
     it('sin fichas → al buzón como antes', () => {

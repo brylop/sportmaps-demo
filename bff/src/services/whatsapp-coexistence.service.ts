@@ -17,6 +17,7 @@
 
 import type { Logger } from 'pino';
 import { supabase } from '../config/supabase';
+import { esContactoSinContenido, leerConMarca } from './whatsapp-tipo-contacto';
 import { resolveIntegration, type WhatsAppIntegration } from './whatsapp.service';
 import {
     ECHO_AUTOMATICO_MIN_LARGO, ECHO_AUTOMATICO_VENTANA_MS,
@@ -54,20 +55,21 @@ export function payloadSinContenido(m: any): Record<string, unknown> {
     return out;
 }
 
-/** ¿La conversación de este contacto está marcada 'personal'? Ante un error, no. Nunca lanza. */
+/**
+ * ¿De este contacto se guardan solo metadatos? Marcado a mano como no-familia
+ * (personal, negocio, otro club, plataforma) y SIN «también es familia»: con la
+ * bandera sí se guarda, porque sus comprobantes se aplican a los cobros de sus
+ * hijos. Ante un error, no. Nunca lanza.
+ */
 export async function esContactoPersonal(integrationId: string, contactWaId: string): Promise<boolean> {
-    try {
-        const { data, error } = await supabase
-            .from('whatsapp_conversations')
-            .select('contact_kind')
-            .eq('integration_id', integrationId)
-            .eq('contact_wa_id', contactWaId)
-            .maybeSingle();
-        if (error) return false;
-        return (data as any)?.contact_kind === 'personal';
-    } catch {
-        return false;
-    }
+    const { data, error } = await leerConMarca((cols) => supabase
+        .from('whatsapp_conversations')
+        .select(cols)
+        .eq('integration_id', integrationId)
+        .eq('contact_wa_id', contactWaId)
+        .maybeSingle(), 'id');
+    if (error) return false;
+    return esContactoSinContenido((data as any)?.contact_kind, (data as any)?.tambien_familia);
 }
 
 /** La conversación de ese contacto (creándola si no existía) y si está marcada 'personal'. */
@@ -75,13 +77,16 @@ async function conversacionConTipo(
     integration: WhatsAppIntegration,
     contactWaId: string,
 ): Promise<{ id: string; personal: boolean } | null> {
-    const { data: existente } = await supabase
+    const { data: existente } = await leerConMarca((cols) => supabase
         .from('whatsapp_conversations')
-        .select('id, contact_kind')
+        .select(cols)
         .eq('integration_id', integration.id)
         .eq('contact_wa_id', contactWaId)
-        .maybeSingle();
-    if (existente) return { id: (existente as any).id, personal: (existente as any).contact_kind === 'personal' };
+        .maybeSingle(), 'id');
+    if (existente) {
+        return { id: (existente as any).id,
+                 personal: esContactoSinContenido((existente as any).contact_kind, (existente as any).tambien_familia) };
+    }
 
     // `uq_wa_conversation` cubre (integration_id, contact_wa_id): si dos trozos
     // del historial llegan a la vez, el segundo choca en vez de duplicar.

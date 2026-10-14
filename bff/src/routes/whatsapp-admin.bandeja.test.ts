@@ -160,8 +160,9 @@ describe('GET /:schoolId/bandeja', () => {
         expect(varios.grupo).toBe('accion');
         expect(varios.conversacion_id).toBe('conv-1');
         expect(varios.archivo_url).toBe('https://firmada/A/whatsapp/f-varios.jpeg');
-        expect(r.json.filas.find((f: any) => f.id === 'f-personal').grupo).toBe('informativo');
-        expect(r.json.resumen).toEqual({ accion: 1, revisar: 1, informativo: 3, total: 5 });
+        // Contacto marcado personal (2026-10-13): sus filas no entran ni cuentan.
+        expect(ids).not.toContain('f-personal');
+        expect(r.json.resumen).toEqual({ accion: 1, revisar: 1, informativo: 2, total: 4 });
 
         // El barrido no escribió en payments.
         expect(estado.escrituras.some((e) => e.tabla === 'payments')).toBe(false);

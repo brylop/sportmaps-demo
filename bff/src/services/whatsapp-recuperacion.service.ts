@@ -49,9 +49,13 @@ import {
 } from './whatsapp-receipt-matching.service';
 import crypto from 'node:crypto';
 import {
-    destinoEsDeLaEscuela, estamparComprobante, obtenerArchivoDeFila, elegirPorPista, pistaDesdeTextos,
-    type FilaCola,
+    destinoEsDeLaEscuela, destinoFueraDeSportmaps, estamparComprobante, obtenerArchivoDeFila, elegirPorPista,
+    pistaDesdeTextos, type FilaCola,
 } from '../jobs/whatsapp-queue.job';
+import { elMasAntiguoDelMismoDeportista } from './whatsapp-cobro-por-texto.service';
+import {
+    cargarRecargos, cubrirCobrosConComprobante, huellasDelComprobante, ordenarDelMasAntiguo, textoExcedente,
+} from './whatsapp-excedente.service';
 import { normalizarFrase } from './whatsapp-reglas-turno';
 import { categoriaDelCobro } from './tipo-de-cobro';
 import { sendTextMessage, aFormatoWhatsApp, type WhatsAppIntegration } from './whatsapp.service';
@@ -87,6 +91,7 @@ export type DecisionRecuperacion =
     | 'no_es_comprobante'
     | 'es_listado'
     | 'destino_ajeno'
+    | 'fuera_de_sportmaps'   // a una cuenta que la escuela acepta por fuera de la app: informativo
     | 'sin_pendientes'
     | 'varios_cobros'        // el monto no desempata, o puede ser uno ya registrado
     | 'monto_distinto'       // un solo cobro pendiente, pero el comprobante es por otro valor
@@ -121,6 +126,25 @@ export interface ResultadoRecuperacion {
     veredicto?: string | null;
     /** Qué se le dijo a la familia (solo cuando quedó en un cobro y se aplicó). */
     aviso?: AvisoRecuperacion;
+    /** sha256 de la imagen: huella para que la bandeja enlace la fila con el pago. */
+    sha?: string | null;
+    /** Otros cobros que paga el MISMO comprobante (suma exacta), además de `pago`. */
+    pagosCubiertos?: PagoPendiente[];
+    /** Lo que debe decir el comprobante si no es el valor del cobro (recargo del link o suma). */
+    esperado?: number;
+    /** Lo que pagó de más: queda como saldo a favor cuando la escuela aprueba. */
+    excedente?: number;
+}
+
+/** Lo que devuelve la regla (sin la lectura ni quién es la familia). */
+export interface DecisionDeRecuperacion {
+    decision: DecisionRecuperacion;
+    motivo: string;
+    pago?: PagoPendiente;
+    pagoRegistradoId?: string | null;
+    pagosCubiertos?: PagoPendiente[];
+    esperado?: number;
+    excedente?: number;
 }
 
 // ─── Fechas ──────────────────────────────────────────────────────────────────
@@ -191,10 +215,18 @@ export function decidirRecuperacion(e: {
     textos?: (string | null | undefined)[];
     /** El pie de la foto solo: pesa más que el chat para decir de qué concepto es. */
     pie?: string | null;
-}): { decision: DecisionRecuperacion; motivo: string; pago?: PagoPendiente; pagoRegistradoId?: string | null } {
+    /** El dinero fue a una cuenta que la escuela acepta «por fuera de SportMaps». */
+    fueraDeSportmaps?: boolean;
+    /** Montos con el recargo del enlace de pago de cada cobro (id → montos). */
+    recargos?: Map<string, number[]>;
+}): DecisionDeRecuperacion {
     const { ocr } = e;
+    const recargos = e.recargos ?? new Map<string, number[]>();
     if (ocr.isReceipt === false) return { decision: 'no_es_comprobante', motivo: 'el archivo no es un comprobante de pago' };
     if (ocr.isTransactionList === true) return { decision: 'es_listado', motivo: 'listado de movimientos, no un comprobante' };
+    if (e.fueraDeSportmaps) {
+        return { decision: 'fuera_de_sportmaps', motivo: `el dinero fue a ${ocr.destination ?? '?'}, una cuenta que la escuela acepta por fuera de SportMaps` };
+    }
     if (!e.destinoDeLaEscuela) {
         return { decision: 'destino_ajeno', motivo: `el dinero fue a ${ocr.destination ?? '?'}, que no es una cuenta de la escuela` };
     }
@@ -251,6 +283,14 @@ export function decidirRecuperacion(e: {
     }
     if (otro.tipo === 'a_la_escuela') return { decision: 'otro_concepto', motivo: motivoOtroConcepto(otro.senal) };
 
+    // Recargo del enlace de pago (2026-10-13): el monto es el de UN cobro con su
+    // recargo online (aunque hoy la escuela cobre otro %): pago completo de ese.
+    if (monto !== null && e.pendientes.length > 1 && !e.pendientes.some((p) => p.amount === monto)) {
+        const conRecargo = e.pendientes.filter((p) => (recargos.get(p.id) ?? []).includes(monto));
+        const elegido = conRecargo.length === 1 ? conRecargo[0] : elMasAntiguoDelMismoDeportista(conRecargo);
+        if (elegido) return decidirPorMonto(elegido, monto, e.pendientes, 'el cobro del enlace de pago', recargos);
+    }
+
     const match = resolverPago(e.pendientes, monto);
     if (match.tipo === 'sin_pendientes') {
         // ¿Otro mes ya pagado por el mismo valor? No se marca ya_registrado
@@ -265,12 +305,22 @@ export function decidirRecuperacion(e: {
             pagoRegistradoId: parecido?.id ?? null,
         };
     }
-    if (match.tipo === 'unico') return decidirPorMonto(match.pago, monto, e.pendientes, 'el único cobro pendiente');
+    if (match.tipo === 'unico') return decidirPorMonto(match.pago, monto, e.pendientes, 'el único cobro pendiente', recargos);
     if (match.tipo === 'por_monto') {
         return { decision: 'en_revision', motivo: `a ${describirPago(match.pago)}`, pago: match.pago };
     }
     if (match.tipo === 'combinacion') {
-        return { decision: 'varios_cobros', motivo: `parece cubrir ${match.pagos.length} cobros a la vez: aplicarlo a mano` };
+        // Suma exacta (2026-10-13): a todos, empezando por el más antiguo. El
+        // principal lleva el comprobante; los demás quedan en revisión con el
+        // mismo archivo (wa_cubrir_cobros_con_comprobante).
+        const [principal, ...cubre] = ordenarDelMasAntiguo(match.pagos);
+        return {
+            decision: 'en_revision',
+            motivo: `cubre ${match.pagos.length} cobros: ${match.pagos.map(describirPago).join(' + ')}`,
+            pago: principal,
+            pagosCubiertos: cubre,
+            esperado: match.pagos.reduce((s, p) => s + p.amount, 0),
+        };
     }
 
     // El monto no desempata: ¿la familia dijo a cuál iba? (2026-10-06)
@@ -278,7 +328,15 @@ export function decidirRecuperacion(e: {
     const exactos = monto !== null ? e.pendientes.filter((p) => p.amount === monto) : [];
     const candidatos = exactos.length > 1 ? exactos : e.pendientes;
     const elegido = desempatarCobro(candidatos, e.textos ?? []);
-    if (elegido) return decidirPorMonto(elegido.pago, monto, e.pendientes, `el cobro señalado ${elegido.via}`);
+    if (elegido) return decidirPorMonto(elegido.pago, monto, e.pendientes, `el cobro señalado ${elegido.via}`, recargos);
+    // «El más antiguo» (la misma regla del worker, `elMasAntiguoDelMismoDeportista`):
+    // varios del mismo monto del MISMO deportista, o un monto MAYOR que el más
+    // antiguo (lo de más queda como saldo a favor). Con deportistas distintos,
+    // o un monto menor, no se adivina.
+    const masAntiguo = elMasAntiguoDelMismoDeportista(candidatos);
+    if (masAntiguo && (exactos.length > 1 || (monto !== null && monto > masAntiguo.amount))) {
+        return decidirPorMonto(masAntiguo, monto, e.pendientes, 'el cobro más antiguo', recargos);
+    }
     return {
         decision: 'varios_cobros',
         motivo: `${e.pendientes.length} cobros pendientes y ni el monto ni el chat desempatan: `
@@ -311,9 +369,20 @@ export function decidirPorMonto(
     monto: number | null,
     pendientes: PagoPendiente[],
     cual: string,
-): { decision: DecisionRecuperacion; motivo: string; pago?: PagoPendiente } {
+    recargos: Map<string, number[]> = new Map(),
+): DecisionDeRecuperacion {
+    const sufijo = cual.startsWith('el único') ? '' : ` (${cual})`;
     if (monto === null || monto === pago.amount) {
-        return { decision: 'en_revision', motivo: `a ${describirPago(pago)}${cual.startsWith('el único') ? '' : ` (${cual})`}`, pago };
+        return { decision: 'en_revision', motivo: `a ${describirPago(pago)}${sufijo}`, pago };
+    }
+    // Recargo del enlace de pago: es pago completo (el recargo es de la escuela).
+    if ((recargos.get(pago.id) ?? []).includes(monto)) {
+        return {
+            decision: 'en_revision',
+            motivo: `a ${describirPago(pago)}${sufijo}: ${monto} es el valor con el recargo del enlace de pago`,
+            pago,
+            esperado: monto,
+        };
     }
     if (monto < pago.amount) {
         if (monto >= pago.amount * ABONO_MINIMO) {
@@ -325,7 +394,20 @@ export function decidirPorMonto(
         }
         return { decision: 'monto_distinto', motivo: `leído ${monto}: menos del ${ABONO_MINIMO * 100} % de ${describirPago(pago)} (${cual})` };
     }
-    return { decision: 'monto_distinto', motivo: `leído ${monto}: MAYOR que ${describirPago(pago)} (${cual}); ${sugerenciaMontoMayor(monto, pago, pendientes)}` };
+    // MAYOR (decisión de la escuela, 2026-10-13): se toma el pago igual y lo de
+    // más queda como saldo a favor cuando la escuela lo aprueba (lo registra la
+    // base: trg_payments_saldo_a_favor_al_aprobar). Si suma justo TODOS los
+    // pendientes y no se pudo repartir (más de una combinación), decide la escuela.
+    const suma = pendientes.reduce((s, p) => s + p.amount, 0);
+    if (pendientes.length > 1 && suma === monto) {
+        return { decision: 'monto_distinto', motivo: `leído ${monto}: MAYOR que ${describirPago(pago)} (${cual}); ${sugerenciaMontoMayor(monto, pago, pendientes)}` };
+    }
+    return {
+        decision: 'en_revision',
+        motivo: `leído ${monto}: MAYOR que ${describirPago(pago)}${sufijo}; ${monto - pago.amount} de más quedan como saldo a favor al aprobar`,
+        pago,
+        excedente: monto - pago.amount,
+    };
 }
 
 /** Qué puede ser un comprobante mayor que el cobro, para el motivo del buzón. */
@@ -444,6 +526,9 @@ export function cierreDeFila(
         // llamador pida avisar (la recuperación de la cola, ver arriba).
         outcome_notified_at: ahoraIso,
         matched_parent_id: r.parentId ?? null,
+        // Huellas (bug 1 del informe 2026-10-13): sin sha ni referencia la
+        // bandeja no podía enlazar la fila con el pago y no la cerraba sola.
+        ...(r.sha || r.ocr ? { pregunta_ocr: huellasDelComprobante({ sha: r.sha, ocr: r.ocr, parentId: r.parentId ?? null }) } : {}),
     };
     switch (r.decision) {
         case 'en_revision':
@@ -457,6 +542,7 @@ export function cierreDeFila(
             return { ...base, status: 'ignored', result_type: 'none', result_ref_id: r.pagoRegistradoId ?? null };
         case 'no_es_comprobante':
         case 'es_listado':
+        case 'fuera_de_sportmaps':
             return { ...base, status: 'ignored', result_type: 'none' };
         case 'archivo_no_disponible':
             return { ...base, status: 'failed', result_type: 'none' };
@@ -528,7 +614,9 @@ export interface LlavesDeFamilia { parentId?: string | null; childIds?: string[]
 /** Filtro `.or()` de PostgREST para las llaves; null si no hay ninguna. */
 export function filtroDeFamilia(k: LlavesDeFamilia): string | null {
     const partes: string[] = [];
-    if (k.parentId) partes.push(`parent_id.eq.${k.parentId}`);
+    // Un atleta ADULTO identificado por su número (bug 5, 2026-10-13) aparece
+    // como `parentId`; sus cobros pueden estar con user_id = él.
+    if (k.parentId) partes.push(`parent_id.eq.${k.parentId}`, `user_id.eq.${k.parentId}`);
     if (k.childIds?.length) partes.push(`child_id.in.(${k.childIds.join(',')})`);
     if (k.unregisteredIds?.length) partes.push(`unregistered_athlete_id.in.(${k.unregisteredIds.join(',')})`);
     return partes.length ? partes.join(',') : null;
@@ -626,8 +714,9 @@ export async function procesarComprobanteRecuperado(e: EntradaComprobante): Prom
         return { decision: 'reintentar', motivo: `OCR no disponible: ${err?.message ?? err}`, ocr: null, parentId };
     }
 
-    const [destinoDeLaEscuela, yaUsadoEn] = await Promise.all([
+    const [destinoDeLaEscuela, fueraDeSportmaps, yaUsadoEn] = await Promise.all([
         destinoEsDeLaEscuela(e.schoolId, ocr),
+        destinoFueraDeSportmaps(e.schoolId, ocr),
         buscarComprobanteYaUsado(e.schoolId, ocr, e.sha),
     ]);
 
@@ -653,12 +742,15 @@ export async function procesarComprobanteRecuperado(e: EntradaComprobante): Prom
         pagadosQueCubren = pagosQueYaCubren(registrados, ocr.amount ?? null, fechaDeReferencia(ocr.date, e.fechaMensaje));
     }
 
+    const recargos = await cargarRecargos(e.schoolId, pendientes);
     const d = decidirRecuperacion({
         familia: e.familia, ocr, destinoDeLaEscuela, yaUsadoEn, pagadosQueCubren, pendientes, registrados,
         textos: [...(e.textos ?? []), ocr.description],
         pie: e.pie ?? null,
+        fueraDeSportmaps,
+        recargos,
     });
-    const resultado: ResultadoRecuperacion = { ...d, ocr, parentId };
+    const resultado: ResultadoRecuperacion = { ...d, ocr, parentId, sha: e.sha };
 
     if ((d.decision !== 'en_revision' && d.decision !== 'abono_en_revision') || !e.aplicar) return resultado;
 
@@ -669,6 +761,7 @@ export async function procesarComprobanteRecuperado(e: EntradaComprobante): Prom
     const estampado = await estamparComprobante(
         { queueId: e.queueId, schoolId: e.schoolId, storagePath: e.storagePath, sha: e.sha, ocr, log: e.log },
         d.pago as PagoPendiente,
+        d.esperado,
     );
     if (!estampado.ok) {
         if (estampado.duplicado) {
@@ -683,6 +776,12 @@ export async function procesarComprobanteRecuperado(e: EntradaComprobante): Prom
     if (!estampado.actualizado) {
         // Lo registró la escuela entre la búsqueda y el estampado.
         return { ...resultado, decision: 'sin_pendientes', pago: undefined, motivo: 'el cobro dejó de estar pendiente mientras se procesaba' };
+    }
+    if (d.pagosCubiertos?.length) {
+        const c = await cubrirCobrosConComprobante(e.schoolId, (d.pago as PagoPendiente).id, d.pagosCubiertos.map((p) => p.id));
+        // Si falla, el principal queda con el comprobante entero y, al aprobarlo,
+        // lo de más se vuelve saldo a favor de esos mismos cobros. Queda en el log.
+        if (!c.ok) e.log?.warn?.({ queueId: e.queueId, err: c.error }, '[wa-recuperar] no se pudieron cubrir los otros cobros');
     }
     return { ...resultado, veredicto: estampado.veredicto.verdict };
 }
@@ -752,6 +851,8 @@ export async function identificarFamilia(
 /** Teléfonos de la escuela, leídos una vez por corrida. */
 export interface CacheEscuela {
     acudientesPorTel?: Map<string, Set<string>>;
+    /** Teléfono del perfil de un atleta ADULTO activo de la escuela → perfiles. */
+    adultosPorTel?: Map<string, Set<string>>;
     /** Teléfono del acudiente en la ficha (`children.parent_phone_temp`) → hijos activos. */
     hijosPorTelFicha?: Map<string, string[]>;
     /** Teléfono de `unregistered_athletes` (acudiente o propio) → deportistas sin registrar activos. */
@@ -789,6 +890,26 @@ async function leerTelefonosDeLaEscuela(schoolId: string, cache: CacheEscuela): 
         }
     }
     cache.acudientesPorTel = porTel;
+
+    // Atletas adultos activos (school_members role 'athlete'), como el bloque
+    // «Atleta adulto» de wa_identify_by_phone (migración 20261013165308).
+    const adultos = new Map<string, Set<string>>();
+    try {
+        const { data: miembros } = await supabase.from('school_members').select('profile_id')
+            .eq('school_id', schoolId).eq('role', 'athlete').eq('status', 'active').limit(5000);
+        const ids = Array.from(new Set(((miembros ?? []) as any[]).map((m) => m?.profile_id).filter(Boolean))) as string[];
+        for (let i = 0; i < ids.length; i += 150) {
+            const { data: perfiles } = await supabase.from('profiles').select('id, phone').in('id', ids.slice(i, i + 150));
+            for (const p of (perfiles ?? []) as any[]) {
+                const t = tel10(p?.phone);
+                if (!/^3\d{9}$/.test(t)) continue;
+                if (!adultos.has(t)) adultos.set(t, new Set());
+                adultos.get(t)!.add(p.id);
+            }
+        }
+    } catch { /* sin adultos: como antes */ }
+    cache.adultosPorTel = adultos;
+
     const hijosPorTel = new Map<string, string[]>();
     for (const h of (hijos ?? []) as any[]) if (h.id) agregar(hijosPorTel, tel10(h.parent_phone_temp), h.id);
     cache.hijosPorTelFicha = hijosPorTel;
@@ -836,6 +957,10 @@ async function identificarSoloLectura(schoolId: string, contactWaId: string, cac
     const ids = cache.acudientesPorTel!.get(t);
     if (ids && ids.size > 1) return { tipo: 'ambiguo' };
     if (ids && ids.size === 1) return { tipo: 'identificado', parentId: Array.from(ids)[0] };
+    // Ningún acudiente con ese número: ¿un atleta adulto con su propio número?
+    const adultos = cache.adultosPorTel?.get(t);
+    if (adultos && adultos.size > 1) return { tipo: 'ambiguo' };
+    if (adultos && adultos.size === 1) return { tipo: 'identificado', parentId: Array.from(adultos)[0] };
     if (cache.hijosPorTelFicha!.has(t)) return { tipo: 'sin_cuenta' };
     // STABLE en la base: solo lee `unregistered_athletes`.
     const { data } = await supabase.rpc('wa_es_familia_sin_registrar', { p_school_id: schoolId, p_contact_wa_id: contactWaId });
@@ -1018,7 +1143,9 @@ export type AvisoRecuperacion =
     | `error: ${string}`;
 
 /** El texto para la familia. Pura. */
-export function mensajeRecuperacion(r: Pick<ResultadoRecuperacion, 'decision' | 'pago' | 'ocr'>): string | null {
+export function mensajeRecuperacion(
+    r: Pick<ResultadoRecuperacion, 'decision' | 'pago' | 'ocr' | 'pagosCubiertos' | 'excedente'>,
+): string | null {
     if (!r.pago) return null;
     const monto = r.ocr?.amount
         ? new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(r.ocr.amount)
@@ -1029,7 +1156,9 @@ export function mensajeRecuperacion(r: Pick<ResultadoRecuperacion, 'decision' | 
         return `Recibí tu comprobante${de} y quedó como abono a *${describirPago(r.pago)}* 📄${cierre}`;
     }
     if (r.decision === 'en_revision') {
-        return `Recibí tu comprobante${de} y quedó aplicado a *${describirPago(r.pago)}* 📄${cierre}`;
+        const cobros = [r.pago, ...(r.pagosCubiertos ?? [])].map((p) => `*${describirPago(p)}*`).join(' y ');
+        const extra = r.excedente ? `\n\n${textoExcedente(r.excedente)}` : '';
+        return `Recibí tu comprobante${de} y quedó aplicado a ${cobros} 📄${extra}${cierre}`;
     }
     return null;
 }
