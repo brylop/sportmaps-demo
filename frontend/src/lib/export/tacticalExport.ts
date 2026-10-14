@@ -5,6 +5,8 @@
  * Punto de entrada único; cada pieza vive en su archivo:
  *  - tacticalPdf.ts          ficha A4
  *  - tacticalVideo.ts        MediaRecorder sobre canvas
+ *  - tacticalGif.ts          GIF cuando no hay MediaRecorder (gifEncoder.ts)
+ *  - tacticalFrameRenderer.ts pintor de cuadros compartido por video y GIF
  *  - tacticalShare.ts        Web Share API / descarga + wa.me
  *  - tacticalInterpolation.ts interpolación pura de cuadros
  */
@@ -26,7 +28,17 @@ export {
   type ExportVideoResult,
   type TacticalVideoFormat,
 } from './tacticalVideo';
-export { shareFile, whatsappTextUrl, isMobileDevice, type ShareResult, type ShareMethod } from './tacticalShare';
+export {
+  exportGif,
+  exportAnimation,
+  gifSampleTimes,
+  type ExportGifOptions,
+  type ExportGifResult,
+  type ExportAnimationOptions,
+  type ExportAnimationResult,
+} from './tacticalGif';
+export { pickAnimationKind, animationLabel, type TacticalAnimationKind } from './tacticalAnimationFormat';
+export { shareFile, canShareFiles, whatsappTextUrl, isMobileDevice, type ShareResult, type ShareMethod } from './tacticalShare';
 export { interpolateFrames, framesDuration, frameToStatic, easeInOutCubic, type InterpolatedState } from './tacticalInterpolation';
 export { exportFileName, cleanPdfText } from './tacticalExportUtils';
 
