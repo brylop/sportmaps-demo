@@ -420,6 +420,12 @@ export function PaymentCheckoutModal({
 
   const chargeAmount = discountResult.eligible ? discountResult.finalAmount : finalAmount;
 
+  // Nunca un cobro de $0 (2026-10-13, Dynasty): «Inscripción (monto fijo)» sin
+  // tarifa o un monto variable vacío terminaban en un INSERT con amount = 0 y
+  // la base lo rechazaba (payments_amount_positive) con el error crudo en
+  // pantalla. Artículos y torneo tienen su propio candado (total del carrito).
+  const montoInvalido = !['articulos', 'torneo'].includes(conceptType) && !(chargeAmount > 0);
+
   // Estimación local, solo para previsualizar antes de pedirle la sesión al servidor.
   const estimatedFee = Math.round(chargeAmount * (onlineFeePct / 100));
   const estimatedGross = chargeAmount + estimatedFee;
@@ -444,6 +450,10 @@ export function PaymentCheckoutModal({
   });
 
   const openCheckout = async () => {
+    if (montoInvalido) {
+      toast({ title: 'Falta el valor', description: 'Este cobro no tiene un valor para pagar. Pídele a la escuela que lo configure.', variant: 'destructive' });
+      return;
+    }
     // `createdPaymentId` recuerda el cobro que creamos en un intento anterior de ESTA
     // sesión del modal. Sin él, un segundo clic (p.ej. tras confirmar un monto corregido)
     // volvería a insertar en `payments`: con mensualidad lo frena el índice único de
@@ -1107,9 +1117,19 @@ export function PaymentCheckoutModal({
                         </SelectTrigger>
                         <SelectContent className="bg-white text-gray-900">
                           <SelectItem value="mensualidad" className="text-gray-900 focus:bg-gray-100 focus:text-gray-900">Mensualidad ({concept})</SelectItem>
-                          <SelectItem value="inscripcion_fija" className="text-gray-900 focus:bg-gray-100 focus:text-gray-900">Inscripción Anual (Monto Fijo)</SelectItem>
-                          <SelectItem value="inscripcion_variable" className="text-gray-900 focus:bg-gray-100 focus:text-gray-900">Inscripción Anual (Monto Variable)</SelectItem>
-                          <SelectItem value="otro" className="text-gray-900 focus:bg-gray-100 focus:text-gray-900">Otro Concepto / Abono libre</SelectItem>
+                          {/* Inscripción de monto fijo solo con tarifa; monto variable y abono
+                              libre solo si la escuela recibe abonos (allow_installments). Una
+                              escuela sin abonos (Dynasty) no debe dejar que la familia invente
+                              un cobro ni un valor. */}
+                          {amount > 0 && (
+                            <SelectItem value="inscripcion_fija" className="text-gray-900 focus:bg-gray-100 focus:text-gray-900">Inscripción Anual (Monto Fijo)</SelectItem>
+                          )}
+                          {allowInstallments && (
+                            <SelectItem value="inscripcion_variable" className="text-gray-900 focus:bg-gray-100 focus:text-gray-900">Inscripción Anual (Monto Variable)</SelectItem>
+                          )}
+                          {allowInstallments && (
+                            <SelectItem value="otro" className="text-gray-900 focus:bg-gray-100 focus:text-gray-900">Otro Concepto / Abono libre</SelectItem>
+                          )}
                           {merchEnabled && merchCatalog.length > 0 && (
                             <SelectItem value="articulos" className="text-gray-900 focus:bg-gray-100 focus:text-gray-900">Artículos Deportivos</SelectItem>
                           )}
@@ -1448,7 +1468,7 @@ export function PaymentCheckoutModal({
               {/* Botones acción para los demás métodos (no online ni MP) */}
               {dianDataOk && selectedMethod !== 'online' && selectedMethod !== 'mercadopago' && (
                 <div className="space-y-2 pt-2">
-                  <Button className="w-full" size="lg" disabled={!selectedMethod || processing || (conceptType === 'articulos' && merchTotal === 0) || (conceptType === 'torneo' && tournTotal === 0)} onClick={handlePayClick}>
+                  <Button className="w-full" size="lg" disabled={!selectedMethod || processing || montoInvalido || (conceptType === 'articulos' && merchTotal === 0) || (conceptType === 'torneo' && tournTotal === 0)} onClick={handlePayClick}>
                     {processing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Procesando...</> : `Pagar ${formatCurrency(chargeAmount)}`}
                   </Button>
                   <Button variant="outline" className="w-full" onClick={handleClose} disabled={processing}>Cancelar</Button>
@@ -1479,7 +1499,7 @@ export function PaymentCheckoutModal({
                   <Button
                     className="w-full bg-green-600 hover:bg-green-700"
                     size="lg"
-                    disabled={wompiLoading}
+                    disabled={wompiLoading || montoInvalido}
                     onClick={openCheckout}
                   >
                     {wompiLoading ? (

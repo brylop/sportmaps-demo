@@ -21,6 +21,9 @@
  *     sigue registrado — eran ruido que la escuela no podía sacar de la lista.
  */
 
+import { ETIQUETA_DE_MARCA, esContactoSinContenido, esMarcaNoFamilia, marcaPorNombre,
+         type TipoMarcado } from './whatsapp-tipo-contacto';
+
 /** Prefijo de `error_message` de las filas que cerró la escuela (o el barrido). */
 export const PREFIJO_CERRADA = 'cerrado_escuela:';
 
@@ -37,6 +40,7 @@ export interface FilaCruda {
     error_message: string | null;
     result_type?: string | null;
     result_ref_id?: string | null;
+    matched_child_id?: string | null;
 }
 
 export interface Clasificacion {
@@ -71,6 +75,7 @@ const ETIQUETAS: Record<string, string> = {
     aviso_no_entregado: 'No se le pudo avisar a la familia',
     sin_integracion: 'El canal ya no existe',
     duplicado: 'Comprobante repetido (misma imagen)',
+    fuera_de_sportmaps: 'Pago por fuera de SportMaps',
     otro: 'Sin clasificar',
 };
 
@@ -97,6 +102,9 @@ const GRUPO_DE: Record<string, GrupoBandeja> = {
     aviso_no_entregado: 'informativo',
     sin_integracion: 'informativo',
     duplicado: 'informativo',
+    // Cuenta que la escuela acepta por fuera de la app (Nequi de un entrenador
+    // para torneos, 2026-10-13): no es plata perdida ni pide nada.
+    fuera_de_sportmaps: 'informativo',
 };
 
 /** Códigos que escribe la recuperación (`recuperado: <código> — <motivo>`). */
@@ -133,6 +141,7 @@ export function motivoDeFila(fila: FilaCruda): { motivo: string; detalle: string
     if (em === 'familia_sin_cuenta') return { motivo: 'familia_sin_cuenta', detalle: null };
     if (em === 'sin pagos pendientes') return { motivo: 'sin_pendientes', detalle: null };
     if (em === 'destino no es de la escuela') return { motivo: 'destino_ajeno', detalle: null };
+    if (em === 'pago por fuera de SportMaps') return { motivo: 'fuera_de_sportmaps', detalle: null };
     if (em.startsWith('admin no acudiente')) return { motivo: 'enviado_por_equipo', detalle: null };
     if (em === 'la integración ya no existe') return { motivo: 'sin_integracion', detalle: null };
 
@@ -142,18 +151,151 @@ export function motivoDeFila(fila: FilaCruda): { motivo: string; detalle: string
 }
 
 /**
+ * Motivos que hablan de un COBRO concreto (hay monto y un atleta o una familia
+ * detrás). Con «también es familia» estas filas se quedan: pueden ser el pago
+ * del hijo. El resto (fotos, capturas, contacto no atendido) no.
+ */
+const MOTIVOS_DE_COBRO = new Set([
+    'varios_cobros', 'monto_distinto', 'familia_sin_cuenta', 'numero_ambiguo', 'destino_ajeno',
+    'otro_concepto', 'pregunta_vencida', 'esperando_familia',
+]);
+
+/** ¿La fila es (o puede ser) el pago de un hijo? Pura. */
+export function filaConPagoDeFamilia(fila: FilaCruda): boolean {
+    return !!fila.matched_child_id || MOTIVOS_DE_COBRO.has(motivoDeFila(fila).motivo);
+}
+
+/**
+ * ¿La fila entra en la bandeja (lista y contadores)? Las de un contacto que la
+ * escuela marcó como no-familia (personal, negocio, otro club, plataforma) NO:
+ * marcar es decir «esto no es de la escuela». Con «también es familia» sí
+ * entran, y `clasificarFila` decide el grupo.
+ */
+export function filaCuentaEnBandeja(tipoContacto?: string | null, tambienFamilia?: boolean | null): boolean {
+    return !esContactoSinContenido(tipoContacto, tambienFamilia);
+}
+
+/**
  * Grupo final de la fila. `tipoContacto` es `whatsapp_conversations.contact_kind`
  * (null si no se sabe): lo que manda un contacto personal o del equipo baja un
  * escalón — en Dynasty eran la familia de la dueña y transferencias internas.
+ *
+ * Con una marca manual y «también es familia» (el esposo de la dueña que es
+ * papá de una atleta): lo que habla de un cobro conserva su grupo; lo demás
+ * (sus fotos personales) es informativo, nunca «revisar».
  */
-export function clasificarFila(fila: FilaCruda, tipoContacto?: string | null): Clasificacion {
+export function clasificarFila(fila: FilaCruda, tipoContacto?: string | null, tambienFamilia?: boolean | null): Clasificacion {
     const { motivo, detalle } = motivoDeFila(fila);
     let grupo = GRUPO_DE[motivo] ?? 'revisar';
-    if (tipoContacto === 'personal' || tipoContacto === 'staff') {
+    if (esMarcaNoFamilia(tipoContacto) && tambienFamilia === true) {
+        if (!filaConPagoDeFamilia(fila)) grupo = 'informativo';
+    } else if (esMarcaNoFamilia(tipoContacto) || tipoContacto === 'staff') {
         if (grupo === 'accion') grupo = 'revisar';
         else if (motivo === 'contacto_no_atendido') grupo = 'informativo';
     }
     return { grupo, motivo, etiqueta: ETIQUETAS[motivo] ?? ETIQUETAS.otro, detalle };
+}
+
+/**
+ * Filas abiertas que se cierran al marcar un contacto como no-familia. Pura.
+ * Con «también es familia» se quedan las que pueden ser el pago de un hijo.
+ */
+export function filasParaCierrePorMarca<T extends FilaCruda>(filas: T[], tambienFamilia: boolean): T[] {
+    return filas.filter((f) => (ESTADOS_BANDEJA as readonly string[]).includes(f.status)
+        && !estaCerrada(f.error_message)
+        && !(tambienFamilia && filaConPagoDeFamilia(f)));
+}
+
+/** El motivo del cierre en lote al marcar: «contacto marcado como negocio». */
+export function motivoDeCierrePorMarca(tipo: TipoMarcado): string {
+    return `contacto marcado como ${ETIQUETA_DE_MARCA[tipo]}`;
+}
+
+// ─── Sugerencias de marca (2026-10-13) ───────────────────────────────────────
+//
+// Dynasty: un proveedor mayorista mandó 37 fotos de catálogo en 13 horas y
+// todas quedaron en «revisar». La bandeja SUGIERE marcar (nunca marca sola) un
+// número que nunca estuvo en una ficha y:
+//   · mandó más de UMBRAL_RAFAGA adjuntos en 24 h, o
+//   · su nombre (o el pie de sus adjuntos) suena a negocio, club o plataforma.
+// No se mira el tono de la conversación (privacidad): solo volumen y nombre.
+
+/** Más de esto en 24 h es una ráfaga. */
+export const UMBRAL_RAFAGA = 5;
+const VENTANA_RAFAGA_MS = 24 * 3_600_000;
+
+export interface FilaParaSugerir {
+    wa_phone_number?: string | null;
+    created_at?: string | null;
+    media_caption?: string | null;
+}
+
+export interface ConversacionParaSugerir {
+    id: string;
+    contact_name: string | null;
+    contact_kind: string | null;
+    identified?: boolean | null;
+    parent_id?: string | null;
+}
+
+export interface SugerenciaDeMarca {
+    wa_phone_number: string;
+    conversacion_id: string | null;
+    contacto: string | null;
+    motivo: 'rafaga' | 'nombre';
+    /** El máximo de adjuntos abiertos en una ventana de 24 h. */
+    adjuntos_24h: number;
+    filas: number;
+    tipo_sugerido: TipoMarcado;
+}
+
+/** Máximo de fechas dentro de una ventana deslizante de 24 h. Pura. */
+export function maximoEn24h(fechas: (string | null | undefined)[]): number {
+    const t = fechas.map((f) => Date.parse(String(f ?? ''))).filter(Number.isFinite).sort((a, b) => a - b);
+    let max = 0;
+    for (let i = 0, j = 0; j < t.length; j++) {
+        while (t[j] - t[i] > VENTANA_RAFAGA_MS) i++;
+        max = Math.max(max, j - i + 1);
+    }
+    return max;
+}
+
+/** Tipos que ya dicen «es de la escuela»: no se sugiere marcarlos. */
+const TIPOS_DE_LA_ESCUELA = new Set(['familia', 'familia_sin_cuenta', 'ambiguo', 'staff']);
+
+/**
+ * Números candidatos a sugerencia, ANTES de cruzar con las fichas. Pura.
+ * El llamador descarta después los que tienen ficha (`numerosConFicha`).
+ */
+export function candidatosASugerir(
+    filas: FilaParaSugerir[],
+    convs: Map<string, ConversacionParaSugerir>,
+): SugerenciaDeMarca[] {
+    const porNumero = new Map<string, FilaParaSugerir[]>();
+    for (const f of filas) {
+        if (!f.wa_phone_number) continue;
+        if (!porNumero.has(f.wa_phone_number)) porNumero.set(f.wa_phone_number, []);
+        porNumero.get(f.wa_phone_number)!.push(f);
+    }
+    const out: SugerenciaDeMarca[] = [];
+    for (const [numero, propias] of porNumero) {
+        const c = convs.get(numero) ?? null;
+        if (c && (esMarcaNoFamilia(c.contact_kind) || TIPOS_DE_LA_ESCUELA.has(String(c.contact_kind)))) continue;
+        if (c?.identified && c?.parent_id) continue;
+        const adjuntos24h = maximoEn24h(propias.map((f) => f.created_at));
+        const porNombre = marcaPorNombre(c?.contact_name, ...propias.map((f) => f.media_caption));
+        if (adjuntos24h <= UMBRAL_RAFAGA && !porNombre) continue;
+        out.push({
+            wa_phone_number: numero,
+            conversacion_id: c?.id ?? null,
+            contacto: c?.contact_name ?? null,
+            motivo: adjuntos24h > UMBRAL_RAFAGA ? 'rafaga' : 'nombre',
+            adjuntos_24h: adjuntos24h,
+            filas: propias.length,
+            tipo_sugerido: porNombre ?? 'negocio',
+        });
+    }
+    return out.sort((a, b) => b.filas - a.filas);
 }
 
 export function estaCerrada(errorMessage: string | null | undefined): boolean {
@@ -223,6 +365,9 @@ export function resumenDeGrupos(clases: Clasificacion[]): Record<GrupoBandeja, n
 //   · `result_ref_id`                         (lo deja el worker/recuperación)
 //   · `pregunta_ocr.sha` = receipt_image_sha256  (misma imagen)
 //   · `pregunta_ocr.ocr.reference` = ocr_reference / receipt_reference_norm
+//   · `pregunta_ocr.referencias[]` (2026-10-13): la referencia y las
+//     ALTERNATIVAS del comprobante («Recibo» y «Aprob.» distintos), cruda y
+//     normalizada. Igualdad exacta; nunca parecido.
 // Nunca por «la familia tiene un pago aprobado esos días»: eso cerraría fotos
 // que no tenían nada que ver (medido: 20 de 196 en Dynasty, casi todas «no es
 // un comprobante»).
@@ -272,12 +417,21 @@ export function decisionDelPago(pago: PagoDecidible, filaCreadaEn: string | null
     return null;
 }
 
-/** sha y referencia que el worker guardó en `pregunta_ocr`. Pura. */
-export function huellasDeFila(f: FilaConEnlace): { sha: string | null; referencia: string | null } {
+/**
+ * sha y referencias que el worker o la recuperación guardaron en
+ * `pregunta_ocr`. `referencia` es la que eligió el OCR; `referencias`, todas
+ * (esa + las alternativas), sin repetir. Pura.
+ */
+export function huellasDeFila(f: FilaConEnlace): { sha: string | null; referencia: string | null; referencias: string[] } {
     const p = f.pregunta_ocr ?? null;
     const sha = typeof p?.sha === 'string' && p.sha ? p.sha : null;
     const ref = p?.ocr?.reference ?? p?.ocr?.referencia ?? null;
-    return { sha, referencia: typeof ref === 'string' && ref.trim() ? ref.trim() : null };
+    const referencia = typeof ref === 'string' && ref.trim() ? ref.trim() : null;
+    const otras = Array.isArray(p?.referencias)
+        ? (p.referencias as unknown[]).filter((r): r is string => typeof r === 'string' && r.trim().length > 0).map((r) => r.trim())
+        : [];
+    const referencias = [...new Set([...(referencia ? [referencia] : []), ...otras])];
+    return { sha, referencia, referencias };
 }
 
 /**
@@ -296,12 +450,15 @@ export function filasParaAutocierrePorDecision(
         if (estaCerrada(f.error_message)) continue;
         if (!(ESTADOS_BANDEJA as readonly string[]).includes(f.status)) continue;
         if (motivoDeFila(f).motivo === 'ya_registrado') continue;
-        const { sha, referencia } = huellasDeFila(f);
+        const { sha, referencias } = huellasDeFila(f);
         const candidatos: PagoDecidible[] = [];
         if (f.result_ref_id && porId.has(f.result_ref_id)) candidatos.push(porId.get(f.result_ref_id)!);
         if (sha) candidatos.push(...deLaEscuela.filter((p) => p.receipt_image_sha256 === sha));
-        if (referencia) {
-            candidatos.push(...deLaEscuela.filter((p) => p.ocr_reference === referencia || p.receipt_reference_norm === referencia));
+        if (referencias.length) {
+            const refs = new Set(referencias);
+            candidatos.push(...deLaEscuela.filter((p) =>
+                (p.ocr_reference && refs.has(p.ocr_reference))
+                || (p.receipt_reference_norm && refs.has(p.receipt_reference_norm))));
         }
         for (const pago of candidatos) {
             const decision = decisionDelPago(pago, f.created_at);

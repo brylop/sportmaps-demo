@@ -21,6 +21,7 @@
 
 import { Router, Response } from 'express';
 import { supabase } from '../config/supabase';
+import { TIPOS_MARCADOS } from '../services/whatsapp-tipo-contacto';
 import { requireAuth, type AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { echosAutomaticos, esColumnaInexistente, estaPendiente, ECHO_AUTOMATICO_VENTANA_MS } from '../services/whatsapp-buzon';
 import {
@@ -36,7 +37,7 @@ const TECHO_MENSAJES = 40_000;
 const TECHO_GENERAL = 10_000;
 /** Prospectos que se cruzan contra inscripciones: cada uno son 5 variantes de teléfono en un IN. */
 const TECHO_PROSPECTOS = 300;
-const TIPOS_CONOCIDOS = ['familia', 'familia_sin_cuenta', 'ambiguo', 'staff', 'desconocido', 'personal'] as const;
+const TIPOS_CONOCIDOS = ['familia', 'familia_sin_cuenta', 'ambiguo', 'staff', 'desconocido', ...TIPOS_MARCADOS] as const;
 
 async function administraEstaEscuela(userId: string, schoolId: string): Promise<boolean> {
     // Copia fiel de whatsapp-admin.routes: las tres preguntas en paralelo.

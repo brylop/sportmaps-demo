@@ -535,3 +535,27 @@ describe('runWhatsAppQueue — adjunto con consulta', () => {
         expect(textosEnviados()[0]).not.toContain('/register');
     });
 });
+
+// ─── Marcas manuales de no-familia (2026-10-13) ─────────────────────────────
+
+describe('decidirAdjunto — negocio, otro club y plataforma valen lo mismo que personal', () => {
+    it('silencio, incluso sobre staff', () => {
+        for (const tipo of ['negocio', 'otro_club', 'plataforma'] as const) {
+            expect(decidirAdjunto({ botEncendido: true, tipo, esStaffAdmin: false })).toBe('silencio');
+            expect(decidirAdjunto({ botEncendido: true, tipo, esStaffAdmin: true })).toBe('silencio');
+        }
+    });
+});
+
+describe('runWhatsAppQueue — marcado personal pero «también es familia»', () => {
+    it('su comprobante se aplica al cobro del hijo, sin escribirle', async () => {
+        state.atencion = { atender: false, tipo: 'familia', botEncendido: true, tomada: false, tambienFamilia: true };
+        state.rpcIdentifyByPhone = { data: { estado: 'identificado', parent_id: 'parent-9' } };
+
+        await runWhatsAppQueue();
+
+        expect(extractReceiptMock).toHaveBeenCalled();
+        expect(pagosPendientesDeMock).toHaveBeenCalledWith('parent-9', 'school-1');
+        expect(sendTextMessageMock).not.toHaveBeenCalled();
+    });
+});

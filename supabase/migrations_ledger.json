@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 760,
+  "count": 762,
   "head": "20261014113152",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
@@ -748,9 +748,11 @@
     {"v":"20261010202857","file":"20261010202857_signup_rol_whitelist_y_gates_admin_por_rol.sql","sha256":"3f6d6ad69ebb8b44f87cb6b7216c4b9765c1d84bbfeb7c5575a2fc46939efb1c","added":"2026-10-11","by":"Brayan Steven Lopez"},
     {"v":"20261011101750","file":"20261011101750_dreamers_primer_cobro_sin_recargo.sql","sha256":"02d00b9c52b3386c389a01f7d88c60be378eee87d80b2eea5f012a1e322b73d9","added":"2026-10-11","by":"judegor99"},
     {"v":"20261013124655","file":"20261013124655_wa_bandeja_autocierre_por_pago.sql","sha256":"dd6e54362f00c82704154f4edcb4c059a6d6593a275eb0b79a7b916a104a1099","added":"2026-10-13","by":"Brayan Steven Lopez"},
-    {"v":"20261013170543","file":"20261013170543_tienda_cupones_por_empresa.sql","sha256":"7200d51d49609f625a7d30ca4b851d426e91dab23c98be08f7bc9dbdc9a1a0f1","added":"2026-10-13","by":"Brayan Steven Lopez"},
-    {"v":"20261013170548","file":"20261013170548_tienda_ingresos_en_finanzas.sql","sha256":"e058e851a91c8c29b3ce4e3fff3d0091e33a46fb7f708c03f90c75ec0d9656cd","added":"2026-10-13","by":"Brayan Steven Lopez"},
-    {"v":"20261013170553","file":"20261013170553_tienda_compra_sin_cuenta.sql","sha256":"0661801b93d651676ff1d4be71e92864c32cfcb9d7451092158b5beedba9ac09","added":"2026-10-13","by":"Brayan Steven Lopez"},
+    {"v":"20261013164839","file":"20261013164839_whatsapp_tipos_de_contacto.sql","sha256":"61419b5fe141df43ab6e680a045b181ff938c3310efdcd8a3910dacbec03f779","added":"2026-10-13","by":"Brayan Steven Lopez"},
+    {"v":"20261013165308","file":"20261013165308_wa_saldo_a_favor_y_huellas.sql","sha256":"d8b137ba239c1455dfaf8c0f1b053ed1c08a035374318fd4a2dce305554868d7","added":"2026-10-13","by":"Brayan Steven Lopez"},
+    {"v":"20261013170543","file":"20261013170543_tienda_cupones_por_empresa.sql","sha256":"7200d51d49609f625a7d30ca4b851d426e91dab23c98be08f7bc9dbdc9a1a0f1","added":"2026-10-14","by":"Brayan Steven Lopez"},
+    {"v":"20261013170548","file":"20261013170548_tienda_ingresos_en_finanzas.sql","sha256":"e058e851a91c8c29b3ce4e3fff3d0091e33a46fb7f708c03f90c75ec0d9656cd","added":"2026-10-14","by":"Brayan Steven Lopez"},
+    {"v":"20261013170553","file":"20261013170553_tienda_compra_sin_cuenta.sql","sha256":"0661801b93d651676ff1d4be71e92864c32cfcb9d7451092158b5beedba9ac09","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261013192838","file":"20261013192838_fix_aging_cartera_vencidos_meses.sql","sha256":"84ef5fa7d1ebb1de921d0f8efa41203ffbfc56aefeeb4a3cc4ec4ac0c81899bc","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261013192856","file":"20261013192856_nuevo_pago_mensualidad_estampa_plan.sql","sha256":"028f09e21e3cf9ae12d055ec927e8cc03666a230b1af14bd0bccc17575b77bd7","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261013192915","file":"20261013192915_reserve_hour_bank_periodo_de_la_fecha.sql","sha256":"834e3383f4ea653d0fb601566ca7da6b810d246844704cda5808461fe713760e","added":"2026-10-14","by":"Brayan Steven Lopez"},
