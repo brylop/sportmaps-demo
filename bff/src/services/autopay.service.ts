@@ -113,6 +113,7 @@ export interface Aviso {
 export type WompiTx = { id: string; status: string; reference: string; amount_in_cents: number; currency: string; payment_method_type: string; created_at: string };
 
 export interface AutopayStore {
+    /** `amount` = SALDO del cobro (amount − amount_paid, ya con la mora), base del enlace. */
     paymentForLink(paymentId: string): Promise<{ amount: number; feePct: number } | null>;
     payerEmail(userId: string): Promise<string | null>;
     insertAutopayLink(row: Record<string, unknown>): Promise<{ ok: true; id: string } | { ok: false; conflict: boolean; error?: string }>;
@@ -395,7 +396,14 @@ export async function procesarIntento(deps: AutopayDeps, row: ClaimRow, merchant
         return 'error';
     }
     const amount = Number(row.amount);
-    const base = Number(pay.amount);
+    const base = Number(pay.amount);   // saldo vigente (con la mora, si ya se aplicó)
+    // El saldo creció entre el claim y este punto (p. ej. entró la mora): debitar el
+    // monto reclamado dejaría el recargo sin cobrar. No se cobra; el próximo claim ve
+    // el total por encima de lo anunciado y re-avisa (C.5).
+    if (base > amount + 0.5) {
+        await fallo('amount_changed');
+        return 'error';
+    }
     const reference = generateReference('school_payment');
     const ins = await deps.store.insertAutopayLink({
         payment_id: row.payment_id,
@@ -745,11 +753,15 @@ export const MENSAJE_DEBITO_EN_CURSO =
 
 const supabaseStore: AutopayStore = {
     async paymentForLink(paymentId) {
-        const { data: p } = await supabase.from('payments').select('amount, school_id').eq('id', paymentId).maybeSingle();
+        const { data: p } = await supabase.from('payments').select('amount, amount_paid, school_id').eq('id', paymentId).maybeSingle();
         if (!p) return null;
+        // Base del enlace = SALDO (amount − amount_paid), con la mora ya sumada en amount.
+        // Misma cuenta que autopay_payment_total (mig 20261014133326): un cobro
+        // 'partial' u 'overdue' se debita por lo que falta, no por el total original.
+        const saldo = Math.max(Number((p as any).amount) - Number((p as any).amount_paid ?? 0), 0);
         const { data: ss } = await supabase.from('school_settings').select('online_fee_pct')
             .eq('school_id', (p as any).school_id).maybeSingle();
-        return { amount: Number((p as any).amount), feePct: Number((ss as any)?.online_fee_pct ?? 3) };
+        return { amount: saldo, feePct: Number((ss as any)?.online_fee_pct ?? 3) };
     },
     async payerEmail(userId) {
         const { data } = await supabase.from('profiles').select('email').eq('id', userId).maybeSingle();
