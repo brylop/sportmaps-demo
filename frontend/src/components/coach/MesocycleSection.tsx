@@ -57,6 +57,7 @@ import { MesocycleDocuments } from './MesocycleDocuments';
 import { ClosingForm, type ClosingField } from './MesocycleClosingForms';
 import { dayToLocalDate, todayColombia } from '@/lib/dateUtils';
 import { isTrainingReadOnlyRole } from '@/lib/school/trainingRoles';
+import type { TacticalSport } from '@/lib/school/tacticalSports';
 import { datesBetween, pickDefaultMesocycle, placeLooseSessions, suggestNextStart } from '@/lib/school/mesocyclePlanning';
 
 /** 'YYYY-MM-DD' → texto en es-CO SIN correrse un día (ver dayToLocalDate). */
@@ -117,6 +118,9 @@ interface MesocycleSectionProps {
   roster: { id: string; full_name: string; athlete_type?: string }[];
   sessions: any[];
   isFootball?: boolean;
+  /** Deporte de la pizarra del equipo (sportFromTeam): filtro inicial de la
+   *  Biblioteca de ejercicios. */
+  teamSport?: TacticalSport;
   /** Solo para el título del tablero táctico dentro del SessionFormDialog de un día. */
   teamName?: string;
   onEditSession: (session: any) => void;
@@ -138,6 +142,7 @@ export function MesocycleSection({
   roster,
   sessions,
   isFootball,
+  teamSport,
   teamName,
   onEditSession,
   onViewSession,
@@ -554,6 +559,7 @@ export function MesocycleSection({
           schoolId={schoolId}
           sessions={sessions}
           isFootball={isFootball}
+          teamSport={teamSport}
           onEditSession={openSession}
           readOnly={readOnly}
         />
@@ -1161,6 +1167,7 @@ export function MesocycleSection({
           teamId={teamId}
           teamName={teamName}
           isFootball={isFootball}
+          teamSport={teamSport}
           isLoading={createSessionForDay.isPending}
           session={sessionDialogSession}
         />

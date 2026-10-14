@@ -77,6 +77,9 @@ export interface ExerciseInput {
 export interface ExerciseListParams {
   q?: string;
   sport?: ExerciseSport;
+  /** Con `sport`: trae también los genéricos (calentamientos, coordinación),
+   *  que sirven para cualquier deporte. */
+  includeGeneric?: boolean;
   tag?: string;
   mine?: boolean;
   /** true = solo plantillas SportMaps; false = solo de mi escuela; undefined = ambas. */
@@ -98,6 +101,7 @@ export async function listExercises(params: ExerciseListParams = {}): Promise<Tr
   const query = new URLSearchParams();
   if (params.q?.trim()) query.set('q', params.q.trim());
   if (params.sport) query.set('sport', params.sport);
+  if (params.sport && params.includeGeneric && params.sport !== 'generico') query.set('include_generic', 'true');
   if (params.tag) query.set('tag', params.tag);
   if (params.mine) query.set('mine', 'true');
   if (params.templates !== undefined) query.set('templates', String(params.templates));

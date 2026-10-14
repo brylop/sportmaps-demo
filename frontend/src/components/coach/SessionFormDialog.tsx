@@ -18,6 +18,7 @@ import { TacticalBoard } from '@/components/school/TacticalBoard';
 import { ExerciseLibraryPanel } from '@/components/school/ExerciseLibraryPanel';
 import { insertExerciseIntoSession, type TrainingExercise } from '@/lib/school/exerciseLibrary';
 import { useToast } from '@/hooks/use-toast';
+import type { TacticalSport } from '@/lib/school/tacticalSports';
 
 const sessionSchema = z.object({
   session_date: z.string().min(1, 'Fecha es requerida'),
@@ -118,6 +119,9 @@ interface SessionFormDialogProps {
   /** Solo fútbol ve bloques editables, principios de juego y evaluación
    *  post-sesión (Excel "Sesión Diaria Fútbol C.C.C", Club Carmel). */
   isFootball?: boolean;
+  /** Deporte de la pizarra del equipo (sportFromTeam): filtro inicial de la
+   *  Biblioteca de ejercicios. */
+  teamSport?: TacticalSport;
   isLoading?: boolean;
   session?: any;
 }
@@ -129,6 +133,7 @@ export function SessionFormDialog({
   teamId,
   teamName,
   isFootball,
+  teamSport,
   isLoading,
   session = null
 }: SessionFormDialogProps) {
@@ -730,6 +735,7 @@ export function SessionFormDialog({
         onOpenChange={(o) => { if (!o) setLibraryBlockIndex(null); }}
         onPick={applyExercise}
         pickLabel="Usar en esta sesión"
+        defaultSport={teamSport}
         picking={applyingExercise}
       />
     )}

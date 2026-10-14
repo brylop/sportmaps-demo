@@ -60,7 +60,10 @@ function canManage(row: { created_by: string | null }, req: AuthenticatedRequest
   return row.created_by === req.user.id || ADMIN_ROLES.includes(req.role);
 }
 
-// GET /api/v1/school/exercises?q=&sport=&tag=&mine=true&templates=true|false&limit=
+// GET /api/v1/school/exercises?q=&sport=&include_generic=true&tag=&mine=true&templates=true|false&limit=
+// include_generic=true con un sport: ese deporte + los genéricos (calentamientos,
+// coordinación), que sirven para cualquier equipo. Un BFF viejo lo ignora y
+// devuelve solo el deporte: el panel sigue funcionando.
 router.get(
   '/exercises',
   requireAuth,
@@ -68,7 +71,7 @@ router.get(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { schoolId, user } = req;
-      const { q, sport, tag, mine, templates, limit } = req.query as Record<string, string | undefined>;
+      const { q, sport, tag, mine, templates, limit, include_generic } = req.query as Record<string, string | undefined>;
 
       let query = supabase
         .from('training_exercises')
@@ -87,7 +90,8 @@ router.get(
         if (!(EXERCISE_SPORTS as readonly string[]).includes(sport)) {
           return res.status(400).json({ error: `sport inválido: ${sport.slice(0, 20)}` });
         }
-        query = query.eq('sport', sport);
+        if (isTrue(include_generic) && sport !== 'generico') query = query.in('sport', [sport, 'generico']);
+        else query = query.eq('sport', sport);
       }
       if (tag) {
         const t = tag.trim().toLowerCase().slice(0, 40);
