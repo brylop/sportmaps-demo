@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { formatCurrency } from '@/lib/utils';
-import { downloadCsv, type CsvCell } from '@/lib/accounting/csv';
+import { downloadCsv, pnlCsvRows, STORE_SALES_LABEL } from '@/lib/accounting/csv';
+import { fetchStoreIncome } from '@/lib/accounting/income';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -51,6 +52,27 @@ export default function AccountingReportsPage() {
         },
     });
 
+    // Ventas de la tienda escolar por mes (store_income_summary, mismo permiso
+    // que el EdR). No están en cash_ledger (contrato contabilidad v2 §6): se
+    // suman como la línea «Ventas de tienda». Sin tienda → null y el EdR queda
+    // igual que antes.
+    const storeQuery = useQuery({
+        queryKey: ['acc-report-store', schoolId, year, activeBranchId],
+        enabled: !!schoolId && year >= 2000 && year <= 2100,
+        queryFn: async () => {
+            const r = await fetchStoreIncome(supabase as any, {
+                schoolId: schoolId as string,
+                branchId: activeBranchId,
+                from: `${year}-01-01`,
+                to: `${year}-12-31`,
+                group: 'month',
+            });
+            if (r.kind === 'error') throw new Error(r.message);
+            return r.kind === 'ok' && r.hasStore ? r.buckets : null;
+        },
+    });
+    const storeBuckets = storeQuery.data ?? null;
+
     const categoriesQuery = useQuery({
         queryKey: ['expense-categories-map', schoolId],
         enabled: !!schoolId,
@@ -70,7 +92,7 @@ export default function AccountingReportsPage() {
     const report = useMemo(() => {
         let income = 0, expense = 0, undatedAmount = 0, undatedN = 0;
         const byCat: Record<string, number> = {};
-        const monthly = MONTHS.map((m) => ({ month: m, ingresos: 0, egresos: 0 }));
+        const monthly = MONTHS.map((m) => ({ month: m, ingresos: 0, egresos: 0, cobros: 0, tienda: 0 }));
         for (const r of rows) {
             const amt = Number(r.total);
             const mi = r.month != null ? r.month - 1 : null;
@@ -79,7 +101,7 @@ export default function AccountingReportsPage() {
             if (mi === null) { undatedAmount += amt; undatedN += Number(r.n); continue; }
             if (r.direction === 'income') {
                 income += amt;
-                if (mi !== null) monthly[mi].ingresos += amt;
+                if (mi !== null) { monthly[mi].ingresos += amt; monthly[mi].cobros += amt; }
             } else {
                 expense += amt;
                 const key = r.category_id ? (catMap[r.category_id] || 'Otra') : 'Sin categoría';
@@ -87,34 +109,45 @@ export default function AccountingReportsPage() {
                 if (mi !== null) monthly[mi].egresos += amt;
             }
         }
+        // Tienda: bucket 'YYYY-MM' del año (fecha = paid_at Bogotá).
+        const cobrosTotal = income;
+        let storeTotal = 0;
+        if (storeBuckets) {
+            for (const [bucket, amt] of Object.entries(storeBuckets)) {
+                const m = /^(\d{4})-(\d{2})$/.exec(bucket);
+                if (!m || Number(m[1]) !== year) continue;
+                const mi = Number(m[2]) - 1;
+                monthly[mi].tienda += amt;
+                monthly[mi].ingresos += amt;
+                storeTotal += amt;
+            }
+            income += storeTotal;
+        }
         const catRows = Object.entries(byCat).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
-        return { income, expense, net: income - expense, catRows, monthly, undatedAmount, undatedN };
-    }, [rows, catMap]);
+        return {
+            income, expense, net: income - expense, catRows, monthly, undatedAmount, undatedN,
+            store: storeBuckets ? { cobros: cobrosTotal, tienda: storeTotal } : null,
+        };
+    }, [rows, catMap, storeBuckets, year]);
 
     // CSV para Excel en español: BOM UTF-8, separador ';', comillas correctas
     // (lib/accounting/csv). Antes iba con ',' y sin BOM: todo en la columna A y
     // los acentos rotos, y una categoría con coma partía la fila.
+    // Con tienda: desglose «Mensualidades y cobros» / «Ventas de tienda» en el
+    // resumen y en el flujo mensual (pnlCsvRows); sin tienda, igual que antes.
     const exportCSV = () => {
-        const rowsCsv: CsvCell[][] = [
-            [`Estado de resultados ${year}`],
-            [],
-            ['RESUMEN'],
-            ['Ingresos', report.income],
-            ['Egresos', report.expense],
-            ['Neto', report.net],
-            [],
-            ['EGRESOS POR CATEGORÍA'],
-            ['Categoría', 'Monto'],
-            ...report.catRows.map((c): CsvCell[] => [c.name, c.value]),
-            [],
-            ['FLUJO MENSUAL'],
-            ['Mes', 'Ingresos', 'Egresos', 'Neto'],
-            ...report.monthly.map((m): CsvCell[] => [m.month, m.ingresos, m.egresos, m.ingresos - m.egresos]),
-        ];
-        downloadCsv(`estado-resultados-${year}.csv`, rowsCsv);
+        downloadCsv(`estado-resultados-${year}.csv`, pnlCsvRows({
+            year,
+            income: report.income,
+            expense: report.expense,
+            net: report.net,
+            catRows: report.catRows,
+            monthly: report.monthly,
+            store: report.store,
+        }));
     };
 
-    if (ledgerQuery.isError) {
+    if (ledgerQuery.isError || storeQuery.isError) {
         return (
             <div className="container mx-auto p-6 space-y-6">
                 <h1 className="text-3xl font-bold flex items-center gap-2"><FileBarChart className="h-7 w-7 text-primary" /> Estado de resultados</h1>
@@ -123,7 +156,7 @@ export default function AccountingReportsPage() {
                     <AlertTitle>No se pudo cargar</AlertTitle>
                     <AlertDescription className="mt-1 flex flex-col items-start gap-3">
                         <span>Error de conexión al cargar el libro de caja.</span>
-                        <Button size="sm" variant="outline" onClick={() => ledgerQuery.refetch()}><RefreshCw className="mr-2 h-4 w-4" /> Reintentar</Button>
+                        <Button size="sm" variant="outline" onClick={() => { ledgerQuery.refetch(); storeQuery.refetch(); }}><RefreshCw className="mr-2 h-4 w-4" /> Reintentar</Button>
                     </AlertDescription>
                 </Alert>
             </div>
@@ -144,7 +177,7 @@ export default function AccountingReportsPage() {
                         <Label className="text-xs">Año</Label>
                         <Input type="number" className="w-28" value={year} onChange={(e) => setYear(Number(e.target.value))} />
                     </div>
-                    <Button variant="outline" onClick={exportCSV} disabled={rows.length === 0}>
+                    <Button variant="outline" onClick={exportCSV} disabled={rows.length === 0 && !report.store?.tienda}>
                         <Download className="mr-2 h-4 w-4" /> Exportar CSV
                     </Button>
                 </div>
@@ -157,7 +190,14 @@ export default function AccountingReportsPage() {
                         <CardTitle className="text-sm font-medium">Ingresos {year}</CardTitle>
                         <TrendingUp className="h-4 w-4 text-emerald-500" />
                     </CardHeader>
-                    <CardContent><div className="text-2xl font-bold text-emerald-600">{formatCurrency(report.income)}</div></CardContent>
+                    <CardContent>
+                        <div className="text-2xl font-bold text-emerald-600" data-testid="pnl-income-total">{formatCurrency(report.income)}</div>
+                        {report.store && (
+                            <p className="text-xs text-muted-foreground mt-1" data-testid="pnl-income-breakdown">
+                                Mensualidades {formatCurrency(report.store.cobros)} · Tienda {formatCurrency(report.store.tienda)}
+                            </p>
+                        )}
+                    </CardContent>
                 </Card>
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -203,12 +243,64 @@ export default function AccountingReportsPage() {
                                     <YAxis fontSize={11} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
                                     <Tooltip formatter={(v: number) => formatCurrency(v)} />
                                     <Legend />
-                                    <Bar dataKey="ingresos" name="Ingresos" fill="#22c55e" />
+                                    {report.store ? (
+                                        <>
+                                            <Bar dataKey="cobros" name="Mensualidades y cobros" stackId="ing" fill="#22c55e" />
+                                            <Bar dataKey="tienda" name={STORE_SALES_LABEL} stackId="ing" fill="#0ea5e9" />
+                                        </>
+                                    ) : (
+                                        <Bar dataKey="ingresos" name="Ingresos" fill="#22c55e" />
+                                    )}
                                     <Bar dataKey="egresos" name="Egresos" fill="#ef4444" />
                                 </BarChart>
                             </ResponsiveContainer></div>
                         </CardContent>
                     </Card>
+
+                    {report.store && (
+                        <Card data-testid="pnl-monthly-table">
+                            <CardHeader>
+                                <CardTitle>Estado de resultados por mes</CardTitle>
+                                <CardDescription>
+                                    Ingresos por origen: mensualidades y cobros de la escuela, y ventas de la tienda (neto de reembolsos).
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="p-0 overflow-x-auto">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead className="whitespace-nowrap">Concepto</TableHead>
+                                            {MONTHS.map((m) => <TableHead key={m} className="text-right">{m}</TableHead>)}
+                                            <TableHead className="text-right">Total</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {([
+                                            ['Mensualidades y cobros', 'cobros', report.store.cobros],
+                                            [STORE_SALES_LABEL, 'tienda', report.store.tienda],
+                                            ['Total ingresos', 'ingresos', report.income],
+                                            ['Egresos', 'egresos', report.expense],
+                                        ] as const).map(([label, key, total]) => (
+                                            <TableRow key={key} data-testid={`pnl-row-${key}`}>
+                                                <TableCell className={`whitespace-nowrap ${key === 'ingresos' ? 'font-semibold' : 'font-medium'}`}>{label}</TableCell>
+                                                {report.monthly.map((m) => (
+                                                    <TableCell key={m.month} className="text-right whitespace-nowrap">{formatCurrency(m[key])}</TableCell>
+                                                ))}
+                                                <TableCell className="text-right font-semibold whitespace-nowrap">{formatCurrency(total)}</TableCell>
+                                            </TableRow>
+                                        ))}
+                                        <TableRow>
+                                            <TableCell className="font-semibold">Resultado</TableCell>
+                                            {report.monthly.map((m) => (
+                                                <TableCell key={m.month} className="text-right whitespace-nowrap">{formatCurrency(m.ingresos - m.egresos)}</TableCell>
+                                            ))}
+                                            <TableCell className="text-right font-semibold whitespace-nowrap">{formatCurrency(report.net)}</TableCell>
+                                        </TableRow>
+                                    </TableBody>
+                                </Table>
+                            </CardContent>
+                        </Card>
+                    )}
 
                     <Card>
                         <CardHeader><CardTitle>Egresos por categoría</CardTitle></CardHeader>

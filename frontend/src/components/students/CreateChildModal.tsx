@@ -46,6 +46,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { PhoneInput } from '@/components/ui/phone-input';
+import { SiblingChildPicker, SiblingDiscountChip, type SiblingPreview } from '@/components/students/siblings';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -77,6 +78,11 @@ interface CreateChildModalProps {
   schoolId: string;
   /** «No cobrar inscripción / seguro». El coach no exonera (default true; el BFF también lo frena). */
   canWaiveFees?: boolean;
+  /**
+   * «¿Tiene un hermano inscrito?» (F2 hermanos). El coach no la ve y el BFF le
+   * responde 403. Por defecto sigue a `canWaiveFees` (false para el coach).
+   */
+  canUseSiblings?: boolean;
 }
 
 interface BillingSettings {
@@ -102,7 +108,8 @@ function Section({
   );
 }
 
-export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveFees = true }: CreateChildModalProps) {
+export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveFees = true, canUseSiblings }: CreateChildModalProps) {
+  const siblingsAllowed = canUseSiblings ?? canWaiveFees;
   const { toast } = useToast();
   const [submitting, setSubmitting] = useState(false);
   const [showMedical, setShowMedical] = useState(false);
@@ -159,6 +166,14 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveF
 
   const [monthlyFee, setMonthlyFee] = useState('');
   const [discountPct, setDiscountPct] = useState(0);
+
+  // ── Hermanos (F2): hermano ya inscrito cuyo acudiente aún no tiene cuenta ──
+  const [hasSibling, setHasSibling] = useState(false);
+  const [siblingOfChildId, setSiblingOfChildId] = useState<string | null>(null);
+  const [siblingPreview, setSiblingPreview] = useState<SiblingPreview | null>(null);
+  const [siblingPreviewLoading, setSiblingPreviewLoading] = useState(false);
+  // Sube cuando el BFF responde HERMANOS_DESACTUALIZADO: fuerza recalcular.
+  const [siblingPreviewNonce, setSiblingPreviewNonce] = useState(0);
 
   // ── Load lookup data ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -234,6 +249,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveF
     setFeeWaivers(NO_FEE_WAIVERS);
     setStartDate(todayColombia()); setMonthlyFee('');
     setDiscountPct(0);
+    setHasSibling(false); setSiblingOfChildId(null); setSiblingPreview(null);
     setCheckingParentEmail(false);
     setParentEmailExists(null);
     setSendInviteEmail(true);
@@ -308,6 +324,45 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveF
         : { first_payment_mode: 'full_month' })
     : {};
 
+  // ── Preview del descuento por hermanos (lo calcula el BFF) ──────────────────
+  // first-payment-preview exige un plan; sin plan no hay mensualidad que
+  // descontar y el chip no se muestra. Si el acudiente ya tiene cuenta y comparte
+  // parent_id, el BFF puede devolver `sibling` sin que se elija nada.
+  const siblingPayload: { sibling_of_child_id?: string } = siblingsAllowed && hasSibling && siblingOfChildId
+    ? { sibling_of_child_id: siblingOfChildId }
+    : {};
+  useEffect(() => {
+    if (!open || !hasBilling || !siblingsAllowed || !schoolId || !startDate || !selectedPlanId || selectedPlanId === 'none') {
+      setSiblingPreview(null);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      setSiblingPreviewLoading(true);
+      try {
+        const fee = Number(monthlyFee) || 0;
+        const res = await bffClient.post('/api/v1/students/first-payment-preview', {
+          offering_plan_id: selectedPlanId,
+          start_date: startDate,
+          monthly_fee: fee > 0 ? fee : null,
+          discount_pct: discountPct > 0 ? discountPct : undefined,
+          ...feeWaiversPayload(feeWaivers),
+          ...siblingPayload,
+        }, { 'x-school-id': schoolId }) as { sibling?: SiblingPreview | null };
+        if (!cancelled) setSiblingPreview(res?.sibling ?? null);
+      } catch {
+        // El preview es informativo: si falla, el alta sigue igual y el
+        // descuento lo vuelve a calcular el BFF al crear el cobro.
+        if (!cancelled) setSiblingPreview(null);
+      } finally {
+        if (!cancelled) setSiblingPreviewLoading(false);
+      }
+    }, 350);
+    return () => { cancelled = true; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, hasBilling, siblingsAllowed, schoolId, selectedPlanId, startDate, monthlyFee, discountPct,
+      feeWaivers.registration, feeWaivers.insurance, hasSibling, siblingOfChildId, siblingPreviewNonce]);
+
   // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     const err = validate();
@@ -351,6 +406,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveF
         discount_pct:     discountPct > 0 ? discountPct : undefined,
         ...firstPaymentPayload,
         ...feeWaiversPayload(feeWaivers),
+        ...siblingPayload,
       };
 
       const result = await bffClient.post('/api/v1/students/create-one', {
@@ -390,6 +446,18 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveF
       reset();
       onSuccess();
     } catch (e: any) {
+      // F2: entre el preview y el alta cambió la familia (otro hermano entró o
+      // salió). El BFF no crea nada; se muestra su mensaje y se recalcula.
+      const code = e?.body?.code ?? e?.body?.error_code;
+      if (e?.status === 409 && code === 'HERMANOS_DESACTUALIZADO') {
+        toast({
+          title: 'El descuento por hermanos cambió',
+          description: e?.body?.message || e?.body?.error || e.message || 'Revisa el nuevo descuento y vuelve a registrar.',
+          variant: 'destructive',
+        });
+        setSiblingPreviewNonce(n => n + 1);
+        return;
+      }
       toast({
         title: 'Error al registrar',
         description: e.message || 'Error inesperado',
@@ -738,6 +806,51 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveF
               )}
             </div>
 
+            {hasBilling && siblingsAllowed && (
+              <div className="space-y-2 rounded-lg border border-border p-3" data-testid="alta-sibling-section">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="alta-has-sibling"
+                    checked={hasSibling}
+                    onChange={e => { setHasSibling(e.target.checked); if (!e.target.checked) setSiblingOfChildId(null); }}
+                    className="h-4 w-4 rounded border-input"
+                    data-testid="alta-has-sibling"
+                  />
+                  <label htmlFor="alta-has-sibling" className="text-sm font-medium cursor-pointer">
+                    ¿Tiene un hermano inscrito?
+                  </label>
+                </div>
+                {hasSibling && (
+                  <>
+                    <p className="text-xs text-muted-foreground">
+                      Elige al hermano que ya está en la escuela. Así quedan en la misma familia aunque el acudiente aún no tenga cuenta.
+                    </p>
+                    <SiblingChildPicker
+                      schoolId={schoolId}
+                      value={siblingOfChildId}
+                      onChange={setSiblingOfChildId}
+                      enabled={open && hasSibling}
+                      testIdPrefix="alta-sibling-picker"
+                    />
+                  </>
+                )}
+                {siblingPreviewLoading && (
+                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Calculando descuento por hermanos…
+                  </p>
+                )}
+                {!siblingPreviewLoading && siblingPreview && <SiblingDiscountChip sibling={siblingPreview} />}
+                {!siblingPreviewLoading && hasSibling && siblingOfChildId && !siblingPreview && selectedPlanId !== 'none' && (
+                  <p className="text-xs text-muted-foreground" data-testid="alta-sibling-no-discount">
+                    Con este hermano no aplica descuento (la escuela no lo tiene activo o este sería el 1.º hijo).
+                  </p>
+                )}
+                {hasSibling && selectedPlanId === 'none' && (
+                  <p className="text-xs text-muted-foreground">Elige un plan para ver el descuento.</p>
+                )}
+              </div>
+            )}
             {hasBilling && <AltaFirstChargeCard
               startDate={startDate}
               monthlyFee={Number(monthlyFee) || 0}
@@ -761,6 +874,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveF
                 value={firstPayment}
                 onChange={setFirstPayment}
                 waivers={feeWaivers}
+                siblingOfChildId={siblingsAllowed && hasSibling ? siblingOfChildId : null}
               />
             )}
           </Section>

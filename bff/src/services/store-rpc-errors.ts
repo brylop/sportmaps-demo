@@ -51,7 +51,21 @@ const TOKENS: Record<string, { status: number; message: string }> = {
     PRODUCT_NOT_AVAILABLE: { status: 409, message: 'Uno de los productos ya no está disponible.' },
     VARIANT_REQUIRED: { status: 400, message: 'Elige talla/color del producto.' },
     INSUFFICIENT_STOCK: { status: 409, message: 'No hay unidades suficientes.' },
+    // Base sin la migración de cupones (20261013170543): sigue respondiendo esto.
     COUPONS_NOT_AVAILABLE: { status: 422, message: 'Los cupones todavía no están disponibles.' },
+    // ── Cupones por tienda (F3b, mig. 20261013170543). Mismos textos que COUPON_ERROR_MESSAGES. ──
+    COUPON_INVALID: { status: 422, message: 'Ese código no existe en esta tienda o no está activo.' },
+    COUPON_EXPIRED: { status: 422, message: 'Ese código ya venció.' },
+    COUPON_NOT_STARTED: { status: 422, message: 'Ese código todavía no está vigente.' },
+    COUPON_LIMIT: { status: 409, message: 'Ese código ya se agotó.' },
+    COUPON_BUYER_LIMIT: { status: 409, message: 'Ya usaste este código el máximo de veces permitido.' },
+    COUPON_MIN_PURCHASE: { status: 422, message: 'Tu compra no alcanza el mínimo para este código.' },
+    COUPON_NOT_APPLICABLE: { status: 422, message: 'Ese código no aplica a los productos de tu carrito.' },
+    COUPON_TOO_MANY_ATTEMPTS: { status: 429, message: 'Probaste demasiados códigos. Intenta de nuevo en 15 minutos.' },
+    COUPON_LOGIN_REQUIRED: { status: 401, message: 'Inicia sesión para usar un código de descuento.' },
+    COUPON_LOCKED: { status: 409, message: 'El cupón ya tiene usos: no se puede cambiar el código ni el descuento. Pausa este y crea otro.' },
+    COUPON_INVALID_SCOPE: { status: 400, message: 'El cupón solo puede incluir productos de tu tienda y categorías existentes.' },
+    COUPON_IMMUTABLE_FIELD: { status: 403, message: 'Ese dato del cupón no se puede cambiar.' },
     INVALID_PAYMENT_METHOD: { status: 400, message: 'Medio de pago inválido.' },
     PAYMENT_METHOD_NOT_ACCEPTED: { status: 409, message: 'La tienda no acepta este medio de pago.' },
     GATEWAY_NOT_CONFIGURED: { status: 409, message: 'La tienda no tiene configurada esa pasarela.' },
@@ -84,6 +98,18 @@ const TOKENS: Record<string, { status: number; message: string }> = {
     PICKUP_BRANCH_REQUIRED: { status: 400, message: 'Elige al menos una sede de retiro.' },
     NO_PAYMENT_METHODS: { status: 400, message: 'Deja al menos un medio de pago encendido.' },
     FORBIDDEN: { status: 403, message: 'Sin permiso.' },
+    // ── Compra sin cuenta (mig. 20261013170553) ──
+    LOGIN_REQUIRED: { status: 403, message: 'Hay productos solo para miembros: inicia sesión para comprarlos.' },
+    GUEST_CHECKOUT_DISABLED: { status: 403, message: 'La compra sin cuenta no está disponible ahora: inicia sesión para pagar.' },
+    GUEST_EMAIL_REQUIRED: { status: 400, message: 'Escribe un correo válido: ahí te llega el enlace de tu pedido.' },
+    GUEST_NAME_REQUIRED: { status: 400, message: 'Escribe tu nombre completo.' },
+    INVALID_PHONE: { status: 400, message: 'El celular no es válido.' },
+    INVALID_DOCUMENT: { status: 400, message: 'El documento no es válido.' },
+    IDEMPOTENCY_KEY_REQUIRED: { status: 400, message: 'Falta la llave del intento de pago.' },
+    GUEST_METHOD_NOT_AVAILABLE: { status: 422, message: 'Ese medio de pago necesita una cuenta. Elige otro o inicia sesión.' },
+    GUEST_RATE_LIMITED: { status: 429, message: 'Hiciste varios pedidos seguidos. Espera un rato o inicia sesión.' },
+    GUEST_OPEN_ORDERS_LIMIT: { status: 409, message: 'Ya tienes pedidos sin pagar con este correo. Págalos o cancélalos desde el enlace que te enviamos.' },
+    GUEST_AMOUNT_LIMIT: { status: 422, message: 'Este pedido supera el monto permitido sin cuenta. Crea tu cuenta para continuar.' },
 };
 
 const SQLSTATES: Record<string, { status: number; code: string; message: string }> = {

@@ -7,6 +7,7 @@
  *   npx tsx scripts/recordatorios-cobro.ts --escuela <school_id>
  *   npx tsx scripts/recordatorios-cobro.ts --escuela <school_id> --dias 5   # hoy + 4 días siguientes
  *   npx tsx scripts/recordatorios-cobro.ts --escuela <school_id> --detalle  # lista los contactos (teléfono enmascarado)
+ *   npx tsx scripts/recordatorios-cobro.ts --escuela <school_id> --correo   # con el canal correo (familias sin opt-in)
  *
  * Para cada día dice: si es día hábil (el job solo corre L-V no festivos a las
  * 8:00 COT), cuántos recordatorios saldrían por escalón, cuántos cobros cubren
@@ -29,12 +30,13 @@ async function main() {
     if (!schoolId) throw new Error('Falta --escuela <school_id>');
     const dias = Math.max(1, Math.min(31, Number(arg('--dias') ?? 2)));
     const detalle = process.argv.includes('--detalle');
+    const canales = { whatsapp: true, correo: process.argv.includes('--correo') };
     const ahora = new Date();
     const hoy = fechaColombia(ahora);
 
     for (let i = 0; i < dias; i++) {
         const dia = sumarDias(hoy, i);
-        const { plan, diag } = await planDeEscuela(schoolId, ahora, dia);
+        const { plan, diag } = await planDeEscuela(schoolId, ahora, dia, canales);
         if (i === 0) {
             console.log(JSON.stringify({
                 escuela: diag.escuela,
@@ -58,7 +60,7 @@ async function main() {
         console.log(`  descartes: ${Object.entries(plan.descartes).filter(([, n]) => n > 0).map(([k, n]) => `${k}=${n}`).join(' · ') || 'ninguno'}`);
         if (detalle) {
             for (const c of plan.contactos) {
-                console.log(`  ${c.concepto.padEnd(19)} ${enmascararNumero(c.waId)}  ${c.datos.nombreContacto} → ${c.datos.nombreAtleta}  ${c.datos.monto}  (${c.paymentIds.length} cobro/s)`);
+                console.log(`  ${c.concepto.padEnd(19)} ${c.canal === 'email' ? `correo ${c.email?.replace(/^(..).*@/, '$1***@')}` : enmascararNumero(c.waId)}  ${c.datos.nombreContacto} → ${c.datos.nombreAtleta}  ${c.datos.monto}  (${c.paymentIds.length} cobro/s)`);
             }
         }
     }

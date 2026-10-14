@@ -120,6 +120,12 @@ export interface VistaCobroPublico {
      * no tiene WhatsApp activo o si el número del pagador ya lo dio.
      */
     whatsappAvisos: string | null;
+    /**
+     * true si este cobro acepta que se suba la foto/PDF del comprobante aquí
+     * mismo (POST /:token/comprobante). Pensado para escuelas sin WhatsApp
+     * (Dreamers): sin esto el enlace no tenía cómo cerrar una transferencia.
+     */
+    subirComprobante: boolean;
     otrosPendientes: {
         token: string;
         concepto: string;
@@ -448,6 +454,7 @@ export async function vistaDelCobro(r: Extract<ResultadoResolver, { ok: true }>)
             : { cuentas: [], whatsappComprobante: null, qrEscuelaUrl: null, linkDePago: null },
         whatsappAvisos: await enlaceActivarAvisosParaPagador(
             p.school_id, p.parent_id || p.user_id || null, (escuela as any)?.name ?? 'la escuela'),
+        subirComprobante: ESTADOS_QUE_ACEPTAN_COMPROBANTE.includes(p.status),
         otrosPendientes: otros,
     };
 }
@@ -668,4 +675,143 @@ export async function prepararCheckoutDeCobro(
     }
 
     return ok({ reference, gross: grossAmount, base: baseAmount, expiresAt }, false);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Subir el comprobante por el token (escuelas sin WhatsApp)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Dreamers no tiene WhatsApp: el enlace solo decía «manda el comprobante por
+// WhatsApp» y los cobros sin acudiente vinculado (Sofía, Avril, Zoe) no tenían
+// cómo cerrarse. Esto deja el cobro EXACTAMENTE como lo deja el bot de
+// comprobantes (`estamparComprobante`: archivo en payment-receipts, OCR,
+// veredicto, `awaiting_approval`) y, como el flujo del acudiente en la app,
+// solo un verde/amarillo pasa por `evaluatePaymentReceipt` (auto-aprobación si
+// la escuela la tiene, o glosa); un rojo queda para revisión humana. El aviso a
+// la escuela lo da el job receipt-review-alerts como para cualquier otro camino.
+//
+// Seguridad: el cobro sale SOLO del token (el cuerpo es el archivo, nada más);
+// el tipo se valida por los bytes, no por el Content-Type; la respuesta no trae
+// ni el veredicto ni nada del pagador.
+
+/** Estados en que se acepta un comprobante (los mismos que estampa el bot). */
+export const ESTADOS_QUE_ACEPTAN_COMPROBANTE = ['pending', 'overdue'];
+
+/** 6 MB: un pantallazo de banco pesa < 1 MB; un PDF de comprobante, < 500 KB. */
+export const MAX_BYTES_COMPROBANTE = 6 * 1024 * 1024;
+const MIN_BYTES_COMPROBANTE = 512;
+
+/** Tipo real del archivo por su firma (magic bytes). null = no se acepta. */
+export function tipoDeComprobante(buf: Buffer): { mime: string; ext: string } | null {
+    if (buf.length >= 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+        return { mime: 'image/png', ext: 'png' };
+    }
+    if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return { mime: 'image/jpeg', ext: 'jpg' };
+    if (buf.length >= 12 && buf.subarray(0, 4).toString('ascii') === 'RIFF' && buf.subarray(8, 12).toString('ascii') === 'WEBP') {
+        return { mime: 'image/webp', ext: 'webp' };
+    }
+    if (buf.length >= 5 && buf.subarray(0, 5).toString('ascii') === '%PDF-') return { mime: 'application/pdf', ext: 'pdf' };
+    return null;
+}
+
+export type ResultadoSubirComprobante =
+    | { ok: true; estado: 'en_revision' | 'pagado' | 'rechazado' }
+    | { ok: false; status: number; code: string; error: string };
+
+const NO_SUBE = (status: number, code: string, error: string): ResultadoSubirComprobante => ({ ok: false, status, code, error });
+
+const MENSAJE_REPETIDO = 'Este comprobante ya se usó en otro cobro de la escuela. Si hiciste otra transferencia, sube ese comprobante.';
+
+type LogMin = { info?: (...a: any[]) => void; warn?: (...a: any[]) => void };
+
+export async function subirComprobantePorToken(
+    r: Extract<ResultadoResolver, { ok: true }>,
+    archivo: Buffer,
+    log?: LogMin,
+): Promise<ResultadoSubirComprobante> {
+    if (!Buffer.isBuffer(archivo) || archivo.length < MIN_BYTES_COMPROBANTE) {
+        return NO_SUBE(400, 'archivo_invalido', 'Sube la foto o el PDF del comprobante.');
+    }
+    if (archivo.length > MAX_BYTES_COMPROBANTE) {
+        return NO_SUBE(413, 'archivo_grande', 'El archivo es muy pesado (máximo 6 MB). Sube una captura de pantalla.');
+    }
+    const tipo = tipoDeComprobante(archivo);
+    if (!tipo) return NO_SUBE(415, 'tipo_no_permitido', 'Solo se aceptan imágenes (JPG, PNG, WEBP) o PDF.');
+
+    const p = await leerCobro(r.paymentId, r.schoolId);
+    if (!p) return NO_SUBE(404, 'no_existe', 'Este enlace de pago no es válido.');
+    if (p.status === 'paid') return NO_SUBE(409, 'ya_pagado', 'Este cobro ya está pagado.');
+    if (p.status === 'awaiting_approval') {
+        return NO_SUBE(409, 'en_revision', 'Ya recibimos un comprobante para este cobro y la escuela lo está revisando.');
+    }
+    if (!ESTADOS_QUE_ACEPTAN_COMPROBANTE.includes(p.status)) {
+        return NO_SUBE(409, 'no_pagable', 'Este cobro no recibe comprobantes por aquí. Escríbele a la escuela.');
+    }
+    if (!(await escuelaOperativa(p.school_id))) {
+        return NO_SUBE(409, 'escuela_no_operativa', 'La escuela no está recibiendo pagos por SportMaps en este momento.');
+    }
+
+    const sha = crypto.createHash('sha256').update(archivo).digest('hex');
+
+    // La misma imagen ya está en otro cobro vivo de la escuela: no se sube de nuevo.
+    const { data: repetido } = await supabase
+        .from('payments')
+        .select('id')
+        .eq('school_id', p.school_id)
+        .eq('receipt_image_sha256', sha)
+        .neq('id', p.id)
+        .not('status', 'in', '(cancelled,rejected)')
+        .limit(1);
+    if (repetido && repetido.length > 0) return NO_SUBE(409, 'comprobante_repetido', MENSAJE_REPETIDO);
+
+    const storagePath = `${p.school_id}/enlace-publico/${p.id}-${Date.now()}.${tipo.ext}`;
+    const { error: upErr } = await supabase.storage
+        .from('payment-receipts')
+        .upload(storagePath, archivo, { contentType: tipo.mime, upsert: false });
+    if (upErr) throw new Error(`storage upload: ${upErr.message}`);
+
+    // OCR: si falla (proveedor caído), el comprobante igual queda para revisión
+    // manual con el veredicto de una lectura vacía — nunca se pierde.
+    const { extractReceipt } = await import('./ocr.service');
+    let ocr: Awaited<ReturnType<typeof extractReceipt>> = {
+        amount: null, currency: null, date: null, time: null, bank: null, reference: null,
+        destination: null, destinationName: null, originName: null,
+        isReceipt: true, isTransactionList: false, missingFields: [], provider: 'none',
+    };
+    try {
+        ocr = await extractReceipt(archivo.toString('base64'), tipo.mime);
+    } catch (e: any) {
+        log?.warn?.({ paymentId: p.id, err: e?.message }, '[cobro-publico] OCR falló; queda para revisión manual');
+    }
+
+    // Import diferido: el job arrastra media capa de WhatsApp y varios de esos
+    // servicios importan este archivo (evita el ciclo en la carga).
+    const { estamparComprobante } = await import('../jobs/whatsapp-queue.job');
+    const estampado = await estamparComprobante(
+        { schoolId: p.school_id, storagePath, sha, ocr, queueId: `enlace-publico:${p.id}`, log: log as any },
+        { id: p.id, amount: Number(p.amount) } as any,
+    );
+
+    if (!estampado.ok || !estampado.actualizado) {
+        await supabase.storage.from('payment-receipts').remove([storagePath]).catch(() => undefined);
+        if (!estampado.ok && estampado.duplicado) return NO_SUBE(409, 'comprobante_repetido', MENSAJE_REPETIDO);
+        if (!estampado.ok) throw new Error(estampado.error);
+        return NO_SUBE(409, 'no_pagable', 'Este cobro cambió de estado mientras subías el comprobante. Recarga la página.');
+    }
+
+    // Misma regla que el flujo del acudiente en la app (PaymentCheckoutModal →
+    // autoEvaluateGlosa): solo verde/amarillo pasan por la evaluación automática
+    // (auto-aprobación si la escuela la tiene, o glosa). Un ROJO se queda en
+    // `awaiting_approval` para que lo vea una persona: aquí no hay canal para
+    // explicarle a la familia un rechazo automático, y un rojo falso (cuenta
+    // enmascarada → DESTINO_NO_COINCIDE) le tumbaría un pago legítimo.
+    let accion: string | undefined;
+    if (estampado.veredicto.verdict === 'verde' || estampado.veredicto.verdict === 'amarillo') {
+        const { evaluatePaymentReceipt } = await import('./receipt-approval.service');
+        const resultado = await evaluatePaymentReceipt(p.id, log as any).catch(() => ({ action: 'none' as const }));
+        accion = (resultado as { action?: string })?.action;
+    }
+    log?.info?.({ paymentId: p.id, veredicto: estampado.veredicto.verdict, accion }, '[cobro-publico] comprobante subido');
+
+    return { ok: true, estado: accion === 'approved' ? 'pagado' : accion === 'rejected' ? 'rechazado' : 'en_revision' };
 }

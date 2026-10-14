@@ -18510,6 +18510,7 @@ export type Database = {
           show_programs: boolean
           sibling_discount_enabled: boolean
           sibling_discount_percentage: number
+          sibling_discount_tiers: number[] | null
           sportmaps_pay_terms_accepted_at: string | null
           sportmaps_pay_terms_accepted_by: string | null
           team_scheduling_enabled: boolean
@@ -18606,6 +18607,7 @@ export type Database = {
           show_programs?: boolean
           sibling_discount_enabled?: boolean
           sibling_discount_percentage?: number
+          sibling_discount_tiers?: number[] | null
           sportmaps_pay_terms_accepted_at?: string | null
           sportmaps_pay_terms_accepted_by?: string | null
           team_scheduling_enabled?: boolean
@@ -18702,6 +18704,7 @@ export type Database = {
           show_programs?: boolean
           sibling_discount_enabled?: boolean
           sibling_discount_percentage?: number
+          sibling_discount_tiers?: number[] | null
           sportmaps_pay_terms_accepted_at?: string | null
           sportmaps_pay_terms_accepted_by?: string | null
           team_scheduling_enabled?: boolean
@@ -18756,6 +18759,33 @@ export type Database = {
             referencedColumns: ["school_id"]
           },
         ]
+      }
+      school_sibling_links: {
+        Row: {
+          child_id: string
+          created_at: string
+          created_by: string | null
+          group_id: string
+          school_id: string
+          source: string
+        }
+        Insert: {
+          child_id: string
+          created_at?: string
+          created_by?: string | null
+          group_id: string
+          school_id: string
+          source?: string
+        }
+        Update: {
+          child_id?: string
+          created_at?: string
+          created_by?: string | null
+          group_id?: string
+          school_id?: string
+          source?: string
+        }
+        Relationships: []
       }
       school_signup_leads: {
         Row: {
@@ -29529,6 +29559,10 @@ export type Database = {
         Args: { p_branch_id?: string; p_school_id: string; p_year: number }
         Returns: Json
       }
+      get_sibling_family: {
+        Args: { p_child_id: string; p_school_id: string }
+        Returns: Json
+      }
       get_shipping_quote_mock: {
         Args: {
           p_destination_city: string
@@ -29679,6 +29713,10 @@ export type Database = {
           p_unregistered_athlete_id?: string
           p_valid_until?: string
         }
+        Returns: Json
+      }
+      link_siblings: {
+        Args: { p_child_ids: string[]; p_school_id: string }
         Returns: Json
       }
       link_unregistered_to_profile: {
@@ -30944,6 +30982,10 @@ export type Database = {
         Returns: undefined
       }
       unblock_payment: { Args: { p_id: string; p_kind: string }; Returns: Json }
+      unlink_sibling: {
+        Args: { p_child_id: string; p_school_id: string }
+        Returns: Json
+      }
       update_school_branding: {
         Args: {
           p_ip_address?: unknown

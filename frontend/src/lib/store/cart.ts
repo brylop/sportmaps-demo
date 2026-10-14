@@ -175,6 +175,9 @@ export interface QuoteLine {
     line_total?: number;
     line_base?: number;
     line_tax?: number;
+    /** Parte del descuento del cupón (F3b) y neto de la línea. */
+    discount_amount?: number;
+    line_total_net?: number;
     error: QuoteLineError | null;
 }
 
@@ -186,7 +189,10 @@ export interface CartQuote {
     shipping_error: string | null;
     discount_total: number;
     total: number;
+    /** Cupón aplicado (F3b). */
+    coupon?: { code: string; kind: 'percent' | 'fixed'; value: number; description: string | null; discount_total: number } | null;
     coupon_error: string | null;
+    coupon_error_detail?: { min_subtotal?: number; starts_at?: string; ends_at?: string; max_per_buyer?: number } | null;
     multiple_sellers: boolean;
     store_enabled: boolean;
 }

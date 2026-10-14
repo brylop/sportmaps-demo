@@ -260,7 +260,7 @@ Cada fase: objetivo · tareas · criterio de éxito · reversa. Esfuerzo en día
 
 **Objetivo:** cortar a la mitad las peticiones sin tocar a ningún cliente.
 
-1. `RUN_CRONS`: `initMaintenanceJobs()` solo si `process.env.RUN_CRONS === 'true'`; poner la variable **solo** en `sportmaps-bff-prod` (`render.yaml`). Dev y stg siguen sirviendo peticiones.
+1. **Crons solo en prod — implementado 2026-10-14 como `CRONS_ENABLED`** (ver "F0.1 — Interruptor global de crons" abajo). Dev y stg siguen sirviendo peticiones.
    - ⚠️ Antes: confirmar que `main` tiene todo lo de `develop` que GymRM/Dreamers usan (hoy 2 commits de diferencia).
 2. ZKTeco: `touchDevice` con tope de 60 s por serial (mapa en memoria); "limpiar expirados" sale del poll a una tarea cada 5 min.
    - Subir `Delay=10` → `Delay=30` en el handshake (`access-adms.ts:785`): el aparato pregunta 3 veces menos. La apertura de puerta va por el puente local y no se afecta; enrolar una huella tarda hasta 30 s.
@@ -273,6 +273,17 @@ Cada fase: objetivo · tareas · criterio de éxito · reversa. Esfuerzo en día
 
 **Éxito:** `edge_logs` < 55.000/día; `auto_close_stale_hour_bank_visits` ≈ 1/min; torniquetes y bot funcionando igual.
 **Reversa:** quitar `RUN_CRONS` o ponerla en dev; los demás cambios son independientes.
+
+#### F0.1 — Interruptor global de crons (`CRONS_ENABLED`, 2026-10-14)
+
+Se eligió *opt-out* en vez del `RUN_CRONS=true` *opt-in* de la tabla 3.8: si la variable falta, prod sigue corriendo sus crons sin tocar su entorno.
+
+- Código: al inicio de `initMaintenanceJobs()` ([`maintenance.job.ts`](../bff/src/jobs/maintenance.job.ts)), si `process.env.CRONS_ENABLED === 'false'` registra una línea `[CRON] CRONS_ENABLED=false: no se registra ningún cron en este proceso.` y no agenda **ninguno** de los 35 `cron.schedule`. Los `DISABLE_*` por tarea se mantienen y siguen valiendo en prod.
+- **`sportmaps-bff-dev` y `sportmaps-bff-stg`: `CRONS_ENABLED=false`** (declarado en `render.yaml`; si el servicio no se sincroniza por Blueprint, ponerla a mano en el dashboard de Render).
+- **`sportmaps-bff-prod`: sin definir.**
+- No se apagan: las rutas ZKTeco `/iclock`, el WebSocket de puentes `/bridge/ws` ni su `setInterval` de sockets colgados (estado por conexión, no tareas sobre la base).
+- ⚠️ Mientras GymRM/Dreamers sigan conectados a `bffdev` (F1 pendiente): el bloqueo automático por mora (`runAccessAutoBlockCycle`) llama a `wakeSchool()`, que solo despierta puentes WebSocket conectados **al mismo proceso**. Corriendo en prod, encola los comandos en la base pero el puente de GymRM (en dev) no se entera hasta su próxima reconexión — vuelve el retraso de horas del 2026-10-06. Mitigación: hacer F1 primero, o mientras tanto que el puente sondee periódicamente / que `wakeSchool` se dispare entre procesos (Realtime/NOTIFY). Los torniquetes ADMS que sondean `/iclock` leen la cola de la base y no se afectan.
+- Reversa: borrar la variable en dev (o ponerla en `true`) y redeploy.
 
 ### F1 — Sacar a GymRM y Dreamers de dev (semanas 1–2, ~2 días + coordinación)
 

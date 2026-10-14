@@ -1,11 +1,63 @@
 # SportMaps — Roadmap Maestro
 
-**Versión:** 2.35 · **Fecha:** 2026-10-05 · **Rama:** `develop`
+**Versión:** 2.36 · **Fecha:** 2026-10-14 · **Rama:** `develop`
 
 > **Este es el único roadmap.** Todo lo demás en `docs/` es *spec* (qué se construye y por qué),
 > *plan de fase* (cómo se migra), *doctrina de arquitectura* (cómo se hace) o *auditoría* (qué está
 > mal). Ninguno de esos documentos define prioridades: las define esta cola. Si un pendiente no
 > aparece aquí, no existe.
+
+**Cambios v2.35 → v2.36** (2026-10-05 → 14). Auditoría de solo lectura del 13-oct contra la base viva y el repo, en tres frentes: dinero, seguridad y producto. El frente de migraciones e infraestructura **no se completó**: se cortó y no se reanudó porque el 14-oct la base se cayó ~14 h por Disk IO, y ese barrido lee el catálogo (ver CLAUDE.md). **Esta sección manda sobre la cola §4 hasta que se reescriba.**
+
+*Cola vigente por criticidad (reemplaza §4 y §7 mientras tanto):*
+
+| # | Crit. | Qué | Evidencia (13-oct) |
+|---|---|---|---|
+| 1 | 🔴 P0 | **Checkout de Dynasty sin cobrar en línea desde el 07-sep.** El 13-oct a las 16:25 pasó a `payment_mode='direct'` con llave `pub_prod_`, pero el estado es `connected_pending_webhook` y no se ha creado ningún link después del cambio. | 34 `payment_links` desde el 14-sep: 31 pendientes, 3 fallidos, 0 pagados. Validar con un pago real, registrar el webhook y quitar el fallback `VITE_WOMPI_PUBLIC_KEY` (`frontend/src/lib/api/wompi.ts:148`). |
+| 2 | 🔴 P0 | **Monster no factura.** | 125 inscripciones activas, 0 con plan o monto, $0 pagado desde septiembre. Además tiene `auto_cancel_overdue_enabled=true` y ninguna cuenta de recaudo cargada. Mientras no se carguen montos, apagar la autocancelación. |
+| 3 | 🔴 P0 | **Dreamers U3: 95 PIN deshabilitados el 06-oct y 0 rehabilitados.** U1/U2: la facturación de noviembre está apagada y el ciclo se revirtió. | Comandos `disable_user`=95 y `enable_user`=0. Hay que confirmar con la dueña antes del 01-nov (`docs/specs/dreamers-cierre-total.md`). |
+| 4 | 🟠 P1 | **Seguridad: `get_school_athletes(p_school_id, p_team_id)`** es `SECURITY DEFINER` y su gate es `user_school_ids()`. Cualquier padre o deportista lista el nombre y el correo de todos los acudientes de su escuela. | Arreglo: gate `user_staff_school_ids()`, o enmascarar `parent_name`/`parent_email` cuando quien llama no es staff. |
+| 5 | 🟠 P1 | **Cola de comprobantes por WhatsApp pierde archivos.** | 4 `failed` `token_decrypt_failed` en Dynasty (10-10 al 13-oct) porque otro BFF con otra llave toma la cola compartida. El reintento `12f38b78` no alcanzó al consumidor que falla. Hay que identificar ese BFF y reprocesar los 4. |
+| 6 | 🟠 P1 | **Conciliación por correo del banco (DKIM)** como requisito para encender la auto-aprobación. | `bank_statements`=0. 1.341 pagos `paid` sin conciliar. No existe el webhook `resend-inbound`. Dynasty aprueba todo a mano: 9,7 h de promedio, máximo 30 h. |
+| 7 | 🟠 P1 | **SEG-13: ningún super_admin tiene MFA.** | `auth.mfa_factors` sin factores verificados. Además, `auth_leaked_password_protection` está apagado. |
+| 8 | 🟠 P1 | **10 migraciones locales del 13-oct sin commitear ni aplicar:** aging de cartera (el que está vivo infla la mora), hermanos escalonado ×2, QR con inscripción + seguro, `reserve_hour_bank`, mensualidad que estampa el plan, `sync_access_group` (con encabezado «TODO») y 3 de tienda. | Las de tienda incluyen `tienda_compra_sin_cuenta`, que abre RPCs por token a anon: revisarla línea por línea antes de aplicar. **Una sola sesión aplica, al final regenera tipos** (regla de Disk IO). |
+| 9 | 🟡 P2 | Restos de dinero | Queda 1 persona con 2 fichas en Dynasty ($150.000/mes; antes eran 13 personas y $1,77 M). En la plataforma hay 3 más (Porras, GYM RM y una de prueba). 2 inscripciones activas sin equipo ni plan. El CHECK `enrollments_active_needs_target` está NOT VALID. `open_month` sigue sin filtrar atletas inactivos (DIN-25), aunque hoy el daño es 0. |
+| 10 | 🟡 P2 | Cosas construidas pero apagadas, sin piloto | Cobros y pagos F0–F3 (flag apagado, `charge_batches`=0). Débito automático F0–F3 (`autopay_runner.base_url` nulo, 0 suscripciones). Informe de cartera (0 escuelas). Canal WA de plataforma y ventas por WA (0 uso). |
+| 11 | 🟡 P2 | Métrica T0 de la pizarra nunca se cablea | `logTacticalEvent()` solo se usa en tests y `tactical_board_events`=0, aunque se editaron 21 alineaciones. Sin esa métrica no se pueden decidir T5–T7. |
+| 12 | 🟡 P2 | Deuda de seguridad | 41 I3 (FOR ALL sin WITH CHECK; las que usan `is_school_admin()` no son explotables). SEG-11: staging devuelve `err.message` y el 403 filtra UUID y rol. CSRF solo en 3 routers. |
+
+*Corrección:* las alertas I6 (`v_payment_adjustments_familia`) e I7 (`create_school_join_qr`, `request_athlete_certificate`, `issue_athlete_certificate`) son **falsos positivos**. La vista filtra por `auth.uid()` con `security_barrier`, y las RPC delegan en `*__interno`, que solo ejecuta service_role. Conviene allowlistearlas en el invariante con su motivo.
+
+*Verificado cerrado:* identity-documents (bucket privado, anon lee 0); `vendor_profiles` no da permiso a anon; los 5 huecos del linter del 05-oct (salvo el residuo de `get_school_athletes`); `buscar_menor_por_documento_publico` (enmascarado y con límite de tasa); SEG-2 `school_athletes`; guard de pagos desde el cliente vivo; 0 cobros de mensualidad duplicados del mismo periodo en 30 días; las 8 migraciones de `docs/migraciones-para-aplicar-2026-10-13.sql` aplicadas.
+
+*Entregado entre el 05 y el 13 de octubre (116 commits, todo en `origin/main`):*
+- NIV-8 / Dreamers F-A a F-F, con vigencia a fin de mes y primer cobro sin recargo.
+- Débito automático F0–F3, apagado.
+- Cobros y pagos F0–F3 y pagos únicos genéricos, con seguridad S1 (pronto pago) y S4 (monto desde el cliente).
+- Rechazar un comprobante ya no borra la deuda.
+- Profesionales de salud F0–F3 + i7.
+- Factura electrónica del pagador v2.
+- WhatsApp:
+  - clase de cortesía y prospectos;
+  - cadencia de cobro, notas de voz, tomar la conversación, bandejas y buzón F1;
+  - canal de plataforma, ajustes por escuela e informe de calidad y costo;
+  - bot con Claude;
+  - el comprobante elige el cobro por el pie de foto.
+- Informe de cartera, SportBot y ventas por WA F0.
+- Seguimiento deportivo F1–F6 y pizarra T1/T3/T4.
+- Carnets: plantilla predeterminada y privacidad.
+- Seguridad: alcance del coach, lista blanca de roles en el registro y `/admin` solo para plataforma.
+- Acceso GYM RM: deduplicación, wakeup por WebSocket y congelamiento por mora.
+- Pasarela por escuela desde Super Admin.
+- Dimensionamiento responsive y mapa de la app (`docs/mapa-app/`).
+
+*Encabezados de spec desactualizados:* `debito-automatico.md` («no hay código»), `canal-whatsapp-plataforma` («sin aplicar»), `rediseno-seguimiento-deportivo.md` («PLAN») y profesionales («pendiente i7»).
+
+*Rediseño global (lienzo V1/V2):* sin código. El cruce está en `docs/mapa-app/cruce-rediseno.md`: 130 pantallas viven, 62 se fusionan, 55 se eliminan y **38 faltan** (Planes, entre otras). La navegación quedó unificada el 13-oct como Hoy · Deportistas · Entrenadores · Asistencia · Calendario · Cobros · Tienda · WhatsApp · Escuela · Configuración. UX-* y MOV-* no avanzaron, salvo lo responsive.
+
+*Bre-B con Factus Pay:* bloqueado. La plata entra a Factus Pay con dispersión semanal, no hay webhook, B2B es imposible y no hay fecha de producción. Ver `docs/specs/plan-maestro-cobros-2026-10.md` §6.1–6.2.
+
+---
 
 **Cambios v2.34 → v2.35** (2026-10-04 → 05, verificado contra la base viva y los logs de Render).
 

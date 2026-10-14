@@ -31,6 +31,9 @@ services:
         sync: false
       - key: FRONTEND_URL
         value: https://dev.sportmaps.co
+      # CRONS_ENABLED=false va SOLO cuando GYM RM y Dreamers pasen a prod: el
+      # autobloqueo despierta a los puentes por memoria del proceso (bridgeWsHub)
+      # y los puentes siguen conectados a este BFF. Ver plan-arquitectura F0.1.
       # Puente físico GYM RM (scripts/gymrm-door-bridge/) -- valor real solo
       # en el dashboard de Render, nunca acá. Debe coincidir con
       # SPORTMAPS_BRIDGE_API_KEY en la PC del gym.
@@ -57,6 +60,9 @@ services:
         sync: false
       - key: FRONTEND_URL
         value: https://stg.sportmaps.co
+      # Crons solo en prod (comparten la base). Ver docs/plan-arquitectura-robusta-2026-10.md F0.
+      - key: CRONS_ENABLED
+        value: "false"
 
   # ── BFF: Entorno de Producción (Main) ──────────────────────────────────────
   - type: web

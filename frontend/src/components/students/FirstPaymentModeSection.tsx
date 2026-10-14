@@ -64,12 +64,14 @@ interface Props {
   waivers?: FeeWaivers;
   /** Atleta que ya tiene cuenta: el BFF descuenta el seguro si ya tiene uno vigente. */
   athleteUserId?: string | null;
+  /** F2 hermanos: hermano ya inscrito elegido en el alta (el BFF aplica su escalón). */
+  siblingOfChildId?: string | null;
 }
 
 const fmtDate = (d: string) =>
   new Date(d + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
 
-export function FirstPaymentModeSection({ schoolId, planId, startDate, monthlyFee, discountPct, value, onChange, waivers, athleteUserId }: Props) {
+export function FirstPaymentModeSection({ schoolId, planId, startDate, monthlyFee, discountPct, value, onChange, waivers, athleteUserId, siblingOfChildId }: Props) {
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +92,7 @@ export function FirstPaymentModeSection({ schoolId, planId, startDate, monthlyFe
           ...(waivers?.registration ? { waive_registration_fee: true } : {}),
           ...(waivers?.insurance ? { waive_insurance_fee: true } : {}),
           ...(athleteUserId ? { user_id: athleteUserId } : {}),
+          ...(siblingOfChildId ? { sibling_of_child_id: siblingOfChildId } : {}),
           ...(value.mode === 'remaining_classes' && value.classesRemaining
             ? { classes_remaining: value.classesRemaining, partial_due: value.partialDue }
             : {}),
@@ -102,7 +105,7 @@ export function FirstPaymentModeSection({ schoolId, planId, startDate, monthlyFe
       }
     }, 350);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [schoolId, planId, startDate, monthlyFee, discountPct, value.mode, value.classesRemaining, value.partialDue, waivers?.registration, waivers?.insurance, athleteUserId]);
+  }, [schoolId, planId, startDate, monthlyFee, discountPct, value.mode, value.classesRemaining, value.partialDue, waivers?.registration, waivers?.insurance, athleteUserId, siblingOfChildId]);
 
   // Si el plan deja de ser elegible, volver a "Mes completo".
   useEffect(() => {

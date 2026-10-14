@@ -366,6 +366,15 @@ export default function MiCompraDetallePage() {
           ))}
         </ul>
         <div className="border-t pt-2 text-sm space-y-1">
+          {Number(order.discount_total ?? 0) > 0 && (
+            <>
+              <div className="flex justify-between text-muted-foreground"><span>Productos</span><span className="tabular-nums">{formatCurrency(Number(order.subtotal ?? 0))}</span></div>
+              <div className="flex justify-between text-emerald-700 dark:text-emerald-400" data-testid="order-discount">
+                <span>Descuento{order.coupon_code ? ` (${order.coupon_code})` : ''}</span>
+                <span className="tabular-nums">−{formatCurrency(Number(order.discount_total))}</span>
+              </div>
+            </>
+          )}
           <div className="flex justify-between text-muted-foreground"><span>Envío</span><span>{pickup ? 'Retiro en sede' : formatCurrency(Number(order.shipping_cost ?? 0))}</span></div>
           <div className="flex justify-between font-bold"><span>Total</span><span className="tabular-nums" data-testid="order-total">{formatCurrency(Number(order.total_amount))}</span></div>
           {Number(order.tax_total) > 0 && <p className="text-xs text-muted-foreground text-right">Incluye IVA {formatCurrency(Number(order.tax_total))}</p>}

@@ -158,6 +158,11 @@ Mantiene 9 ítems de vendedor contra el objetivo de 24 destinos en total, dos in
 
 Regla: el desglose en Hoy y Pagos es **lectura de `orders`**; no se copia a `payments` ni se abre otra rama en `cash_ledger` (el contrato de contabilidad v2 lo prohíbe). Cuando `ERP-5` lleve los cobros al mayor, la tienda ya llega por su propio evento.
 
+> **Hecho (2026-10-13, migración `20261013170548_tienda_ingresos_en_finanzas`, sin aplicar en la viva).** Lectura, sin escribir nada:
+> `store_income_lines` / `store_income_summary` (órdenes cobradas del vendor escolar, neto de reembolsos **completados**, fecha = `paid_at` en Bogotá, sede = `pickup_branch_id` con la regla A3), `store_income_has_store` y `finance_income_by_origin` (mensualidades / inscripciones / artículos / torneos / otros_cobros de la fórmula única + `tienda`, fuentes disjuntas). Mismo permiso que la fórmula única (`finance_permission … 'read'`; coach/padre/atleta/escuela ajena → 42501). Pantallas: inicio («Ingresos del Mes» con *Mensualidades · Tienda*), Finanzas («Total Ingresado»), Contabilidad (indicador de Ingresos + CSV del libro con las ventas como «Ventas de tienda») y estado de resultados (línea «Ventas de tienda» por mes + CSV). Sin tienda, todo queda igual. Casos: `supabase/tests/contabilidad_v2/C13*`, E2E `frontend/e2e/contabilidad/tienda-ingresos-en-finanzas.spec.ts`.
+> Decisión: el reembolso resta en el **mes de la venta** (es recaudo neto por venta); el mayor lo asentará en su propia fecha por `commerce_refund`.
+> **Fuera de alcance:** procesar la bandeja `accounting_outbox` (`commerce_sale` / `commerce_refund` → asientos) depende del libro mayor de contabilidad v2 **F1**. Hasta entonces la tienda llega a los ingresos solo por estas lecturas, no al libro de caja (`cash_ledger`) ni a la lista de movimientos de Contabilidad.
+
 ---
 
 ## 5. Cambios concretos por archivo

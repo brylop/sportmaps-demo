@@ -59,6 +59,7 @@ import whatsappPlataformaRouter from './routes/whatsapp-plataforma.routes';
 import whatsappBuzonRouter from './routes/whatsapp-buzon.routes';
 import publicBookingRouter from './routes/public-booking.routes';
 import cobroEnlacePublicoRouter from './routes/cobro-enlace-publico.routes';
+import storeGuestRouter from './routes/store-guest.routes';
 import { initMaintenanceJobs } from './jobs/maintenance.job';
 import { debenCorrerLosCrons } from './jobs/crons-solo-en-render';
 import organizerRouter from './routes/organizers.route';
@@ -76,6 +77,7 @@ import vendorProductsRouter from './routes/vendor-products.routes';
 import vendorServicesRouter from './routes/vendor-services.routes';
 import marketplaceOrdersRouter from './routes/marketplace-orders.routes';
 import storeOrdersRouter from './routes/store-orders.routes';
+import storeCouponsRouter from './routes/store-coupons.routes';
 import ogPreviewRouter from './routes/og-preview.routes';
 import certificatesRouter from './routes/certificates';
 import athleteReportsPdfRouter from './routes/athlete-reports-pdf';
@@ -337,6 +339,10 @@ app.use('/api/v1/public/booking', publicBookingLimiter, publicBookingRouter);
 // Enlace público de un cobro (/p/:token, botón de las plantillas de cobranza de
 // WhatsApp). Sin requireAuth: el token es la credencial. Rate limit dentro del router.
 app.use('/api/v1/public/cobro', cobroEnlacePublicoRouter);
+// Tienda: compra SIN cuenta y enlace del pedido /pedido/:token (mig. 20261013170553).
+// Rate limit propio por IP real (CF-Connecting-IP) dentro del router. Va antes del
+// reviewsRouter de /api/v1, que le exige sesión a todo lo que pasa por él.
+app.use('/api/v1/public/tienda', storeGuestRouter);
 
 app.use('/api/v1/webhooks/mercadopago', mpWebhookRouter);
 // /create y /save-card mutan tarjeta/cobro → requireAuth (dentro del router) +
@@ -444,6 +450,8 @@ app.use('/api/v1/vendor/products', generalLimiter, requireStoreEnabled, vendorPr
 app.use('/api/v1/vendor/services', generalLimiter, vendorServicesRouter);
 app.use('/api/v1/marketplace/orders', storeRateLimit, requireStoreEnabled, marketplaceOrdersRouter);
 // Tienda v2 F0: comprobante, aprobación, efectivo, transiciones y medios del vendedor (RPC con actor).
+// Tienda v2 F3b: cupones por tienda (auth por ruta; va antes porque storeOrdersRouter exige sesión a todo lo que no es público).
+app.use('/api/v1/store', storeRateLimit, storeCouponsRouter);
 app.use('/api/v1/store', storeRateLimit, storeOrdersRouter);
 app.use('/api/v1/certificates', generalLimiter, certificatesRouter);
 app.use('/api/v1/athlete-reports', generalLimiter, athleteReportsPdfRouter);

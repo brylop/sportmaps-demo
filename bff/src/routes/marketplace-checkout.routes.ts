@@ -29,6 +29,7 @@ import { generateReference, copToCents, assertUserNotBlocked, UserPaymentBlocked
 import { requireStoreEnabled } from '../services/store-flag.service';
 import { refundErrorStatus, mapStoreRpcError } from '../services/store-rpc-errors';
 import { StoreCheckoutSchema, toCreateCartOrderArgs, gatewayPayloadForOrder, sellerWompiCredsForOrder, type GatewayPayload } from '../services/store-checkout';
+import { couponErrorMessage } from '../services/store-coupons';
 
 const router = Router();
 
@@ -404,6 +405,9 @@ router.post('/checkout/cart', requireStoreEnabled, ensureUserNotBlocked, async (
                 subtotal: Number(summary.subtotal),
                 taxTotal: Number(summary.tax_total),
                 shippingCost: Number(summary.shipping),
+                // Cupón (F3b): subtotal es ANTES del descuento; grossAmount = subtotal − discountTotal + envío.
+                discountTotal: Number(summary.discount_total ?? 0),
+                couponCode: summary.coupon_code ?? null,
                 // Contrato nuevo
                 status: summary.status,
                 paymentMethod: summary.payment_method,
@@ -445,7 +449,9 @@ router.post('/checkout/cart/quote', requireStoreEnabled, async (req: Request, re
             const mapped = mapStoreRpcError(error);
             return res.status(mapped.status).json({ ok: false, error: mapped.code, message: mapped.message });
         }
-        return res.json({ ok: true, data });
+        // coupon_error trae el código; el mensaje legible va al lado (mismos textos que create_cart_order).
+        const q = (data ?? {}) as Record<string, any>;
+        return res.json({ ok: true, data: { ...q, coupon_message: couponErrorMessage(q.coupon_error, q.coupon_error_detail) } });
     } catch (err: any) {
         return res.status(500).json({ ok: false, error: err.message || 'Error interno.' });
     }
