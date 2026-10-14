@@ -8,7 +8,7 @@ import { useEntitlements } from '@/hooks/useEntitlements';
 import { useCanManageFinances } from '@/hooks/useCanManageFinances';
 import { formatCurrency } from '@/lib/utils';
 import { dayToLocalDate, todayColombia } from '@/lib/dateUtils';
-import { monthBounds } from '@/lib/accounting/income';
+import { monthBounds, fetchStoreIncome, fetchStoreIncomeLines } from '@/lib/accounting/income';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -36,7 +36,10 @@ import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { z } from 'zod';
 import { validate, zRequiredText, zAmountPositive } from '@/lib/formValidation';
 import { comprimirParaSubir } from '@/lib/imageCompression';
-import { downloadCsv, ledgerCsvRows, incomeCategoryLabel, type LedgerExportLine } from '@/lib/accounting/csv';
+import {
+    downloadCsv, ledgerCsvRows, incomeCategoryLabel, storeLinesToLedgerExport, sortLedgerExport,
+    type LedgerExportLine,
+} from '@/lib/accounting/csv';
 
 const expenseSchema = z.object({
     category_id: zRequiredText('La categoría'),
@@ -180,6 +183,27 @@ export default function AccountingPage() {
         },
     });
 
+    // ─── Ventas de la tienda escolar del mes ─────────────────────────────────
+    // La tienda no está en cash_ledger ni en payments (contrato contabilidad v2
+    // §6): se lee aparte (store_income_summary, mismo permiso que el libro) y se
+    // suma al ingreso con su desglose. Sin tienda → la pantalla queda igual.
+    const storeQuery = useQuery({
+        queryKey: ['cash-ledger', schoolId, activeBranchId, month, 'store'],
+        enabled: !!schoolId,
+        queryFn: async () => {
+            const r = await fetchStoreIncome(supabase as any, {
+                schoolId: schoolId as string,
+                branchId: activeBranchId,
+                from: range.from,
+                to: range.to,
+            });
+            if (r.kind === 'error') throw new Error(r.message);
+            return r.kind === 'ok' && r.hasStore ? r.total : null;
+        },
+    });
+    /** Ventas de tienda del mes; null = sin tienda. */
+    const storeIncome = storeQuery.data ?? null;
+
     // ¿Puede registrar gastos? Lo decide la base (can_manage_finances, lo mismo
     // que exige la policy de INSERT): el contador no ve el botón.
     const canManage = useCanManageFinances(schoolId);
@@ -312,7 +336,7 @@ export default function AccountingPage() {
                 }
             }
             const catName = new Map((categoriesQuery.data ?? []).map((c) => [c.id, c.name]));
-            const lines: LedgerExportLine[] = all.map((r) => {
+            const ledgerLines: LedgerExportLine[] = all.map((r) => {
                 const x = extra.get(r.id);
                 return {
                     date: r.movement_date,
@@ -327,6 +351,15 @@ export default function AccountingPage() {
                     amount: Number(r.amount),
                 };
             });
+            // Ventas de la tienda del mes (no están en el libro): mismas reglas de
+            // sede y mes que el indicador, neto de reembolsos.
+            const storeLines = storeLinesToLedgerExport(await fetchStoreIncomeLines(supabase as any, {
+                schoolId,
+                branchId: activeBranchId,
+                from: range.from,
+                to: range.to,
+            }));
+            const lines = storeLines.length > 0 ? sortLedgerExport([...ledgerLines, ...storeLines]) : ledgerLines;
             downloadCsv(`libro-caja-${month}.csv`, ledgerCsvRows(lines));
             toast({ title: 'Libro exportado', description: `${lines.length} movimiento(s) de ${month}.` });
         } catch (e: any) {
@@ -339,10 +372,11 @@ export default function AccountingPage() {
         const t = totalsQuery.data;
         if (!t) return null;
         // Los sin fecha solo suman cuando el usuario los incluye en la lista.
-        const income = t.income + (includeUndated ? t.undatedIncome : 0);
+        const cobros = t.income + (includeUndated ? t.undatedIncome : 0);
+        const income = cobros + (storeIncome ?? 0);
         const expense = t.expense + (includeUndated ? t.undatedExpense : 0);
-        return { income, expense, net: income - expense };
-    }, [totalsQuery.data, includeUndated]);
+        return { income, cobros, expense, net: income - expense };
+    }, [totalsQuery.data, includeUndated, storeIncome]);
     const directionCounts = {
         income: totalsQuery.data?.incomeN ?? 0,
         expense: totalsQuery.data?.expenseN ?? 0,
@@ -355,7 +389,7 @@ export default function AccountingPage() {
                 : directionCounts.income + directionCounts.expense)
         + (includeUndated ? undatedN : 0);
 
-    if (ledgerQuery.isError || totalsQuery.isError) {
+    if (ledgerQuery.isError || totalsQuery.isError || storeQuery.isError) {
         return (
             <div className="container mx-auto p-6 space-y-6">
                 <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
@@ -366,7 +400,7 @@ export default function AccountingPage() {
                     <AlertTitle>No se pudo cargar el libro de caja</AlertTitle>
                     <AlertDescription className="mt-1 flex flex-col items-start gap-3">
                         <span>Ocurrió un error de conexión. Esto <strong>no</strong> significa que no haya movimientos.</span>
-                        <Button size="sm" variant="outline" onClick={() => { ledgerQuery.refetch(); totalsQuery.refetch(); }}>
+                        <Button size="sm" variant="outline" onClick={() => { ledgerQuery.refetch(); totalsQuery.refetch(); storeQuery.refetch(); }}>
                             <RefreshCw className="mr-2 h-4 w-4" /> Reintentar
                         </Button>
                     </AlertDescription>
@@ -502,7 +536,12 @@ export default function AccountingPage() {
                         <TrendingUp className="h-4 w-4 text-emerald-500" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-emerald-600">{totals ? formatCurrency(totals.income) : '—'}</div>
+                        <div className="text-2xl font-bold text-emerald-600" data-testid="accounting-income-total">{totals ? formatCurrency(totals.income) : '—'}</div>
+                        {totals && storeIncome !== null && (
+                            <p className="text-xs text-muted-foreground mt-1" data-testid="accounting-income-breakdown">
+                                Mensualidades {formatCurrency(totals.cobros)} · Tienda {formatCurrency(storeIncome)}
+                            </p>
+                        )}
                     </CardContent>
                 </Card>
                 <Card>

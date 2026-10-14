@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
+  "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs â€” no editar a mano. Toda migraciÃ³n nueva agrega una lÃ­nea al final; si dos ramas chocan aquÃ­, pÃ³nganse de acuerdo en la versiÃ³n ANTES de mergear.",
   "count": 760,
   "head": "20261014113152",
   "migrations": [
@@ -761,8 +761,8 @@
     {"v":"20261014105158","file":"20261014105158_indices_duplicados_y_parciales.sql","sha256":"dba58d4ba18d93eb09ec618a3b58d9a26ab46ce2b8ee1e14c7f002ab66942481","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261014105210","file":"20261014105210_adms_getrequest_rpc.sql","sha256":"a3ca0d1a9b294732e9d35a1e611cb0aaf3acc9d73566074a38aa4571c1a091eb","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261014105326","file":"20261014105326_idempotencia_jobs_concurrentes.sql","sha256":"1310782a669cb3694f72875290dea2e6d58bfca2f5321b9db7ab1370086a9249","added":"2026-10-14","by":"Brayan Steven Lopez"},
+    {"v":"20261014112226","file":"20261014112226_recordatorios_cobro_correo.sql","sha256":"60919d806c40e65dc9b26e9ede748d5e5cdc992f22c666ffd1b064680fa73607","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261014113038","file":"20261014113038_qr_signup_restaura_guarda_escuela_operativa.sql","sha256":"04c5fd92cd1199092a1310438d811e6e7cbb4530639f5cebe0c7bafe96d2b74c","added":"2026-10-14","by":"Brayan Steven Lopez"},
-    {"v":"20261014113152","file":"20261014113152_versiona_insert_exercise_tactical_scope.sql","sha256":"0bbfc719f33564c5acc9acf7af4f77eecf53a640d90a450f30337e1e92f7bade","added":"2026-10-14","by":"Brayan Steven Lopez"},
-    {"v":"20261014112226","file":"20261014112226_recordatorios_cobro_correo.sql","sha256":"60919d806c40e65dc9b26e9ede748d5e5cdc992f22c666ffd1b064680fa73607","added":"2026-10-14","by":"Brayan Steven Lopez"}
+    {"v":"20261014113152","file":"20261014113152_versiona_insert_exercise_tactical_scope.sql","sha256":"0bbfc719f33564c5acc9acf7af4f77eecf53a640d90a450f30337e1e92f7bade","added":"2026-10-14","by":"Brayan Steven Lopez"}
   ]
 }

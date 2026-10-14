@@ -107,7 +107,7 @@ describe('Tu tienda → Ajustes → Cobros', () => {
     });
     expect(open.title).toBe('Tu tienda');
     const titles = open.items.map(i => i.title);
-    expect(titles).toEqual(['Pedidos', 'Productos', 'Inventario', 'Cobros y entrega']);
+    expect(titles).toEqual(['Pedidos', 'Productos', 'Inventario', 'Cobros y entrega', 'Cupones']);
     expect(titles.join(' ')).not.toMatch(/Liquidaciones|Verificación|Panel Tienda/);
 
     const closed = getVendorNavGroup({

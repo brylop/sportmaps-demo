@@ -42,6 +42,7 @@ import { StudentTypeSelector } from '@/components/students/StudentTypeSelector';
 import { EpsCombobox } from '@/components/common/EpsCombobox';
 import { TSHIRT_SIZES, BLOOD_TYPES } from '@/lib/athlete-options';
 import { CreateChildModal } from '@/components/students/CreateChildModal';
+import { SiblingFamilySection } from '@/components/students/siblings';
 import { CreateAdultAthleteModal } from '@/components/students/CreateAdultAthleteModal';
 import { CobrosYPagosModal } from '@/components/payment/CobrosYPagosModal';
 import { isCobrosYPagosEnabled } from '@/lib/cobrosYPagosFlag';
@@ -2199,6 +2200,13 @@ export default function SchoolStudentsManagementPage() {
               </div>
               )}
             </div>
+
+            {/* F2 hermanos: familia del menor (vínculo manual para acudientes sin
+                cuenta). Solo administración; la RPC vuelve a exigirlo. */}
+            {editingStudent && editingAthleteType === 'child' && schoolId
+              && profile?.role !== 'coach' && canManageCharges(schoolRole) && (
+              <SiblingFamilySection schoolId={schoolId} childId={editingStudent.id} />
+            )}
 
             {!editingStudent && dupAviso && (
               <div className="rounded-md border border-amber-400 bg-amber-50 p-3 space-y-2 dark:bg-amber-950/30">

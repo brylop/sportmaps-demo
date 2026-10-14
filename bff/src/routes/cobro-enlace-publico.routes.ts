@@ -6,6 +6,8 @@
  *   GET  /:token/qr.png → PNG con el QR del enlace https://app.sportmaps.co/p/<token>
  *   GET  /:token/factura → ¿quiere factura electrónica? (resumen ENMASCARADO)
  *   PUT  /:token/factura → guarda la preferencia y los datos de factura
+ *   POST /:token/comprobante → sube la foto/PDF del comprobante (cuerpo = el
+ *        archivo crudo, Content-Type image/* o application/pdf, máx. 6 MB)
  *
  * Montado bajo /api/v1/public: requireOperationalSchool lo deja pasar (está en
  * su allowlist), por eso el chequeo de escuela operativa vive en el servicio.
@@ -18,11 +20,11 @@
  * creación de referencias de pago.
  */
 
-import { Router, Request, Response } from 'express';
+import express, { Router, Request, Response } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import QRCode from 'qrcode';
 import {
-    resolverToken, vistaDelCobro, iniciarPagoEnLinea,
+    resolverToken, vistaDelCobro, iniciarPagoEnLinea, subirComprobantePorToken, MAX_BYTES_COMPROBANTE,
 } from '../services/cobro-enlace-publico.service';
 import { appPublica, enlaceDeCobro } from '../utils/url-publica-familias';
 import {
@@ -83,6 +85,31 @@ const facturaLimiter = rateLimit({
     legacyHeaders: false,
     keyGenerator: (req) => `cobro-factura-${String(req.params?.token ?? '').slice(0, 32)}-${ipKeyGenerator(req.ip ?? '')}`,
     message: { error: 'Demasiados intentos. Espera unos minutos.', code: 'rate_limited' },
+});
+
+// Subir comprobante: cada intento paga OCR y escribe en storage. 6 por token
+// cada 30 min (reintentos honestos: foto borrosa, otra captura) y 30 por IP
+// por hora (el wifi de la escuela es compartido).
+const comprobanteTokenLimiter = rateLimit({
+    windowMs: 30 * 60 * 1000,
+    max: 6,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => `cobro-comp-tk-${String(req.params?.token ?? '').slice(0, 32)}`,
+    message: { error: 'Demasiados intentos de subir el comprobante. Espera unos minutos.', code: 'rate_limited' },
+});
+const comprobanteIpLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => `cobro-comp-ip-${ipKeyGenerator(req.ip ?? '')}`,
+    message: { error: 'Demasiados intentos. Espera unos minutos.', code: 'rate_limited' },
+});
+// Cuerpo crudo (no base64 en JSON): el tipo real se valida por los bytes en el servicio.
+const cuerpoComprobante = express.raw({
+    type: ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'application/pdf', 'application/octet-stream'],
+    limit: MAX_BYTES_COMPROBANTE,
 });
 
 function respuestaTokenInvalido(res: Response, motivo: 'no_existe' | 'vencido' | 'revocado') {
@@ -159,6 +186,55 @@ router.post('/:token/pagar', pagoLimiter, async (req: Request, res: Response) =>
         return res.status(500).json({ error: 'No pudimos iniciar el pago. Intenta de nuevo.' });
     }
 });
+
+/**
+ * Comprobante de transferencia por el enlace, para escuelas sin WhatsApp. El
+ * token se valida ANTES de leer el cuerpo (sin token válido no se recibe nada)
+ * y el cobro sale solo del token. Respuesta mínima: el estado público.
+ */
+router.post('/:token/comprobante', comprobanteIpLimiter, comprobanteTokenLimiter,
+    async (req: Request, res: Response, next) => {
+        res.set('Cache-Control', 'no-store');
+        try {
+            const r = await resolverToken(String(req.params.token));
+            if (!r.ok) {
+                // Se corta la conexión del archivo: no se recibe nada sin token válido.
+                res.set('Connection', 'close');
+                return respuestaTokenInvalido(res, r.motivo);
+            }
+            (req as any).cobroResuelto = r;
+            return next();
+        } catch (err: any) {
+            (req as any).log?.error({ err: err?.message }, 'cobro-publico POST comprobante (token) falló');
+            return res.status(500).json({ error: 'No pudimos recibir el comprobante. Intenta de nuevo.' });
+        }
+    },
+    (req: Request, res: Response, next) => {
+        cuerpoComprobante(req, res, (err?: any) => {
+            if (err) {
+                const grande = err?.type === 'entity.too.large';
+                return res.status(grande ? 413 : 400).json({
+                    code: grande ? 'archivo_grande' : 'archivo_invalido',
+                    error: grande ? 'El archivo es muy pesado (máximo 6 MB). Sube una captura de pantalla.' : 'No pudimos leer el archivo.',
+                });
+            }
+            return next();
+        });
+    },
+    async (req: Request, res: Response) => {
+        try {
+            if (!Buffer.isBuffer(req.body)) {
+                return res.status(415).json({ code: 'tipo_no_permitido', error: 'Solo se aceptan imágenes (JPG, PNG, WEBP) o PDF.' });
+            }
+            const out = await subirComprobantePorToken((req as any).cobroResuelto, req.body, (req as any).log);
+            if (!out.ok) return res.status(out.status).json({ code: out.code, error: out.error });
+            return res.status(201).json({ ok: true, estado: out.estado });
+        } catch (err: any) {
+            (req as any).log?.error({ err: err?.message }, 'cobro-publico POST comprobante falló');
+            return res.status(500).json({ error: 'No pudimos recibir el comprobante. Intenta de nuevo.' });
+        }
+    },
+);
 
 /**
  * Factura electrónica del pagador de ESTE cobro. El token es la credencial y

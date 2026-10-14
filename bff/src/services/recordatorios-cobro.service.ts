@@ -163,6 +163,8 @@ export interface ContactoPlaneado {
     waId: string | null;
     email: string | null;
     perfilId: string | null;
+    /** Día de corte de la escuela, para el recordatorio del correo. */
+    diaCorte?: number | null;
     concepto: ConceptoRecordatorio;
     /** Cobros que menciona el mensaje; el primero es el "líder" (el más viejo): botón y candado. */
     paymentIds: string[];
@@ -193,6 +195,8 @@ export interface EntradaPlan {
     contactadosHoy: Set<string>;
     /** La escuela tiene la cadencia por correo: la familia sin WhatsApp con opt-in la recibe por correo. */
     canalCorreo?: boolean;
+    /** Día del mes hasta el que se paga (calendario fijo): el correo lo recuerda. */
+    diaCorte?: number | null;
 }
 
 /**
@@ -268,6 +272,7 @@ export function planificar(e: EntradaPlan): Plan {
             waId: g.canal === 'whatsapp' ? destino.slice(3) : null,
             email: g.canal === 'email' ? destino : null,
             perfilId: g.familias.find((f) => f.perfilId)?.perfilId ?? null,
+            diaCorte: e.diaCorte ?? null,
             concepto: lider.escalon.concepto,
             paymentIds: grupo.map((c) => c.paymentId),
             datos: {
@@ -438,11 +443,17 @@ export async function planDeEscuela(
     const desde = sumarDias(hoy, -ESCALONES[ESCALONES.length - 1].hasta);
     const hasta = sumarDias(hoy, -ESCALONES[0].desde);
 
-    const [{ data: escuela }, integracion] = await Promise.all([
+    const [{ data: escuela }, integracion, { data: ajustes }] = await Promise.all([
         supabase.from('schools').select('name').eq('id', schoolId).maybeSingle(),
         integracionActiva(schoolId),
+        supabase.from('school_settings').select('payment_cutoff_day, billing_cycle_type').eq('school_id', schoolId).maybeSingle(),
     ]);
     const nombreEscuela = String((escuela as any)?.name ?? '').replace(/&amp;/g, '&');
+    // «Los primeros N días de cada mes» solo es cierto con calendario fijo
+    // (con ciclo por aniversario cada atleta vence en su propia fecha).
+    const diaCorte = (ajustes as any)?.billing_cycle_type === 'fixed_calendar'
+        ? Number((ajustes as any)?.payment_cutoff_day) || null
+        : null;
 
     // Solo mensualidades (las plantillas dicen "la mensualidad de …"), con saldo
     // y sin comprobante en revisión: a quien ya pagó y espera aprobación no se le cobra.
@@ -518,6 +529,7 @@ export async function planDeEscuela(
         enviados, optin,
         contactadosHoy: new Set([...estadoHoy, ...recordatorioHoy]),
         canalCorreo: canales.correo,
+        diaCorte,
     });
     return {
         plan,
@@ -550,6 +562,7 @@ async function enviarPorCorreo(schoolId: string, c: ContactoPlaneado, lider: str
         daysOverdue: c.datos.diasVencido ?? null,
         paymentLink: link,
         schoolId,
+        cutoffDay: c.diaCorte ?? null,
     });
     const r = await emailClient.send({ to: c.email, subject: tpl.subject, html: tpl.html });
     if (!r?.success) return { enviado: false, motivo: 'correo_fallo' };

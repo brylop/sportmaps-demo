@@ -38,7 +38,7 @@ router.get('/', async (req: Request, res: Response) => {
             .select(`
                 *,
                 order_items (
-                    id, product_id, variant_id, vendor_id, quantity, unit_price, tax_amount,
+                    id, product_id, variant_id, vendor_id, quantity, unit_price, tax_amount, line_total, discount_amount,
                     products (id, name, image_url, category)
                 )
             `, { count: 'exact' })
@@ -72,7 +72,7 @@ router.get('/:id', async (req: Request, res: Response) => {
             .select(`
                 *,
                 order_items (
-                    id, product_id, variant_id, vendor_id, quantity, unit_price, tax_amount,
+                    id, product_id, variant_id, vendor_id, quantity, unit_price, tax_amount, line_total, discount_amount,
                     products (id, name, image_url, category, vendor_id)
                 )
             `)

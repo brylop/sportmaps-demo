@@ -397,6 +397,13 @@ export default function DashboardPage() {
             // Ingreso cobrado este mes (Bogotá) por fecha de pago, con la misma
             // fórmula que Contabilidad y Gestión de Pagos (finance_income_summary).
             description = 'Cobrado este mes';
+            // Con tienda: desglose Mensualidades / Tienda (las ventas de la
+            // tienda no están en payments; se leen con store_income_summary).
+            const bd = realStats.revenue_breakdown;
+            if (bd) {
+              description = `Mensualidades ${formatCurrency(bd.mensualidades)} · Tienda ${
+                bd.tienda == null ? '—' : formatCurrency(bd.tienda)}`;
+            }
           }
 
           return {

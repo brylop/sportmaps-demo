@@ -76,3 +76,128 @@ export async function fetchMonthlyRevenue(
         .reduce((s, r) => s + Number(r.income_amount ?? 0), 0);
     return { kind: 'ok', amount, month: bucket };
 }
+
+// ─── Tienda escolar en los ingresos (migración 20261013170548) ──────────────
+// La tienda NO escribe en payments ni en cash_ledger (contrato de contabilidad
+// v2 §6): sus ventas se leen aparte (store_income_*), con el MISMO permiso que
+// la fórmula única, y la pantalla las suma al lado de las mensualidades.
+
+/** Ingreso de tienda de un rango. `hasStore: false` = la pantalla queda igual que antes. */
+export type StoreIncome =
+    | { kind: 'ok'; hasStore: boolean; total: number; buckets: Record<string, number> }
+    | { kind: 'forbidden' }
+    | { kind: 'error'; message: string };
+
+/** La RPC no existe todavía (migración sin aplicar): se trata como "sin tienda". */
+export function isMissingRpcError(err: { code?: string; message?: string } | null | undefined): boolean {
+    if (!err) return false;
+    return err.code === 'PGRST202' || err.code === '42883'
+        || /Could not find the function|does not exist/i.test(err.message ?? '');
+}
+
+/**
+ * Ventas cobradas de la tienda de la escuela (neto de reembolsos, fecha =
+ * paid_at Bogotá, sede con la regla de la base) agrupadas por `group`.
+ * Primero pregunta si la escuela tiene tienda: sin tienda no hay segunda llamada.
+ */
+export async function fetchStoreIncome(
+    client: RpcClient,
+    opts: { schoolId: string; branchId?: string | null; from: string; to: string; group?: 'month' | 'day' },
+): Promise<StoreIncome> {
+    const has = await client.rpc('store_income_has_store', { p_school_id: opts.schoolId });
+    if (has.error) {
+        if (isMissingRpcError(has.error)) return { kind: 'ok', hasStore: false, total: 0, buckets: {} };
+        if (isForbiddenError(has.error)) return { kind: 'forbidden' };
+        return { kind: 'error', message: has.error.message ?? String(has.error) };
+    }
+    if (has.data !== true) return { kind: 'ok', hasStore: false, total: 0, buckets: {} };
+
+    const { data, error } = await client.rpc('store_income_summary', {
+        p_school_id: opts.schoolId,
+        p_from: opts.from,
+        p_to: opts.to,
+        p_branch_id: opts.branchId || null,
+        p_group: opts.group ?? 'month',
+    });
+    if (error) {
+        if (isForbiddenError(error)) return { kind: 'forbidden' };
+        return { kind: 'error', message: error.message ?? String(error) };
+    }
+    const buckets: Record<string, number> = {};
+    let total = 0;
+    for (const r of (Array.isArray(data) ? data : []) as Array<{ bucket: string; income_amount: number | string }>) {
+        const amt = Number(r.income_amount ?? 0);
+        buckets[r.bucket] = (buckets[r.bucket] ?? 0) + amt;
+        total += amt;
+    }
+    return { kind: 'ok', hasStore: true, total, buckets };
+}
+
+/** Desglose del indicador de ingresos. `tienda: null` = no se pudo leer la tienda ("—"). */
+export interface RevenueBreakdown {
+    mensualidades: number;
+    tienda: number | null;
+}
+
+export interface CombinedRevenue {
+    state: 'ok' | 'forbidden' | 'error';
+    /** Total mostrado. null = no disponible (nunca un 0 inventado). */
+    amount: number | null;
+    /** null = la escuela no tiene tienda: el indicador queda igual que antes. */
+    breakdown: RevenueBreakdown | null;
+}
+
+/**
+ * Junta mensualidades (fórmula única) y tienda para un indicador. Reglas:
+ *   · sin permiso / error en mensualidades → igual que antes (oculto / "—").
+ *   · sin tienda (o la RPC aún no existe) → solo mensualidades, sin desglose.
+ *   · con tienda → total = mensualidades + tienda, con desglose.
+ *   · la tienda falló → se muestran las mensualidades con "Tienda —": el
+ *     total no se presenta como completo ni la tienda como $0.
+ */
+export function combineRevenue(payments: MonthlyRevenue, store: StoreIncome, bucket?: string): CombinedRevenue {
+    if (payments.kind === 'forbidden') return { state: 'forbidden', amount: null, breakdown: null };
+    if (payments.kind === 'error') return { state: 'error', amount: null, breakdown: null };
+    if (store.kind === 'forbidden' || (store.kind === 'ok' && !store.hasStore)) {
+        return { state: 'ok', amount: payments.amount, breakdown: null };
+    }
+    if (store.kind === 'error') {
+        return { state: 'ok', amount: payments.amount, breakdown: { mensualidades: payments.amount, tienda: null } };
+    }
+    const tienda = bucket ? (store.buckets[bucket] ?? 0) : store.total;
+    return {
+        state: 'ok',
+        amount: payments.amount + tienda,
+        breakdown: { mensualidades: payments.amount, tienda },
+    };
+}
+
+/** Línea de venta de tienda (store_income_lines). */
+export interface StoreIncomeLine {
+    order_id: string;
+    paid_date: string;
+    reference: string | null;
+    status: string;
+    payment_method: string | null;
+    gross_amount: number | string;
+    refunded_amount: number | string;
+    income_amount: number | string;
+}
+
+/** Todas las ventas de tienda del rango (para exportar). Sin tienda → []. */
+export async function fetchStoreIncomeLines(
+    client: RpcClient,
+    opts: { schoolId: string; branchId?: string | null; from: string; to: string },
+): Promise<StoreIncomeLine[]> {
+    const { data, error } = await client.rpc('store_income_lines', {
+        p_school_id: opts.schoolId,
+        p_from: opts.from,
+        p_to: opts.to,
+        p_branch_id: opts.branchId || null,
+    });
+    if (error) {
+        if (isMissingRpcError(error)) return [];
+        throw error;
+    }
+    return (Array.isArray(data) ? data : []) as StoreIncomeLine[];
+}

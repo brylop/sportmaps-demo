@@ -10,6 +10,7 @@ import { OrderStatusBadge } from '@/components/store/OrderStatusBadge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { fetchMyOrders, recallPickupCode, type StoreOrder } from '@/lib/api/storeApi';
+import { linkMyGuestOrders } from '@/lib/api/storeGuestApi';
 import { formatCurrency } from '@/lib/utils';
 import { buyerCanUploadReceipt, normalizeOrderStatus, orderShortRef } from '@/lib/store/orderStatus';
 import { buyerCanRegeneratePickupCode } from '@/lib/store/buyerCopy';
@@ -21,13 +22,25 @@ function itemsSummary(o: StoreOrder): string {
   return names.length > 2 ? `${names.slice(0, 2).join(', ')} y ${names.length - 2} más` : names.join(', ');
 }
 
+// Pedidos hechos SIN cuenta con el mismo correo (confirmado): se traen a la
+// cuenta una vez por sesión de la app (mig. 20261013170553). La base también lo
+// hace sola al confirmar el correo; esto cubre a quien ya tenía cuenta.
+const linkedFor = new Set<string>();
+async function fetchMyOrdersLinkingGuest(userId: string | undefined): Promise<StoreOrder[]> {
+  if (userId && !linkedFor.has(userId)) {
+    linkedFor.add(userId);
+    await linkMyGuestOrders();
+  }
+  return fetchMyOrders();
+}
+
 export default function MisComprasPage() {
   const { user } = useAuth();
   // «Ir a la tienda» solo si la tienda de la escuela activa vende hoy.
   const { showStore } = useMySchoolStore();
   const { data: orders = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['store', 'my-orders', user?.id],
-    queryFn: fetchMyOrders,
+    queryFn: () => fetchMyOrdersLinkingGuest(user?.id),
     enabled: !!user,
     retry: (count, err) => orderLoadError(err) !== 'rate_limited' && count < 2,
   });
@@ -83,6 +96,11 @@ export default function MisComprasPage() {
                     </div>
                     <div className="text-right shrink-0">
                       <p className="font-semibold tabular-nums">{formatCurrency(Number(o.total_amount))}</p>
+                      {Number(o.discount_total ?? 0) > 0 && (
+                        <p className="text-xs text-emerald-700 dark:text-emerald-400 tabular-nums" data-testid="my-order-discount">
+                          Ahorraste {formatCurrency(Number(o.discount_total))}
+                        </p>
+                      )}
                       <ChevronRight className="h-4 w-4 text-muted-foreground ml-auto mt-2" />
                     </div>
                   </div>
