@@ -78,6 +78,73 @@ type PayerDianState =
 /** El código DANE del municipio: 4 o 5 dígitos. Texto libre no sirve para facturar. */
 const DANE_CODE = /^\d{4,5}$/;
 
+/** Estados de un cobro al que todavía se le puede registrar plata. */
+const OPEN_STATUSES = ['pending', 'overdue', 'partial'];
+
+/**
+ * Lo que importa del cobro para cobrarlo bien. Mora (2026-10-14): la mora nunca
+ * cancela; apply_late_fees() suma el recargo DENTRO de `amount` por la noche
+ * (y deja el detalle en late_fee_amount). Por eso el monto se vuelve a leer
+ * justo antes de guardar: el formulario pudo quedar abierto de un día al otro.
+ */
+interface ChargeSnapshot {
+  amount: number;
+  amountPaid: number;
+  lateFee: number;
+  earlyDiscount: number;
+  status: string;
+}
+
+const PAYMENT_SNAPSHOT_COLUMNS = 'id, amount, amount_paid, late_fee_amount, early_payment_discount_applied, status';
+
+function snapshotOf(p: any): ChargeSnapshot {
+  return {
+    amount: Number(p?.amount) || 0,
+    amountPaid: Number(p?.amount_paid) || 0,
+    lateFee: Number(p?.late_fee_amount) || 0,
+    earlyDiscount: Number(p?.early_payment_discount_applied) || 0,
+    status: String(p?.status ?? ''),
+  };
+}
+
+/** saldo = amount − amount_paid − early_payment_discount_applied (lib/cobrosYPagos §6.5). */
+function balanceOf(s: ChargeSnapshot): number {
+  return Math.max(s.amount - s.amountPaid - s.earlyDiscount, 0);
+}
+
+function snapshotChanged(a: ChargeSnapshot, b: ChargeSnapshot): boolean {
+  return a.amount !== b.amount || a.amountPaid !== b.amountPaid || a.lateFee !== b.lateFee || a.status !== b.status;
+}
+
+/**
+ * Campos de dinero/estado para registrar `received` sobre un cobro existente.
+ *
+ * NUNCA baja `amount`: bajarlo dispara el rebase de la base, que encoge
+ * list_amount y deja late_fee_amount igual — el recargo se pierde y el libro
+ * queda torcido. Una plata menor al saldo es un ABONO (status 'partial' +
+ * amount_paid acumulado, igual que lib/approvePayment). Si hay que perdonar la
+ * mora, eso es la condonación explícita de «Cobros y pagos», no pisar el monto.
+ *
+ * Una plata MAYOR al saldo (p. ej. se quitó un descuento) sí sube `amount`,
+ * con la confirmación que ya pedía el modal.
+ */
+function applyFieldsFor(s: ChargeSnapshot, received: number) {
+  const balance = balanceOf(s);
+  const totalPaid = s.amountPaid + received;
+  if (received < balance) {
+    return { fields: { status: 'partial', amount_paid: totalPaid }, isAbono: true, saldo: balance - received };
+  }
+  return {
+    fields: {
+      status: 'paid',
+      amount_paid: totalPaid,
+      ...(received > balance ? { amount: s.amount + (received - balance) } : {}),
+    },
+    isAbono: false,
+    saldo: 0,
+  };
+}
+
 export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initialAthleteId }: RegisterCashPaymentModalProps) {
   const { user } = useAuth();
   const { schoolId, schoolName } = useSchoolContext();
@@ -255,9 +322,10 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
 
       // `as any`: discount_pct / list_amount aún no están en los tipos generados de Supabase.
       let q = (supabase.from('payments') as any)
-        .select('id, concept, amount, due_date, status, requires_review, last_failure_at, last_failure_reason, payment_category, payment_type, discount_pct, list_amount')
+        .select('id, concept, amount, amount_paid, late_fee_amount, early_payment_discount_applied, due_date, status, requires_review, last_failure_at, last_failure_reason, payment_category, payment_type, discount_pct, list_amount')
         .eq('school_id', schoolId)
-        .in('status', ['pending', 'overdue'])
+        // 'partial' también: un abono deja saldo y aquí es donde se completa.
+        .in('status', OPEN_STATUSES)
         .order('due_date', { ascending: true });
 
       if (userId)              q = q.eq('user_id', userId);
@@ -275,7 +343,8 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
       if (oldest && athleteId === initialAthleteId) {
         setSelectedPaymentId(oldest.id);
         setConcept(oldest.concept);
-        setAmount(Number(oldest.amount) || 0);
+        // El SALDO (con mora incluida), no el valor original del cobro.
+        setAmount(balanceOf(snapshotOf(oldest)));
       }
     } catch (err: any) {
       console.error(err);
@@ -383,24 +452,45 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
   // (payments.discount_pct / list_amount). El monto del cobro YA viene descontado:
   // aquí solo se muestra, y si el monto a registrar se aleja del del cobro se pide
   // confirmación explícita — antes un monto distinto se escribía en silencio.
-  const pendingAmount = selectedPending ? Number(selectedPending.amount) || 0 : null;
+  const pendingSnap = selectedPending ? snapshotOf(selectedPending) : null;
+  const pendingAmount = pendingSnap ? pendingSnap.amount : null;
+  // Lo que se cobra hoy: el saldo, con la mora ya sumada por apply_late_fees().
+  const pendingBalance = pendingSnap ? balanceOf(pendingSnap) : null;
+  const pendingLateFee = pendingSnap ? pendingSnap.lateFee : 0;
+  // El cobro sin el recargo: sobre esto se lee el descuento (el recargo no se descuenta).
+  const pendingBase = pendingAmount !== null ? pendingAmount - pendingLateFee : null;
   const pendingDiscountPct = selectedPending ? Number(selectedPending.discount_pct) || 0 : 0;
   const pendingListAmount = selectedPending
     ? (Number(selectedPending.list_amount)
-        || (pendingDiscountPct > 0 && pendingAmount ? Math.round(pendingAmount / (1 - pendingDiscountPct / 100)) : 0))
+        || (pendingDiscountPct > 0 && pendingBase ? Math.round(pendingBase / (1 - pendingDiscountPct / 100)) : 0))
     : 0;
-  const amountDiffersFromCharge = !multiMode &&
-    pendingAmount !== null && typeof amount === 'number' && amount > 0 && amount !== pendingAmount;
+  const pendingIsMensualidad = selectedPending
+    ? chargeCategoryOf(selectedPending.payment_category, selectedPending.concept) === 'mensualidad'
+    : false;
+  const receivedAmount = typeof amount === 'number' ? amount : 0;
+  // Menos que el saldo → se registra como abono (no se toca el valor del cobro).
+  const isPartialReceipt = !multiMode && pendingBalance !== null && receivedAmount > 0 && receivedAmount < pendingBalance;
+  // Más que el saldo → sube el valor del cobro; se confirma explícitamente.
+  const isOverReceipt = !multiMode && pendingBalance !== null && receivedAmount > pendingBalance;
+  const amountDiffersFromCharge = isPartialReceipt || isOverReceipt;
 
   // Varios cobros: cada uno se paga por su propio valor (ya con descuento y mora);
-  // el total es la suma. No hay monto ni concepto editables.
-  const selectedMulti = pendingPayments.filter(p => selectedIds.includes(p.id));
+  // el total es la suma. No hay monto ni concepto editables. Los abonados
+  // ('partial') quedan fuera: register_manual_payments salda el valor completo
+  // de cada cobro y a esos solo les falta el saldo — se pagan de a uno.
+  const multiCandidates = pendingPayments.filter(p => p.status !== 'partial');
+  const selectedMulti = multiCandidates.filter(p => selectedIds.includes(p.id));
   const multiTotal = selectedMulti.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const multiLateFee = selectedMulti.reduce((s, p) => s + (Number(p.late_fee_amount) || 0), 0);
   const toggleSelected = (id: string) =>
     setSelectedIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
-  const allSelected = pendingPayments.length > 0 && selectedIds.length === pendingPayments.length;
+  const allSelected = multiCandidates.length > 0 && selectedIds.length === multiCandidates.length;
   const [confirmAmountChange, setConfirmAmountChange] = useState(false);
   useEffect(() => { setConfirmAmountChange(false); }, [selectedPaymentId, amount]);
+  // El cobro cambió en la base entre que se abrió el formulario y el clic
+  // (típico: la mora de la noche). Se avisa y se pide confirmar de nuevo.
+  const [staleNotice, setStaleNotice] = useState<string | null>(null);
+  useEffect(() => { setStaleNotice(null); }, [selectedPaymentId, selectedAthleteId]);
 
   const handlePendingSelect = (value: string) => {
     setSelectedPaymentId(value);
@@ -408,8 +498,25 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
     const pmt = pendingPayments.find(p => p.id === value);
     if (pmt) {
       setConcept(pmt.concept);
-      setAmount(Number(pmt.amount) || 0);
+      setAmount(balanceOf(snapshotOf(pmt)));
     }
+  };
+
+  /**
+   * El cobro ya no es el que la escuela vio: se refresca en pantalla con lo que
+   * dice la base, se propone el saldo nuevo y NO se guarda — el siguiente clic
+   * es la confirmación con el monto actualizado.
+   */
+  const showStaleCharge = (fresh: any, before: ChargeSnapshot) => {
+    const now = snapshotOf(fresh);
+    setPendingPayments(prev => prev.map(p => (p.id === fresh.id ? { ...p, ...fresh } : p)));
+    setAmount(balanceOf(now));
+    const feeAdded = now.lateFee - before.lateFee;
+    setStaleNotice(
+      `Este cobro cambió mientras el formulario estaba abierto${
+        feeAdded > 0 ? `: se sumó un recargo por mora de ${formatCurrency(feeAdded)}` : ''
+      }. El saldo ahora es ${formatCurrency(balanceOf(now))}. Revisa el monto y vuelve a confirmar.`,
+    );
   };
 
   /**
@@ -513,6 +620,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
     if (!selectedStudent || !schoolId || !user) return;
 
     setLoading(true);
+    setStaleNotice(null);
     try {
       const prefix = paymentMethod === 'cash' ? 'CASH' : 'TRF';
       const reference = `${prefix}-${Date.now().toString(36).toUpperCase()}`;
@@ -546,34 +654,78 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
       const childId          = selectedStudent.athlete_type === 'child' ? selectedStudent.id : null;
       const unregisteredId   = selectedStudent.athlete_type === 'unregistered' ? selectedStudent.id : null;
 
+      // Abono (menos que el saldo): cambia el aviso a la familia y el toast.
+      let abonoInfo: { saldo: number } | null = null;
+
       // Apply only to the selected pending payment, or create a new one.
       if (selectedPaymentId !== 'new') {
+        const loaded = snapshotOf(selectedPending);
+        // Releer el cobro JUSTO antes de escribir: la mora de la noche (o un
+        // abono desde otra pestaña) pudo cambiar el monto desde que se abrió.
+        const { data: fresh, error: freshError } = await (supabase.from('payments') as any)
+          .select(PAYMENT_SNAPSHOT_COLUMNS)
+          .eq('id', selectedPaymentId)
+          .maybeSingle();
+        if (freshError) throw freshError;
+        if (!fresh || !OPEN_STATUSES.includes(fresh.status)) {
+          toast({
+            title: 'Este cobro ya no está abierto',
+            description: 'Pudo registrarse o anularse mientras tanto. Se actualizó la lista de cobros.',
+            variant: 'destructive',
+          });
+          await fetchPendingPayments(selectedAthleteId);
+          return;
+        }
+        if (snapshotChanged(loaded, snapshotOf(fresh))) {
+          showStaleCharge(fresh, loaded);
+          return;
+        }
+
+        const current = snapshotOf(fresh);
+        const { fields: moneyFields, isAbono, saldo } = applyFieldsFor(current, numericAmount);
         const { data: updatedRows, error: updateError } = await supabase
           .from('payments')
           .update({
-            status: 'paid',
+            ...moneyFields,
             concept,
-            amount: numericAmount,
             payment_method: paymentMethod === 'cash' ? 'cash' : 'transfer',
             payment_channel: paymentMethod === 'cash' ? 'cash' : 'transfer',
             payment_date: pickedDay(),
             approved_by: user.id,
             approved_at: new Date().toISOString(),
             reference,
-            amount_paid: numericAmount,
             ...unblockFields,
             ...receiptFields,
           } as any)
           .eq('id', selectedPaymentId)
+          // Candado optimista: si entre la relectura y este UPDATE cambió el
+          // monto o se cerró el cobro, no se escribe nada.
+          .in('status', OPEN_STATUSES)
+          .eq('amount', current.amount)
           .select('id');
 
         if (updateError) throw updateError;
-        // La policy «Payments: update admin» solo deja actualizar a owner/admin: con
-        // otro rol el UPDATE afecta 0 filas SIN error y esto reportaba «Cobro
-        // registrado» sin haber registrado nada.
         if (!updatedRows || updatedRows.length === 0) {
+          // ¿Cambió justo ahora, o el rol no puede escribir? Se distingue releyendo.
+          const { data: again } = await (supabase.from('payments') as any)
+            .select(PAYMENT_SNAPSHOT_COLUMNS)
+            .eq('id', selectedPaymentId)
+            .maybeSingle();
+          if (again && (!OPEN_STATUSES.includes(again.status) || snapshotChanged(current, snapshotOf(again)))) {
+            if (OPEN_STATUSES.includes(again.status)) {
+              showStaleCharge(again, current);
+            } else {
+              toast({ title: 'Este cobro ya no está abierto', description: 'Se registró o anuló mientras tanto.', variant: 'destructive' });
+              await fetchPendingPayments(selectedAthleteId);
+            }
+            return;
+          }
+          // La policy «Payments: update admin» solo deja actualizar a owner/admin: con
+          // otro rol el UPDATE afecta 0 filas SIN error y esto reportaba «Cobro
+          // registrado» sin haber registrado nada.
           throw new Error('No se registró el pago: tu rol no puede modificar cobros de esta escuela. Pídele a un owner o administrador que lo registre.');
         }
+        if (isAbono) abonoInfo = { saldo };
       } else {
         // No pending payment found — create a new one
         const chargeFields = manualChargeInsertFields(newChargeCategory, selectedStudent.offering_plan_id || null);
@@ -617,7 +769,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
           // sin período, "el último cobro del deportista" podía ser otro (la
           // mensualidad pendiente) y se saldaba con la plata equivocada.
           if (canReuseOnPeriodConflict(insertError as any, periodApplies && !!period)) {
-            let q = supabase.from('payments').select('id, status')
+            let q = (supabase.from('payments') as any).select(PAYMENT_SNAPSHOT_COLUMNS)
               .eq('school_id', schoolId);
             if (childId) q = q.eq('child_id', childId);
             else if (userId) q = q.eq('user_id', userId);
@@ -638,22 +790,42 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
               setLoading(false);
               return;
             }
-            if (conflict?.id) {
-              const { error: reuseErr } = await supabase.from('payments').update({
-                status: 'paid',
+            // El cobro del mes existe, pero la escuela nunca vio su valor (pudo
+            // tener mora o abonos). Solo se salda acá si la plata coincide con
+            // el saldo exacto; si no, se le manda a elegirlo en «Aplicar a» para
+            // que vea el desglose — nunca se pisa su monto.
+            const conflictSnap = conflict ? snapshotOf(conflict) : null;
+            if (conflict?.id && conflictSnap && OPEN_STATUSES.includes(conflictSnap.status)
+                && numericAmount !== balanceOf(conflictSnap)) {
+              toast({
+                title: 'Ese mes ya tiene un cobro abierto',
+                description: `El cobro de ${period ? formatPeriodLabel(period.year, period.month) : 'ese mes'} tiene un saldo de ${formatCurrency(balanceOf(conflictSnap))}${
+                  conflictSnap.lateFee > 0 ? ` (incluye recargo por mora de ${formatCurrency(conflictSnap.lateFee)})` : ''
+                }. Elígelo en «Aplicar a» para registrar el pago.`,
+                variant: 'destructive',
+              });
+              await fetchPendingPayments(selectedAthleteId);
+              setLoading(false);
+              return;
+            }
+            if (conflict?.id && conflictSnap) {
+              const { fields: moneyFields } = applyFieldsFor(conflictSnap, numericAmount);
+              const { data: reusedRows, error: reuseErr } = await supabase.from('payments').update({
+                ...moneyFields,
                 concept,
-                amount: numericAmount,
                 payment_method: paymentMethod === 'cash' ? 'cash' : 'transfer',
                 payment_channel: paymentMethod === 'cash' ? 'cash' : 'transfer',
                 payment_date: pickedDay(),
                 approved_by: user.id,
                 approved_at: new Date().toISOString(),
                 reference,
-                amount_paid: numericAmount,
                 ...unblockFields,
                 ...receiptFields,
-              } as any).eq('id', conflict.id);
+              } as any).eq('id', conflict.id).eq('amount', conflictSnap.amount).select('id');
               if (reuseErr) throw reuseErr;
+              if (!reusedRows || reusedRows.length === 0) {
+                throw new Error('No se registró el pago: el cobro de ese mes cambió o tu rol no puede modificarlo. Búscalo en «Aplicar a» e inténtalo de nuevo.');
+              }
             } else {
               throw insertError;
             }
@@ -668,9 +840,13 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
       if (recipientId) {
         await supabase.rpc('notify_user', {
           p_user_id: recipientId,
-          p_title: paymentMethod === 'cash' ? '✅ Pago en efectivo registrado' : '✅ Transferencia registrada',
-          p_message: `${schoolName || 'La escuela'} registró tu pago de ${formatCurrency(numericAmount)} por ${concept}.`,
-          p_type: 'success',
+          p_title: abonoInfo
+            ? '💰 Abono registrado'
+            : paymentMethod === 'cash' ? '✅ Pago en efectivo registrado' : '✅ Transferencia registrada',
+          p_message: abonoInfo
+            ? `${schoolName || 'La escuela'} registró un abono de ${formatCurrency(numericAmount)} por ${concept}. Saldo pendiente: ${formatCurrency(abonoInfo.saldo)}.`
+            : `${schoolName || 'La escuela'} registró tu pago de ${formatCurrency(numericAmount)} por ${concept}.`,
+          p_type: abonoInfo ? 'payment' : 'success',
           p_link: '/my-payments'
         });
       }
@@ -691,7 +867,12 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
       }
 
       const methodLabel = paymentMethod === 'cash' ? 'en efectivo' : 'por transferencia';
-      toast({ title: 'Cobro Registrado', description: `El pago ${methodLabel} se ha registrado exitosamente.` });
+      toast(abonoInfo
+        ? {
+            title: 'Abono registrado',
+            description: `Se registró un abono ${methodLabel} de ${formatCurrency(numericAmount)}. Queda un saldo de ${formatCurrency(abonoInfo.saldo)}.`,
+          }
+        : { title: 'Cobro Registrado', description: `El pago ${methodLabel} se ha registrado exitosamente.` });
       onSuccess();
       onOpenChange(false);
       resetForm();
@@ -974,8 +1155,10 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
                   </SelectItem>
                   {pendingPayments.map((p) => (
                     <SelectItem key={p.id} value={p.id} className="rounded-lg py-2.5">
-                      {p.concept} — {formatCurrency(Number(p.amount) || 0)} · Vence {format(new Date(p.due_date), 'd MMM yyyy', { locale: es })}
+                      {p.concept} — {formatCurrency(balanceOf(snapshotOf(p)))} · Vence {format(new Date(p.due_date), 'd MMM yyyy', { locale: es })}
                       {p.status === 'overdue' ? ' (atrasado)' : ''}
+                      {p.status === 'partial' ? ' (saldo de un abono)' : ''}
+                      {Number(p.late_fee_amount) > 0 ? ' · con mora' : ''}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -983,7 +1166,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
               )}
 
               {/* Pagar varios cobros a la vez. */}
-              {pendingPayments.length > 1 && (
+              {multiCandidates.length > 1 && (
                 <button
                   type="button"
                   className="text-[11px] font-bold text-primary underline-offset-2 hover:underline"
@@ -1004,12 +1187,12 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
                       type="checkbox"
                       className="h-4 w-4"
                       checked={allSelected}
-                      onChange={(e) => setSelectedIds(e.target.checked ? pendingPayments.map(p => p.id) : [])}
+                      onChange={(e) => setSelectedIds(e.target.checked ? multiCandidates.map(p => p.id) : [])}
                     />
-                    Seleccionar todos ({pendingPayments.length})
+                    Seleccionar todos ({multiCandidates.length})
                   </label>
                   <div className="max-h-48 space-y-1 overflow-y-auto">
-                    {pendingPayments.map((p) => (
+                    {multiCandidates.map((p) => (
                       <label key={p.id} className="flex items-start gap-2 rounded-lg p-1.5 text-xs cursor-pointer hover:bg-muted/40">
                         <input
                           type="checkbox"
@@ -1023,6 +1206,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
                             {formatCurrency(Number(p.amount) || 0)} · Vence {format(new Date(p.due_date), 'd MMM yyyy', { locale: es })}
                             {p.status === 'overdue' ? ' · atrasado' : ''}
                             {Number(p.discount_pct) > 0 ? ` · desc. ${Number(p.discount_pct)}%` : ''}
+                            {Number(p.late_fee_amount) > 0 ? ` · incluye recargo por mora de ${formatCurrency(Number(p.late_fee_amount))}` : ''}
                           </span>
                         </span>
                       </label>
@@ -1032,6 +1216,11 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
                     <span>Total a registrar ({selectedMulti.length})</span>
                     <span>{formatCurrency(multiTotal)}</span>
                   </div>
+                  {multiLateFee > 0 && (
+                    <p className="text-[11px] font-bold text-amber-700 dark:text-amber-400">
+                      Incluye recargo por mora: {formatCurrency(multiLateFee)}
+                    </p>
+                  )}
                   <p className="text-[10px] text-muted-foreground">
                     Cada cobro se registra por su propio valor (ya con descuento y mora). Si alguno falla, no se registra ninguno.
                   </p>
@@ -1044,14 +1233,45 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
                   <CheckCircle2 className="h-3.5 w-3.5 shrink-0 mt-0.5 text-emerald-500" />
                   <div className="space-y-0.5 text-[11px] text-emerald-700 dark:text-emerald-400">
                     <p className="font-bold">Este cobro tiene un descuento del {pendingDiscountPct}%</p>
-                    {pendingListAmount > 0 && pendingAmount !== null && (
+                    {pendingListAmount > 0 && pendingBase !== null && (
                       <p>
                         Precio de lista {formatCurrency(pendingListAmount)} − descuento{' '}
-                        {formatCurrency(pendingListAmount - pendingAmount)} = {formatCurrency(pendingAmount)}
+                        {formatCurrency(pendingListAmount - pendingBase)} = {formatCurrency(pendingBase)}
                       </p>
                     )}
                   </div>
                 </div>
+              )}
+
+              {/* Recargo por mora: apply_late_fees() ya lo sumó al cobro. Se
+                  muestra el desglose para que la escuela cobre el total y se lo
+                  pueda explicar a la familia. */}
+              {selectedPending && pendingLateFee > 0 && pendingAmount !== null && pendingBase !== null && (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-400/40 bg-amber-500/10 p-2">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
+                  <div className="space-y-0.5 text-[11px] text-amber-700 dark:text-amber-400">
+                    <p className="font-bold">Este cobro tiene recargo por mora</p>
+                    <p>
+                      {pendingIsMensualidad ? 'Mensualidad' : 'Valor del cobro'} {formatCurrency(pendingBase)} + recargo por mora{' '}
+                      {formatCurrency(pendingLateFee)} = {formatCurrency(pendingAmount)}
+                    </p>
+                    {pendingSnap && pendingSnap.amountPaid > 0 && pendingBalance !== null && (
+                      <p>Ya abonado {formatCurrency(pendingSnap.amountPaid)} · saldo {formatCurrency(pendingBalance)}</p>
+                    )}
+                    <p className="opacity-80">
+                      Si la escuela decide perdonar el recargo, hazlo con «Condonar recargo» en Cobros y pagos; aquí no se
+                      puede bajar el valor del cobro.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Abono previo sin mora: igual se cobra solo el saldo. */}
+              {selectedPending && pendingLateFee === 0 && pendingSnap && pendingSnap.amountPaid > 0 && pendingBalance !== null && (
+                <p className="text-[11px] text-muted-foreground">
+                  Ya abonado {formatCurrency(pendingSnap.amountPaid)} de {formatCurrency(pendingSnap.amount)} · saldo{' '}
+                  {formatCurrency(pendingBalance)}
+                </p>
               )}
 
               {/* Rechazo previo de la pasarela. Informativo: no frena el registro manual. */}
@@ -1307,9 +1527,21 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
             </div>
           </div>
 
-          {/* El monto a registrar no coincide con el del cobro (p. ej. se quitó el
-              descuento): se pide confirmación antes de sobrescribirlo. */}
-          {amountDiffersFromCharge && pendingAmount !== null && (
+          {/* El cobro cambió en la base desde que se abrió el formulario. */}
+          {staleNotice && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-400/40 bg-amber-500/10 p-3">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
+              <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                <span className="font-bold block">El cobro se actualizó</span>
+                {staleNotice}
+              </p>
+            </div>
+          )}
+
+          {/* El monto a registrar no coincide con el saldo del cobro: menos es un
+              abono (el valor del cobro NO se toca); más sube el valor del cobro
+              (p. ej. se quitó el descuento). En los dos casos se confirma. */}
+          {amountDiffersFromCharge && pendingBalance !== null && (
             <label className="flex items-start gap-2 rounded-lg border border-amber-400/40 bg-amber-500/10 p-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -1317,12 +1549,23 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess, initia
                 checked={confirmAmountChange}
                 onChange={(e) => setConfirmAmountChange(e.target.checked)}
               />
-              <span className="text-[11px] text-amber-700 dark:text-amber-400">
-                <span className="font-bold block">El monto es distinto al del cobro</span>
-                El cobro es de {formatCurrency(pendingAmount)}
-                {pendingDiscountPct > 0 ? ` (ya con el descuento del ${pendingDiscountPct}%)` : ''} y vas a registrar{' '}
-                {formatCurrency(typeof amount === 'number' ? amount : 0)}. Marca la casilla para confirmar que es correcto.
-              </span>
+              {isPartialReceipt ? (
+                <span className="text-[11px] text-amber-700 dark:text-amber-400">
+                  <span className="font-bold block">Se registrará como abono</span>
+                  El saldo del cobro es {formatCurrency(pendingBalance)}
+                  {pendingLateFee > 0 ? ` (incluye recargo por mora de ${formatCurrency(pendingLateFee)})` : ''} y vas a registrar{' '}
+                  {formatCurrency(receivedAmount)}. El cobro queda abierto con un saldo de{' '}
+                  {formatCurrency(pendingBalance - receivedAmount)}. Marca la casilla para confirmar.
+                </span>
+              ) : (
+                <span className="text-[11px] text-amber-700 dark:text-amber-400">
+                  <span className="font-bold block">El monto es mayor al saldo del cobro</span>
+                  El saldo es de {formatCurrency(pendingBalance)}
+                  {pendingDiscountPct > 0 ? ` (ya con el descuento del ${pendingDiscountPct}%)` : ''} y vas a registrar{' '}
+                  {formatCurrency(receivedAmount)}: el valor del cobro sube a{' '}
+                  {formatCurrency((pendingAmount ?? 0) + (receivedAmount - pendingBalance))}. Marca la casilla para confirmar que es correcto.
+                </span>
+              )}
             </label>
           )}
 

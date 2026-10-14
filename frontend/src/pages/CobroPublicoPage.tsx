@@ -232,6 +232,11 @@ export default function CobroPublicoPage() {
                         </span>
                     </div>
                     <p className="mt-4 text-3xl font-bold text-gray-900">{cop(v.monto)}</p>
+                    {(Number(v.late_fee_amount) || 0) > 0 && (
+                        <p className="mt-1 text-sm font-medium text-amber-700">
+                            Incluye recargo por mora: {cop(Number(v.late_fee_amount))}
+                        </p>
+                    )}
                     {v.fechaVencimiento && v.estado !== 'pagado' && (
                         <p className="mt-1 flex items-center gap-1 text-sm text-gray-600">
                             <Clock className="h-4 w-4" /> Vence el {fecha(v.fechaVencimiento)}
