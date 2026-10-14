@@ -6248,6 +6248,91 @@ paths:
         '400': { description: Ids inválidos o falta team_id }
         '403': { description: Sesión/equipo de otra escuela o sin permiso }
         '404': { description: Ejercicio o sesión no encontrados }
+  /api/v1/school/exercise-packs:
+    get:
+      tags: [school-performance]
+      summary: Paquetes de la biblioteca de la escuela (pizarra M2, D4)
+      description: >
+        Paquetes SportMaps de los deportes de la escuela + los propios, con activated / visible y
+        número de ejercicios. mode = 'todos' (no activó ninguno: ve todos los de sus deportes) o
+        'seleccion' (solo los activados + los propios). can_manage = puede activar/importar.
+        503 si la migración 20261014121142 no está aplicada. Roles de staff.
+      security:
+        - bearerAuth: []
+      responses:
+        '200': { description: "{ mode, can_manage, loose_own_count, packs: [{ id, name, description, sport, version, is_system, activated, visible, exercise_count, updated_at }] }" }
+        '403': { description: Rol no permitido }
+        '503': { description: Migración de paquetes sin aplicar }
+  /api/v1/school/exercise-packs/{id}/activate:
+    post:
+      tags: [school-performance]
+      summary: Activar un paquete (RPC activate_exercise_pack) — owner, admin, school_admin, coach
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: "{ pack_id, school_id, is_system, activated: true }" }
+        '403': { description: Sin permiso (rol o gate de la RPC) }
+        '404': { description: Paquete inexistente o de otra escuela }
+        '422': { description: Paquete de un deporte que la escuela no tiene }
+  /api/v1/school/exercise-packs/{id}/deactivate:
+    post:
+      tags: [school-performance]
+      summary: Desactivar un paquete (RPC deactivate_exercise_pack) — owner, admin, school_admin, coach
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: "{ pack_id, school_id, is_system, activated: false }" }
+        '403': { description: Sin permiso }
+        '404': { description: Paquete inexistente o de otra escuela }
+  /api/v1/school/exercise-packs/{id}/export:
+    get:
+      tags: [school-performance]
+      summary: Exportar un paquete como archivo .json (formato sportmaps-ejercicios v1)
+      description: Sin ids, school_id, created_by ni pack_id; jugadores de la jugada como 'slot#i'. Roles de staff.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: "{ format: 'sportmaps-ejercicios', version: 1, exported_at, pack, exercises }" }
+        '404': { description: Paquete inexistente, de otra escuela o de otro deporte }
+  /api/v1/school/exercise-packs/mine/export:
+    get:
+      tags: [school-performance]
+      summary: Exportar los ejercicios propios que no están en ningún paquete (máx. 200)
+      security:
+        - bearerAuth: []
+      responses:
+        '200': { description: Archivo sportmaps-ejercicios v1 }
+        '404': { description: La escuela no tiene ejercicios propios sueltos }
+  /api/v1/school/exercise-packs/import:
+    post:
+      tags: [school-performance]
+      summary: Importar un paquete desde archivo (RPC import_exercise_pack, transaccional)
+      description: >
+        Valida formato/versión, ≤ 200 ejercicios, ≤ 4 MB, cada ejercicio con validateExerciseInput
+        (jugada y cuadros), deportes del catálogo y de la escuela, sin HTML en los textos. Nunca usa
+        ids del archivo. Con dry_run=true devuelve la vista previa sin escribir.
+        Roles owner, admin, school_admin, coach.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: dry_run, in: query, required: false, schema: { type: boolean } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [format, version, pack, exercises] }
+      responses:
+        '200': { description: "dry_run: { valid, errors, summary: { name, sport, exercises, sports } }" }
+        '201': { description: "{ pack_id, school_id, exercises, summary }" }
+        '403': { description: Sin permiso }
+        '413': { description: Archivo de más de 4 MB }
+        '422': { description: "Archivo inválido: { error, details: [...], summary }" }
   /api/v1/school/performance/metrics:
     get:
       tags: [school-performance]

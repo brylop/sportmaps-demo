@@ -365,6 +365,10 @@ export function teamBoardAccess(team: TeamSportInput | null | undefined): TeamBo
  * boardSportFromTeam, así un equipo "Fútbol 7 Sub 10" aporta Fútbol 7) ∪
  * `schools.sports`. Solo deportes de pizarra completa. 'generico'
  * («Preparación física») va siempre, al final. Orden de BOARD_SPORTS.
+ *
+ * Fútbol trae SIEMPRE las tres canchas (11, 7 y 5): en la práctica las
+ * categorías menores juegan 7 y 5 aunque el equipo no se llame «F7» (D1 del
+ * spec). Futsal NO entra por ser fútbol: solo si hay equipos de futsal.
  */
 export function schoolBoardSports(input: {
   teams?: readonly TeamSportInput[] | null;
@@ -378,6 +382,9 @@ export function schoolBoardSports(input: {
   for (const s of input.schoolSports ?? []) {
     const r = resolveSport(s);
     if (r.boardLevel === 'completa' && r.tacticalSport) set.add(r.tacticalSport);
+  }
+  if (FOOTBALL_BOARD_SPORTS.some((s) => set.has(s))) {
+    for (const s of FOOTBALL_BOARD_SPORTS) set.add(s);
   }
   return BOARD_SPORTS.filter((s) => set.has(s));
 }

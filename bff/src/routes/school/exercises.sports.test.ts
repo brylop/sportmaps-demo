@@ -78,7 +78,7 @@ vi.mock('../../utils/authCache', () => ({
 
 const { default: router } = await import('./exercises');
 
-const FUTBOL = 'e0000000-0000-4000-8000-000000000001'; // solo fútbol (11 y 7)
+const FUTBOL = 'e0000000-0000-4000-8000-000000000001'; // solo fútbol (→ 11, 7 y 5)
 const MULTI = 'e0000000-0000-4000-8000-000000000002'; // voleibol + baloncesto + natación
 const NATACION = 'e0000000-0000-4000-8000-000000000003'; // sin deportes de pizarra
 const COACH_F = 'a0000000-0000-4000-8000-000000000001';
@@ -144,8 +144,16 @@ async function get(path: string, school: string, user: string) {
 const ids = (rows: { id: string }[]) => rows.map((r) => r.id).sort();
 
 describe('GET /exercises/sports', () => {
-  it('escuela de fútbol: Fútbol 11 y 7 (tiene equipo F7) + genérico; el vóley inactivo no cuenta', async () => {
-    expect((await get('/exercises/sports', FUTBOL, COACH_F)).body).toEqual({ sports: ['futbol', 'futbol7', 'generico'] });
+  it('escuela de fútbol: Fútbol 11, 7 y 5 (D1: las menores juegan 7 y 5) + genérico; sin futsal; el vóley inactivo no cuenta', async () => {
+    expect((await get('/exercises/sports', FUTBOL, COACH_F)).body).toEqual({ sports: ['futbol', 'futbol7', 'futbol5', 'generico'] });
+  });
+  it('escuela de fútbol SIN equipos llamados F7/F5: igual ve 11, 7 y 5', async () => {
+    db.tables.teams = db.tables.teams.filter((t) => !(t.school_id === FUTBOL && /F7/.test(t.name)));
+    expect((await get('/exercises/sports', FUTBOL, COACH_F)).body).toEqual({ sports: ['futbol', 'futbol7', 'futbol5', 'generico'] });
+  });
+  it('futsal solo con equipos de futsal', async () => {
+    db.tables.teams.push({ school_id: FUTBOL, sport: 'Fútbol Sala', name: 'Sub 14', status: 'active' });
+    expect((await get('/exercises/sports', FUTBOL, COACH_F)).body).toEqual({ sports: ['futbol', 'futbol7', 'futbol5', 'futsal', 'generico'] });
   });
   it('multideporte: voleibol y baloncesto (natación no tiene pizarra)', async () => {
     expect((await get('/exercises/sports', MULTI, COACH_M)).body).toEqual({ sports: ['voleibol', 'baloncesto', 'generico'] });
@@ -159,7 +167,7 @@ describe('GET /exercises (plantillas filtradas por los deportes de la escuela)',
   it('escuela de fútbol: no recibe plantillas de voleibol ni de otros deportes; genérico sí', async () => {
     const r = await get('/exercises?templates=true', FUTBOL, COACH_F);
     expect(r.status).toBe(200);
-    expect(ids(r.body)).toEqual(['t-f7', 't-fut', 't-gen']);
+    expect(ids(r.body)).toEqual(['t-f5', 't-f7', 't-fut', 't-gen']);
   });
 
   it('escuela de fútbol pidiendo voleibol explícitamente: nada', async () => {
@@ -182,7 +190,7 @@ describe('GET /exercises (plantillas filtradas por los deportes de la escuela)',
 
   it('sin `templates` (propios + plantillas): propios de cualquier deporte + plantillas de sus deportes', async () => {
     const r = await get('/exercises', FUTBOL, COACH_F);
-    expect(ids(r.body)).toEqual(['o-fut', 'o-vb', 't-f7', 't-fut', 't-gen']);
+    expect(ids(r.body)).toEqual(['o-fut', 'o-vb', 't-f5', 't-f7', 't-fut', 't-gen']);
     const vb = await get('/exercises?sport=voleibol', FUTBOL, COACH_F);
     expect(ids(vb.body)).toEqual(['o-vb']);
   });

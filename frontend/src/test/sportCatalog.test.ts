@@ -173,14 +173,21 @@ describe('D3: hasTacticalBoard / isFootballSport / teamBoardAccess', () => {
 });
 
 describe('D1: deportes de una escuela', () => {
-  it('escuela solo de fútbol: Fútbol + Preparación física', () => {
+  it('escuela solo de fútbol: Fútbol 11, 7 y 5 (las menores juegan 7 y 5) + Preparación física', () => {
     expect(schoolBoardSports({ teams: [{ sport: 'Fútbol', name: 'Sub 12' }, { sport: 'Fútbol', name: 'Sub 8' }], schoolSports: ['Fútbol'] }))
-      .toEqual(['futbol', 'generico']);
+      .toEqual(['futbol', 'futbol7', 'futbol5', 'generico']);
+    // Solo schools.sports, sin equipos: igual.
+    expect(schoolBoardSports({ schoolSports: ['Fútbol'] })).toEqual(['futbol', 'futbol7', 'futbol5', 'generico']);
+    // Un equipo F7 también trae las tres.
+    expect(schoolBoardSports({ teams: [{ sport: 'Fútbol 7', name: 'Sub 9' }] })).toEqual(['futbol', 'futbol7', 'futbol5', 'generico']);
   });
 
-  it('fútbol 7/5 solo si tiene esos equipos', () => {
-    expect(schoolBoardSports({ teams: [{ sport: 'Fútbol', name: 'Sub 12' }, { sport: 'Fútbol', name: 'F7 Sub 9' }] }))
-      .toEqual(['futbol', 'futbol7', 'generico']);
+  it('futsal solo si tiene equipos de futsal (fútbol no lo trae)', () => {
+    expect(schoolBoardSports({ teams: [{ sport: 'Fútbol', name: 'Sub 12' }] })).not.toContain('futsal');
+    expect(schoolBoardSports({ teams: [{ sport: 'Fútbol', name: 'Sub 12' }, { sport: 'Fútbol Sala', name: 'Sub 14' }] }))
+      .toEqual(['futbol', 'futbol7', 'futbol5', 'futsal', 'generico']);
+    // Escuela solo de futsal: no hereda fútbol 11/7/5.
+    expect(schoolBoardSports({ teams: [{ sport: 'Futsal', name: 'Sub 14' }] })).toEqual(['futsal', 'generico']);
   });
 
   it('multideporte: une equipos y schools.sports; los de sin pizarra no suman', () => {
