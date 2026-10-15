@@ -19,6 +19,7 @@ import {
 import { resolverRespuestaDeDeportista, botonesDeCobros } from './whatsapp-comprobante-de-ficha.service';
 import { describirPago, type PagoPendiente } from './whatsapp-receipt-matching.service';
 import { soloSaludoOCortesia } from './whatsapp-atencion.service';
+import { cargarRecargos, montoEsperado } from './whatsapp-excedente.service';
 import { esHumanoDeLaEscuela, type FilaReciente } from './whatsapp-reglas-turno';
 import type { BotonInteractivo, WhatsAppIntegration } from './whatsapp.service';
 
@@ -248,15 +249,17 @@ export async function resolverRespuestaDeCobro(
 
     // Sin abonos no se estampa lo que no cuadra (la misma regla del camino
     // principal del worker): elegir un cobro NO convierte un comprobante de
-    // $150.000 en el pago de una mensualidad de $180.000. Se acepta el valor
-    // con el recargo en línea de la escuela (online_fee_pct) cuando el
-    // comprobante es de un pago en línea. Sin monto leído no se decide por
-    // monto, igual que en el worker.
+    // $150.000 en el pago de una mensualidad de $180.000. Cuadra el valor base
+    // (transferencia a las llaves, sin recargo) o el monto del enlace de pago
+    // que la familia recibió para ESE cobro (`payment_links`, con su recargo).
+    // No se mira el % actual de la escuela ni el texto del medio: un link
+    // pagado con Nequi dentro del checkout tiene su monto en el enlace.
+    // Sin monto leído no se decide por monto, igual que en el worker.
     const monto = montoLeido(guardado.ocr?.amount);
     if (monto !== null) {
         const reglas = await reglasDeMontoDeLaEscuela(fila.school_id);
-        if (!reglas.permiteAbonos
-            && !montoCuadraConElCobro(monto, pago, { feePct: reglas.feePct, enLinea: esPagoEnLinea(guardado.ocr) })) {
+        const recargos = await cargarRecargos(fila.school_id, [pago]);
+        if (!reglas.permiteAbonos && montoEsperado(pago, monto, recargos) !== monto) {
             await responder(textoMontoNoCuadra(monto, pago), PASO_MONTO_NO_CUADRA);
             await supabase.from('whatsapp_inbound_queue')
                 .update({

@@ -16,6 +16,7 @@ const h = vi.hoisted(() => ({
     conv: null as any,
     salientes: [] as any[],
     settings: null as any,
+    enlaces: [] as any[],
     updates: [] as { table: string; v: any }[],
 }));
 
@@ -32,7 +33,8 @@ vi.mock('../config/supabase', () => {
                     : table === 'school_settings' ? { data: h.settings, error: null }
                         : { data: null, error: null });
         b.then = (res: any, rej: any) => Promise.resolve(
-            table === 'whatsapp_messages' ? { data: h.salientes, error: null } : { data: [], error: null },
+            table === 'whatsapp_messages' ? { data: h.salientes, error: null }
+                : table === 'payment_links' ? { data: h.enlaces, error: null } : { data: [], error: null },
         ).then(res, rej);
         return b;
     };
@@ -69,6 +71,7 @@ beforeEach(() => {
     h.conv = { id: 'conv-1' };
     h.salientes = [];
     h.settings = { allow_installments: false, online_fee_pct: 3 };
+    h.enlaces = [];
     h.updates = [];
     aplicarComprobanteMock.mockClear();
 });
@@ -180,13 +183,22 @@ describe('2. elegir un cobro de la pregunta: sin abonos no se estampa lo que no 
         expect((aplicarComprobanteMock.mock.calls[0] as any[])[1]).toMatchObject({ id: 'p-oct' });
     });
 
-    it('pago en línea con el recargo de la escuela (3 %) → cuadra y se aplica', async () => {
-        h.filaEsperando = fila(185400, { bank: 'Wompi' });
+    it('$185.400 con el link de pago de ESE cobro (recargo 3 %) → cuadra y se aplica, sea cual sea el medio', async () => {
+        h.enlaces = [{ payment_id: 'p-oct', school_id: 'school-1', gross_amount: 185400, base_amount: 180000, fee_pct: 3 }];
+        h.filaEsperando = fila(185400, { bank: 'Nequi' });
         await resolverRespuestaDeCobro({ id: 'int-1' } as any, '570000000000', '2', vi.fn(async () => undefined));
         expect(aplicarComprobanteMock).toHaveBeenCalledTimes(1);
+        expect((aplicarComprobanteMock.mock.calls[0] as any[])[1]).toMatchObject({ id: 'p-oct' });
     });
 
-    it('el mismo $185.400 por Nequi (no es en línea) → no cuadra', async () => {
+    it('el mismo $185.400 sin link de ese cobro (transferencia con recargo) → no cuadra', async () => {
+        h.filaEsperando = fila(185400, { bank: 'Nequi' });
+        await resolverRespuestaDeCobro({ id: 'int-1' } as any, '570000000000', '2', vi.fn(async () => undefined));
+        expect(aplicarComprobanteMock).not.toHaveBeenCalled();
+    });
+
+    it('un link de OTRO cobro con ese monto no sirve para este', async () => {
+        h.enlaces = [{ payment_id: 'p-sep', school_id: 'school-1', gross_amount: 185400, base_amount: 180000, fee_pct: 3 }];
         h.filaEsperando = fila(185400, { bank: 'Nequi' });
         await resolverRespuestaDeCobro({ id: 'int-1' } as any, '570000000000', '2', vi.fn(async () => undefined));
         expect(aplicarComprobanteMock).not.toHaveBeenCalled();
