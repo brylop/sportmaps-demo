@@ -218,7 +218,9 @@ async function linkPropioDeLaEscuela(schoolId: string): Promise<string | null> {
 export function instruccionesDelLinkDeLaEscuela(monto: unknown): string {
     const n = Number(monto);
     const valor = Number.isFinite(n) && n > 0 ? cop(n) : 'el valor de tu cobro';
-    return `Toca «${TEXTO_BOTON_IR_A_PAGAR}», escribe ${valor} y, al terminar, mándame la foto del comprobante por aquí para que la escuela lo aplique.`;
+    // En el link de la escuela la familia escribe el valor: es el del cobro, SIN
+    // recargo, y el comprobante que manda debe mostrar ese mismo valor.
+    return `Toca «${TEXTO_BOTON_IR_A_PAGAR}», escribe ${valor} (sin recargo) y, al terminar, mándame la foto del comprobante por aquí para que la escuela lo aplique.`;
 }
 
 /** Cuánto hacia atrás cuenta un comprobante de la cola como «en camino». */
@@ -282,8 +284,12 @@ export function instruccionesDelLinkConMonto(
 ): string {
     const recargo = Number(montos?.recargo ?? 0);
     const total = Number(montos?.total ?? 0);
+    // Con recargo: se dice el total del link Y que transferir directo a la
+    // escuela no lleva recargo (el comprobante de cualquiera de los dos vale como
+    // pago completo).
     const valor = recargo > 0 && total > 0
-        ? `El link cobra ${cop(total)} (incluye ${cop(recargo)} de recargo por pago en línea). `
+        ? `El link cobra ${cop(total)} (incluye ${cop(recargo)} de recargo por pago en línea). ` +
+          `Si transfieres directo a la escuela no pagas recargo: son ${cop(total - recargo)}. `
         : '';
     return `${valor}Tienes ${plazoParaPagar(minutos)} para pagar con ese link; al aprobarse, el pago queda aplicado solo` +
         (avisa ? ' y te aviso por aquí.' : '.');
@@ -300,7 +306,8 @@ export function instruccionesDeLaPaginaDeCobro(
     const recargo = Number(montos?.recargo ?? 0);
     const total = Number(montos?.total ?? 0);
     const valor = recargo > 0 && total > 0
-        ? `El pago en línea es de ${cop(total)} (incluye ${cop(recargo)} de recargo). `
+        ? `El pago en línea es de ${cop(total)} (incluye ${cop(recargo)} de recargo de la app). ` +
+          `Si transfieres directo a la escuela no pagas recargo: son ${cop(total - recargo)}. `
         : '';
     return `${valor}Ahí puedes pagar en línea o ver los datos para transferir; si pagas en línea, el pago queda aplicado solo` +
         (avisa ? ' y te aviso por aquí.' : '.');

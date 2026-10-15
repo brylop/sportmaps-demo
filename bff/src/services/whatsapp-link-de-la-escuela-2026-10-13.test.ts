@@ -50,7 +50,7 @@ describe('link de pago propio de la escuela', () => {
         const out = await conEnlacesDePago([pago('Mensualidad Octubre', 150000), pago('Seguro', 40000)] as any[], 'parent-1', 'school-1');
         expect(out.map((p) => p.enlace_pago)).toEqual([LINK, LINK]);
         expect(out.every((p) => p.enlace_de_la_escuela === true)).toBe(true);
-        expect(out[0].enlace_instrucciones).toBe('Toca «Ir a pagar», escribe $150.000 y, al terminar, mándame la foto del comprobante por aquí para que la escuela lo aplique.');
+        expect(out[0].enlace_instrucciones).toBe('Toca «Ir a pagar», escribe $150.000 (sin recargo) y, al terminar, mándame la foto del comprobante por aquí para que la escuela lo aplique.');
         expect(h.link).not.toHaveBeenCalled();
         expect(h.emitir).not.toHaveBeenCalled();
         expect(lineaPagar(out[0])).toContain('escribe $150.000');
