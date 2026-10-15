@@ -76,6 +76,9 @@ export interface AnalyzeRequest {
   frames: TacticalFrame[];
   labels: Record<string, string>;
   colors: { own: TacticalArrowColor; rival: TacticalArrowColor };
+  /** M6c: nota de la jugada = intención del coach. El BFF la filtra (sin
+   *  nombres del plantel) y la recorta antes de mandarla al modelo. */
+  intencion?: string;
 }
 
 export type AnalyzeOutcome =
@@ -98,6 +101,8 @@ export function buildAnalyzeRequest(args: {
   sport: TacticalSport;
   frames: TacticalFrame[];
   labelOf: (key: string) => string | undefined;
+  /** Nota de la jugada (M6c). */
+  intention?: string;
 }): AnalyzeRequest {
   const frames = args.frames.slice(0, MAX_FRAMES).map((f) => ({
     id: f.id,
@@ -106,13 +111,19 @@ export function buildAnalyzeRequest(args: {
     ball: f.ball ? { x: round2(f.ball.x), y: round2(f.ball.y) } : null,
     // El texto y el lápiz no le sirven al análisis (y el texto puede tener nombres).
     arrows: f.arrows.filter((a) => a.type !== 'text' && a.type !== 'freehand'),
+    // Nota del cuadro (M6c): el BFF la filtra igual que la intención.
+    ...(f.note ? { note: f.note.slice(0, 280) } : {}),
   }));
   const labels: Record<string, string> = {};
   for (const f of frames) for (const p of f.players) {
     const l = args.labelOf(p.key);
     if (l && !(p.key in labels)) labels[p.key] = l.slice(0, 40);
   }
-  return { team_id: args.teamId, sport: args.sport, frames, labels, colors: { own: 'green', rival: rivalColorOf(frames) } };
+  const intencion = (args.intention ?? '').trim().slice(0, 2000);
+  return {
+    team_id: args.teamId, sport: args.sport, frames, labels, colors: { own: 'green', rival: rivalColorOf(frames) },
+    ...(intencion ? { intencion } : {}),
+  };
 }
 
 function messageOf(err: unknown): string {

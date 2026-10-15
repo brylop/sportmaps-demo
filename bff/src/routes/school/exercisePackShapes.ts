@@ -10,6 +10,8 @@
  *     pack: { name, description?, sport, version? },
  *     exercises: [{ name, objective?, minutes?, age_group?, materials?, tags?,
  *                   sport?, description?, board? }]
+ *   board puede traer notes { text, tags } y videos [...] (M6c, mismo formato
+ *   que la pizarra; se validan igual) y cada cuadro su note.
  *   }
  *
  * Reglas de la importación (el archivo es dato NO confiable):
@@ -34,6 +36,7 @@ import {
   type ExerciseFields,
   type ExerciseSport,
 } from './exerciseShapes';
+import { publicVideos } from './tacticalMediaShapes';
 
 export const PACK_FILE_FORMAT = 'sportmaps-ejercicios';
 export const PACK_FILE_VERSION = 1;
@@ -103,8 +106,15 @@ export function anonymizeBoard(board: Partial<ExerciseBoard> | null | undefined)
     }),
     ball: f.ball ? { x: f.ball.x, y: f.ball.y } : null,
     arrows: Array.isArray(f.arrows) ? f.arrows : [],
+    ...(typeof f.note === 'string' && f.note ? { note: f.note } : {}),
   }));
-  return { players: outPlayers, arrows, frames: outFrames };
+  // M6c: la nota viaja con el paquete; los videos de «enlace privado» no.
+  const videos = publicVideos(board?.videos ?? null);
+  return {
+    players: outPlayers, arrows, frames: outFrames,
+    ...(board?.notes ? { notes: board.notes } : {}),
+    ...(videos ? { videos } : {}),
+  };
 }
 
 /** Textos de la jugada (puestos y figuras de texto) para el control de HTML. */
@@ -119,7 +129,25 @@ function boardTexts(board: unknown): string[] {
     for (const p of board.players) if (isPlainObject(p) && typeof p.slot_label === 'string') out.push(p.slot_label);
   }
   pushArrowTexts(board.arrows);
-  if (Array.isArray(board.frames)) for (const f of board.frames) if (isPlainObject(f)) pushArrowTexts(f.arrows);
+  if (Array.isArray(board.frames)) {
+    for (const f of board.frames) {
+      if (!isPlainObject(f)) continue;
+      pushArrowTexts(f.arrows);
+      if (typeof f.note === 'string') out.push(f.note);
+    }
+  }
+  // M6c: nota, etiquetas y títulos/enlaces de los videos.
+  if (isPlainObject(board.notes)) {
+    if (typeof board.notes.text === 'string') out.push(board.notes.text);
+    if (Array.isArray(board.notes.tags)) for (const t of board.notes.tags) if (typeof t === 'string') out.push(t);
+  }
+  if (Array.isArray(board.videos)) {
+    for (const v of board.videos) {
+      if (!isPlainObject(v)) continue;
+      if (typeof v.title === 'string') out.push(v.title);
+      if (typeof v.url === 'string') out.push(v.url);
+    }
+  }
   return out;
 }
 

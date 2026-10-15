@@ -6,6 +6,7 @@
 import { bffClient } from '@/lib/api/bffClient';
 import type { TacticalArrow } from './footballQueries';
 import { presetSlotKey, presetSlotIndex, type TacticalFrame } from './tacticalFrames';
+import type { PlayNotes, PlayVideo } from './tacticalMedia';
 import type { TacticalStaticPlayer } from '@/components/school/TacticalStaticSvg';
 
 export type ExerciseSport =
@@ -41,6 +42,10 @@ export interface ExerciseBoard {
   players: ExerciseBoardPlayer[];
   arrows: TacticalArrow[];
   frames: TacticalFrame[];
+  /** M6c: notas y videos de la jugada viajan DENTRO de board (sin columna
+   *  nueva en training_exercises; el paquete y la RPC los llevan tal cual). */
+  notes?: PlayNotes | null;
+  videos?: PlayVideo[] | null;
 }
 
 export interface TrainingExercise {

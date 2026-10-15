@@ -7,6 +7,8 @@ import {
   validateArrows, sanitizeArrows, validatePresetSlots, sanitizeSlots, MAX_PRESET_NAME,
   validateFrames, sanitizeFrames, isMissingFramesColumn,
 } from './footballShapes';
+// M6c: notas y videos de la jugada (columnas notes/videos, migración 20261014163705).
+import { parseMediaBody, isMissingMediaColumn } from './tacticalMediaShapes';
 
 const router = Router();
 
@@ -18,23 +20,35 @@ const router = Router();
 const LINEUP_COLS = 'id, team_id, source_type, source_id, formation, arrows, created_by, created_at, updated_at';
 const FRAMES_UNAVAILABLE = 'La animación por cuadros todavía no está habilitada. Guarda la jugada con un solo cuadro.';
 
-/** Corre un SELECT pidiendo `frames`; si la columna no existe, lo repite sin ella. */
+const MEDIA_UNAVAILABLE = 'Las notas y los videos de la jugada todavía no están habilitados. Quítalos para guardar.';
+
+/** Corre un SELECT pidiendo `frames` y `notes, videos` (M6c); si una columna
+ *  no existe todavía, lo repite sin ella. */
 async function selectWithFrames<R extends { error: unknown }>(base: string, run: (cols: string) => PromiseLike<R>): Promise<R> {
-  const r = await run(`${base}, frames`);
-  if (r.error && isMissingFramesColumn(r.error)) return run(base);
+  let r = await run(`${base}, frames, notes, videos`);
+  if (r.error && isMissingMediaColumn(r.error)) r = await run(`${base}, frames`);
+  if (r.error && isMissingFramesColumn(r.error)) r = await run(base);
   return r;
 }
 
-/** Corre un INSERT/UPDATE con `frames` en el payload. Si la columna no existe:
- *  con frames null lo repite sin la columna; con cuadros devuelve 'unavailable'. */
+/** Corre un INSERT/UPDATE con `frames` / `notes` / `videos` en el payload. Si
+ *  la columna no existe: con valor null la quita y repite; con contenido de
+ *  verdad devuelve 'unavailable' (cuadros) o 'media_unavailable' (notas/videos). */
 async function writeWithFrames<R extends { error: unknown }>(
   payload: Record<string, unknown>,
   run: (p: Record<string, unknown>) => PromiseLike<R>,
-): Promise<R | 'unavailable'> {
-  const r = await run(payload);
-  if (r.error && 'frames' in payload && isMissingFramesColumn(r.error)) {
-    if (payload.frames !== null) return 'unavailable';
-    const { frames: _omit, ...rest } = payload;
+): Promise<R | 'unavailable' | 'media_unavailable'> {
+  let p = payload;
+  let r = await run(p);
+  if (r.error && ('notes' in p || 'videos' in p) && isMissingMediaColumn(r.error)) {
+    if ((p.notes ?? null) !== null || (p.videos ?? null) !== null) return 'media_unavailable';
+    const { notes: _n, videos: _v, ...rest } = p;
+    p = rest;
+    r = await run(p);
+  }
+  if (r.error && 'frames' in p && isMissingFramesColumn(r.error)) {
+    if (p.frames !== null) return 'unavailable';
+    const { frames: _omit, ...rest } = p;
     return run(rest);
   }
   return r;
@@ -377,6 +391,11 @@ router.post(
       if ('errors' in parsedFrames) {
         return res.status(422).json({ error: 'Cuadros inválidos.', details: parsedFrames.errors });
       }
+      // M6c: notas y videos (ausentes = no se tocan, p. ej. LineupModal clásico).
+      const media = parseMediaBody(req.body);
+      if (media.errors.length > 0) {
+        return res.status(422).json({ error: 'Notas o videos inválidos.', details: media.errors.slice(0, 20) });
+      }
 
       if (!(await assertTeamBelongsToSchool(team_id, schoolId!))) {
         return res.status(403).json({ error: 'El equipo no pertenece a esta escuela.' });
@@ -396,6 +415,7 @@ router.post(
         };
         if (arrowsProvided) updatePayload.arrows = arrowList;
         if (parsedFrames.provided) updatePayload.frames = parsedFrames.value;
+        Object.assign(updatePayload, media.fields);
 
         const updatedRes = await writeWithFrames(updatePayload, (p) => supabase
           .from('match_lineups')
@@ -405,6 +425,7 @@ router.post(
           .select('id')
           .single());
         if (updatedRes === 'unavailable') return res.status(409).json({ error: FRAMES_UNAVAILABLE });
+        if (updatedRes === 'media_unavailable') return res.status(409).json({ error: MEDIA_UNAVAILABLE });
         const { data: updated, error: updateErr } = updatedRes;
         if (updateErr) throw updateErr;
         lineupId = updated.id;
@@ -425,12 +446,14 @@ router.post(
           created_by: user.id,
         };
         if (parsedFrames.provided) insertPayload.frames = parsedFrames.value;
+        Object.assign(insertPayload, media.fields);
         const createdRes = await writeWithFrames(insertPayload, (p) => supabase
           .from('match_lineups')
           .insert(p)
           .select('id')
           .single());
         if (createdRes === 'unavailable') return res.status(409).json({ error: FRAMES_UNAVAILABLE });
+        if (createdRes === 'media_unavailable') return res.status(409).json({ error: MEDIA_UNAVAILABLE });
         const { data: created, error: createErr } = createdRes;
         if (createErr) throw createErr;
         lineupId = created.id;
@@ -807,6 +830,10 @@ router.post(
       if ('errors' in parsedFrames) {
         return res.status(422).json({ error: 'Cuadros inválidos.', details: parsedFrames.errors });
       }
+      const media = parseMediaBody(req.body);
+      if (media.errors.length > 0) {
+        return res.status(422).json({ error: 'Notas o videos inválidos.', details: media.errors.slice(0, 20) });
+      }
 
       if (!(await assertTeamBelongsToSchool(team_id, schoolId!))) {
         return res.status(403).json({ error: 'El equipo no pertenece a esta escuela.' });
@@ -822,12 +849,14 @@ router.post(
         created_by: user.id,
       };
       if (parsedFrames.provided) presetPayload.frames = parsedFrames.value;
+      Object.assign(presetPayload, media.fields);
       const insertedRes = await writeWithFrames(presetPayload, (p) => supabase
         .from('team_tactical_presets')
         .insert(p)
         .select()
         .single());
       if (insertedRes === 'unavailable') return res.status(409).json({ error: FRAMES_UNAVAILABLE });
+      if (insertedRes === 'media_unavailable') return res.status(409).json({ error: MEDIA_UNAVAILABLE });
       const { data, error } = insertedRes;
       if (error) {
         if (isUniqueViolation(error)) {
@@ -909,6 +938,11 @@ router.put(
         return res.status(422).json({ error: 'Cuadros inválidos.', details: parsedFrames.errors });
       }
       if (parsedFrames.provided) update.frames = parsedFrames.value;
+      const media = parseMediaBody(req.body);
+      if (media.errors.length > 0) {
+        return res.status(422).json({ error: 'Notas o videos inválidos.', details: media.errors.slice(0, 20) });
+      }
+      Object.assign(update, media.fields);
       if (Object.keys(update).length === 0) {
         return res.status(400).json({ error: 'Nada para actualizar.' });
       }
@@ -930,6 +964,7 @@ router.put(
         .select()
         .maybeSingle());
       if (updatedRes === 'unavailable') return res.status(409).json({ error: FRAMES_UNAVAILABLE });
+      if (updatedRes === 'media_unavailable') return res.status(409).json({ error: MEDIA_UNAVAILABLE });
       const { data, error } = updatedRes;
       if (error) {
         if (isUniqueViolation(error)) {
