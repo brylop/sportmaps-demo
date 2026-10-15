@@ -26,8 +26,9 @@ import type { TacticalFrame } from '@/lib/school/tacticalFrames';
 import { sportDef, type TacticalSport } from '@/lib/school/tacticalSports';
 import {
   collectPlayerKeys, court3D, MIN_FPS, OVERLAY_COLOR, playerVisual,
-  prefersReducedMotion, TEAM_COLOR, type CameraMode, type PlayerVisual,
+  prefersReducedMotion, TEAM_COLOR, teamVisual, type CameraMode, type PlayerVisual,
 } from '@/lib/school/tactical3d';
+import type { TacticalTeamsConfig } from '@/lib/school/tacticalTeams';
 import {
   AUTO_MOVING, CAMERA_KINDS, cameraKindLabel, resolveCameraKind, type CameraKind, type PlayerView,
 } from '@/lib/school/tactical3dCameras';
@@ -73,6 +74,8 @@ export interface Tactical3DViewerProps {
   onStats?: (s: Tactical3DStats) => void;
   /** Cámara al abrir (por defecto Transmisión TV). Acepta las 3 de M4. */
   initialCamera?: CameraKind | CameraMode;
+  /** M6b: colores y número de los dos equipos (sin ella, los de siempre). */
+  teams?: TacticalTeamsConfig | null;
   initialTimeMs?: number;
   autoPlay?: boolean;
   /** Director automático encendido al abrir. */
@@ -90,7 +93,7 @@ export default function Tactical3DViewer({
   sport, frames, playerLabels, playerJerseys, teamColor = TEAM_COLOR,
   overlayFrames = null, overlayColor = OVERLAY_COLOR, overlayLabels, overlayJerseys,
   overlayName = 'Contraataque del rival', title, onClose, onFallback, minFps = MIN_FPS, onStats,
-  initialCamera = 'tv', initialTimeMs = 0, autoPlay = false, initialDirector = false,
+  initialCamera = 'tv', initialTimeMs = 0, autoPlay = false, initialDirector = false, teams = null,
 }: Tactical3DViewerProps) {
   const court = useMemo(() => court3D(sport), [sport]);
   const def = sportDef(court.sport);
@@ -126,9 +129,12 @@ export default function Tactical3DViewer({
   const overlayKeys = useMemo(() => collectPlayerKeys(overlay), [overlay]);
   const visuals = useMemo(() => {
     const out: Record<string, PlayerVisual> = {};
-    for (const k of keys) out[k] = playerVisual(k, { labels: playerLabels, jerseys: playerJerseys, color: teamColor, sport: court.sport });
+    for (const k of keys) {
+      const v = playerVisual(k, { labels: playerLabels, jerseys: playerJerseys, color: teamColor, sport: court.sport });
+      out[k] = teams ? teamVisual(v, teams.home) : v;
+    }
     return out;
-  }, [keys, playerLabels, playerJerseys, teamColor, court.sport]);
+  }, [keys, playerLabels, playerJerseys, teamColor, court.sport, teams]);
   const overlayVisuals = useMemo(() => {
     const out: Record<string, PlayerVisual> = {};
     // El rival va todo del color de la superposición (sin amarillo de arquero).
@@ -299,6 +305,7 @@ export default function Tactical3DViewer({
             minFps={minFps}
             onFpsVerdict={onFpsVerdict}
             debug={debug}
+            teams={teams}
           />
         </Canvas>
       </CanvasBoundary>

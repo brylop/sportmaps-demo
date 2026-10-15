@@ -15,7 +15,8 @@
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
 import { isGoalkeeperLabel } from '@/lib/school/tacticalPalette';
 import type { TacticalSport } from '@/lib/school/tacticalSports';
-import { tacticalSvgMarkup } from './tacticalImage';
+import type { TacticalTeamsConfig } from '@/lib/school/tacticalTeams';
+import { tacticalSvgMarkup, teamPlayerBox, teamPlayerMarkup } from './tacticalImage';
 import { framesDuration, interpolateFrames } from './tacticalInterpolation';
 import { svgMarkupToImage } from './tacticalExportUtils';
 
@@ -104,6 +105,11 @@ export interface TacticalRendererOptions {
   frames: TacticalFrame[];
   playerLabels?: Record<string, string>;
   playerJerseys?: Record<string, number | null>;
+  /** M6b: configuración de los equipos. Con ella cada jugador se pinta como
+   *  imagen de su ficha (rasterizada una vez); sin ella, el disco de siempre. */
+  teams?: TacticalTeamsConfig | null;
+  /** M6b: nombres reales (solo con «Mostrar nombres»). */
+  playerNames?: Record<string, string>;
   width: number;
   /** Cancha de fondo (T4). Sin deporte = fútbol 11. Mismo viewBox 300×340 en todas. */
   sport?: TacticalSport | null;
@@ -131,7 +137,7 @@ export interface TacticalFrameRenderer {
 export const abortError = () => new DOMException('Exportación cancelada', 'AbortError');
 
 export async function createTacticalFrameRenderer(opts: TacticalRendererOptions): Promise<TacticalFrameRenderer> {
-  const { frames, playerLabels, playerJerseys, signal } = opts;
+  const { frames, playerLabels, playerJerseys, signal, teams } = opts;
   const width = even(opts.width);
   const height = even((width * VIEW_H) / VIEW_W);
 
@@ -149,7 +155,7 @@ export async function createTacticalFrameRenderer(opts: TacticalRendererOptions)
     const key = JSON.stringify(f.arrows || []);
     let img = layerByKey.get(key);
     if (!img) {
-      img = await svgMarkupToImage(tacticalSvgMarkup([], f.arrows || [], width, opts.sport));
+      img = await svgMarkupToImage(tacticalSvgMarkup([], f.arrows || [], width, opts.sport, teams));
       layerByKey.set(key, img);
     }
     layerOfFrame.push(img);
@@ -157,6 +163,19 @@ export async function createTacticalFrameRenderer(opts: TacticalRendererOptions)
   }
 
   const scale = width / VIEW_W;
+  const labelOf = (key: string) => (playerLabels?.[key] ?? (key.startsWith('slot:') ? key.slice(5) : '')).trim();
+
+  // M6b: una imagen por jugador con la configuración de equipos.
+  const chipOf = new Map<string, HTMLImageElement>();
+  const chipBox = teams ? teamPlayerBox(teams.player_scale) : null;
+  if (teams) {
+    const keys = new Set(frames.flatMap((f) => (f.players || []).map((p) => p.key)));
+    for (const key of keys) {
+      const markup = teamPlayerMarkup(teams, { label: labelOf(key), jersey: playerJerseys?.[key], name: opts.playerNames?.[key] }, scale * 2);
+      chipOf.set(key, await svgMarkupToImage(markup));
+      if (signal?.aborted) throw abortError();
+    }
+  }
   const total = framesDuration(frames);
   const length = opts.holdStartMs + total + opts.holdEndMs;
 
@@ -171,8 +190,12 @@ export async function createTacticalFrameRenderer(opts: TacticalRendererOptions)
     for (const p of st.players) {
       if (p.opacity <= 0.01) continue;
       ctx.globalAlpha = p.opacity;
-      const label = (playerLabels?.[p.key] ?? (p.key.startsWith('slot:') ? p.key.slice(5) : '')).trim();
-      drawPlayer(ctx, p.x * 3, p.y * 3.4, label, playerJerseys?.[p.key]);
+      const chip = chipOf.get(p.key);
+      if (chip && chipBox) {
+        ctx.drawImage(chip, p.x * 3 + chipBox.x, p.y * 3.4 + chipBox.y, chipBox.w, chipBox.h);
+        continue;
+      }
+      drawPlayer(ctx, p.x * 3, p.y * 3.4, labelOf(p.key), playerJerseys?.[p.key]);
     }
     if (st.ball && st.ball.opacity > 0.01) {
       ctx.globalAlpha = st.ball.opacity;
@@ -185,6 +208,7 @@ export async function createTacticalFrameRenderer(opts: TacticalRendererOptions)
   const dispose = () => {
     layerByKey.clear();
     layerOfFrame.length = 0;
+    chipOf.clear();
     canvas.width = 0;
     canvas.height = 0;
   };

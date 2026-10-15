@@ -10,6 +10,7 @@
  *  - tope de cuadros (una jugada de 30 cuadros baja los fps solita);
  *  - cada cuadro guarda solo el rectángulo que cambió y los repetidos se funden.
  */
+import type { TacticalTeamsConfig } from '@/lib/school/tacticalTeams';
 import { ColorHistogram, GifAnimator } from './gifEncoder';
 import { pickAnimationKind, type TacticalAnimationKind } from './tacticalAnimationFormat';
 import { abortError, createTacticalFrameRenderer } from './tacticalFrameRenderer';
@@ -26,6 +27,10 @@ export interface ExportGifOptions {
   frames: TacticalFrame[];
   playerLabels?: Record<string, string>;
   playerJerseys?: Record<string, number | null>;
+  /** M6b: configuración de los equipos (sin ella, el dibujo de siempre). */
+  teams?: TacticalTeamsConfig | null;
+  /** M6b: clave → nombre real. Solo viaja con «Mostrar nombres» prendido. */
+  playerNames?: Record<string, string>;
   /** Cancha de fondo (T4). */
   sport?: TacticalSport | null;
   /** 10 por defecto (rango 4-15). */
@@ -72,6 +77,8 @@ export async function exportGif(opts: ExportGifOptions): Promise<ExportGifResult
     frames,
     playerLabels: opts.playerLabels,
     playerJerseys: opts.playerJerseys,
+    teams: opts.teams,
+    playerNames: opts.playerNames,
     sport: opts.sport,
     width: Math.min(720, Math.max(160, opts.width ?? 360)),
     holdStartMs: opts.holdStartMs ?? 600,

@@ -24,6 +24,7 @@ import {
   type TacticalArrow,
 } from '@/lib/school/footballQueries';
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
+import type { TacticalTeamsConfig } from '@/lib/school/tacticalTeams';
 
 export function useFootballLineups(params: { team_id?: string; source_type?: LineupSourceType; source_id?: string }) {
   return useQuery({
@@ -54,6 +55,8 @@ export function useSaveFootballLineup() {
       frames?: TacticalFrame[] | null;
       notes?: PlayNotes | null;
       videos?: PlayVideo[] | null;
+      /** M6b: configuración de los equipos (null = aspecto de siempre). */
+      teams?: TacticalTeamsConfig | null;
     }) => saveFootballLineup(payload),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['football-lineups'] });
@@ -125,7 +128,7 @@ export function useTacticalPresets(params: { team_id?: string; situation?: Tacti
 export function useCreateTacticalPreset() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { team_id: string; name: string; situation: TacticalSituation; slots: TacticalPresetSlot[]; arrows?: TacticalArrow[]; frames?: TacticalFrame[] | null; notes?: PlayNotes | null; videos?: PlayVideo[] | null }) =>
+    mutationFn: (payload: { team_id: string; name: string; situation: TacticalSituation; slots: TacticalPresetSlot[]; arrows?: TacticalArrow[]; frames?: TacticalFrame[] | null; notes?: PlayNotes | null; videos?: PlayVideo[] | null; teams?: TacticalTeamsConfig | null }) =>
       createTacticalPreset(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tactical-presets'] });
@@ -138,7 +141,7 @@ export function useCreateTacticalPreset() {
 export function useUpdateTacticalPreset() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...payload }: { id: string; name?: string; situation?: TacticalSituation; slots?: TacticalPresetSlot[]; arrows?: TacticalArrow[]; frames?: TacticalFrame[] | null; notes?: PlayNotes | null; videos?: PlayVideo[] | null }) =>
+    mutationFn: ({ id, ...payload }: { id: string; name?: string; situation?: TacticalSituation; slots?: TacticalPresetSlot[]; arrows?: TacticalArrow[]; frames?: TacticalFrame[] | null; notes?: PlayNotes | null; videos?: PlayVideo[] | null; teams?: TacticalTeamsConfig | null }) =>
       updateTacticalPreset(id, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tactical-presets'] });

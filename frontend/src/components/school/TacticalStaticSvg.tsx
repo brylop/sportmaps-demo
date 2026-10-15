@@ -27,9 +27,13 @@ import {
   type ArrowPoint,
 } from '@/lib/school/tacticalGeometry';
 import { ARROW_COLOR_HEX, isGoalkeeperLabel } from '@/lib/school/tacticalPalette';
-import type { TacticalSport } from '@/lib/school/tacticalSports';
+import { sportDef, type TacticalSport } from '@/lib/school/tacticalSports';
+import {
+  chipCaption, chipInnerText, chipLook, pointScale, rivalSlots, type RivalSlot, type TacticalTeamsConfig,
+} from '@/lib/school/tacticalTeams';
 import { CourtBackground } from './courts/CourtBackground';
 import { BallGlyph, ObjectIcon } from './tacticalGlyphs';
+import { RivalChip, TeamPlayerGlyph } from './tacticalTeamGlyphs';
 
 export interface TacticalStaticPlayer {
   x: number;
@@ -37,6 +41,9 @@ export interface TacticalStaticPlayer {
   label?: string;
   jersey?: number | null;
   role?: 'starter' | 'bench';
+  /** M6b: nombre real del atleta. Solo llega si se puede mostrar (dentro de
+   *  la escuela, o exportación con «Mostrar nombres»). */
+  name?: string | null;
 }
 
 export interface TacticalStaticSvgProps {
@@ -49,6 +56,8 @@ export interface TacticalStaticSvgProps {
    *  fútbol 11 de siempre (salida idéntica). Las coordenadas guardadas no
    *  dependen del deporte: todas las canchas usan el mismo viewBox 300×340. */
   sport?: TacticalSport | null;
+  /** M6b: configuración de los equipos. Sin ella = el dibujo de siempre. */
+  teams?: TacticalTeamsConfig | null;
 }
 
 const VIEW_W = 300;
@@ -65,7 +74,9 @@ function initialsOf(name: string) {
   return name.split(/\s+/).map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
 }
 
-function renderShape(raw: TacticalArrow, i: number) {
+interface TeamsCtx { teams: TacticalTeamsConfig; rivals: Map<number, RivalSlot> }
+
+function renderShape(raw: TacticalArrow, i: number, ctx: TeamsCtx | null) {
   const s = hydrateShape(raw);
   const p1 = toSvg({ x: s.x1, y: s.y1 });
   const p2 = toSvg({ x: s.x2, y: s.y2 });
@@ -103,7 +114,8 @@ function renderShape(raw: TacticalArrow, i: number) {
   if (isPointShape(type)) {
     return (
       <g key={i} data-shape={type}>
-        <ObjectIcon type={type} x={p1.x} y={p1.y} size={s.size ?? 1} rot={s.rot ?? 0} color={s.color} pinStyle="disc" />
+        <ObjectIcon type={type} x={p1.x} y={p1.y} size={(s.size ?? 1) * pointScale(ctx?.teams, type)} rot={s.rot ?? 0} color={s.color} pinStyle="disc"
+          override={ctx && type === 'opponent' ? <RivalChip teams={ctx.teams} slot={ctx.rivals.get(i)} /> : undefined} />
       </g>
     );
   }
@@ -189,7 +201,23 @@ function renderPlayer(p: TacticalStaticPlayer, i: number) {
   );
 }
 
-export function TacticalStaticSvg({ players, arrows, width = 300, className, sport }: TacticalStaticSvgProps) {
+/** M6b: jugador propio con la configuración del equipo de casa. */
+function renderTeamPlayer(p: TacticalStaticPlayer, i: number, teams: TacticalTeamsConfig) {
+  const label = (p.label ?? '').trim();
+  const subject = {
+    number: p.jersey != null && String(p.jersey) !== '' ? String(p.jersey) : null,
+    name: p.name ?? null,
+    position: label || null,
+  };
+  const isGK = !!label && isGoalkeeperLabel(label);
+  return (
+    <TeamPlayerGlyph key={`p${i}`} x={Number(p.x) * 3} y={Number(p.y) * 3.4} r={PIN_R * teams.player_scale}
+      look={chipLook(teams.home, isGK)} text={chipInnerText(teams.home, subject)} caption={chipCaption(teams.home, subject)} />
+  );
+}
+
+export function TacticalStaticSvg({ players, arrows, width = 300, className, sport, teams }: TacticalStaticSvgProps) {
+  const ctx: TeamsCtx | null = teams ? { teams, rivals: rivalSlots(arrows || [], teams, sportDef(sport).hasGoalkeeper) } : null;
   const height = Math.round((width * VIEW_H) / VIEW_W);
   const starters = (players || []).filter(
     (p) => p.role !== 'bench' && p.x != null && p.y != null && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.y)),
@@ -221,8 +249,8 @@ export function TacticalStaticSvg({ players, arrows, width = 300, className, spo
       {/* Mismo orden de capas que el tablero: la capa de dibujo (z-40) va
           ENCIMA de los pines de jugador (z-10), así una flecha que sale de un
           jugador se ve completa. */}
-      <g data-layer="players">{starters.map(renderPlayer)}</g>
-      <g data-layer="shapes">{(arrows || []).map(renderShape)}</g>
+      <g data-layer="players">{starters.map((p, i) => (ctx ? renderTeamPlayer(p, i, ctx.teams) : renderPlayer(p, i)))}</g>
+      <g data-layer="shapes">{(arrows || []).map((a, i) => renderShape(a, i, ctx))}</g>
     </svg>
   );
 }

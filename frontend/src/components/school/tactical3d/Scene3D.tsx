@@ -26,6 +26,7 @@ import { BallFlight3D } from './BallFlight3D';
 import { Trails3D } from './Trails3D';
 import { Spotlight3D } from './Spotlight3D';
 import { RecorderTap3D } from './RecorderTap3D';
+import type { TacticalTeamsConfig } from '@/lib/school/tacticalTeams';
 
 export interface Scene3DProps {
   court: Court3DModel;
@@ -60,6 +61,8 @@ export interface Scene3DProps {
   onFpsVerdict: (verdict: 'ok' | 'slow', fps: number, info: { geometries: number; textures: number; programs: number }) => void;
   /** Solo pruebas: escribe el estado de la cámara en window.__TACTICAL3D__. */
   debug?: boolean;
+  /** M6b: configuración de los equipos (rivales con sus colores y números). */
+  teams?: TacticalTeamsConfig | null;
 }
 
 export function Scene3D(p: Scene3DProps) {
@@ -101,7 +104,7 @@ export function Scene3D(p: Scene3DProps) {
       <hemisphereLight args={['#f8fafc', '#334155', 1.1 * dim]} />
       <directionalLight position={[-p.court.widthM, p.court.lengthM, p.court.lengthM * 0.4]} intensity={1.6 * dim} />
       <Court3D court={p.court} />
-      <Drawings3D court={p.court} live={live} />
+      <Drawings3D court={p.court} live={live} teams={p.teams} />
       {p.overlayFrames && <Drawings3D court={p.court} live={live} layer="overlay" tint={p.overlayColor} />}
       {p.showTrails && <Trails3D court={p.court} frames={p.frames} keys={p.keys} visuals={p.visuals} live={live} layer="main" />}
       {p.showTrails && p.overlayFrames && <Trails3D court={p.court} frames={p.overlayFrames} keys={p.overlayKeys} visuals={p.overlayVisuals} live={live} layer="overlay" />}

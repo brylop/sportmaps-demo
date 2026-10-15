@@ -9,6 +9,7 @@ import { bffClient } from '@/lib/api/bffClient';
 import type { RosterSubject } from './performanceQueries';
 import type { TacticalFrame } from './tacticalFrames';
 import type { PlayNotes, PlayVideo } from './tacticalMedia';
+import type { TacticalTeamsConfig } from '@/lib/school/tacticalTeams';
 
 // Separados (P0, tablero táctico): un entrenamiento tiene alineación pero
 // nunca eventos de partido (goles/tarjetas), así que solo el primero acepta
@@ -56,6 +57,8 @@ export interface Lineup {
   /** M6c: notas y videos de la jugada (migración 20261014163705). null/ausente = sin notas. */
   notes?: PlayNotes | null;
   videos?: PlayVideo[] | null;
+  /** M6b: configuración de los equipos (null = aspecto de siempre). */
+  teams?: TacticalTeamsConfig | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -94,6 +97,8 @@ export async function saveFootballLineup(payload: {
   /** ausente = no toca la columna; null = la borra. */
   notes?: PlayNotes | null;
   videos?: PlayVideo[] | null;
+  /** M6b: configuración de los equipos (null = aspecto de siempre). */
+  teams?: TacticalTeamsConfig | null;
 }): Promise<LineupDetail> {
   return bffClient.post<LineupDetail>('/api/v1/school/football/lineups', payload);
 }
@@ -265,6 +270,8 @@ export interface TacticalPreset {
   /** M6c: notas y videos de la jugada (migración 20261014163705). null/ausente = sin notas. */
   notes?: PlayNotes | null;
   videos?: PlayVideo[] | null;
+  /** M6b: configuración de los equipos (null = aspecto de siempre). */
+  teams?: TacticalTeamsConfig | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -286,6 +293,8 @@ export async function createTacticalPreset(payload: {
   frames?: TacticalFrame[] | null;
   notes?: PlayNotes | null;
   videos?: PlayVideo[] | null;
+  /** M6b: configuración de los equipos (null = aspecto de siempre). */
+  teams?: TacticalTeamsConfig | null;
 }): Promise<TacticalPreset> {
   return bffClient.post<TacticalPreset>('/api/v1/school/football/tactical-presets', payload);
 }
@@ -300,7 +309,7 @@ export async function deleteTacticalPreset(id: string): Promise<void> {
  *  cambios sobre la misma. */
 export async function updateTacticalPreset(
   id: string,
-  payload: { name?: string; situation?: TacticalSituation; slots?: TacticalPresetSlot[]; arrows?: TacticalArrow[]; frames?: TacticalFrame[] | null; notes?: PlayNotes | null; videos?: PlayVideo[] | null },
+  payload: { name?: string; situation?: TacticalSituation; slots?: TacticalPresetSlot[]; arrows?: TacticalArrow[]; frames?: TacticalFrame[] | null; notes?: PlayNotes | null; videos?: PlayVideo[] | null; teams?: TacticalTeamsConfig | null },
 ): Promise<TacticalPreset> {
   return bffClient.put<TacticalPreset>(`/api/v1/school/football/tactical-presets/${id}`, payload);
 }

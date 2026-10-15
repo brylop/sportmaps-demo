@@ -10,6 +10,7 @@
  * TacticalVideoUnsupportedError; exportAnimation() (tacticalGif.ts) lo atrapa y
  * hace el GIF en su lugar.
  */
+import type { TacticalTeamsConfig } from '@/lib/school/tacticalTeams';
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
 import type { TacticalSport } from '@/lib/school/tacticalSports';
 import { pickVideoMime, type TacticalVideoFormat } from './tacticalAnimationFormat';
@@ -21,6 +22,10 @@ export interface ExportVideoOptions {
   frames: TacticalFrame[];
   playerLabels?: Record<string, string>;
   playerJerseys?: Record<string, number | null>;
+  /** M6b: configuración de los equipos (sin ella, el dibujo de siempre). */
+  teams?: TacticalTeamsConfig | null;
+  /** M6b: clave → nombre real. Solo viaja con «Mostrar nombres» prendido. */
+  playerNames?: Record<string, string>;
   /** Cancha de fondo (T4). */
   sport?: TacticalSport | null;
   fps?: number;
@@ -79,6 +84,8 @@ export async function exportVideo(opts: ExportVideoOptions): Promise<ExportVideo
       frames,
       playerLabels: opts.playerLabels,
       playerJerseys: opts.playerJerseys,
+    teams: opts.teams,
+    playerNames: opts.playerNames,
       sport: opts.sport,
       width: opts.width ?? 720,
       holdStartMs: opts.holdStartMs ?? 600,

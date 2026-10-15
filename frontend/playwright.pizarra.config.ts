@@ -27,6 +27,7 @@ export default defineConfig({
         'pizarra-notas-videos.spec.ts',
         'pizarra-3d-camaras.spec.ts',
         'pizarra-formaciones.spec.ts',
+        'pizarra-equipos.spec.ts',
     ],
     fullyParallel: false,
     workers: 2,

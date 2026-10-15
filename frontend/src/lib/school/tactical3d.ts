@@ -27,6 +27,7 @@ import type { Viewer3DSource } from './tactical3dLaunch';
 import { interpolateFrames, type InterpolatedFrame } from './tacticalAnimation';
 import { ballPathPoint, curveControlPoint, isLoftedPath, pairsOf } from './tacticalGeometry';
 import type { TacticalArrow } from './footballQueries';
+import { chipLook, type TacticalTeamConfig } from './tacticalTeams';
 
 // ─── Cancha en metros ───────────────────────────────────────────────────────
 
@@ -246,6 +247,16 @@ export interface PlayerVisual {
   label: string;
   isGoalkeeper: boolean;
   color: string;
+  /** M6b: pantaloneta (color secundario) y color del dorsal. Sin ellos, los de siempre. */
+  shorts?: string;
+  numberColor?: string;
+}
+
+/** M6b: la figura con los colores del equipo configurado (arquero aparte si
+ *  el coach lo pidió; el dorsal ya corregido por contraste). */
+export function teamVisual(v: PlayerVisual, team: TacticalTeamConfig): PlayerVisual {
+  const look = chipLook(team, v.isGoalkeeper);
+  return { ...v, color: look.fill, shorts: look.accent, numberColor: look.text };
 }
 
 /** Mismo criterio que la pizarra: arquero/portero en amarillo (tacticalGlyphs:

@@ -11,6 +11,8 @@
 //     training_exercises.pack_id y las RPCs activate_/deactivate_/import_exercise_pack
 //   · notas y videos (M6c): columnas notes/videos con sus CHECK, board.notes/videos
 //     de la biblioteca y la tabla tactical_saved_videos (esperado tras 20261014163705)
+//   · equipos de la pizarra (M6b): tactical_rival_teams («Equipos almacenados») y
+//     la columna teams de match_lineups / team_tactical_presets
 //
 // ── Por qué existe ──────────────────────────────────────────────────────────
 // Lo que creó la pizarra (migraciones 20261008155454, 20261008183744 y
@@ -93,6 +95,13 @@ const NUEVO_VID = (school, autor, extra = {}) => {
 };
 const NOTA_OK = `'{"text":"**Salida** por derecha","tags":["presión"]}'::jsonb`;
 const VIDS_OK = `'[{"provider":"youtube","video_id":"dQw4w9WgXcQ","title":"Clip","start_s":90,"end_s":null,"is_private":false},{"provider":"veo","url":"https://app.veo.co/matches/abc-123/","title":"Partido","start_s":0,"is_private":true}]'::jsonb`;
+const MIG_EQUIPOS = '20261015142003';         // pizarra_equipos_rivales (M6b: tactical_rival_teams + teams)
+const EQ = { requiere: 'public.tactical_rival_teams', tras: MIG_EQUIPOS };
+const NUEVO_RIVAL = (school, autor, extra = '') =>
+    W(`insert into public.tactical_rival_teams (school_id, created_by, name, color_primary, color_secondary, color_number${extra ? ', ' + extra.split('|')[0] : ''}) values (${school}, ${autor}, 'RLS rival ' || left(gen_random_uuid()::text, 8), '#dc2626', '#7f1d1d', '#ffffff'${extra ? ', ' + extra.split('|')[1] : ''})`);
+const UPD_RIVAL = (id, set = `name = 'RLS rival editado'`) => W(`update public.tactical_rival_teams set ${set} where id = '${id}'`);
+const DEL_RIVAL = (id) => W(`delete from public.tactical_rival_teams where id = '${id}'`);
+const ROSTER = (n, alias = 'J') => `'${JSON.stringify(Array.from({ length: n }, (_, i) => ({ number: i, alias: `${alias}${i}` })))}'::jsonb`;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Casos. Cada `sql` corre como `actor` y devuelve UN entero n:
@@ -399,6 +408,59 @@ const CASOS = [
         `select ((select count(*) from pg_class where oid in ('public.tactical_ai_user_usage'::regclass, 'public.tactical_ai_school_usage'::regclass, 'public.tactical_ai_runs'::regclass, 'public.tactical_ai_grants'::regclass) and relrowsecurity) = 4 and (select count(*) from pg_policies where schemaname = 'public' and tablename in ('tactical_ai_user_usage','tactical_ai_school_usage','tactical_ai_runs','tactical_ai_grants') and cmd <> 'SELECT') = 0 and not exists (select 1 from unnest(array['public.tactical_ai_user_usage','public.tactical_ai_school_usage','public.tactical_ai_runs','public.tactical_ai_grants']) t, unnest(array['INSERT','UPDATE','DELETE']) p where has_table_privilege('authenticated', t, p) or has_table_privilege('anon', t, p)) and not exists (select 1 from unnest(array['public.tactical_ai_user_usage','public.tactical_ai_school_usage','public.tactical_ai_runs','public.tactical_ai_grants']) t where has_table_privilege('anon', t, 'SELECT')))::int`, CUPO],
     ['postgres', 'IA: lo obsoleto de 20261014111442 queda congelado (service_role sin consume/refund)', 'ACEPTAR',
         `select (not has_function_privilege('service_role', 'public.consume_tactical_ai_credit(uuid)', 'EXECUTE') and not has_function_privilege('service_role', 'public.refund_tactical_ai_credit(uuid)', 'EXECUTE'))::int`, CUPO],
+    // ── 12b. Equipos de la pizarra (M6b): «Equipos almacenados» ─────────────
+    //    Leer = staff (user_staff_school_ids); escribir = táctica
+    //    (user_tactical_edit_school_ids). Plantilla = solo número + alias.
+    ['coach', 'coach de A lee un rival guardado de A', 'ACEPTAR', LEER('tactical_rival_teams', `id = '{rt_a}'`), EQ],
+    ['owner', 'owner de A lee los rivales de A', 'ACEPTAR', LEER('tactical_rival_teams', `school_id = '{sch_a}'`), EQ],
+    ['nontac', 'admin (no táctico) de A lee los rivales de A (leer = staff)', 'ACEPTAR', LEER('tactical_rival_teams', `id = '{rt_a}'`), EQ],
+    ['staff_b', 'coach de B lee un rival de A', 'RECHAZAR', LEER('tactical_rival_teams', `id = '{rt_a}'`), EQ],
+    ['coach', 'coach de A lee un rival de B', 'RECHAZAR', LEER('tactical_rival_teams', `id = '{rt_b}'`), EQ],
+    ['parent', 'padre de A lee los rivales de A', 'RECHAZAR', LEER('tactical_rival_teams', `school_id = '{sch_a}'`), EQ],
+    ['athlete', 'atleta de A lee los rivales de A', 'RECHAZAR', LEER('tactical_rival_teams', `school_id = '{sch_a}'`), EQ],
+    ['anon', 'anon lee tactical_rival_teams', 'RECHAZAR', LEER('tactical_rival_teams', 'true'), EQ],
+    ['coach', 'coach de A guarda un rival en A firmado por él', 'ACEPTAR', NUEVO_RIVAL(`'{sch_a}'`, `'{coach}'`), EQ],
+    ['owner', 'owner de A guarda un rival en A', 'ACEPTAR', NUEVO_RIVAL(`'{sch_a}'`, `'{owner}'`), EQ],
+    ['coach', 'coach de A guarda un rival firmado como el owner', 'RECHAZAR', NUEVO_RIVAL(`'{sch_a}'`, `'{owner}'`), EQ],
+    ['coach', 'coach de A guarda un rival en la escuela B', 'RECHAZAR', NUEVO_RIVAL(`'{sch_b}'`, `'{coach}'`), EQ],
+    ['nontac', 'admin NO táctico de A guarda un rival (escribir = táctica)', 'RECHAZAR', NUEVO_RIVAL(`'{sch_a}'`, `'{nontac}'`), EQ],
+    ['reporter', 'staff NO táctico de R guarda un rival en su escuela', 'RECHAZAR', NUEVO_RIVAL(`'{sch_r}'`, `'{reporter}'`), EQ],
+    ['parent', 'padre de A guarda un rival en A', 'RECHAZAR', NUEVO_RIVAL(`'{sch_a}'`, `'{parent}'`), EQ],
+    ['anon', 'anon guarda un rival en A', 'RECHAZAR', NUEVO_RIVAL(`'{sch_a}'`, 'null'), EQ],
+    ['coach', 'coach de A edita un rival de A', 'ACEPTAR', UPD_RIVAL('{rt_a}'), EQ],
+    ['coach', 'coach de A muda un rival de A a la escuela B', 'RECHAZAR', UPD_RIVAL('{rt_a}', `school_id = '{sch_b}'`), EQ],
+    ['staff_b', 'coach de B edita un rival de A', 'RECHAZAR', UPD_RIVAL('{rt_a}'), EQ],
+    ['parent', 'padre de A edita un rival de A', 'RECHAZAR', UPD_RIVAL('{rt_a}'), EQ],
+    ['staff_b', 'coach de B borra un rival de A', 'RECHAZAR', DEL_RIVAL('{rt_a}'), EQ],
+    ['nontac', 'admin NO táctico de A borra un rival de A', 'RECHAZAR', DEL_RIVAL('{rt_a}'), EQ],
+    ['owner', 'owner de A borra un rival de A', 'ACEPTAR', DEL_RIVAL('{rt_a}'), EQ],
+    ['coach', 'rival con nombre repetido en A (unique lower(name))', 'RECHAZAR',
+        W(`insert into public.tactical_rival_teams (school_id, created_by, name, color_primary, color_secondary, color_number) select '{sch_a}', '{coach}', upper(name), '#000000', '#ffffff', '#ffffff' from public.tactical_rival_teams where id = '{rt_a}'`), EQ],
+    ['coach', 'rival con color que no es hex (CHECK)', 'RECHAZAR', NUEVO_RIVAL(`'{sch_a}'`, `'{coach}'`, `color_number|'blanco'`), EQ],
+    ['coach', 'rival con escudo que trae una imagen (CHECK)', 'RECHAZAR', NUEVO_RIVAL(`'{sch_a}'`, `'{coach}'`, `crest|'{"url":"https://x/y.png"}'::jsonb`), EQ],
+    ['coach', 'rival con estilo de ficha fuera del catálogo (CHECK)', 'RECHAZAR', NUEVO_RIVAL(`'{sch_a}'`, `'{coach}'`, `chip_style|'foto'`), EQ],
+    ['coach', 'rival con plantilla de 30 (tope)', 'ACEPTAR', NUEVO_RIVAL(`'{sch_a}'`, `'{coach}'`, `roster|${ROSTER(30)}`), EQ],
+    ['coach', 'rival con plantilla de 31 (CHECK tope 30)', 'RECHAZAR', NUEVO_RIVAL(`'{sch_a}'`, `'{coach}'`, `roster|${ROSTER(31)}`), EQ],
+    ['coach', 'rival con un alias de 3 palabras (nombre completo, CHECK)', 'RECHAZAR',
+        NUEVO_RIVAL(`'{sch_a}'`, `'{coach}'`, `roster|'[{"number":7,"alias":"Ana Paz Gil"}]'::jsonb`), EQ],
+    ['coach', 'rival con un dato extra en la plantilla (fecha de nacimiento, CHECK)', 'RECHAZAR',
+        NUEVO_RIVAL(`'{sch_a}'`, `'{coach}'`, `roster|'[{"number":7,"alias":"Tito","birthdate":"2014-01-01"}]'::jsonb`), EQ],
+    ['coach', 'rival con números repetidos en la plantilla (CHECK)', 'RECHAZAR',
+        NUEVO_RIVAL(`'{sch_a}'`, `'{coach}'`, `roster|'[{"number":7},{"number":7}]'::jsonb`), EQ],
+    ['coach', 'coach de A guarda teams (objeto) en una jugada de A', 'ACEPTAR',
+        W(`update public.match_lineups set teams = '{"v":1}'::jsonb where id = '{ml_a}'`), EQ],
+    ['coach', 'coach de A guarda teams que no es objeto (CHECK)', 'RECHAZAR',
+        W(`update public.team_tactical_presets set teams = '[1,2]'::jsonb where id = '{preset_a}'`), EQ],
+    ['staff_b', 'coach de B edita teams de una jugada de A', 'RECHAZAR',
+        W(`update public.match_lineups set teams = '{"v":1}'::jsonb where id = '{ml_a}'`), EQ],
+    ['postgres', 'tactical_rival_teams: RLS activa, anon sin privilegios, sin FOR ALL', 'ACEPTAR',
+        `select ((select relrowsecurity from pg_class where oid = 'public.tactical_rival_teams'::regclass)
+          and not exists (select 1 from unnest(array['SELECT','INSERT','UPDATE','DELETE']) p where has_table_privilege('anon', 'public.tactical_rival_teams', p))
+          and (select count(*) from pg_policies where schemaname = 'public' and tablename = 'tactical_rival_teams' and cmd = 'ALL') = 0
+          and (select count(*) from pg_policies where schemaname = 'public' and tablename = 'tactical_rival_teams') = 4)::int`, EQ],
+    ['postgres', 'tactical_rival_roster_ok: search_path fijo y sin EXECUTE para anon', 'ACEPTAR',
+        `select (exists (select 1 from pg_proc p, unnest(p.proconfig) c where p.oid = 'public.tactical_rival_roster_ok(jsonb)'::regprocedure and c like 'search_path=%pg_temp%')
+          and not has_function_privilege('anon', 'public.tactical_rival_roster_ok(jsonb)', 'EXECUTE'))::int`, EQ],
 
     // ── 13. Invariantes estáticos (como postgres; n = 1 si se cumple) ────────
     ...[
@@ -413,9 +475,9 @@ const CASOS = [
             `select has_function_privilege('authenticated', '${firma}', 'EXECUTE')::int`],
     ]),
     ['postgres', 'I3: ninguna policy FOR ALL sin WITH CHECK en las tablas de la pizarra', 'ACEPTAR',
-        `select (count(*) = 0)::int from pg_policies where schemaname = 'public' and tablename in ('training_exercises','tactical_board_events','match_lineups','match_lineup_players','team_tactical_presets','exercise_packs','school_exercise_packs') and cmd = 'ALL' and with_check is null`],
+        `select (count(*) = 0)::int from pg_policies where schemaname = 'public' and tablename in ('training_exercises','tactical_board_events','match_lineups','match_lineup_players','team_tactical_presets','exercise_packs','school_exercise_packs','tactical_rival_teams') and cmd = 'ALL' and with_check is null`],
     ['postgres', 'I2: ninguna policy de escritura usa user_school_ids() en las tablas de la pizarra', 'ACEPTAR',
-        `select (count(*) = 0)::int from pg_policies where schemaname = 'public' and tablename in ('training_exercises','tactical_board_events','match_lineups','match_lineup_players','team_tactical_presets','exercise_packs','school_exercise_packs') and cmd in ('INSERT','UPDATE','DELETE','ALL') and (coalesce(qual, '') || coalesce(with_check, '')) ~ 'user_school_ids\\('`],
+        `select (count(*) = 0)::int from pg_policies where schemaname = 'public' and tablename in ('training_exercises','tactical_board_events','match_lineups','match_lineup_players','team_tactical_presets','exercise_packs','school_exercise_packs','tactical_rival_teams') and cmd in ('INSERT','UPDATE','DELETE','ALL') and (coalesce(qual, '') || coalesce(with_check, '')) ~ 'user_school_ids\\('`],
     ['postgres', 'tactical_board_events: sin policies de escritura y authenticated sin INSERT/UPDATE/DELETE', 'ACEPTAR',
         `select ((select count(*) from pg_policies where schemaname = 'public' and tablename = 'tactical_board_events' and cmd <> 'SELECT') = 0 and not has_table_privilege('authenticated', 'public.tactical_board_events', 'INSERT') and not has_table_privilege('authenticated', 'public.tactical_board_events', 'UPDATE') and not has_table_privilege('authenticated', 'public.tactical_board_events', 'DELETE'))::int`],
     ['postgres', 'anon sin ningún privilegio en training_exercises / tactical_board_events / vista', 'ACEPTAR',
@@ -738,6 +800,16 @@ BEGIN
         INTO v_id USING v_schr;
       ids := ids || jsonb_build_object('vid_r', v_id);
     END IF;
+  END IF;
+
+  -- Equipos (M6b): solo si la migración está aplicada.
+  IF to_regclass('public.tactical_rival_teams') IS NOT NULL THEN
+    EXECUTE 'INSERT INTO public.tactical_rival_teams (school_id, created_by, name, color_primary, color_secondary, color_number) VALUES ($1, $2, ''RLS rival de A'', ''#dc2626'', ''#7f1d1d'', ''#ffffff'') RETURNING id'
+      INTO v_id USING v_sch, v_coach;
+    ids := ids || jsonb_build_object('rt_a', v_id);
+    EXECUTE 'INSERT INTO public.tactical_rival_teams (school_id, created_by, name, color_primary, color_secondary, color_number) VALUES ($1, $2, ''RLS rival de B'', ''#2563eb'', ''#1e3a8a'', ''#ffffff'') RETURNING id'
+      INTO v_id USING v_schb, v_staffb;
+    ids := ids || jsonb_build_object('rt_b', v_id);
   END IF;
 
   -- ── Casos: cada uno en su subbloque, que SIEMPRE termina en excepción ─────

@@ -154,6 +154,7 @@ export function frameToStatic(
   frame: TacticalFrame,
   playerLabels?: Record<string, string>,
   playerJerseys?: Record<string, number | null>,
+  playerNames?: Record<string, string>,
 ): { players: TacticalStaticPlayer[]; arrows: TacticalArrow[] } {
   const players: TacticalStaticPlayer[] = [...byKey(frame)].map(([key, p]) => ({
     x: p.x,
@@ -161,6 +162,7 @@ export function frameToStatic(
     label: playerLabels?.[key] ?? (key.startsWith('slot:') ? key.slice(5) : undefined),
     jersey: playerJerseys?.[key] ?? null,
     role: 'starter',
+    ...(playerNames?.[key] ? { name: playerNames[key] } : {}),
   }));
   const arrows: TacticalArrow[] = [...(frame.arrows || [])];
   if (frame.ball) {
