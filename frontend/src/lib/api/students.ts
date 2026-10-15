@@ -231,17 +231,21 @@ class StudentsAPI {
 
     // Complemento multi-school — children enrollados en esta escuela
     // pero cuyo children.school_id apunta a otra escuela
+    // Con una sede elegida (selector multisede), el complemento solo trae a los
+    // niños cuya inscripción es en un equipo de ESA sede: sin esto aparecían en
+    // todas las sedes porque no traen branch_id.
     const { data: crossEnrollments } = await supabase
       .from('enrollments')
-      .select('child_id')
+      .select('child_id, teams:teams!enrollments_team_id_fkey(branch_id)')
       .eq('school_id', schoolId)
       .eq('status', 'active')
       .not('child_id', 'is', null);
 
     const ownIds = new Set((ownAthletes ?? []).map((a: any) => a.id));
-    const crossIds = (crossEnrollments ?? [])
-      .map((e: any) => e.child_id)
-      .filter((id: string) => !ownIds.has(id));
+    const crossIds = [...new Set((crossEnrollments ?? [])
+      .filter((e: any) => !branchId || e.teams?.branch_id === branchId)
+      .map((e: any) => e.child_id as string)
+      .filter((id: string) => !ownIds.has(id)))];
 
     if (crossIds.length === 0) return ownAthletes ?? [];
 
@@ -264,6 +268,7 @@ class StudentsAPI {
       parent_email: null,
       medical_info: c.medical_info ?? null,
       enrolled_team_id: null,
+      branch_id: branchId ?? null,
     }));
 
     return [...(ownAthletes ?? []), ...extra];

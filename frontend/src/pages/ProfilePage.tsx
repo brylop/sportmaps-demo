@@ -26,14 +26,16 @@ import {
   Save,
   X,
   Camera,
-  Loader2
+  Loader2,
+  Repeat
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
 import { useStorage } from '@/hooks/useStorage';
 import { supabase } from '@/integrations/supabase/client';
 
 export default function ProfilePage() {
-  const { user, profile, updateProfile } = useAuth();
+  const { user, profile, updateProfile, roleContexts, activeRoleContext } = useAuth();
   const { toast } = useToast();
   const { uploadFile, uploading: isUploadingAvatar } = useStorage();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -187,6 +189,23 @@ export default function ProfilePage() {
           </div>
         )}
       </div>
+
+      {/* Persona multirol: con qué rol está usando la app y cómo cambiarlo. */}
+      {roleContexts.length > 0 && (
+        <Card>
+          <CardContent className="flex flex-col sm:flex-row sm:items-center gap-3 pt-6">
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold">Estás entrando {activeRoleContext ? (activeRoleContext.label.startsWith('Como') ? activeRoleContext.label.toLowerCase() : `como ${activeRoleContext.label.toLowerCase()}`) : 'sin rol elegido'}</p>
+              <p className="text-sm text-muted-foreground">
+                Tienes {roleContexts.length} roles: {roleContexts.map((c) => c.label.replace(/^Como /, '')).join(', ')}.
+              </p>
+            </div>
+            <Button asChild variant="outline">
+              <Link to="/elegir-rol"><Repeat className="h-4 w-4 mr-2" />Cambiar de rol</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Profile Card */}
       <Card>

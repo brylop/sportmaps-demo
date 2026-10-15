@@ -329,7 +329,12 @@ export default function MyPaymentsPage() {
           installments_pending: p.installments_pending,
           concept: p.concept,
           child_id: p.child_id,
-          child_name: childNameMap[p.child_id] || 'Deportista',
+          // Acudiente que además es atleta: sus cobros propios llegan con él como
+          // pagador y sin hijo (child_id NULL). Se muestran junto a los de los
+          // hijos, rotulados como suyos (spec cambio-de-rol-atleta-acudiente.md).
+          child_name: p.child_id
+            ? (childNameMap[p.child_id] || 'Deportista')
+            : (p.parent_id === user?.id ? 'Tú (como atleta)' : 'Deportista'),
           payment_method: p.payment_type || 'transfer',
           status: p.status === 'paid' ? 'approved' : p.status,
           reference: p.receipt_number || `SP-${p.id.slice(0, 8).toUpperCase()}`,

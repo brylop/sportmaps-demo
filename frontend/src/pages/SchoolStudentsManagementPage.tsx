@@ -1,3 +1,4 @@
+import { BranchChip } from '@/components/common/BranchChip';
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -355,7 +356,7 @@ export default function SchoolStudentsManagementPage() {
   } | null>(null);
   const [loadingPlanInfo, setLoadingPlanInfo] = useState(false);
 
-  const { schoolId, schoolName, teams, branches, activeBranchId, defaultMonthlyFee, schoolSettings, loading: schoolLoading } = useSchoolContext();
+  const { schoolId, schoolName, teams, branches, activeBranchId, activeBranchName, totalBranches, defaultMonthlyFee, schoolSettings, loading: schoolLoading } = useSchoolContext();
 
   // Pausa por vacaciones/lesión: opt-in por escuela (D7). Con el flag apagado
   // no se muestra nada — es el mismo patrón que `militaryDiscountEnabled`.
@@ -1425,8 +1426,19 @@ export default function SchoolStudentsManagementPage() {
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Atletas</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            {filteredStudents.length} atleta{filteredStudents.length !== 1 ? 's' : ''}
-            {filteredStudents.length !== tabStudents.length && ` de ${tabStudents.length}`} en <strong>{schoolName}</strong>
+            {totalBranches > 1 ? (
+              // Multisede (S1): deja claro qué sede está mirando el selector del menú.
+              <>
+                Mostrando <strong>{activeBranchId ? activeBranchName : 'todas las sedes'}</strong>
+                {' · '}{filteredStudents.length} deportista{filteredStudents.length !== 1 ? 's' : ''}
+                {filteredStudents.length !== tabStudents.length && ` de ${tabStudents.length}`}
+              </>
+            ) : (
+              <>
+                {filteredStudents.length} atleta{filteredStudents.length !== 1 ? 's' : ''}
+                {filteredStudents.length !== tabStudents.length && ` de ${tabStudents.length}`} en <strong>{schoolName}</strong>
+              </>
+            )}
           </p>
         </div>
         {(canManageStudents || canCreateOrEditStudents || coachUploadsEnrollmentForms) && (
@@ -1632,7 +1644,7 @@ export default function SchoolStudentsManagementPage() {
                           </Badge>
                         )}
                         {!student.team_name && !(student as any).plan_name && <span className="text-xs text-muted-foreground">Sin asignar</span>}
-                        <span className="text-muted-foreground text-xs ml-1">· {student.branch_name || "Sin sede"}</span>
+                        <BranchChip branchId={student.branch_id} name={student.branch_name} branches={branches} className="ml-1" />
                       </div>
                       {!hideFinancials && (
                         <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -1732,7 +1744,7 @@ export default function SchoolStudentsManagementPage() {
                             {!student.team_name && !(student as any).plan_name && <span className="text-xs text-muted-foreground">Sin asignar</span>}
                           </div>
                         </TableCell>
-                        <TableCell><span className="text-xs text-muted-foreground">{student.branch_name || <span className="text-muted-foreground text-xs">Sin sede</span>}</span></TableCell>
+                        <TableCell><BranchChip branchId={student.branch_id} name={student.branch_name} branches={branches} /></TableCell>
                         <TableCell>{(student as any).athlete_type === 'adult' || isAdultByBirthdate((student as any).date_of_birth) ? '—' : (student.display_parent_name || student.parent_name || '-')}</TableCell>
                         {!hideFinancials && (
                           <>

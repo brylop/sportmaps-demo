@@ -5,6 +5,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { emailClient } from '@/lib/email-client';
 import { bffClient } from '@/lib/api/bffClient';
 import { normalizeText } from '@/lib/normalizeText';
+import { readStoredContextKey, fetchRoleContexts } from '@/lib/roleContexts';
 
 /**
  * Represents a sports team or group offered by a school.
@@ -63,8 +64,8 @@ export interface SchoolContext {
     isGlobalAdmin: boolean;
     /** Total number of branches in the active school. */
     totalBranches: number;
-    /** All branches for the current active school */
-    branches: { id: string; name: string }[];
+    /** All branches for the current active school (principal primero, luego por nombre). */
+    branches: { id: string; name: string; status?: string | null; is_main?: boolean | null }[];
     /** Switches the active context to another school/branch. */
     switchSchool: (schoolId: string, branchId?: string | null) => void;
     /** Default fee to use if no program price is found. */
@@ -117,7 +118,7 @@ function useSchoolContextManager(): SchoolContext {
     const [error, setError] = useState<string | null>(null);
     const [isGlobalAdmin, setIsGlobalAdmin] = useState(false);
     const [totalBranchesCount, setTotalBranchesCount] = useState(0);
-    const [branches, setBranches] = useState<{ id: string; name: string }[]>([]);
+    const [branches, setBranches] = useState<{ id: string; name: string; status?: string | null; is_main?: boolean | null }[]>([]);
     const [resolveCounter, setResolveCounter] = useState(0);
 
     const queryClient = useQueryClient();
@@ -207,6 +208,23 @@ function useSchoolContextManager(): SchoolContext {
 
                 if (memberError) throw memberError;
 
+                // Persona multirol: el rol elegido en el selector (lib/roleContexts.ts)
+                // manda en SU escuela. Este provider corre EN PARALELO con AuthContext,
+                // así que no puede confiar en que ya validó la clave: una elección vieja
+                // (p. ej. 'parent:<escuela>' de alguien que ya no tiene hijos inscritos
+                // y quedó con un solo rol) le aplicaría 'parent' a un dueño en su propia
+                // escuela, sin selector para salir. Se valida aquí contra los mismos
+                // datos; solo cuesta consultas a quien tiene una elección guardada.
+                let ctxRole = '';
+                let ctxSchoolId = '';
+                const storedCtxKey = readStoredContextKey(user.id);
+                if (storedCtxKey) {
+                    const contexts = await fetchRoleContexts(user.id, userProfile?.role ?? undefined);
+                    if (contexts.some((c) => c.key === storedCtxKey)) {
+                        [ctxRole, ctxSchoolId] = storedCtxKey.split(':');
+                    }
+                }
+
                 if (memberships && memberships.length > 0) {
                     const mappedSchools: SchoolRole[] = memberships.map((m: any) => {
                         // Owners and super_admins are ALWAYS global, regardless of branch_id
@@ -218,9 +236,14 @@ function useSchoolContextManager(): SchoolContext {
                             schoolId: m.school_id,
                             schoolName: m.schools?.name || 'Escuela sin nombre',
                             schoolType: m.schools?.school_type || 'academy',
-                            // Forzamos el rol "parent" si el perfil del usuario es padre, 
-                            // para evitar que membresías erróneas de "athlete" sobrescriban su Dashboard.
-                            role: (userProfile?.role === 'parent') ? 'parent' : (m.role as SchoolRole['role']),
+                            // En la escuela del rol elegido: familia → el rol elegido;
+                            // staff → la membresía tal cual (sin forzar 'parent').
+                            // Fuera de eso, como antes: si el perfil es padre se fuerza
+                            // "parent" para que membresías erróneas de "athlete" no
+                            // sobrescriban su Dashboard.
+                            role: (ctxRole && m.school_id === ctxSchoolId)
+                                ? ((ctxRole === 'parent' || ctxRole === 'athlete') ? ctxRole : (m.role as SchoolRole['role']))
+                                : (userProfile?.role === 'parent') ? 'parent' : (m.role as SchoolRole['role']),
                             // Owners and super admins manage the whole school, they shouldn't be tied to a specific branch on load if they have a global role
                             branchId: isAlwaysGlobal ? null : (m.branch_id || null),
                             isGlobal: isAlwaysGlobal || isScopedAdmin,
@@ -353,8 +376,10 @@ function useSchoolContextManager(): SchoolContext {
         // Fetch branch count and data (for display purposes)
         const { data: branchesData, count } = await supabase
             .from('school_branches')
-            .select('id, name', { count: 'exact' })
-            .eq('school_id', school.schoolId);
+            .select('id, name, status, is_main', { count: 'exact' })
+            .eq('school_id', school.schoolId)
+            .order('is_main', { ascending: false })
+            .order('name', { ascending: true });
 
         setTotalBranchesCount(count || 0);
         setBranches(branchesData || []);
@@ -363,12 +388,17 @@ function useSchoolContextManager(): SchoolContext {
             const branch = branchesData?.find(b => b.id === school.branchId);
             setActiveBranchName(branch?.name || 'Sede');
         } else {
-            setActiveBranchName('Sede Principal');
+            // branchId null = owner/admin global mirando TODAS las sedes (selector
+            // multisede del menú lateral). No es «la sede principal».
+            setActiveBranchName('Todas las sedes');
         }
 
         setOnboardingStatus(school.onboardingStatus || 'completed');
-        // Clear branding when switching schools to avoid "flash" of previous branding
-        setSchoolBranding(null);
+        // Clear branding when switching schools to avoid "flash" of previous branding.
+        // Solo si cambia la ESCUELA: cambiar de sede (selector multisede) no
+        // re-dispara fetchSchoolBranding (depende de activeSchoolId), así que
+        // limpiarla aquí dejaba la escuela sin marca hasta recargar.
+        if (previousSchoolId !== school.schoolId) setSchoolBranding(null);
         localStorage.setItem(STORAGE_KEY_ACTIVE_SCHOOL, school.schoolId);
     }, [queryClient]);
 

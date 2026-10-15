@@ -2,7 +2,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
-import { LogOut, ChevronDown } from 'lucide-react';
+import { LogOut, ChevronDown, Repeat } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -35,16 +35,20 @@ import { useIsMultiSport } from '@/hooks/useSportVisual';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { useStoreEnabled } from '@/hooks/useStoreEnabled';
 import { useMySchoolStore } from '@/hooks/useMySchoolStore';
-// NOTE: SchoolSwitcher esta desactivado hasta que el schema soporte sede
-// end-to-end (falta enrollments.branch_id y varios enrollments no tienen
-// team asociado, asi que no se puede scopear fiablemente). El componente
-// se conserva en src/components/common/SchoolSwitcher.tsx para reactivar
-// una vez se aplique la migracion correspondiente.
-// import { SchoolSwitcher } from './common/SchoolSwitcher';
+// NOTE: el SchoolSwitcher viejo (src/components/common/SchoolSwitcher.tsx,
+// escuela + sede en un solo dropdown) sigue apagado. En su lugar va el
+// BranchSelector (multisede S1, docs/specs/multisede-selector-y-sede-del-atleta.md):
+// selector segmentado «Todas / Suba / Norte» para el owner/admin GLOBAL, solo
+// si la escuela activa tiene más de una sede activa. Llama a
+// switchSchool(schoolId, branchId) y todo lo que filtra por activeBranchId se
+// reacomoda; recuerda la última sede por usuario y escuela. La sede de un
+// atleta sin equipo/ficha con sede (S2) todavía puede salir «Sin sede»: esos
+// solo se ven en «Todas».
+import { BranchSelector } from './common/BranchSelector';
 import Logo from './Logo';
 
 export function AppSidebar() {
-  const { user, profile, signOut } = useAuth();
+  const { user, profile, signOut, roleContexts, activeRoleContext } = useAuth();
   const { currentUserRole, isGlobalAdmin, totalBranches, activeBranchId } = useSchoolContext();
   const sidebar = useSidebar();
   const { state, isMobile, setOpenMobile } = sidebar;
@@ -312,8 +316,8 @@ export function AppSidebar() {
                 </Badge>
               </div>
             </div>
-            {/* SchoolSwitcher desactivado — ver import comentado arriba. */}
-            {/* <div className="w-full mt-3 px-1"><SchoolSwitcher /></div> */}
+            {/* Selector de sede (multisede S1) — ver NOTE junto al import. */}
+            <BranchSelector className="mt-3 px-1" />
           </div>
         )}
 
@@ -484,6 +488,21 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="p-4 border-t border-border/40">
+        {/* Persona multirol: cambiar de rol (spec cambio-de-rol-atleta-acudiente.md). */}
+        {roleContexts.length > 0 && (
+          <Button
+            asChild
+            variant="ghost"
+            className="w-full justify-start transition-all duration-300"
+          >
+            <NavLink to="/elegir-rol" onClick={() => isMobile && setOpenMobile(false)}>
+              <Repeat className="h-4 w-4 shrink-0" />
+              <span className={`ml-3 truncate ${isCollapsed ? 'sr-only' : ''}`}>
+                Cambiar de rol{activeRoleContext ? ` · ${activeRoleContext.label}` : ''}
+              </span>
+            </NavLink>
+          </Button>
+        )}
         <Button
           variant="ghost"
           className="w-full justify-start text-destructive hover:text-destructive hover:bg-destructive/10 transition-all duration-300"
