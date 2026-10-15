@@ -83,6 +83,8 @@ export interface Tactical3DViewerProps {
   initialDirector?: boolean;
   /** Curva de velocidad de los Ajustes de la pizarra (M6g). */
   curve?: AnimationCurve;
+  /** «Powered by SportMaps» en el video grabado (false solo con marca blanca). */
+  watermark?: boolean;
 }
 
 /** Las cámaras de M4 con su nombre nuevo. */
@@ -96,7 +98,7 @@ export default function Tactical3DViewer({
   sport, frames, playerLabels, playerJerseys, teamColor = TEAM_COLOR,
   overlayFrames = null, overlayColor = OVERLAY_COLOR, overlayLabels, overlayJerseys,
   overlayName = 'Contraataque del rival', title, onClose, onFallback, minFps = MIN_FPS, onStats,
-  initialCamera = 'tv', initialTimeMs = 0, autoPlay = false, initialDirector = false, teams = null, curve,
+  initialCamera = 'tv', initialTimeMs = 0, autoPlay = false, initialDirector = false, teams = null, curve, watermark = true,
 }: Tactical3DViewerProps) {
   const court = useMemo(() => court3D(sport), [sport]);
   const def = sportDef(court.sport);
@@ -305,6 +307,7 @@ export default function Tactical3DViewer({
             showTrails={showTrails}
             frozen={frozen}
             recordTarget={recordTarget}
+            watermark={watermark}
             reducedMotion={reducedMotion}
             minFps={minFps}
             onFpsVerdict={onFpsVerdict}

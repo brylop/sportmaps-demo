@@ -66,6 +66,8 @@ export interface Scene3DProps {
   teams?: TacticalTeamsConfig | null;
   /** Curva de velocidad de los Ajustes de la pizarra (M6g). */
   curve?: AnimationCurve;
+  /** «Powered by SportMaps» en el video grabado (false solo con marca blanca). */
+  watermark?: boolean;
 }
 
 export function Scene3D(p: Scene3DProps) {
@@ -131,7 +133,7 @@ export function Scene3D(p: Scene3DProps) {
         onShot={p.onShot}
         curve={p.curve}
       />
-      {p.recordTarget && <RecorderTap3D target={p.recordTarget} />}
+      {p.recordTarget && <RecorderTap3D target={p.recordTarget} watermark={p.watermark !== false} />}
       <FpsProbe minFps={p.minFps} onVerdict={p.onFpsVerdict} />
       {p.debug && <DebugProbe live={live} />}
     </>

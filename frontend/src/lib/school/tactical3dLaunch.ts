@@ -57,6 +57,9 @@ export interface Viewer3DSource {
   teams?: TacticalTeamsConfig | null;
   /** Ajustes de la pizarra del coach (M6g). El 3D usa la curva de velocidad. */
   playback?: { curve?: AnimationCurve } | null;
+  /** «Powered by SportMaps» en el video del 3D (false solo con marca blanca;
+   *  hooks/useSportmapsWatermark). Ausente = sí. */
+  showSportmapsWatermark?: boolean;
 }
 
 /** Piso de fps forzado desde afuera (solo lo usan los e2e con WebGL por

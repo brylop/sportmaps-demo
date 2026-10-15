@@ -42,6 +42,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Shirt, Loader2, Square, X, Bookmark, Redo2, Trash2, PenLine, Undo2, Eraser, Ruler, Sparkles, Plus, Play, Copy, RotateCw, Pencil, Type, Users, MoreHorizontal, Package, LayoutGrid } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useSportmapsWatermark } from '@/hooks/useSportmapsWatermark';
 import { startHintFormationLabel } from '@/lib/school/tacticalStartHint';
 import { useTeamPerformanceRoster } from '@/hooks/usePerformanceData';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
@@ -1348,6 +1349,8 @@ const TACTICAL_EDIT_ROLES = ['owner', 'coach', 'super_admin'];
 export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sourceId, contextLabel, mode = 'edit', sport: sportProp }: TacticalBoardProps) {
   const { toast } = useToast();
   const { currentUserRole, schoolId: activeSchoolId, schoolBranding } = useSchoolContext();
+  // «Powered by SportMaps» en el video del 3D: siempre, salvo marca blanca.
+  const showSportmapsWatermark = useSportmapsWatermark();
   // T4: el deporte del equipo manda la cancha. Quien abre puede pasarlo; si
   // no, se resuelve del equipo (teams.sport) — fútbol 11 por defecto.
   const teamSport = useTeamTacticalSport(teamId, { enabled: open });
@@ -2626,6 +2629,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       teams: teamsCtl.teams,
       playerNames,
       playback: prefs.playback,
+      showSportmapsWatermark,
     };
   }
 

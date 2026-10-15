@@ -46,6 +46,7 @@ export default function Tactical3DModal({ source: raw, onClose, onFallback, minF
           minFps={minFps}
           teams={source.teams ?? null}
           curve={source.playback?.curve}
+          watermark={source.showSportmapsWatermark !== false}
         />
       </DialogContent>
     </Dialog>
