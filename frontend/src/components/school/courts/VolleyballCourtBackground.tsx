@@ -7,12 +7,13 @@
 import { SPORTS } from '@/lib/school/tacticalSports';
 import { CourtShell } from './CourtShell';
 import { VOLLEY_POST_OUTSIDE_M, lineProps, meters, type CourtBackgroundProps } from './courtGeometry';
+import { useCourtLook } from './courtLook';
 
 export function VolleyballCourtBackground({ viewBox }: CourtBackgroundProps = {}) {
   const def = SPORTS.voleibol;
   const f = def.frame!;
   const m = meters(f);
-  const { line } = def.colors;
+  const { line } = useCourtLook(def.colors);
   const L = lineProps(line, 1.8, 0.95);
   const W = f.widthM;
   const len = f.lengthM;

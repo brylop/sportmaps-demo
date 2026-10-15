@@ -16,7 +16,20 @@ export const VALID_SHAPE_TYPES = [
   'freehand', 'text',
   // M6d (2026-10-14): foco sobre un jugador (halo). Objeto de un punto.
   'spotlight',
+  // M6d «Campo»: pseudo-figura (UNA por lista) con la presentación de la cancha
+  // (plantilla de líneas, cámara, orientación, piso y colores). No se dibuja
+  // como figura; viaja en el jsonb `arrows` para no necesitar columna nueva.
+  'court',
 ] as const;
+export const VALID_COURT_TEMPLATES = [
+  'lanes5', 'thirds', 'lanes_thirds', 'half_spaces', 'positional', 'big_area', 'diagonals',
+  'grid2x2', 'grid3x3', 'grid4x3', 'no_lines', 'rondo_circle', 'rondo_triangle', 'rondo_hexagon', 'rondo_square',
+] as const;
+export const VALID_COURT_CAMERAS = ['full', 'half_bottom', 'half_top', 'three_quarters', 'area'] as const;
+export const VALID_COURT_ORIENTATIONS = ['v', 'h'] as const;
+export const VALID_COURT_SURFACES = ['grass_stripes', 'grass', 'synthetic', 'wood', 'blue', 'whiteboard'] as const;
+const COURT_KEYS = ['tpl', 'goals', 'cam', 'orient', 'surface', 'grass', 'lines', 'outline'] as const;
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 /** M6d: estilo de línea con convención de leyenda (pase discontinuo, conducción
  *  en zigzag, carrera continua, disparo doble). Solo flecha y curva. Ausente =
  *  la línea de siempre. */
@@ -61,6 +74,24 @@ export const SHAPE_ROT_ABS_MAX = 360;
 const isPlainObject = (v: unknown): v is Record<string, any> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
+/** Errores de la configuración de cancha (`court` de la pseudo-figura). */
+function validateCourtConfig(c: unknown): string[] {
+  if (!isPlainObject(c)) return ['court inválido: debe ser un objeto.'];
+  const errors: string[] = [];
+  for (const k of Object.keys(c)) {
+    if (!(COURT_KEYS as readonly string[]).includes(k)) errors.push(`court: campo desconocido ${k.slice(0, 20)}.`);
+  }
+  if (c.tpl !== undefined && !VALID_COURT_TEMPLATES.includes(c.tpl)) errors.push('court: plantilla de líneas inválida.');
+  if (c.goals !== undefined && typeof c.goals !== 'boolean') errors.push('court: goals debe ser true o false.');
+  if (c.cam !== undefined && !VALID_COURT_CAMERAS.includes(c.cam)) errors.push('court: cámara inválida.');
+  if (c.orient !== undefined && !VALID_COURT_ORIENTATIONS.includes(c.orient)) errors.push('court: orientación inválida.');
+  if (c.surface !== undefined && !VALID_COURT_SURFACES.includes(c.surface)) errors.push('court: piso inválido.');
+  for (const k of ['grass', 'lines', 'outline'] as const) {
+    if (c[k] !== undefined && (typeof c[k] !== 'string' || !HEX_COLOR.test(c[k]))) errors.push(`court: ${k} debe ser un color #rrggbb.`);
+  }
+  return errors;
+}
+
 /** Figuras del modo pizarra (P2d) -- coordenadas en el mismo espacio 0-100
  *  que slots/x/y, para que el frontend no tenga que manejar dos sistemas.
  *  "type" es opcional (compat con flechas guardadas antes de curva/zona). */
@@ -69,6 +100,9 @@ export function validateArrows(arrows: any[]): string[] {
   if (arrows.length > MAX_SHAPES) {
     errors.push(`demasiadas figuras: máximo ${MAX_SHAPES}.`);
     return errors;
+  }
+  if (arrows.filter((a) => isPlainObject(a) && a.type === 'court').length > 1) {
+    errors.push('solo puede haber una configuración de cancha (type court) por jugada.');
   }
   for (const a of arrows) {
     // Un null/número/arreglo en la lista reventaba con TypeError (500) en vez
@@ -138,6 +172,11 @@ export function validateArrows(arrows: any[]): string[] {
         errors.push('fill solo aplica a una zona.');
       }
     }
+    if (a.type === 'court') {
+      errors.push(...validateCourtConfig(a.court));
+    } else if (a.court !== undefined) {
+      errors.push('court solo aplica a la configuración de cancha (type court).');
+    }
     if (a.seq !== undefined) {
       if (!Number.isInteger(a.seq) || a.seq < SEQ_MIN || a.seq > SEQ_MAX) {
         errors.push(`seq inválido: debe ser un entero entre ${SEQ_MIN} y ${SEQ_MAX}.`);
@@ -176,6 +215,11 @@ export function sanitizeArrows(arrows: any[]): Record<string, unknown>[] {
     if (a.type === 'zone' && a.form === 'polygon') out.points = a.points;
     if (a.fill !== undefined) out.fill = a.fill;
     if (a.seq !== undefined) out.seq = a.seq;
+    if (a.type === 'court') {
+      const c: Record<string, unknown> = {};
+      for (const k of COURT_KEYS) if (a.court[k] !== undefined) c[k] = a.court[k];
+      out.court = c;
+    }
     return out;
   });
 }

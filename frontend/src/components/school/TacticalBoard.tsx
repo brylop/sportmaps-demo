@@ -59,6 +59,13 @@ import {
   useFootballSeasonStats,
 } from '@/hooks/useFootballData';
 import { CourtBackground } from './courts/CourtBackground';
+// M6d: herramientas de dibujo y diálogo «Campo» (lógica fuera de este archivo).
+import { InteractiveM6dShape, LineLegendOverlay, PolygonDraftView, SeqOverlay, StyledLinePreview } from './TacticalM6dLayer';
+import { TacticalDrawToolsPanel } from './TacticalDrawToolsPanel';
+import { TacticalCourtDialog } from './TacticalCourtDialog';
+import { decorateNewShape, isM6dShape, lineStylesIn, renumber, snapToNearest, type DrawOptions } from '@/lib/school/tacticalDrawing';
+import { useTacticalDrawTools, usePolygonDraft } from '@/lib/school/useTacticalDrawTools';
+import { courtOf, drawableShapes, inkForSurface, keepCourtOnly, viewForCourt, withCourt, type CourtConfig } from '@/lib/school/tacticalCourt';
 import { PlayerCard } from './PlayerCard';
 import { TacticalExportMenu, type TacticalExportEvent } from './TacticalExportMenu';
 import { Tactical3DLauncher } from './tactical3d/Tactical3DLauncher';
@@ -74,7 +81,7 @@ import { emptyHistory, historyCommit, historyRedo, historySetBase, historyUndo, 
 import { POSITION_LABEL, suggestLabel, legacyFallbackPosition } from '@/lib/school/footballDisplay';
 import type { LineupSourceType, LineupPlayerInput, TacticalPreset, TacticalSituation, TacticalArrow, TacticalArrowColor, TacticalShapeType, BallPathKind, EventSourceType } from '@/lib/school/footballQueries';
 import {
-  FULL_VIEW, GK_VIEW, viewBoxOf, yToView, yFromView, curveControlPoint, hydrateShape,
+  GK_VIEW, viewBoxOf, yToView, yFromView, curveControlPoint, hydrateShape,
   BALL_PATH_BEND, isLoftedPath, ballPathPoint, isPointShape, OBJECT_BOX,
   OBJ_SIZE_MIN, OBJ_SIZE_MAX, type PitchView, type ArrowPoint, type ObjectType,
   buildFreehandShape, smoothPathD, pairsOf, eraserHits, offsetShape, TEXT_MAX_LENGTH,
@@ -286,7 +293,7 @@ function ZoneOverlay({ view }: { view: PitchView }) {
 }
 
 /** Campos editables de una figura desde la capa de dibujo y el panel. */
-type ShapePatch = Partial<Pick<TacticalArrow, 'x1' | 'y1' | 'x2' | 'y2' | 'size' | 'rot' | 'text'>>;
+type ShapePatch = Partial<Omit<TacticalArrow, 'type'>>;
 
 /** Herramienta activa del modo dibujo: una figura, o el borrador (que no es
  *  una figura -- no se guarda, solo quita lo que toca). */
@@ -294,7 +301,7 @@ type DrawTool = TacticalShapeType | 'eraser';
 
 /** Figuras que se mueven enteras con un punto (x1/y1 = x2/y2) y se
  *  seleccionan con un toque: el material y el texto. */
-const isMovableByPoint = (t: TacticalShapeType | undefined) => isPointShape(t) || t === 'text';
+const isMovableByPoint = (t: TacticalShapeType | undefined) => isPointShape(t) || t === 'text' || t === 'spotlight';
 
 /** Pestañas de la hoja de la pizarra en celular. */
 type MobileTab = 'escribir' | 'lineas' | 'material' | 'color' | 'ajustes' | 'medir';
@@ -349,7 +356,12 @@ function ArrowLayer({
   shapes, drawMode, drawShapeType, drawColor, ballKind, newObjSize, newObjRot,
   measureMode, pitchLengthMeters, view, pinStyle, selectedIndex, ghostBalls, hiddenIndexes,
   onCreateShape, onUpdateShape, onDeleteShape, onSelectShape, onEraseShapes, readOnly = false,
+  drawOptions, polygonDraft,
 }: {
+  /** M6d: estilo de línea, forma de zona, numeración y foco (ver tacticalDrawing). */
+  drawOptions?: DrawOptions;
+  /** M6d: polígono en construcción (usePolygonDraft). */
+  polygonDraft?: ReturnType<typeof usePolygonDraft>;
   shapes: TacticalArrow[];
   drawMode: boolean;
   drawShapeType: DrawTool;
@@ -474,6 +486,18 @@ function ArrowLayer({
       openTextDraft({ index: null, x: p.x, y: p.y, value: '' });
       return;
     }
+    // M6d: el foco se pega al jugador tocado; el polígono, vértice por toque.
+    if (drawShapeType === 'spotlight') {
+      const at = snapToNearest(p, drawOptions?.snapTargets ?? []);
+      const shape: TacticalArrow = { type: 'spotlight', x1: at.x, y1: at.y, x2: at.x, y2: at.y, color: drawColor };
+      if (newObjSize !== 1) shape.size = newObjSize;
+      onCreateShape(shape);
+      return;
+    }
+    if (drawShapeType === 'zone' && drawOptions?.zoneForm === 'polygon' && polygonDraft) {
+      polygonDraft.add(p);
+      return;
+    }
     // Objetos de un punto se colocan con un toque, con el tamaño y giro que
     // estén fijados en el panel; flecha/curva/zona/recorrido, arrastrando de A a B.
     if (isPointShape(drawShapeType)) {
@@ -504,6 +528,10 @@ function ArrowLayer({
       if (pts.length > 0) setStroke((prev) => (prev ? [...prev, ...pts] : prev));
       return;
     }
+    if (polygonDraft?.active && drawShapeType === 'zone') {
+      const q = pctFromEvent(e);
+      if (q) polygonDraft.setCursor(q);
+    }
     if (!preview) return;
     const p = pctFromEvent(e);
     if (!p) return;
@@ -528,7 +556,7 @@ function ArrowLayer({
     if (dist >= 4 && drawShapeType !== 'eraser') {
       const shape: TacticalArrow = { type: drawShapeType, x1: preview.start.x, y1: preview.start.y, x2: p.x, y2: p.y, color: drawColor };
       if (drawShapeType === 'ball_path') shape.kind = ballKind;
-      onCreateShape(shape);
+      onCreateShape(decorateNewShape(shape, drawOptions, shapes));
     }
     setPreview(null);
   }
@@ -710,6 +738,13 @@ function ArrowLayer({
         const color = ARROW_COLOR_HEX[s.color ?? 'white'];
         const type = s.type ?? 'arrow';
         const pe = peFor(type);
+        if (type === 'court') return null; // M6d: configuración de cancha, no es un dibujo
+        if (isM6dShape(s)) {
+          return (
+            <InteractiveM6dShape key={i} shape={s} index={i} selected={selectedIndex === i} pe={pe} readOnly={readOnly}
+              toPct={pctFromEvent} onUpdate={onUpdateShape} onSelect={onSelectShape} onDelete={onDeleteShape} endHandles={renderEndHandles} />
+          );
+        }
 
         if (type === 'freehand') {
           const d = smoothPathD(pairsOf(s.points).map(toSvg));
@@ -886,6 +921,15 @@ function ArrowLayer({
         const p1 = toSvg(preview.start);
         const p2 = toSvg(preview.current);
         const c = ARROW_COLOR_HEX[drawColor];
+        if ((drawShapeType === 'arrow' || drawShapeType === 'curve') && drawOptions?.lineStyle) {
+          return <StyledLinePreview start={preview.start} current={preview.current} type={drawShapeType} style={drawOptions.lineStyle} />;
+        }
+        if (drawShapeType === 'zone' && drawOptions?.zoneForm === 'ellipse') {
+          return (
+            <ellipse cx={(p1.x + p2.x) / 2} cy={(p1.y + p2.y) / 2} rx={Math.abs(p2.x - p1.x) / 2} ry={Math.abs(p2.y - p1.y) / 2}
+              fill={c} fillOpacity={0.15} stroke={c} strokeOpacity={0.6} strokeWidth={1.5} strokeDasharray="5 4" />
+          );
+        }
         if (drawShapeType === 'zone') {
           return (
             <rect
@@ -913,6 +957,9 @@ function ArrowLayer({
         return <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#f8fafc" strokeOpacity={0.7} strokeWidth={2} strokeDasharray="5 4" strokeLinecap="round" />;
       })()}
 
+      {/* M6d: número de cada movimiento y polígono en construcción. */}
+      {shapes.map((s, i) => (typeof s.seq === 'number' ? <SeqOverlay key={`seq${i}`} shape={s} /> : null))}
+      {polygonDraft && <PolygonDraftView points={polygonDraft.points} cursor={polygonDraft.cursor} color={ARROW_COLOR_HEX[drawColor]} />}
       {stroke && stroke.length > 0 && (
         <path d={smoothPathD(stroke.map(toSvg))} stroke={ARROW_COLOR_HEX[drawColor]} strokeWidth={2.2} fill="none"
           strokeLinecap="round" strokeLinejoin="round" className="pointer-events-none" />
@@ -1418,6 +1465,10 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     return () => cancelAnimationFrame(raf);
   }, [playState, playbackFrames, playSpeed, loopPlayback, clock]);
   const [drawColor, setDrawColor] = useState<TacticalArrowColor>('white');
+  // M6d: estilo de línea, forma de zona, numeración, foco y polígono en curso.
+  const snapTargets = useMemo(() => Object.values(placed).map((p) => ({ x: p.x, y: p.y })), [placed]);
+  const drawTools = useTacticalDrawTools(snapTargets);
+  const polygon = usePolygonDraft(handleCreateShape, drawColor);
   // Recorridos de balón (pase/remate/penal) y material con tamaño y giro.
   const [ballKind, setBallKind] = useState<BallPathKind>('pase');
   const [newObjSize, setNewObjSize] = useState(1);
@@ -1434,7 +1485,13 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   // área de arquero que mirar de cerca.
   const [gkZoomPref, setGkZoom] = useState(false);
   const gkZoom = gkZoomPref && sportCfg.allowGkZoom;
-  const view = gkZoom ? GK_VIEW : FULL_VIEW;
+  // M6d: la cámara del diálogo «Campo» viaja en las figuras (pseudo-figura court).
+  const courtCfg = useMemo(() => courtOf(arrows), [arrows]);
+  // Figuras dibujadas (sin la configuración de cancha): lo que el coach cuenta.
+  const drawnCount = drawableShapes(arrows).length;
+  const [courtOpen, setCourtOpen] = useState(false);
+  const view = gkZoom ? GK_VIEW : viewForCourt(courtCfg, sportCfg.allowGkZoom);
+  const zoomedView = view.y1 - view.y0 < 90;
   useEffect(() => { setGkZoom(situation === 'arqueros'); }, [situation]);
   // Balones fantasma de "Reproducir jugada" + balones reales que se esconden
   // mientras corre la animación (los que están en el origen de un recorrido).
@@ -1754,7 +1811,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     if (!preset) return;
 
     const willMovePlayers = Object.keys(placed).length > 0 && preset.slots.length > 0;
-    const willReplaceDrawings = arrows.length > 0;
+    const willReplaceDrawings = drawnCount > 0;
     const willReplaceAnimation = liveFrames.length > 1;
     if (!willMovePlayers && !willReplaceDrawings && !willReplaceAnimation) {
       applyPreset(preset);
@@ -1762,7 +1819,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     }
     const efectos: string[] = [];
     if (willMovePlayers) efectos.push(`los ${Object.keys(placed).length} jugadores en cancha se mueven a las posiciones de la jugada guardada`);
-    if (willReplaceDrawings) efectos.push(`los ${arrows.length} dibujos actuales se reemplazan por los de la jugada guardada`);
+    if (willReplaceDrawings) efectos.push(`los ${drawnCount} dibujos actuales se reemplazan por los de la jugada guardada`);
     if (willReplaceAnimation) efectos.push(`los ${liveFrames.length} cuadros de la animación se reemplazan`);
     setConfirmAction({
       title: `¿Cargar «${preset.name}»?`,
@@ -1820,12 +1877,12 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   /** "Borrar todo" quita todos los dibujos de la pizarra; no hay deshacer
    *  más allá de la última figura, así que se pregunta antes. */
   function requestClearDrawings() {
-    if (arrows.length === 0 || !canEdit) return;
+    if (drawnCount === 0 || !canEdit) return;
     setConfirmAction({
       title: '¿Borrar todos los dibujos?',
-      description: `Se quitan las ${arrows.length} figuras de la pizarra (flechas, material y anotaciones). Los jugadores no se tocan.${liveFrames.length > 1 ? ' Solo en este cuadro.' : ''} Si te arrepientes, usa Deshacer.`,
+      description: `Se quitan las ${drawnCount} figuras de la pizarra (flechas, material y anotaciones). Los jugadores no se tocan.${liveFrames.length > 1 ? ' Solo en este cuadro.' : ''} Si te arrepientes, usa Deshacer.`,
       confirmLabel: 'Borrar todo',
-      onConfirm: () => { exitFramePlayback(); setArrows([]); setSelectedShape(null); },
+      onConfirm: () => { exitFramePlayback(); setArrows((prev) => keepCourtOnly(prev)); setSelectedShape(null); },
     });
   }
 
@@ -1837,11 +1894,11 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       setSituation(next);
       setEmptySlots([]);
       setLoadedPresetId(null);
-      setArrows([]);
+      setArrows((prev) => keepCourtOnly(prev));
       setSelectedShape(null);
       setGhostBalls(null);
     };
-    if (arrows.length === 0 && emptySlots.length === 0) {
+    if (drawnCount === 0 && emptySlots.length === 0) {
       apply();
       return;
     }
@@ -1943,7 +2000,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   useEffect(() => { if (open) setEmptyHintDismissed(false); }, [open]);
   const defaultFormation = defaultBoardFormation(sportCfg, subjects.length);
   const loadedPresetName = loadedPresetId ? (presets?.find((p) => p.id === loadedPresetId)?.name ?? null) : null;
-  const pitchIsEmpty = Object.keys(placed).length === 0 && arrows.length === 0 && emptySlots.length === 0 && frames.length === 1;
+  const pitchIsEmpty = Object.keys(placed).length === 0 && drawnCount === 0 && emptySlots.length === 0 && frames.length === 1;
 
   /** Aplica una formación. Cancha sin jugadores: reparte el roster disponible
    *  (orden alfabético, el roster no trae dorsal) en sus posiciones; los
@@ -2184,6 +2241,12 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     setArrows((prev) => prev.filter((_, i) => !drop.has(i)));
     setSelectedShape(null);
   }
+  function setCourtConfig(cfg: CourtConfig) {
+    if (!canEdit) return;
+    setArrows((prev) => withCourt(prev, cfg));
+    setFrames((prev) => prev.map((f, i) => (i === frameIndex ? f : { ...f, arrows: withCourt(f.arrows, cfg) })));
+    setSelectedShape(null);
+  }
   function handleDuplicateSelected() {
     if (selectedShape === null) return;
     const src = arrows[selectedShape];
@@ -2231,6 +2294,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   /** Elegir una herramienta de dibujo prende el modo dibujo: antes había que
    *  activarlo aparte y era el tropiezo más común ("toco Cono y no pasa nada"). */
   function pickTool(type: DrawTool, kind?: BallPathKind) {
+    if (type !== 'zone') polygon.cancel();
     setDrawShapeType(type);
     if (kind) setBallKind(kind);
     setDrawMode(true);
@@ -2338,7 +2402,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     exitFramePlayback();
     const meta = realPlaced();
     setBoardMode('edit');
-    loadFrame(next, 0, meta);
+    loadFrame(next.map((f) => ({ ...f, arrows: withCourt(f.arrows, courtCfg) })), 0, meta);
     toast({ title: 'Sugerencia IA en la cancha', description: `«${titulo}». No se guarda hasta que toques Guardar jugada; Deshacer vuelve a tu jugada.` });
   }
   function selectFrame(index: number) {
@@ -2780,7 +2844,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                 title="Dibujar: flechas, recorridos de balón, lápiz, texto y material"
               >
                 <PenLine className="h-3.5 w-3.5" />
-                Dibujar{arrows.length > 0 ? ` (${arrows.length})` : ''}
+                Dibujar{drawnCount > 0 ? ` (${drawnCount})` : ''}
               </Button>
 
               {/* Celular: Material ya es una pestaña de la hoja de Dibujar. */}
@@ -2859,6 +2923,10 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
 
                   <DropdownMenuSeparator />
                   <DropdownMenuLabel>Vista</DropdownMenuLabel>
+                  {/* M6d: plantillas de líneas, cámara, orientación, piso y colores. */}
+                  <DropdownMenuItem onSelect={() => setTimeout(() => setCourtOpen(true), 0)} data-testid="tb-open-court">
+                    <LayoutGrid className="h-4 w-4 mr-2" /> Campo…
+                  </DropdownMenuItem>
                   {/* preventDefault: prender/apagar no cierra el menú (se
                       pueden ajustar varias cosas de una). */}
                   {sportCfg.showZonesOption && (
@@ -3051,12 +3119,12 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     // alto (alto disponible × proporción). Antes de medir (primer
                     // render) cae a la fórmula vieja.
                     width: pitchArea
-                      ? `${Math.max(120, Math.floor(Math.min(gkZoom ? 760 : 580, pitchArea.w, pitchArea.h * 300 / ((view.y1 - view.y0) * 3.4))))}px`
-                      : `min(${gkZoom ? 760 : 580}px, calc((100vh - 90px) * 300 / ${(view.y1 - view.y0) * 3.4}), 100%)`,
+                      ? `${Math.max(120, Math.floor(Math.min(zoomedView ? 760 : 580, pitchArea.w, pitchArea.h * 300 / ((view.y1 - view.y0) * 3.4))))}px`
+                      : `min(${zoomedView ? 760 : 580}px, calc((100vh - 90px) * 300 / ${(view.y1 - view.y0) * 3.4}), 100%)`,
                   }}
                 >
                   {/* T4: fondo del deporte del equipo. Fútbol 11 = FootballPitchBackground tal cual. */}
-                  <CourtBackground sport={sport} viewBox={viewBoxOf(view)} />
+                  <CourtBackground sport={sport} viewBox={viewBoxOf(view)} court={courtCfg} />
                   {showZones && sportCfg.showZonesOption && <ZoneOverlay view={view} />}
                   {aiPreview && <TacticalAiOverlay preview={aiPreview} view={view} />}
                   {!viewing && !framePlaybackActive && emptySlots.map((es) => (
@@ -3114,7 +3182,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     />
                   ) : (
                   <ArrowLayer
-                    shapes={arrows}
+                    shapes={inkForSurface(courtCfg, arrows)}
                     drawMode={drawMode && !viewing}
                     drawShapeType={drawShapeType}
                     drawColor={drawColor}
@@ -3134,7 +3202,15 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     onDeleteShape={handleDeleteShape}
                     onSelectShape={setSelectedShape}
                     onEraseShapes={handleEraseShapes}
+                    drawOptions={drawTools.drawOptions}
+                    polygonDraft={polygon}
                   />
+                  )}
+                  <LineLegendOverlay styles={lineStylesIn(arrows)} />
+                  {courtCfg.orient === 'h' && (
+                    <span className="absolute right-1.5 top-1.5 z-[45] pointer-events-none rounded-full bg-zinc-950/75 px-2 py-0.5 text-[10px] font-semibold text-white">
+                      Horizontal al exportar
+                    </span>
                   )}
                   {/* "Empieza aquí": la cancha vacía con los paneles cerrados
                       no decía qué hacer (la instrucción estaba en sr-only).
@@ -3245,7 +3321,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                         </Button>
                         <Button size="sm" variant="outline" aria-label="Borrar todo" title="Borrar todo"
                           className="h-9 w-10 p-0 bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-red-400 disabled:opacity-30"
-                          disabled={arrows.length === 0} onClick={requestClearDrawings}>
+                          disabled={drawnCount === 0} onClick={requestClearDrawings}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
@@ -3374,6 +3450,22 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     </p>
                   </div>
 
+                  {/* M6d: tipo de línea, zonas con forma, resaltar jugador y numeración. */}
+                  <TacticalDrawToolsPanel
+                    className={tabCls('lineas')}
+                    tools={drawTools}
+                    drawMode={drawMode}
+                    drawShapeType={drawShapeType}
+                    pickTool={pickTool}
+                    selected={selected}
+                    selectedIndex={selectedShape}
+                    onUpdateShape={handleUpdateShape}
+                    onRenumber={() => setArrows((prev) => renumber(prev))}
+                    polygonPoints={polygon.points.length}
+                    onClosePolygon={polygon.close}
+                    onCancelPolygon={polygon.cancel}
+                  />
+
                   <div ref={materialSectionRef} className={tabCls('material')}>
                     <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">Material</p>
                     <div className="grid grid-cols-4 md:grid-cols-2 gap-1.5">
@@ -3425,7 +3517,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                   <div className={`pt-2 border-t border-white/10 ${tabCls('ajustes')}`}>
                     <p className="text-[10px] font-bold text-white/60 mb-1.5 uppercase tracking-widest">
                       {selectedIsObject
-                        ? `Seleccionado: ${selected!.type === 'text' ? 'Texto' : OBJECT_LABEL[selected!.type as ObjectType]}`
+                        ? `Seleccionado: ${selected!.type === 'text' ? 'Texto' : selected!.type === 'spotlight' ? 'Foco' : OBJECT_LABEL[selected!.type as ObjectType]}`
                         : 'Tamaño y giro al colocar'}
                     </p>
                     <label className="flex items-center gap-2 text-[10px] text-white/60">
@@ -3524,7 +3616,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                       size="sm"
                       variant="outline"
                       className="flex-1 min-w-0 h-7 gap-1 px-1.5 text-[11px] whitespace-nowrap bg-transparent border-white/15 text-white/80 hover:bg-white/10 hover:text-red-400 disabled:opacity-30"
-                      disabled={arrows.length === 0}
+                      disabled={drawnCount === 0}
                       onClick={requestClearDrawings}
                       title="Borrar todos los dibujos"
                     >
@@ -3532,7 +3624,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     </Button>
                   </div>
                   <p className="text-[10px] text-white/70">
-                    {arrows.length} {arrows.length === 1 ? 'figura' : 'figuras'} · se guardan con la jugada.
+                    {drawnCount} {drawnCount === 1 ? 'figura' : 'figuras'} · se guardan con la jugada.
                   </p>
 
                   <div className={`pt-2 border-t border-white/10 ${tabCls('medir')}`}>
@@ -3710,6 +3802,14 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+    <TacticalCourtDialog
+      open={courtOpen}
+      onOpenChange={setCourtOpen}
+      sport={sport}
+      court={courtCfg}
+      onChange={setCourtConfig}
+      allowArea={sportCfg.allowGkZoom}
+    />
     {libraryBoard && (
       <SaveToLibraryDialog
         open={!!libraryBoard}

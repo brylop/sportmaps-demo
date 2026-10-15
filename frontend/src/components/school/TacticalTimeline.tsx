@@ -44,7 +44,7 @@ const FrameThumb = memo(function FrameThumb({ frame }: { frame: TacticalFrame })
         if (isPointShape(a.type) || a.type === 'text') {
           return <circle key={i} cx={a.x1 * 0.3} cy={a.y1 * 0.34} r={0.9} fill={a.type === 'ball' ? '#ffffff' : '#fbbf24'} />;
         }
-        if (a.type === 'zone' || a.type === 'freehand') return null;
+        if (a.type === 'zone' || a.type === 'freehand' || a.type === 'court' || a.type === 'spotlight') return null;
         return <line key={i} x1={a.x1 * 0.3} y1={a.y1 * 0.34} x2={a.x2 * 0.3} y2={a.y2 * 0.34} stroke="#ffffff" strokeOpacity={0.7} strokeWidth={0.5} />;
       })}
       {frame.players.map((p) => (

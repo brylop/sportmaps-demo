@@ -30,6 +30,9 @@ import { ARROW_COLOR_HEX, isGoalkeeperLabel } from '@/lib/school/tacticalPalette
 import type { TacticalSport } from '@/lib/school/tacticalSports';
 import { CourtBackground } from './courts/CourtBackground';
 import { BallGlyph, ObjectIcon } from './tacticalGlyphs';
+import { isM6dShape, lineStylesIn } from '@/lib/school/tacticalDrawing';
+import { courtShapeOf, drawableShapes, H_MATRIX, inkForSurface, mapBoardPoint, staticViewBox, type CourtConfig } from '@/lib/school/tacticalCourt';
+import { LineLegendSvg, M6dShape, SeqBadge } from './tacticalM6dShapes';
 
 export interface TacticalStaticPlayer {
   x: number;
@@ -49,6 +52,8 @@ export interface TacticalStaticSvgProps {
    *  fútbol 11 de siempre (salida idéntica). Las coordenadas guardadas no
    *  dependen del deporte: todas las canchas usan el mismo viewBox 300×340. */
   sport?: TacticalSport | null;
+  /** M6d: dibujar la leyenda de líneas cuando la jugada usa estilos (default sí). */
+  legend?: boolean;
 }
 
 const VIEW_W = 300;
@@ -65,7 +70,17 @@ function initialsOf(name: string) {
   return name.split(/\s+/).map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
 }
 
-function renderShape(raw: TacticalArrow, i: number) {
+/** M6d: cualquier figura. Las viejas van por renderShape, intactas; las que
+ *  usan campos nuevos, por M6dShape. La pseudo-figura `court` no se dibuja. */
+function renderAny(raw: TacticalArrow, i: number, upright = 0) {
+  if (raw?.type === 'court') return null;
+  const s = hydrateShape(raw);
+  const body = isM6dShape(s) ? <g key={i}><M6dShape shape={s} /></g> : renderShape(raw, i, upright);
+  if (typeof s.seq !== 'number') return body;
+  return <g key={i}>{body}<SeqBadge shape={s} upright={upright} /></g>;
+}
+
+function renderShape(raw: TacticalArrow, i: number, upright = 0) {
   const s = hydrateShape(raw);
   const p1 = toSvg({ x: s.x1, y: s.y1 });
   const p2 = toSvg({ x: s.x2, y: s.y2 });
@@ -90,7 +105,7 @@ function renderShape(raw: TacticalArrow, i: number) {
     const rot = s.rot ?? 0;
     const fs = TEXT_FONT * size;
     return (
-      <g key={i} data-shape="text" transform={`rotate(${rot} ${p1.x} ${p1.y})`}>
+      <g key={i} data-shape="text" transform={`rotate(${rot + upright} ${p1.x} ${p1.y})`}>
         <text x={p1.x} y={p1.y} textAnchor="middle" dominantBaseline="central" fontSize={fs} fontWeight={800}
           fontFamily="Helvetica, Arial, sans-serif"
           fill={color} stroke={s.color === 'black' ? '#f8fafc' : '#111827'} strokeWidth={fs * 0.22} strokeLinejoin="round" paintOrder="stroke">
@@ -158,9 +173,11 @@ function renderShape(raw: TacticalArrow, i: number) {
   );
 }
 
-function renderPlayer(p: TacticalStaticPlayer, i: number) {
-  const x = Number(p.x) * 3;
-  const y = Number(p.y) * 3.4;
+function renderPlayer(p: TacticalStaticPlayer, i: number, court?: CourtConfig) {
+  // M6d: en horizontal el jugador se ubica girado pero se dibuja derecho.
+  const m = court ? mapBoardPoint(court, Number(p.x) * 3, Number(p.y) * 3.4) : null;
+  const x = m ? m.x : Number(p.x) * 3;
+  const y = m ? m.y : Number(p.y) * 3.4;
   const label = (p.label ?? '').trim();
   const text = p.jersey != null && String(p.jersey) !== '' ? String(p.jersey) : initialsOf(label);
   const isGK = !!label && isGoalkeeperLabel(label);
@@ -189,11 +206,16 @@ function renderPlayer(p: TacticalStaticPlayer, i: number) {
   );
 }
 
-export function TacticalStaticSvg({ players, arrows, width = 300, className, sport }: TacticalStaticSvgProps) {
-  const height = Math.round((width * VIEW_H) / VIEW_W);
+export function TacticalStaticSvg({ players, arrows, width = 300, className, sport, legend = true }: TacticalStaticSvgProps) {
   const starters = (players || []).filter(
     (p) => p.role !== 'bench' && p.x != null && p.y != null && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.y)),
   );
+  const courtShape = courtShapeOf(arrows);
+  const styles = legend ? lineStylesIn(arrows || []) : [];
+  if (courtShape?.court || styles.length > 0) {
+    return <ConfiguredStaticSvg players={starters} arrows={arrows || []} width={width} className={className} sport={sport} court={courtShape?.court ?? {}} styles={styles} />;
+  }
+  const height = Math.round((width * VIEW_H) / VIEW_W);
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -221,8 +243,71 @@ export function TacticalStaticSvg({ players, arrows, width = 300, className, spo
       {/* Mismo orden de capas que el tablero: la capa de dibujo (z-40) va
           ENCIMA de los pines de jugador (z-10), así una flecha que sale de un
           jugador se ve completa. */}
-      <g data-layer="players">{starters.map(renderPlayer)}</g>
-      <g data-layer="shapes">{(arrows || []).map(renderShape)}</g>
+      <g data-layer="players">{starters.map((p, i) => renderPlayer(p, i))}</g>
+      <g data-layer="shapes">{(arrows || []).map((a, i) => renderAny(a, i))}</g>
+    </svg>
+  );
+}
+
+/** Altura en px del render estático para un ancho dado (la cámara y la
+ *  orientación del «Campo» cambian la proporción). */
+export function staticSvgHeight(arrows: TacticalArrow[] | null | undefined, width: number): number {
+  const vb = staticViewBox(courtShapeOf(arrows)?.court ?? {});
+  return Math.round((width * vb.h) / vb.w);
+}
+
+function SvgDefs() {
+  return (
+    <defs>
+      {(Object.keys(ARROW_COLOR_HEX) as TacticalArrowColor[]).map((c) => (
+        <marker key={c} id={`arrowhead-${c}`} markerWidth="5.5" markerHeight="5.5" refX="4" refY="2.75" orient="auto">
+          <path d="M0,0 L5.5,2.75 L0,5.5 Z" fill={ARROW_COLOR_HEX[c]} />
+        </marker>
+      ))}
+      <pattern id="tb-net" width="2.6" height="2.6" patternUnits="userSpaceOnUse">
+        <path d="M0 0 L2.6 2.6 M2.6 0 L0 2.6" stroke="#f8fafc" strokeOpacity={0.6} strokeWidth={0.35} />
+      </pattern>
+    </defs>
+  );
+}
+
+/** M6d: jugada con «Campo» (cámara, orientación, piso, plantilla) o con
+ *  estilos de línea (leyenda). Mismo dibujo de figuras y jugadores; cambian el
+ *  viewBox, el giro y el fondo. */
+function ConfiguredStaticSvg({ players, arrows, width, className, sport, court, styles }: {
+  players: TacticalStaticPlayer[]; arrows: TacticalArrow[]; width: number; className?: string;
+  sport?: TacticalSport | null; court: CourtConfig; styles: ReturnType<typeof lineStylesIn>;
+}) {
+  const vb = staticViewBox(court);
+  const height = Math.round((width * vb.h) / vb.w);
+  const horizontal = court.orient === 'h';
+  const shapes = inkForSurface(court, drawableShapes(arrows));
+  // La cancha, a tamaño completo (300×340) en su propio <svg>: el padre puede
+  // mirar solo una ventana y el fondo anidado tiene que seguir midiendo lo mismo.
+  const pitch = (
+    <svg x={0} y={0} width={VIEW_W} height={VIEW_H} viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}>
+      <CourtBackground sport={sport} court={court} />
+    </svg>
+  );
+  const shapeLayer = <g data-layer="shapes">{shapes.map((a, i) => renderAny(a, i, horizontal ? -90 : 0))}</g>;
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`}
+      width={width}
+      height={height}
+      preserveAspectRatio="none"
+      className={className}
+      role="img"
+      aria-label="Jugada táctica"
+      data-orient={horizontal ? 'h' : 'v'}
+      data-camera={court.cam ?? 'full'}
+    >
+      {horizontal ? <g transform={H_MATRIX}>{pitch}</g> : pitch}
+      <SvgDefs />
+      <g data-layer="players">{players.map((p, i) => renderPlayer(p, i, horizontal ? court : undefined))}</g>
+      {horizontal ? <g transform={H_MATRIX}>{shapeLayer}</g> : shapeLayer}
+      <LineLegendSvg styles={styles} x={vb.x + 5} y={vb.y + vb.h - 5} />
     </svg>
   );
 }

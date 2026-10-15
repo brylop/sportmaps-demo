@@ -7,12 +7,13 @@
 import { SPORTS } from '@/lib/school/tacticalSports';
 import { CourtShell, GoalTop, Spot } from './CourtShell';
 import { GOAL_WIDTH_M, MIRROR, dAreaPath, lineProps, meters, type CourtBackgroundProps } from './courtGeometry';
+import { useCourtLook } from './courtLook';
 
 export function FutsalCourtBackground({ viewBox }: CourtBackgroundProps = {}) {
   const def = SPORTS.futsal;
   const f = def.frame!;
   const m = meters(f);
-  const { line, accent } = def.colors;
+  const { line, accent } = useCourtLook(def.colors);
   const L = lineProps(line);
   const W = f.widthM;
   const mid = f.lengthM / 2;

@@ -132,3 +132,38 @@ describe('M6d — saneo y compat', () => {
     expect(validateFrames(bad)[0]).toMatch(/cuadro 1: points inválido/);
   });
 });
+
+describe('M6d — configuración de cancha (pseudo-figura court)', () => {
+  const court = (c: unknown) => ({ type: 'court', x1: 0, y1: 0, x2: 0, y2: 0, court: c });
+  it('acepta una configuración completa y una vacía', () => {
+    expect(validateArrows([court({
+      tpl: 'lanes_thirds', goals: false, cam: 'half_bottom', orient: 'h', surface: 'whiteboard',
+      grass: '#1f8a3f', lines: '#FFFFFF', outline: '#111827',
+    })])).toEqual([]);
+    expect(validateArrows([court({})])).toEqual([]);
+  });
+  it('solo una por jugada', () => {
+    expect(validateArrows([court({}), court({ tpl: 'thirds' })])[0]).toMatch(/solo puede haber una/);
+  });
+  it('rechaza valores inventados, colores no hex y campos extra', () => {
+    expect(validateArrows([court({ tpl: 'pentagrama' })])[0]).toMatch(/plantilla/);
+    expect(validateArrows([court({ cam: 'drone' })])[0]).toMatch(/cámara/);
+    expect(validateArrows([court({ orient: 'diagonal' })])[0]).toMatch(/orientación/);
+    expect(validateArrows([court({ surface: 'lava' })])[0]).toMatch(/piso/);
+    expect(validateArrows([court({ goals: 'si' })])[0]).toMatch(/goals/);
+    expect(validateArrows([court({ grass: 'red' })])[0]).toMatch(/#rrggbb/);
+    expect(validateArrows([court({ lines: 'url(javascript:alert(1))' })])[0]).toMatch(/#rrggbb/);
+    expect(validateArrows([court({ outline: '#12345' })])[0]).toMatch(/#rrggbb/);
+    expect(validateArrows([court({ evil: 1 })])[0]).toMatch(/campo desconocido/);
+    expect(validateArrows([court(null)])[0]).toMatch(/court inválido/);
+    expect(validateArrows([court([1, 2])])[0]).toMatch(/court inválido/);
+    expect(validateArrows([{ type: 'court', x1: 0, y1: 0, x2: 0, y2: 0 }])[0]).toMatch(/court inválido/);
+  });
+  it('court en otra figura se rechaza', () => {
+    expect(validateArrows([{ ...base, type: 'arrow', court: {} }])[0]).toMatch(/court solo aplica/);
+  });
+  it('el saneo deja solo las claves conocidas', () => {
+    const [c] = sanitizeArrows([court({ tpl: 'grid3x3', cam: 'full' })]);
+    expect(c).toEqual({ type: 'court', x1: 0, y1: 0, x2: 0, y2: 0, court: { tpl: 'grid3x3', cam: 'full' } });
+  });
+});

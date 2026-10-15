@@ -7,6 +7,7 @@
 import { SPORTS } from '@/lib/school/tacticalSports';
 import { CourtShell, Spot } from './CourtShell';
 import { BASKET_M, MIRROR, lineProps, meters, type CourtBackgroundProps } from './courtGeometry';
+import { useCourtLook } from './courtLook';
 
 const RIM_Y = BASKET_M.rimFromBaseline; // centro del aro desde la línea de fondo
 const BOARD_Y = BASKET_M.boardFromBaseline;
@@ -19,7 +20,7 @@ export function BasketballCourtBackground({ viewBox }: CourtBackgroundProps = {}
   const def = SPORTS.baloncesto;
   const f = def.frame!;
   const m = meters(f);
-  const { line, accent } = def.colors;
+  const { line, accent } = useCourtLook(def.colors);
   const L = lineProps(line, 1.6, 0.85);
   const W = f.widthM;
   const cx = W / 2;
