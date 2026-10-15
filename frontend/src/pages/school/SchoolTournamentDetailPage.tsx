@@ -11,8 +11,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ArrowLeft, Trophy, Share2, Rocket, Link2, AlertCircle, Plus, Trash2, Save } from 'lucide-react';
+import { ArrowLeft, Trophy, Share2, Rocket, Link2, AlertCircle, Plus, Trash2, Save, UserPlus } from 'lucide-react';
 import { getIndividualRegistrations, assignTeams, IndividualRegistration } from '@/lib/api/tournaments';
+import { RegisterAthleteDialog } from '@/components/school/RegisterAthleteDialog';
+import { CobroTorneoFields } from '@/components/school/CobroTorneoFields';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { mediosDeCobroDeLaEscuela } from '@/lib/tournaments/mediosDeCobro';
 
 interface Category {
   division: string; level: string; category: string; rama: string;
@@ -36,6 +40,8 @@ interface Detail {
   event_date: string; start_time: string; end_time: string | null;
   address: string; city: string; capacity: number | null;
   registration_deadline: string | null;
+  /** false = torneo gratis (sin cobro). Solo aplica a internos. */
+  is_paid?: boolean; payment_methods?: string[] | null;
   categories?: any[]; phases?: any[];
 }
 
@@ -58,6 +64,10 @@ export default function SchoolTournamentDetailPage() {
   const [t, setT] = useState<Detail | null>(null);
   const [loading, setLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
+  const [registerOpen, setRegisterOpen] = useState(false);
+  const { schoolSettings } = useSchoolContext();
+  // Solo los medios que la escuela ya tiene configurados.
+  const medios = mediosDeCobroDeLaEscuela(schoolSettings);
 
   // editores
   const [info, setInfo] = useState<Partial<Detail>>({});
@@ -99,6 +109,7 @@ export default function SchoolTournamentDetailPage() {
         title: d.title, description: d.description, event_date: d.event_date, start_time: d.start_time,
         end_time: d.end_time, address: d.address, city: d.city, capacity: d.capacity,
         visibility: d.visibility, payer_mode: d.payer_mode, registration_deadline: d.registration_deadline,
+        is_paid: d.is_paid !== false, payment_methods: d.payment_methods ?? [],
       });
       setCats((d.categories ?? []).map((c: any) => ({
         division: c.division, level: c.level, category: c.category, rama: c.rama,
@@ -277,7 +288,9 @@ export default function SchoolTournamentDetailPage() {
   const isInternal = t.tournament_scope === 'internal';
   const savedCats = t.categories ?? [];
   const savedPhases = t.phases ?? [];
-  const canPublish = savedCats.length > 0 && savedPhases.length > 0;
+  // Un torneo interno GRATIS no tiene tarifa: no exige fase de precio.
+  const esGratis = isInternal && t.is_paid === false;
+  const canPublish = savedCats.length > 0 && (esGratis || savedPhases.length > 0);
   const isShareable = isActive && t.visibility !== 'school_only';
 
   const payStatus = (d: Delegation) => {
@@ -289,6 +302,16 @@ export default function SchoolTournamentDetailPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-6">
+      {isInternal && (
+        <RegisterAthleteDialog
+          open={registerOpen}
+          onOpenChange={setRegisterOpen}
+          eventId={String(id)}
+          categorias={savedCats.map((c: any) => ({ id: c.id, etiqueta: `${c.division} · ${c.category} (${c.rama})` }))}
+          isPaid={t.is_paid !== false}
+          onRegistered={() => void loadIndividualRegistrations()}
+        />
+      )}
       <button onClick={() => navigate('/school/tournaments')} className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="h-4 w-4" /> Volver a Mis Torneos
       </button>
@@ -307,7 +330,7 @@ export default function SchoolTournamentDetailPage() {
         </div>
         <div className="flex gap-2">
           {isDraft && (
-            <Button onClick={publish} disabled={publishing || !canPublish} title={!canPublish ? 'Agrega al menos 1 categoría y 1 fase de precio' : ''}>
+            <Button onClick={publish} disabled={publishing || !canPublish} title={!canPublish ? (esGratis ? 'Agrega al menos 1 categoría' : 'Agrega al menos 1 categoría y 1 fase de precio') : ''}>
               <Rocket className="mr-1 h-4 w-4" /> {publishing ? 'Publicando…' : 'Publicar'}
             </Button>
           )}
@@ -318,7 +341,9 @@ export default function SchoolTournamentDetailPage() {
       {isDraft && !canPublish && (
         <Card className="mb-6 border-amber-300/50 bg-amber-50/50 dark:bg-amber-950/20"><CardContent className="flex items-start gap-3 py-4 text-sm">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-          <p>Para <strong>publicar</strong> necesitas al menos <strong>1 categoría</strong> y <strong>1 fase de precio</strong> (pestaña Categorías y Precios).</p>
+          {esGratis
+            ? <p>Para <strong>publicar</strong> necesitas al menos <strong>1 categoría</strong> (pestaña Categorías y Precios). El torneo es gratis: no hace falta precio.</p>
+            : <p>Para <strong>publicar</strong> necesitas al menos <strong>1 categoría</strong> y <strong>1 fase de precio</strong> (pestaña Categorías y Precios).</p>}
         </CardContent></Card>
       )}
 
@@ -351,6 +376,20 @@ export default function SchoolTournamentDetailPage() {
             <div className="space-y-1.5"><Label>Dirección</Label><Input value={info.address ?? ''} onChange={(e) => setInfo({ ...info, address: e.target.value })} /></div>
             <div className="space-y-1.5"><Label>Ciudad</Label><Input value={info.city ?? ''} onChange={(e) => setInfo({ ...info, city: e.target.value })} /></div>
             <div className="space-y-1.5"><Label>Cupo</Label><Input type="number" min={1} value={info.capacity ?? ''} onChange={(e) => setInfo({ ...info, capacity: e.target.value ? Number(e.target.value) : null })} /></div>
+            {isInternal && (
+              <div className="sm:col-span-2">
+                <CobroTorneoFields
+                  isPaid={info.is_paid !== false}
+                  onIsPaid={(v) => setInfo({ ...info, is_paid: v })}
+                  metodos={info.payment_methods ?? []}
+                  onMetodos={(m) => setInfo({ ...info, payment_methods: m })}
+                  medios={medios}
+                />
+                {info.is_paid !== false && (
+                  <p className="mt-2 text-xs text-muted-foreground">El valor de la inscripción se define en la pestaña Categorías y Precios.</p>
+                )}
+              </div>
+            )}
             {!isInternal && (
               <div className="space-y-1.5"><Label>¿Quién paga?</Label>
                 <select className={selectCls} value={info.payer_mode ?? 'school'} onChange={(e) => setInfo({ ...info, payer_mode: e.target.value as any })}>
@@ -427,6 +466,23 @@ export default function SchoolTournamentDetailPage() {
 
         {/* ─── INSCRITOS ─── */}
         <TabsContent value="inscritos" className="mt-4 space-y-4">
+          {isInternal && savedCats.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm text-muted-foreground">
+                {isActive || t.status === 'closed'
+                  ? 'Inscribe a un atleta de tu escuela sin esperar a que la familia lo haga.'
+                  : 'Publica el torneo para poder inscribir atletas.'}
+              </p>
+              <Button onClick={() => setRegisterOpen(true)} disabled={!(isActive || t.status === 'closed')}>
+                <UserPlus className="mr-1 h-4 w-4" /> Inscribir atleta
+              </Button>
+            </div>
+          )}
+          {isInternal && regsLoaded && regs.length === 0 && savedCats.length > 0 && (
+            <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">
+              Aún no hay inscritos. Inscribe atletas desde aquí o comparte el torneo con las familias.
+            </CardContent></Card>
+          )}
           {isInternal ? (
             !regsLoaded ? (
               <Skeleton className="h-24 w-full" />
@@ -456,7 +512,7 @@ export default function SchoolTournamentDetailPage() {
                             {members.map((m) => (
                               <Badge key={m.id} variant="secondary">
                                 {m.participant_name}
-                                {m.payment?.status !== 'paid' && <span className="ml-1 text-amber-600">·pend</span>}
+                                {m.payment && m.payment.status !== 'paid' && <span className="ml-1 text-amber-600">·pend</span>}
                               </Badge>
                             ))}
                           </div>
@@ -479,7 +535,7 @@ export default function SchoolTournamentDetailPage() {
                                 />
                                 <span>{r.participant_name}</span>
                                 <Badge variant="outline" className="text-[10px]">
-                                  {r.payment?.status === 'paid' ? 'Pagado' : 'Pendiente'}
+                                  {!r.payment ? 'Sin cobro' : r.payment.status === 'paid' ? 'Pagado' : 'Pendiente'}
                                 </Badge>
                               </label>
                             ))}

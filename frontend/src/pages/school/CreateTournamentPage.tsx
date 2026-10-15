@@ -8,6 +8,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { CobroTorneoFields } from '@/components/school/CobroTorneoFields';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { mediosDeCobroDeLaEscuela, validarCobroDelTorneo } from '@/lib/tournaments/mediosDeCobro';
 import { ArrowLeft, Trophy, Lock } from 'lucide-react';
 
 type Scope = 'internal' | 'external';
@@ -28,6 +31,10 @@ interface FormState {
   visibility: Visibility;
   payer_mode: PayerMode;
   registration_deadline: string;
+  /** Solo torneos internos: false = gratis, sin cobro. */
+  is_paid: boolean;
+  price: string;
+  payment_methods: string[];
 }
 
 const INITIAL: FormState = {
@@ -44,6 +51,9 @@ const INITIAL: FormState = {
   visibility: 'public',
   payer_mode: 'school',
   registration_deadline: '',
+  is_paid: true,
+  price: '',
+  payment_methods: [],
 };
 
 const selectCls =
@@ -55,6 +65,9 @@ export default function CreateTournamentPage() {
   const { hasAddon, isLoading: entLoading } = useEntitlements();
   const [form, setForm] = useState<FormState>(INITIAL);
   const [submitting, setSubmitting] = useState(false);
+  const { schoolSettings } = useSchoolContext();
+  // Solo los medios que la escuela ya tiene configurados (D4).
+  const medios = mediosDeCobroDeLaEscuela(schoolSettings);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -100,6 +113,14 @@ export default function CreateTournamentPage() {
     if (!form.start_time) return 'La hora de inicio es requerida.';
     if (!form.address.trim()) return 'La dirección es requerida.';
     if (!form.city.trim()) return 'La ciudad es requerida.';
+    if (form.tournament_scope === 'internal') {
+      return validarCobroDelTorneo({
+        is_paid: form.is_paid,
+        price: form.price,
+        payment_methods: form.payment_methods,
+        valid_until: form.registration_deadline || form.event_date,
+      });
+    }
     return null;
   };
 
@@ -125,6 +146,21 @@ export default function CreateTournamentPage() {
         visibility: form.visibility,
         payer_mode: form.payer_mode,
         registration_deadline: form.registration_deadline || null,
+        // Cobro: solo torneos internos. Gratis = sin tarifa ni medios; con costo,
+        // una fase de precio vigente hasta el cierre (o la fecha del torneo).
+        ...(form.tournament_scope === 'internal'
+          ? form.is_paid
+            ? {
+                is_paid: true,
+                payment_methods: form.payment_methods,
+                price_phases: [{
+                  phase_name: 'Inscripción',
+                  valid_until: form.registration_deadline || form.event_date,
+                  price_solo: Number(form.price),
+                }],
+              }
+            : { is_paid: false, payment_methods: [] }
+          : {}),
       };
       const created = await bffClient.post<{ id: string }>(
         '/api/v1/events/school-tournament',
@@ -212,6 +248,36 @@ export default function CreateTournamentPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Cobro — solo torneos internos */}
+        {form.tournament_scope === 'internal' && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Cobro de la inscripción</CardTitle>
+              <CardDescription>
+                Si tiene costo, cada inscripción genera un cobro al acudiente. Si es gratis, no se cobra nada.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <CobroTorneoFields
+                isPaid={form.is_paid}
+                onIsPaid={(v) => set('is_paid', v)}
+                metodos={form.payment_methods}
+                onMetodos={(m) => set('payment_methods', m)}
+                medios={medios}
+              />
+              {form.is_paid && (
+                <div className="space-y-1.5 sm:max-w-xs">
+                  <Label htmlFor="price">Valor de la inscripción (COP) *</Label>
+                  <Input id="price" type="number" min={1} value={form.price} onChange={(e) => set('price', e.target.value)} placeholder="50000" />
+                  <p className="text-xs text-muted-foreground">
+                    Vigente hasta el cierre de inscripciones (o la fecha del torneo si no hay cierre).
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Datos básicos */}
         <Card>
