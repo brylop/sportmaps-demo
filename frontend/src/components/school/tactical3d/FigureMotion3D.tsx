@@ -15,6 +15,7 @@ import { figureScale, type Court3D } from '@/lib/school/tactical3d';
 import { smoothAngle } from '@/lib/school/tactical3dCameras';
 import { gaitOf, playerMotion } from '@/lib/school/tactical3dMotion';
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
+import type { AnimationCurve } from '@/lib/school/tacticalBoardSettings';
 import type { LiveRef } from './figureKit';
 
 /** Pierna de PlayerFigure: cilindro de 0,52 m con la cadera arriba. */
@@ -51,7 +52,7 @@ function rigOf(group: THREE.Object3D): Rig | null {
   return { body, legs: legs.length === 2 ? legs : [], ground, heading: null, count: body.children.length };
 }
 
-export function FigureMotion3D({ court, frames, overlayFrames, live, enabled = true, hideKey = null }: {
+export function FigureMotion3D({ court, frames, overlayFrames, live, enabled = true, hideKey = null, curve }: {
   court: Court3D;
   frames: TacticalFrame[];
   overlayFrames: TacticalFrame[] | null;
@@ -60,6 +61,8 @@ export function FigureMotion3D({ court, frames, overlayFrames, live, enabled = t
   enabled?: boolean;
   /** Jugador de la vista «sus ojos»: no se dibuja (la cámara está en su cabeza). */
   hideKey?: string | null;
+  /** Curva de velocidad de los Ajustes (M6g): zancada y velocidad con la misma curva. */
+  curve?: AnimationCurve;
 }) {
   const scene = useThree((s) => s.scene);
   const rigs = useRef(new Map<THREE.Object3D, Rig | null>());
@@ -86,7 +89,7 @@ export function FigureMotion3D({ court, frames, overlayFrames, live, enabled = t
           rigs.current.set(g, rig);
         }
         if (!rig) continue;
-        const m = playerMotion(court, fr, key, lv.t, scale);
+        const m = playerMotion(court, fr, key, lv.t, scale, curve);
         // Giro suave (al cambiar de tramo no «salta» de dirección).
         rig.heading = rig.heading === null ? m.heading : smoothAngle(rig.heading, m.heading, dt, 0.12);
         const gait = enabled ? gaitOf(m, scale) : { legSwing: 0, bob: 0, lean: 0, run: 0 };

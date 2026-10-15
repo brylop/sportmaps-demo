@@ -22,9 +22,12 @@ import {
 } from './tacticalVideo';
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
 import type { TacticalSport } from '@/lib/school/tacticalSports';
+import type { TacticalPlaybackOptions } from '@/lib/school/tacticalBoardSettings';
 
 export interface ExportGifOptions {
   frames: TacticalFrame[];
+  /** Ajustes de la pizarra (M6g): curva de velocidad y rastros. */
+  playback?: TacticalPlaybackOptions;
   playerLabels?: Record<string, string>;
   playerJerseys?: Record<string, number | null>;
   /** M6b: configuración de los equipos (sin ella, el dibujo de siempre). */
@@ -80,6 +83,7 @@ export async function exportGif(opts: ExportGifOptions): Promise<ExportGifResult
     teams: opts.teams,
     playerNames: opts.playerNames,
     sport: opts.sport,
+    playback: opts.playback,
     width: Math.min(720, Math.max(160, opts.width ?? 360)),
     holdStartMs: opts.holdStartMs ?? 600,
     holdEndMs: opts.holdEndMs ?? 1200,

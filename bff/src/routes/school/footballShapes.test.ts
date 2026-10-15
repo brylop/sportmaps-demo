@@ -493,3 +493,19 @@ describe('isMissingFramesColumn (migración sin aplicar)', () => {
     expect(isMissingFramesColumn('frames')).toBe(false);
   });
 });
+
+describe('frames — posesión del balón (M6g, ball_owner opcional)', () => {
+  it('acepta ball_owner con la key de un jugador, null o ausente', () => {
+    expect(validateFrames([frame({ ball_owner: 'athlete:abc' }), frame({ id: 'f2', ball_owner: null }), frame({ id: 'f3' })])).toEqual([]);
+  });
+
+  it.each([5, '', 'k'.repeat(MAX_FRAME_KEY + 1), {}])('rechaza ball_owner inválido %j', (ball_owner) => {
+    expect(validateFrames([frame({ ball_owner })]).join(' ')).toMatch(/ball_owner/);
+  });
+
+  it('sanitizeFrames conserva ball_owner y no lo agrega cuando no hay', () => {
+    const [a, b] = sanitizeFrames([frame({ ball_owner: 'slot#1' }), frame({ id: 'f2', ball_owner: null })]);
+    expect(a.ball_owner).toBe('slot#1');
+    expect('ball_owner' in b).toBe(false);
+  });
+});

@@ -15,6 +15,7 @@ import type { TacticalFrame } from '@/lib/school/tacticalFrames';
 import type { TacticalSport } from '@/lib/school/tacticalSports';
 import type { PlayNotes, PlayVideo } from '@/lib/school/tacticalMedia';
 import type { TacticalTeamsConfig } from '@/lib/school/tacticalTeams';
+import type { TacticalPlaybackOptions } from '@/lib/school/tacticalBoardSettings';
 import type { TacticalStaticPlayer } from '@/components/school/TacticalStaticSvg';
 import { renderTacticalPng } from './tacticalImage';
 import { canvasToBlob, loadImage } from './tacticalExportUtils';
@@ -71,6 +72,9 @@ export interface TacticalExportInput {
   /** M6c: notas y videos de la jugada (la ficha PDF los lista). */
   notes?: PlayNotes | null;
   videos?: PlayVideo[] | null;
+  /** Ajustes de la pizarra del coach (M6g): curva de velocidad y rastros
+   *  para el GIF/video y el visor 3D. */
+  playback?: TacticalPlaybackOptions;
 }
 
 export interface ExportPngInput {

@@ -45,6 +45,7 @@ export default function Tactical3DModal({ source: raw, onClose, onFallback, minF
           onFallback={onFallback}
           minFps={minFps}
           teams={source.teams ?? null}
+          curve={source.playback?.curve}
         />
       </DialogContent>
     </Dialog>

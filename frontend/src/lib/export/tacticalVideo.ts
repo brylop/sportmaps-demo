@@ -13,6 +13,7 @@
 import type { TacticalTeamsConfig } from '@/lib/school/tacticalTeams';
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
 import type { TacticalSport } from '@/lib/school/tacticalSports';
+import type { TacticalPlaybackOptions } from '@/lib/school/tacticalBoardSettings';
 import { pickVideoMime, type TacticalVideoFormat } from './tacticalAnimationFormat';
 import { abortError, createTacticalFrameRenderer } from './tacticalFrameRenderer';
 
@@ -20,6 +21,8 @@ export { pickVideoMime, canRecordVideo, type TacticalVideoFormat } from './tacti
 
 export interface ExportVideoOptions {
   frames: TacticalFrame[];
+  /** Ajustes de la pizarra (M6g): curva de velocidad y rastros. */
+  playback?: TacticalPlaybackOptions;
   playerLabels?: Record<string, string>;
   playerJerseys?: Record<string, number | null>;
   /** M6b: configuración de los equipos (sin ella, el dibujo de siempre). */
@@ -87,6 +90,7 @@ export async function exportVideo(opts: ExportVideoOptions): Promise<ExportVideo
     teams: opts.teams,
     playerNames: opts.playerNames,
       sport: opts.sport,
+      playback: opts.playback,
       width: opts.width ?? 720,
       holdStartMs: opts.holdStartMs ?? 600,
       holdEndMs: opts.holdEndMs ?? 1200,

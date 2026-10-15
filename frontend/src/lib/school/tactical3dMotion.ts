@@ -11,9 +11,11 @@
  *    (velocidad = derivada del easing) y la fase de la zancada (ciclos por
  *    tramo, con tope de cadencia: las jugadas van comprimidas en el tiempo).
  */
-import { easeInOutCubic, frameDuration, frameStartMs, totalDurationMs, type InterpolatedFrame } from './tacticalAnimation';
+import { frameDuration, frameStartMs, totalDurationMs, type InterpolatedFrame } from './tacticalAnimation';
 import type { TacticalFrame } from './tacticalFrames';
 import { toMeters, type Court3D } from './tactical3d';
+import { applyCurve, type AnimationCurve } from './tacticalBoardSettings';
+import { ballAnchor } from './tacticalPossession';
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
@@ -25,12 +27,22 @@ export function easeInOutCubicDeriv(p: number): number {
 
 // ─── Balón ──────────────────────────────────────────────────────────────────
 
-/** Balón de un cuadro (% del tablero): el `ball` del cuadro o el material «balón». */
+/** Derivada de la curva de velocidad de los Ajustes (M6g) para la carrera. */
+export function curveDeriv(curve: AnimationCurve | null | undefined, p: number): number {
+  const x = clamp(p, 0, 1);
+  switch (curve) {
+    case 'lineal': return 1;
+    case 'rapida_inicio': return 3 * Math.pow(1 - x, 2);
+    case 'rapida_final': return 3 * x * x;
+    default: return easeInOutCubicDeriv(x);
+  }
+}
+
+/** Balón de un cuadro (% del tablero): a los pies del dueño (posesión, M6g),
+ *  el `ball` del cuadro o el material «balón». */
 export function frameBallPct(frame: TacticalFrame | undefined): { x: number; y: number } | null {
   if (!frame) return null;
-  if (frame.ball) return { x: Number(frame.ball.x), y: Number(frame.ball.y) };
-  const obj = (frame.arrows ?? []).find((a) => a && a.type === 'ball');
-  return obj ? { x: obj.x1, y: obj.y1 } : null;
+  return ballAnchor(frame);
 }
 
 /** Desde qué distancia un pase va por el aire (m): 20 % del largo, entre 5 y 16 m. */
@@ -55,7 +67,7 @@ export interface BallArc {
 const NO_ARC: BallArc = { lift: 0, lofted: false, moving: false, distM: 0, apexM: 0 };
 
 /** Altura del balón en el instante `main` (el resultado de interpolateFrames). */
-export function ballArc(court: Court3D, frames: TacticalFrame[], main: Pick<InterpolatedFrame, 'fromIndex' | 'toIndex' | 'progress'>): BallArc {
+export function ballArc(court: Court3D, frames: TacticalFrame[], main: Pick<InterpolatedFrame, 'fromIndex' | 'toIndex' | 'progress'>, curve?: AnimationCurve): BallArc {
   if (main.fromIndex === main.toIndex) return NO_ARC;
   const a = frameBallPct(frames[main.fromIndex]);
   const b = frameBallPct(frames[main.toIndex]);
@@ -69,7 +81,7 @@ export function ballArc(court: Court3D, frames: TacticalFrame[], main: Pick<Inte
   const apexM = arcApexM(court, distM);
   // Mismo easing que la planta: la parábola queda simétrica EN EL ESPACIO y
   // vale 0 justo en el pie que pasa y en el que recibe.
-  const e = easeInOutCubic(main.progress);
+  const e = applyCurve(curve, main.progress);
   return { lift: 4 * apexM * e * (1 - e), lofted: true, moving: true, distM, apexM };
 }
 
@@ -114,7 +126,7 @@ function playerAt(frame: TacticalFrame, key: string) {
 }
 
 /** Movimiento de `key` en el instante `tMs` (misma tabla de tiempos del 2D). */
-export function playerMotion(court: Court3D, frames: TacticalFrame[], key: string, tMs: number, scale = 1): PlayerMotion {
+export function playerMotion(court: Court3D, frames: TacticalFrame[], key: string, tMs: number, scale = 1, curve?: AnimationCurve): PlayerMotion {
   let heading = DEFAULT_HEADING;
   let phase = 0;
   let speed = 0;
@@ -135,8 +147,8 @@ export function playerMotion(court: Court3D, frames: TacticalFrame[], key: strin
       if (inSeg) {
         const p = Math.max(0, (tMs - acc) / dur);
         if (d > 0.05) heading = Math.atan2(dx, dz);
-        phase += cycles * easeInOutCubic(p);
-        speed = (d * easeInOutCubicDeriv(p)) / (dur / 1000);
+        phase += cycles * applyCurve(curve, p);
+        speed = (d * curveDeriv(curve, p)) / (dur / 1000);
         break;
       }
       if (d > 0.05) heading = Math.atan2(dx, dz);

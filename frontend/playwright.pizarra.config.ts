@@ -29,6 +29,7 @@ export default defineConfig({
         'pizarra-formaciones.spec.ts',
         'pizarra-equipos.spec.ts',
         'pizarra-herramientas.spec.ts',
+        'pizarra-ajustes.spec.ts',
     ],
     fullyParallel: false,
     workers: 2,

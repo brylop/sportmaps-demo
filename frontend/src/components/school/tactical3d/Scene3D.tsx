@@ -10,6 +10,7 @@ import { useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { advancePlayback, type PlaybackClock } from '@/lib/school/tacticalAnimation';
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
+import type { AnimationCurve } from '@/lib/school/tacticalBoardSettings';
 import {
   computeLive, createFpsMeter,
   type LiveState, type Court3D as Court3DModel, type PlayerVisual,
@@ -63,10 +64,12 @@ export interface Scene3DProps {
   debug?: boolean;
   /** M6b: configuración de los equipos (rivales con sus colores y números). */
   teams?: TacticalTeamsConfig | null;
+  /** Curva de velocidad de los Ajustes de la pizarra (M6g). */
+  curve?: AnimationCurve;
 }
 
 export function Scene3D(p: Scene3DProps) {
-  const live = useRef<LiveState>(computeLive(p.court, p.frames, p.overlayFrames, p.clock.get())) as LiveRef;
+  const live = useRef<LiveState>(computeLive(p.court, p.frames, p.overlayFrames, p.clock.get(), p.curve)) as LiveRef;
   const playingRef = useRef(p.playing);
   playingRef.current = p.playing;
   const lastT = useRef<number>(-1);
@@ -88,8 +91,9 @@ export function Scene3D(p: Scene3DProps) {
     }
     if (t !== lastT.current) {
       lastT.current = t;
-      const lv = computeLive(p.court, p.frames, p.overlayFrames, t);
-      lv.ballLift = ballArc(p.court, p.frames, lv.main).lift;
+      // M6g: la curva de velocidad del coach; M6e: el balón en parábola.
+      const lv = computeLive(p.court, p.frames, p.overlayFrames, t, p.curve);
+      lv.ballLift = ballArc(p.court, p.frames, lv.main, p.curve).lift;
       live.current = lv;
     }
   }, -2);
@@ -111,7 +115,7 @@ export function Scene3D(p: Scene3DProps) {
       <Players3D court={p.court} keys={p.keys} visuals={p.visuals} live={live} layer="main" selectedKey={p.selectedKey} onSelect={p.onSelectPlayer} />
       {p.overlayFrames && <Players3D court={p.court} keys={p.overlayKeys} visuals={p.overlayVisuals} live={live} layer="overlay" />}
       <FigureMotion3D court={p.court} frames={p.frames} overlayFrames={p.overlayFrames} live={live} enabled={!p.reducedMotion}
-        hideKey={p.cameraKind === 'jugador' && p.playerView === 'pov' && !p.director ? p.playerKey : null} />
+        hideKey={p.cameraKind === 'jugador' && p.playerView === 'pov' && !p.director ? p.playerKey : null} curve={p.curve} />
       <BallFlight3D court={p.court} live={live} />
       <Spotlight3D court={p.court} live={live} active={p.frozen} selectedKey={p.selectedKey} pulse={!p.reducedMotion} />
       <LabelDeclutter />
@@ -125,6 +129,7 @@ export function Scene3D(p: Scene3DProps) {
         live={live}
         reducedMotion={p.reducedMotion}
         onShot={p.onShot}
+        curve={p.curve}
       />
       {p.recordTarget && <RecorderTap3D target={p.recordTarget} />}
       <FpsProbe minFps={p.minFps} onVerdict={p.onFpsVerdict} />

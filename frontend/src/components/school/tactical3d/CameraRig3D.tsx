@@ -15,6 +15,7 @@ import {
 } from '@/lib/school/tactical3dCameras';
 import { ballHeadingAt, playerMotion } from '@/lib/school/tactical3dMotion';
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
+import type { AnimationCurve } from '@/lib/school/tacticalBoardSettings';
 import type { LiveRef } from './figureKit';
 
 export interface CameraRigProps {
@@ -28,12 +29,14 @@ export interface CameraRigProps {
   reducedMotion: boolean;
   /** Cámara que está al aire (la elegida o la del director). */
   onShot?: (kind: CameraKind) => void;
+  /** Curva de velocidad de los Ajustes (M6g): la cámara «jugador» gira con la misma carrera. */
+  curve?: AnimationCurve;
 }
 
 const vec = (p: Vec3) => new THREE.Vector3(p.x, p.y, p.z);
 const plain = (p: THREE.Vector3): Vec3 => ({ x: p.x, y: p.y, z: p.z });
 
-export function CameraRig3D({ court, frames, kind, director, playerKey, playerView, live, reducedMotion, onShot }: CameraRigProps) {
+export function CameraRig3D({ court, frames, kind, director, playerKey, playerView, live, reducedMotion, onShot, curve }: CameraRigProps) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   const gl = useThree((s) => s.gl);
   const size = useThree((s) => s.size);
@@ -102,7 +105,7 @@ export function CameraRig3D({ court, frames, kind, director, playerKey, playerVi
       const p = lv.main.players.find((q) => q.key === playerKey);
       if (p) {
         const m = toMeters(court, p.x, p.y);
-        const h = playerMotion(court, frames, playerKey, lv.t, scale).heading;
+        const h = playerMotion(court, frames, playerKey, lv.t, scale, curve).heading;
         s.heading = s.heading === null || s.first ? h : smoothAngle(s.heading, h, dt, 0.35);
         player = { ...m, heading: s.heading };
       }
