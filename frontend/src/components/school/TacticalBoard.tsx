@@ -8,7 +8,7 @@
  * mouse+touch, sin el comportamiento errático de HTML5 DnD dentro de
  * WebViews de Capacitor (D7).
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { flushSync } from 'react-dom';
 import {
   DndContext,
@@ -63,7 +63,6 @@ import { CourtBackground } from './courts/CourtBackground';
 // M6d: herramientas de dibujo y diálogo «Campo» (lógica fuera de este archivo).
 import { InteractiveM6dShape, LineLegendOverlay, PolygonDraftView, SeqOverlay, StyledLinePreview } from './TacticalM6dLayer';
 import { TacticalDrawToolsPanel } from './TacticalDrawToolsPanel';
-import { TacticalCourtDialog } from './TacticalCourtDialog';
 import { decorateNewShape, isM6dShape, lineStylesIn, renumber, snapToNearest, type DrawOptions } from '@/lib/school/tacticalDrawing';
 import { useTacticalDrawTools, usePolygonDraft } from '@/lib/school/useTacticalDrawTools';
 import { courtOf, drawableShapes, inkForSurface, keepCourtOnly, viewForCourt, withCourt, type CourtConfig } from '@/lib/school/tacticalCourt';
@@ -125,11 +124,15 @@ import { PresetTagFilterSub, filterPresetsByTag, presetTags } from './tacticalMe
 import { TacticalTeamsContext, useBoardTeams, useTeamsConfig, useTeamsContext } from '@/hooks/useTacticalTeams';
 import { chipCaption, pointScale, rivalSlots } from '@/lib/school/tacticalTeams';
 import { sportDef } from '@/lib/school/tacticalSports';
-import { TacticalTeamsDialog } from './TacticalTeamsDialog';
 import { TeamPinVisual } from './TacticalTeamPin';
 import { RivalChip } from './tacticalTeamGlyphs';
 // M6h «Videos subidos»: el panel va como pestaña «Subir» del diálogo «Videos» de M6c.
 import { LazySchoolVideosPanel } from './schoolVideos/LazySchoolVideosPanel';
+
+// Diálogos que se abren a pedido (M6b «Configuración de los equipos», M6d
+// «Campo»): chunk aparte, no engordan la pizarra.
+const TacticalTeamsDialog = lazy(() => import('./TacticalTeamsDialog').then((m) => ({ default: m.TacticalTeamsDialog })));
+const TacticalCourtDialog = lazy(() => import('./TacticalCourtDialog').then((m) => ({ default: m.TacticalCourtDialog })));
 
 const SITUATION_LABEL: Record<TacticalSituation, string> = {
   ataque: 'Ataque',
@@ -3947,14 +3950,18 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-    <TacticalCourtDialog
-      open={courtOpen}
-      onOpenChange={setCourtOpen}
-      sport={sport}
-      court={courtCfg}
-      onChange={setCourtConfig}
-      allowArea={sportCfg.allowGkZoom}
-    />
+    {courtOpen && (
+      <Suspense fallback={null}>
+        <TacticalCourtDialog
+          open={courtOpen}
+          onOpenChange={setCourtOpen}
+          sport={sport}
+          court={courtCfg}
+          onChange={setCourtConfig}
+          allowArea={sportCfg.allowGkZoom}
+        />
+      </Suspense>
+    )}
     {libraryBoard && isExerciseSport(sport) && (
       <SaveToLibraryDialog
         open={!!libraryBoard}
@@ -3977,7 +3984,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       uploadPanel={<LazySchoolVideosPanel teamId={teamId} lineupId={existingLineupId ?? null} canEdit={roleCanEdit} />}
     />
     {/* Montado solo al abrirlo: la pizarra no consulta «Equipos almacenados» si nadie los pide. */}
-    {teamsCtl.dialogOpen && <TacticalTeamsDialog
+    {teamsCtl.dialogOpen && <Suspense fallback={null}><TacticalTeamsDialog
       open={teamsCtl.dialogOpen}
       onOpenChange={teamsCtl.setDialogOpen}
       value={teamsCtl.teams}
@@ -3993,7 +4000,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       })()}
       onOpenRoster={() => { if (!rosterOpen) toggleRoster(); }}
       readOnly={!canEdit}
-    />}
+    /></Suspense>}
     </TacticalTeamsContext.Provider>
   );
 }
