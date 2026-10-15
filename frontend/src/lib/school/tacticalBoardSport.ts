@@ -19,6 +19,11 @@ export interface BoardFormation {
   label: string;
   players: number;
   slots: FormationSlot[];
+  /** Familia y descripción de la galería (M6a). */
+  group?: string;
+  description?: string;
+  /** Portero que sale a jugar (5x4, 7 contra 6). */
+  flyingKeeper?: boolean;
 }
 
 export interface BoardSportConfig {
