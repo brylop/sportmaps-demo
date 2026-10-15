@@ -2,6 +2,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { roleForNavigation } from '@/lib/navigationRole';
 import { LogOut, ChevronDown, Repeat } from 'lucide-react';
 import {
   Sidebar,
@@ -67,11 +68,10 @@ export function AppSidebar() {
   // Profile-level platform roles (admin/super_admin/personal_trainer) win over
   // any per-school context role (currentUserRole) — un super-admin que ademas
   // sea miembro de una escuela debe verse SIEMPRE como super-admin.
-  const isPlatformAdmin = profile?.role === 'admin' || profile?.role === 'super_admin';
-  const effectiveRole =
-    isPlatformAdmin || profile?.role === 'personal_trainer'
-      ? profile?.role
-      : (currentUserRole || profile?.role);
+  // roleForNavigation: una membresía 'admin' es admin DE CLUB y se presenta como
+  // 'school_admin'; solo el rol del PERFIL (admin/super_admin) abre el menú de
+  // plataforma (ROADMAP UX-8).
+  const effectiveRole: string | undefined = roleForNavigation(profile?.role, currentUserRole);
   let navigationRole: UserRole = 'athlete';
 
   if (effectiveRole) {
