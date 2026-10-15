@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 772,
-  "head": "20261014215112",
+  "count": 773,
+  "head": "20261015153059",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -775,6 +775,7 @@
     {"v":"20261014212441","file":"20261014212441_directorio_publico_clubes.sql","sha256":"ddc7cb74b69d3b8963bacbccf7cf4f36372869686266ae298512b2bfcc7d5810","added":"2026-10-15","by":"Brayan Steven Lopez"},
     {"v":"20261014212620","file":"20261014212620_contextos_familia_invitaciones.sql","sha256":"384ddc33c304b71895dcb79e2d5b3566b3f52e0b56d74a17b066835c1dafdccf","added":"2026-10-15","by":"Brayan Steven Lopez"},
     {"v":"20261014212627","file":"20261014212627_sede_del_atleta_por_equipo.sql","sha256":"95d1dcf82c3b47ad5e53c5239c122cdc8369b21438985bf14b8d9bd723e36b6c","added":"2026-10-15","by":"Brayan Steven Lopez"},
-    {"v":"20261014215112","file":"20261014215112_staff_no_se_reactiva_ni_cambia_de_escuela.sql","sha256":"10beb334a6b8c5691b7b6f9b838a6890ff13150cc807711bd7eadbf2553880f0","added":"2026-10-15","by":"Brayan Steven Lopez"}
+    {"v":"20261014215112","file":"20261014215112_staff_no_se_reactiva_ni_cambia_de_escuela.sql","sha256":"10beb334a6b8c5691b7b6f9b838a6890ff13150cc807711bd7eadbf2553880f0","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261015153059","file":"20261015153059_torneos_escuela_inscribe_y_gratis.sql","sha256":"daf6390a9da730c38ffc81d98d7b9b27111abe993e8ca167abc6df199118eca4","added":"2026-10-15","by":"Brayan Steven Lopez"}
   ]
 }
