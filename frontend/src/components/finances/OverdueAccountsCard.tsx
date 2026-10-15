@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { paymentRemindersAPI } from '@/lib/api/payment-reminders';
 import { daysDiffFromToday } from '@/lib/dateUtils';
 import { FailedAttemptChip } from '@/components/payment/FailedAttemptChip';
+import { parsePaymentFailure } from '@/lib/paymentFailure';
 import { StatFilterBar } from '@/components/common/StatFilterBar';
 import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { isOverdueCharge, remainingBalance, type ChargeState } from '@/lib/paymentCartera';
@@ -179,11 +180,16 @@ export function OverdueAccountsCard({ payments, schoolId, schoolName, onRefresh,
   // ── Filtro por lo que pasó con el último intento de pago ───────────────────
   const [attemptFilter, setAttemptFilter] = useState<AttemptFilter>('all');
 
+  // «Falta saldo» (pagó con un enlace de antes de la mora) no es un pago
+  // rechazado: la familia pagó y le queda el recargo. No cuenta como rechazo.
+  const fueRechazo = (reason?: string | null) =>
+    !!reason && parsePaymentFailure(reason)?.label !== 'Falta saldo';
+
   const attemptCounts = useMemo(() => {
     let rejected = 0, review = 0, none = 0;
     for (const a of overdueAccounts) {
       if (a.requiresReview) review += 1;
-      else if (a.lastFailureReason) rejected += 1;
+      else if (fueRechazo(a.lastFailureReason)) rejected += 1;
       else none += 1;
     }
     return { rejected, review, none };
@@ -191,9 +197,9 @@ export function OverdueAccountsCard({ payments, schoolId, schoolName, onRefresh,
 
   const filteredOverdue = useMemo(() => {
     switch (attemptFilter) {
-      case 'rejected': return overdueAccounts.filter(a => a.lastFailureReason && !a.requiresReview);
+      case 'rejected': return overdueAccounts.filter(a => fueRechazo(a.lastFailureReason) && !a.requiresReview);
       case 'review':   return overdueAccounts.filter(a => a.requiresReview);
-      case 'none':     return overdueAccounts.filter(a => !a.lastFailureReason && !a.requiresReview);
+      case 'none':     return overdueAccounts.filter(a => !fueRechazo(a.lastFailureReason) && !a.requiresReview);
       default:         return overdueAccounts;
     }
   }, [overdueAccounts, attemptFilter]);

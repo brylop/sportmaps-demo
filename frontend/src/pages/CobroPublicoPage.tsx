@@ -33,19 +33,24 @@
  * Solo aparece si el BFF dice que está disponible (migración aplicada y el
  * cobro tiene a quién atribuirle la preferencia). Nunca muestra los datos
  * guardados completos: el enlace se puede reenviar.
+ *
+ * Subir el comprobante aquí mismo (2026-10-13, Dreamers sin WhatsApp): si el BFF
+ * dice `subirComprobante`, aparece «Sube tu comprobante» (foto o PDF). Va al
+ * BFF por el token y deja el cobro en revisión igual que el bot de WhatsApp.
+ * Con WhatsApp activo queda como alternativa debajo del botón de WhatsApp.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import {
-    AlertCircle, CheckCircle2, Clock, Copy, CreditCard, ExternalLink, ListChecks, Loader2, MessageCircle, Landmark, QrCode, XCircle,
+    AlertCircle, CheckCircle2, Clock, Copy, CreditCard, ExternalLink, ListChecks, Loader2, MessageCircle, Landmark, QrCode, Upload, XCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { BFFError } from '@/lib/api/bffClient';
 import {
     abrirWidgetWompi, guardarFacturaPublica, iniciarPagoCobroPublico, obtenerCobroPublico, obtenerFacturaPublica,
-    type EstadoCobro, type VistaCobroPublico,
+    subirComprobanteCobroPublico, type EstadoCobro, type VistaCobroPublico,
 } from '@/lib/api/cobroPublico';
 import { FacturaElectronicaPreferencia } from '@/components/billing/FacturaElectronicaPreferencia';
 import { ETIQUETA_TIPO, esTipoDocumento, type ResumenFacturaPublica } from '@/lib/facturaElectronica';
@@ -227,6 +232,11 @@ export default function CobroPublicoPage() {
                         </span>
                     </div>
                     <p className="mt-4 text-3xl font-bold text-gray-900">{cop(v.monto)}</p>
+                    {(Number(v.late_fee_amount) || 0) > 0 && (
+                        <p className="mt-1 text-sm font-medium text-amber-700">
+                            Incluye recargo por mora: {cop(Number(v.late_fee_amount))}
+                        </p>
+                    )}
                     {v.fechaVencimiento && v.estado !== 'pagado' && (
                         <p className="mt-1 flex items-center gap-1 text-sm text-gray-600">
                             <Clock className="h-4 w-4" /> Vence el {fecha(v.fechaVencimiento)}
@@ -345,6 +355,14 @@ export default function CobroPublicoPage() {
                     </section>
                 )}
 
+                {pagable && v.subirComprobante && (
+                    <BloqueSubirComprobante
+                        token={token}
+                        hayWhatsApp={!!v.transferencia.whatsappComprobante}
+                        onSubido={() => { void cargar(true); }}
+                    />
+                )}
+
                 {v.otrosPendientes && v.otrosPendientes.length > 0 && (
                     <section className="rounded-2xl bg-white p-5 shadow-sm">
                         <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-900">
@@ -418,6 +436,66 @@ export default function CobroPublicoPage() {
                 <PieSportMaps />
             </div>
         </main>
+    );
+}
+
+function BloqueSubirComprobante({ token, hayWhatsApp, onSubido }: {
+    token: string; hayWhatsApp: boolean; onSubido: () => void;
+}) {
+    const [archivo, setArchivo] = useState<File | null>(null);
+    const [subiendo, setSubiendo] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [listo, setListo] = useState<string | null>(null);
+
+    async function enviar() {
+        if (!archivo) return;
+        setSubiendo(true);
+        setError(null);
+        try {
+            const r = await subirComprobanteCobroPublico(token, archivo);
+            setListo(r.estado === 'pagado'
+                ? '¡Listo! La escuela ya aplicó tu pago.'
+                : r.estado === 'rechazado'
+                    ? 'No pudimos validar ese comprobante. Revisa que sea el de este pago o escríbele a la escuela.'
+                    : 'Recibimos tu comprobante. La escuela lo revisa y lo aplica; no tienes que hacer nada más.');
+            setArchivo(null);
+            onSubido();
+        } catch (e) {
+            setError((e as Error).message || 'No pudimos subir el comprobante. Intenta de nuevo.');
+        } finally {
+            setSubiendo(false);
+        }
+    }
+
+    return (
+        <section className="rounded-2xl bg-white p-5 shadow-sm" data-testid="subir-comprobante">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                <Upload className="h-4 w-4" /> {hayWhatsApp ? 'O sube aquí el comprobante' : 'Sube tu comprobante'}
+            </h2>
+            <p className="mt-1 text-xs text-gray-600">
+                Después de transferir, sube la captura o el PDF del comprobante. La escuela lo revisa y lo aplica a este cobro.
+            </p>
+            {listo ? (
+                <p role="status" className="mt-3 flex items-start gap-2 text-sm text-green-700">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> {listo}
+                </p>
+            ) : (
+                <>
+                    <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,application/pdf"
+                        aria-label="Archivo del comprobante"
+                        className="mt-3 block w-full text-sm text-gray-700 file:mr-3 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:py-2 file:text-sm"
+                        onChange={(e) => { setArchivo(e.target.files?.[0] ?? null); setError(null); }}
+                        disabled={subiendo}
+                    />
+                    <Button className="mt-3 h-12 w-full" onClick={enviar} disabled={!archivo || subiendo}>
+                        {subiendo ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Enviar comprobante'}
+                    </Button>
+                    {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
+                </>
+            )}
+        </section>
     );
 }
 

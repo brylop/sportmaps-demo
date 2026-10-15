@@ -9,6 +9,7 @@ import { Database } from '@/integrations/supabase/types';
 import { getUserFriendlyError } from '@/lib/error-translator';
 import { clearPwaTenant } from '@/pwa/tenant';
 import { clearBoardSettings } from '@/lib/school/tacticalBoardSettings';
+import { fetchRoleContexts, readStoredContextKey, storeContextKey, clearStoredContexts, clearStoredContextKey, safeInternalPath, type RoleContext } from '@/lib/roleContexts';
 
 interface UserProfile {
   id: string;
@@ -33,7 +34,22 @@ interface UserProfile {
 
 interface AuthContextType {
   user: User | null;
+  /**
+   * Perfil para PRESENTAR la app. En una persona multirol, `profile.role` es el
+   * rol del contexto activo (ver lib/roleContexts.ts); el rol guardado en la
+   * base está en `realRole`. Los permisos los decide la base, no este valor.
+   */
   profile: UserProfile | null;
+  /** profiles.role tal como está en la base. */
+  realRole: UserProfile['role'] | null;
+  /** Contextos de rol (vacío si la persona tiene un solo rol). */
+  roleContexts: RoleContext[];
+  /** Contexto activo (null si no es multirol o aún no eligió). */
+  activeRoleContext: RoleContext | null;
+  /** Multirol sin elección guardada: hay que mostrar el selector. */
+  needsRoleChoice: boolean;
+  /** Cambia de contexto y recarga la app en `redirectTo` (por defecto /dashboard). */
+  switchRoleContext: (key: string, redirectTo?: string) => void;
   session: Session | null;
   loading: boolean;
   isPersonalTrainer: boolean;
@@ -56,6 +72,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isPersonalTrainer, setIsPersonalTrainer] = useState(false);
   const [trainerSchoolId, setTrainerSchoolId] = useState<string | null>(null);
   const [trainerOnboardingStatus, setTrainerOnboardingStatus] = useState<string | null>(null);
+  const [roleContexts, setRoleContexts] = useState<RoleContext[]>([]);
+  const [activeContextKey, setActiveContextKey] = useState<string | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -67,6 +85,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // el objeto `profile` cada ~50 min y en cada vuelta a la pestaña, disparando
   // en cascada todo lo que depende de su identidad.
   const profileLoadedForRef = useRef<string | null>(null);
+  // true mientras alguna de las dos rutas está cargando perfil + contextos. La
+  // otra ruta NO debe soltar `loading` antes: si lo hacía, la app pintaba con el
+  // rol real y sin contextos, y un instante después saltaba a /elegir-rol o
+  // cambiaba de módulo (y los efectos corrían con el rol equivocado).
+  const profileLoadingRef = useRef(false);
 
   const fetchProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
     try {
@@ -141,6 +164,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Contextos de rol: se resuelven ANTES de soltar `loading`, para que la app
+  // cargue de una vez con el módulo del rol elegido (sin pintar otro y saltar).
+  const loadRoleContexts = useCallback(async (userId: string, profileRole?: string) => {
+    const contexts = await fetchRoleContexts(userId, profileRole);
+    setRoleContexts(contexts);
+    const stored = readStoredContextKey(userId);
+    const valid = !!stored && contexts.some((c) => c.key === stored);
+    // Elección guardada que ya no corresponde a los datos (terminó la inscripción,
+    // dejó de ser staff…): se borra, para que useSchoolContext no siga aplicando
+    // un rol viejo en esa escuela.
+    if (stored && !valid) clearStoredContextKey(userId);
+    setActiveContextKey(valid ? stored : null);
+  }, []);
+
   const createProfile = useCallback(async (userId: string, userData: Partial<UserProfile>) => {
     try {
       // Check if profile already exists
@@ -196,6 +233,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (session?.user) {
         try {
           profileLoadedForRef.current = session.user.id;
+          profileLoadingRef.current = true;
           const userProfile = await fetchProfile(session.user.id);
           if (mounted) {
             if (userProfile) {
@@ -215,11 +253,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const resolvedRole = (userProfile ?? null)?.role ||
               session.user.user_metadata?.role;
             await fetchTrainerContext(session.user.id, resolvedRole);
+            await loadRoleContexts(session.user.id, resolvedRole);
           }
         } catch (error) {
           // Si falló, liberar el guard para que la otra ruta sí lo reintente.
           profileLoadedForRef.current = null;
           console.error('Failed to load/create profile:', error);
+        } finally {
+          profileLoadingRef.current = false;
         }
       }
 
@@ -261,10 +302,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Ya cargamos (o estamos cargando) el perfil de ESTE usuario: no repetir.
           // Un usuario distinto sí debe re-resolver todo.
           if (profileLoadedForRef.current === session.user.id) {
-            setLoading(false);
+            // Si la otra ruta sigue cargando, ella suelta `loading` al terminar.
+            if (!profileLoadingRef.current) setLoading(false);
             return;
           }
           profileLoadedForRef.current = session.user.id;
+          profileLoadingRef.current = true;
 
           setTimeout(async () => {
             try {
@@ -284,11 +327,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 const resolvedRole2 = (userProfile ?? null)?.role ||
                   session.user!.user_metadata?.role;
                 await fetchTrainerContext(session.user!.id, resolvedRole2);
+                await loadRoleContexts(session.user!.id, resolvedRole2);
               }
             } catch (error) {
               profileLoadedForRef.current = null;
               console.error('Deferred profile load/create failed:', error);
             } finally {
+              profileLoadingRef.current = false;
               if (mounted) setLoading(false);
             }
           }, 0);
@@ -298,6 +343,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setIsPersonalTrainer(false);
           setTrainerSchoolId(null);
           setTrainerOnboardingStatus(null);
+          setRoleContexts([]);
+          setActiveContextKey(null);
           setLoading(false);
         }
       }
@@ -307,7 +354,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [fetchProfile, createProfile, fetchTrainerContext]);
+  }, [fetchProfile, createProfile, fetchTrainerContext, loadRoleContexts]);
 
   const signUp = async (email: string, password: string, userData: Partial<UserProfile> & { invitation_code?: string, school_name?: string }) => {
     try {
@@ -425,6 +472,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem('sportmaps_favoritos');
       localStorage.removeItem('sportmaps_welcome_dismissed');
       localStorage.removeItem('pending_invite_id');
+      // Rol elegido (multirol): el próximo inicio de sesión vuelve a preguntar.
+      clearStoredContexts();
       // Preferencias de la pizarra táctica: la foto de jugadores menores no
       // debe quedar prendida para el siguiente que use este dispositivo.
       localStorage.removeItem('tactical_board_pin_photos');
@@ -534,9 +583,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const activeRoleContext = useMemo(
+    () => roleContexts.find((c) => c.key === activeContextKey) ?? null,
+    [roleContexts, activeContextKey],
+  );
+
+  // Perfil de presentación: solo cambia `role` en una persona multirol con un
+  // contexto elegido. El objeto es estable mientras no cambien sus entradas.
+  const viewProfile = useMemo<UserProfile | null>(() => {
+    if (!profile || !activeRoleContext) return profile;
+    return { ...profile, role: activeRoleContext.viewRole };
+  }, [profile, activeRoleContext]);
+
+  const switchRoleContext = useCallback((key: string, redirectTo: string = '/dashboard') => {
+    if (!user || !roleContexts.some((c) => c.key === key)) return;
+    const destino = safeInternalPath(redirectTo, '/dashboard');
+    const guardado = storeContextKey(user.id, key);
+    // La escuela del contexto pasa a ser la activa (useSchoolContext la lee de acá).
+    const ctx = roleContexts.find((c) => c.key === key);
+    if (ctx?.schoolId) {
+      try { localStorage.setItem('sportmaps_active_school_id', ctx.schoolId); } catch { /* sin storage */ }
+    }
+    queryClient.clear();
+    if (!guardado) {
+      // Sin storage (modo privado/bloqueado) una recarga perdería la elección y
+      // volvería a mostrar el selector para siempre. Se aplica en memoria y se
+      // navega sin recargar (BrowserRouter escucha popstate).
+      setActiveContextKey(key);
+      window.history.pushState(null, '', destino);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      return;
+    }
+    // Recarga completa: todos los providers y cachés se resuelven de cero con
+    // el rol nuevo (el mismo criterio que el cierre de sesión).
+    window.location.assign(destino);
+  }, [user, roleContexts, queryClient]);
+
+  const needsRoleChoice = roleContexts.length > 0 && !activeRoleContext;
+
   const value = useMemo(() => ({
     user,
-    profile,
+    profile: viewProfile,
+    realRole: profile?.role ?? null,
+    roleContexts,
+    activeRoleContext,
+    needsRoleChoice,
+    switchRoleContext,
     session,
     loading,
     isPersonalTrainer,
@@ -547,7 +639,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signInWithGoogle,
     signOut,
     updateProfile,
-  }), [user, profile, session, loading, isPersonalTrainer, trainerSchoolId, trainerOnboardingStatus]);
+  }), [user, viewProfile, profile?.role, roleContexts, activeRoleContext, needsRoleChoice, switchRoleContext, session, loading, isPersonalTrainer, trainerSchoolId, trainerOnboardingStatus]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -1,0 +1,18 @@
+import { chromium, newSession, BASE_URL, ACC, sleep } from './lib.mjs';
+const browser = await chromium.launch();
+const { page } = await newSession(browser, ACC.parent, { dpr: 1, viewport: { width: 1600, height: 2000 } });
+page.on('response', async r => { if (r.status() >= 400) console.log('[resp]', r.status(), r.url().slice(0, 160), (await r.text().catch(()=>'')).slice(0, 200)); });
+await page.goto(BASE_URL + '/schools/57ba9352-2c11-4b5b-aa5b-e5ec6f526cbe'); await sleep(8000);
+const card = page.locator('div', { hasText: 'Plan Gimnasia Recreativa' }).filter({ has: page.getByRole('button', { name: 'Inscribirme' }) }).last();
+await card.getByRole('button', { name: 'Inscribirme' }).click(); await sleep(6000);
+const d = page.locator('[role=dialog]').last();
+await d.getByText('Agregar otro', { exact: false }).or(d.getByText('Agregar hijo', { exact: false })).first().click().catch(e => console.log('no agregar', e.message.slice(0,80)));
+await sleep(1000);
+await d.getByPlaceholder('Ej. Sofía García').fill('Martina Gómez');
+await d.locator('input[type=date]').fill('2017-03-02');
+await d.getByRole('button', { name: 'Agregar', exact: true }).click(); await sleep(3000);
+await page.screenshot({ path: 'discover/s4.png' });
+await d.getByRole('button', { name: /Continuar inscripción/ }).click(); await sleep(6000);
+await page.screenshot({ path: 'discover/s5.png' });
+console.log(await page.locator('[role=dialog]').last().innerText().catch(() => 'no dialog'));
+await browser.close();

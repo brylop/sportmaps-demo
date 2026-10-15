@@ -135,3 +135,86 @@ export function ledgerCsvRows(lines: LedgerExportLine[]): CsvCell[][] {
     });
     return [LEDGER_CSV_HEADER, ...body, ['', '', 'TOTAL', '', '', '', entradas, salidas]];
 }
+
+// ─── Tienda escolar (migración 20261013170548) ───────────────────────────────
+
+/** Etiqueta de la línea de tienda en el libro exportado y en el EdR. */
+export const STORE_SALES_LABEL = 'Ventas de tienda';
+
+/**
+ * Ventas cobradas de la tienda → líneas de ingreso del libro exportado. La
+ * tienda no está en cash_ledger (contrato §6): se agrega aquí, con su neto de
+ * reembolsos, para que el CSV cuadre con el indicador de ingresos.
+ */
+export function storeLinesToLedgerExport(lines: Array<{
+    paid_date: string; reference: string | null; payment_method: string | null; income_amount: number | string;
+}>): LedgerExportLine[] {
+    return lines
+        .filter((l) => Number(l.income_amount) > 0)
+        .map((l) => ({
+            date: l.paid_date,
+            tercero: null,
+            concept: l.reference ? `Venta tienda ${l.reference}` : 'Venta tienda',
+            category: STORE_SALES_LABEL,
+            method: l.payment_method,
+            reference: l.reference,
+            direction: 'income' as const,
+            amount: Number(l.income_amount),
+        }));
+}
+
+/** Orden del libro: fecha DESC, sin fecha al final (igual que finance_ledger_page). */
+export function sortLedgerExport(lines: LedgerExportLine[]): LedgerExportLine[] {
+    return [...lines].sort((a, b) => {
+        if (a.date === b.date) return 0;
+        if (a.date === null) return 1;
+        if (b.date === null) return -1;
+        return a.date < b.date ? 1 : -1;
+    });
+}
+
+export interface PnlCsvInput {
+    year: number;
+    income: number;
+    expense: number;
+    net: number;
+    catRows: Array<{ name: string; value: number }>;
+    monthly: Array<{ month: string; ingresos: number; egresos: number; cobros?: number; tienda?: number }>;
+    /** null = la escuela no tiene tienda: el CSV sale igual que antes. */
+    store: { cobros: number; tienda: number } | null;
+}
+
+/** CSV del estado de resultados. Con tienda: desglose Mensualidades y cobros / Ventas de tienda. */
+export function pnlCsvRows(r: PnlCsvInput): CsvCell[][] {
+    const resumen: CsvCell[][] = r.store
+        ? [
+            ['Ingresos — Mensualidades y cobros', r.store.cobros],
+            [`Ingresos — ${STORE_SALES_LABEL}`, r.store.tienda],
+            ['Ingresos', r.income],
+        ]
+        : [['Ingresos', r.income]];
+    const flujo: CsvCell[][] = r.store
+        ? [
+            ['Mes', 'Mensualidades y cobros', STORE_SALES_LABEL, 'Ingresos', 'Egresos', 'Neto'],
+            ...r.monthly.map((m): CsvCell[] => [m.month, m.cobros ?? 0, m.tienda ?? 0, m.ingresos, m.egresos, m.ingresos - m.egresos]),
+        ]
+        : [
+            ['Mes', 'Ingresos', 'Egresos', 'Neto'],
+            ...r.monthly.map((m): CsvCell[] => [m.month, m.ingresos, m.egresos, m.ingresos - m.egresos]),
+        ];
+    return [
+        [`Estado de resultados ${r.year}`],
+        [],
+        ['RESUMEN'],
+        ...resumen,
+        ['Egresos', r.expense],
+        ['Neto', r.net],
+        [],
+        ['EGRESOS POR CATEGORÍA'],
+        ['Categoría', 'Monto'],
+        ...r.catRows.map((c): CsvCell[] => [c.name, c.value]),
+        [],
+        ['FLUJO MENSUAL'],
+        ...flujo,
+    ];
+}

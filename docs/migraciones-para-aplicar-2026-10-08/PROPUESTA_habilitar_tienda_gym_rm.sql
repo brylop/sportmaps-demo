@@ -43,17 +43,28 @@ select vp.slug, vp.display_name,
 --           cobros: accept_transfer=t, accept_cash_pickup=t, allow_shipping=f, transfer_account_ids=null
 
 -- ── 1. Adicional Tienda para GYM RM ──────────────────────────────────────────
--- DECISIÓN COMERCIAL pendiente: monthly_price_cents (catálogo: $49.000/mes =
--- 4900000 centavos; 0 si va de cortesía en el piloto). Ajustar antes de correr.
+-- DECISIÓN COMERCIAL (usuario, 2026-10-14): PRIMER MES GRATIS, después $49.000/mes.
+-- Hoy se activa con monthly_price_cents = 0 y queda anotado en metadata hasta
+-- cuándo es gratis. La factura SaaS suma solo addons con precio > 0, así que
+-- el primer mes no se cobra. Al cumplirse el mes, correr el paso 1b (abajo).
 begin;
 insert into public.school_addons (school_id, addon_key, enabled, monthly_price_cents, metadata)
 values ('2137182d-a695-4695-8e5a-61151fc59196', 'store', true, 0,
-        jsonb_build_object('via', 'piloto_tienda', 'set_at', now(), 'nota', 'GYM RM primer cliente tienda v2'))
+        jsonb_build_object('via', 'piloto_tienda', 'set_at', now(), 'nota', 'GYM RM primer cliente tienda v2',
+                           'gratis_hasta', (current_date + interval '1 month')::date,
+                           'precio_despues_cents', 4900000))
 on conflict (school_id, addon_key) do update
-   set enabled = true, disabled_at = null, updated_at = now(),
+   set enabled = true, disabled_at = null, updated_at = now(), monthly_price_cents = 0,
        metadata = public.school_addons.metadata || excluded.metadata;
 select public.has_entitlement('2137182d-a695-4695-8e5a-61151fc59196', 'store');   -- debe dar true
 commit;
+
+-- ── 1b. AL CUMPLIRSE EL MES GRATIS (fecha = metadata.gratis_hasta) ──────────
+-- Pasa el addon a $49.000/mes; la siguiente factura SaaS ya lo incluye.
+-- update public.school_addons
+--    set monthly_price_cents = 4900000, updated_at = now(),
+--        metadata = metadata || jsonb_build_object('precio_desde', current_date)
+--  where school_id = '2137182d-a695-4695-8e5a-61151fc59196' and addon_key = 'store';
 
 -- ── 2. Verificación del perfil escolar (lo mismo que hace enable_school_store) ──
 -- Opción A (preferida): que el dueño o un admin de GYM RM pulse «Activar tienda»

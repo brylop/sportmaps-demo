@@ -228,6 +228,7 @@ export default function StoreOrdersPage() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium truncate">{customerName(o)}</span>
                       <OrderStatusBadge status={o.status} />
+                      {!o.user_id && <span className="text-[11px] rounded-full border px-2 py-0.5 text-muted-foreground" data-testid="seller-order-guest">Sin cuenta</span>}
                     </div>
                     <p className="text-xs text-muted-foreground font-mono">{orderShortRef(o)}</p>
                     <p className="text-xs text-muted-foreground">
@@ -264,6 +265,7 @@ export default function StoreOrdersPage() {
               <section className="space-y-1 text-sm">
                 <h3 className="font-semibold">Cliente</h3>
                 <p data-testid="detail-customer">{customerName(open)}</p>
+                {!open.user_id && <p className="text-xs text-muted-foreground">Compró sin cuenta: le llegó el enlace del pedido a su correo.</p>}
                 {open.customer_document && <p className="text-muted-foreground">Documento: {open.customer_document}</p>}
                 {(open.contact_phone || open.buyer_snapshot?.phone) && <p className="text-muted-foreground">Celular: {open.contact_phone || open.buyer_snapshot?.phone}</p>}
                 {(open.contact_email || open.buyer_snapshot?.email) && <p className="text-muted-foreground">Correo: {open.contact_email || open.buyer_snapshot?.email}</p>}
@@ -283,6 +285,12 @@ export default function StoreOrdersPage() {
                     </li>
                   ))}
                 </ul>
+                {Number(open.discount_total ?? 0) > 0 && (
+                  <div className="flex justify-between text-emerald-700 dark:text-emerald-400" data-testid="detail-discount">
+                    <span>Descuento{open.coupon_code ? ` (${open.coupon_code})` : ''}</span>
+                    <span className="tabular-nums">−{formatCurrency(Number(open.discount_total))}</span>
+                  </div>
+                )}
                 <div className="flex justify-between font-semibold"><span>Total</span><span className="tabular-nums">{formatCurrency(Number(open.total_amount))}</span></div>
                 {Number(open.tax_total) > 0 && <p className="text-xs text-muted-foreground text-right">Incluye IVA {formatCurrency(Number(open.tax_total))}</p>}
               </section>

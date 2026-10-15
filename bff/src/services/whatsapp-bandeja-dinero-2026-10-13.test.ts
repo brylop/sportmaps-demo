@@ -167,6 +167,45 @@ describe('3. excedente', () => {
         expect(montosConRecargo(150000, [{ gross_amount: null, fee_pct: 3 }])).toEqual([154500]);
     });
 
+    it('mora (2026-10-14): un enlace de ANTES de la mora no vuelve pago completo el monto viejo', () => {
+        // Cobro de 150.000 + 10.000 de mora = 160.000; el enlace se creó con base 150.000 al 5 %.
+        const viejo = { gross_amount: 157500, base_amount: 150000, fee_pct: 5 };
+        // Solo vale el cobro ACTUAL × (1 + fee del enlace); ni 157.500 ni base × fee.
+        expect(montosConRecargo(160000, [viejo])).toEqual([168000]);
+        // Enlace vigente (base = monto actual, tolerancia 1): sí vale su gross.
+        expect(montosConRecargo(160000, [{ gross_amount: 168000, base_amount: 160000.4, fee_pct: 5 }])).toEqual([168000]);
+        // Gross mayor al cobro pero de base vieja (mora chica): no cuenta.
+        expect(montosConRecargo(152000, [viejo])).toEqual([159600]);
+        // Con abonos: la base vigente es el saldo (amount − amount_paid).
+        expect(montosConRecargo(160000, [{ gross_amount: 105000, base_amount: 100000, fee_pct: 5 }], 60000)).toEqual([105000, 168000]);
+        // Enlace sin fee y base vieja: nada.
+        expect(montosConRecargo(160000, [{ gross_amount: 165000, base_amount: 150000, fee_pct: 0 }])).toEqual([]);
+    });
+
+    it('mora: comprobante por el valor VIEJO del enlace → no es pago completo (MONTO_DIFIERE / abono)', async () => {
+        const conMora = P('oct', 152000, '2026-10-05');
+        tablas.payment_links = [{ payment_id: 'oct', gross_amount: 157500, base_amount: 150000, fee_pct: 5 }];
+        tablas.payments = [{ id: 'oct', amount: 160000, amount_paid: 0 }];
+        // cargarRecargos relee el monto ACTUAL del cobro (160.000): el enlace es viejo.
+        const m = await cargarRecargos('s1', [conMora]);
+        expect(m.get('oct')).toEqual([168000]);
+        expect(m.get('oct')).not.toContain(157500);
+        // Lo esperado para el veredicto es el cobro, no el monto viejo del enlace.
+        const cobro = P('oct', 160000, '2026-10-05');
+        expect(montoEsperado(cobro, 157500, m)).toBe(160000);
+        // El worker no lo toma como «recargo» (pago completo).
+        expect(decidir([cobro], 157500, m)).not.toMatchObject({ motivo: 'recargo' });
+        // La recuperación: abono en revisión, no pago completo.
+        const d = decidirRecuperacion({ ...base, ocr: { ...OCR, amount: 157500 }, pendientes: [cobro], recargos: m });
+        expect(d.decision).toBe('abono_en_revision');
+        // Descuento por pronto pago: la base vigente es amount − descuento.
+        tablas.payment_links = [{ payment_id: 'oct', gross_amount: 141750, base_amount: 135000, fee_pct: 5 }];
+        tablas.payments = [{ id: 'oct', amount: 150000, amount_paid: 0, early_payment_discount_applied: 15000 }];
+        expect((await cargarRecargos('s1', [P('oct', 150000, '2026-10-05')])).get('oct')).toContain(141750);
+        // Y con el valor actual + recargo del enlace sí es pago completo.
+        expect(montoEsperado(cobro, 168000, m)).toBe(168000);
+    });
+
     it('a. monto = el del enlace de pago → pago COMPLETO de ese cobro (no excedente)', () => {
         const recargos = new Map([['nov', [157500]]]);
         expect(decidir([oct, nov], 157500, recargos)).toEqual({ tipo: 'aplicar', pago: nov, motivo: 'recargo' });

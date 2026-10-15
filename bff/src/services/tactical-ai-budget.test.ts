@@ -40,7 +40,7 @@ const { samplePlay, FAKE_ROSTER_NAMES } = await import('../routes/school/__fixtu
 const { parseAnalyzeInput } = await import('../routes/school/tacticalAiShapes');
 
 const recorded = JSON.parse(readFileSync(join(__dirname, '..', 'routes', 'school', '__fixtures__', 'tacticalAi.recorded.json'), 'utf8'));
-const MIG = readFileSync(join(__dirname, '..', '..', '..', 'supabase', 'migrations', '20261014155445_pizarra_ia_cupo_por_entrenador_tokens.sql'), 'utf8');
+const MIG = readFileSync(join(__dirname, '..', '..', '..', 'supabase', 'migrations', '20261015171128_pizarra_ia_cupo_por_entrenador_tokens.sql'), 'utf8');
 
 const OK_LLM = async () => ({ texto: recorded.futbol.texto, provider: 'claude', model: 'claude-sonnet-5-5', tokens: { input: 1400, output: 5900, cacheRead: 0, cacheWrite: 3600 } });
 

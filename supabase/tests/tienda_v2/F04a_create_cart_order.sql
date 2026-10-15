@@ -4,7 +4,7 @@
 --
 -- Casos (§8.2): R6 precio del JSON ignorado + IVA incluido (§6.3), reserva y
 -- holds, R7 school_only ajeno / borrador / vendedor no habilitado, R17
--- STORE_DISABLED, COUPONS_NOT_AVAILABLE, MULTIPLE_SELLERS (D-2), INSUFFICIENT_STOCK,
+-- STORE_DISABLED, cupón inexistente → COUPON_INVALID (F3b), MULTIPLE_SELLERS (D-2), INSUFFICIENT_STOCK,
 -- INVALID_QTY, VARIANT_REQUIRED, idempotency_key, medio no aceptado,
 -- CASH_REQUIRES_PICKUP, envío por zona, quote_cart, anon sin EXECUTE.
 
@@ -122,14 +122,14 @@ begin
     raise notice 'OK: dos tiendas en un checkout → MULTIPLE_SELLERS';
   end;
 
-  -- COUPONS_NOT_AVAILABLE
+  -- Cupón que la tienda no emitió → COUPON_INVALID (F3b, 20261013170543; antes COUPONS_NOT_AVAILABLE)
   begin
     perform public.create_cart_order(jsonb_build_array(jsonb_build_object('product_id','00000000-0000-4000-d000-000000000002','quantity',1)),
                                      'pickup', null, null, null, 'transfer', 'DESC10', null, null);
     raise exception 'FALLO: cupón aceptado';
   exception when others then
-    if sqlerrm <> 'COUPONS_NOT_AVAILABLE' then raise; end if;
-    raise notice 'OK: p_coupon_code → COUPONS_NOT_AVAILABLE';
+    if sqlerrm <> 'COUPON_INVALID' then raise; end if;
+    raise notice 'OK: p_coupon_code inexistente → COUPON_INVALID';
   end;
 
   -- INSUFFICIENT_STOCK: rodillera stock 1, piden 2

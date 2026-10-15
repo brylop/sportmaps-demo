@@ -77,8 +77,8 @@ export function StatCard({ title, value, description, icon: Icon, trend, splitVa
               </span>
             )}
             {description && (
-              // line-clamp-1 evita que descripciones largas rompan la altura del grid
-              <p className="text-xs text-muted-foreground line-clamp-1">{description}</p>
+              // line-clamp-2: cabe el desglose «Mensualidades · Tienda» del ingreso sin romper el grid
+              <p className="text-xs text-muted-foreground line-clamp-2" title={description}>{description}</p>
             )}
           </div>
         )}

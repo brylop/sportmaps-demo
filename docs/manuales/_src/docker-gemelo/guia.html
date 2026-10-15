@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Gemelo local en Docker — Guía para desarrollo</title>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="manual.css">
+<style>
+  .final{break-inside:avoid}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  td code{white-space:normal}
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <div class="logo"><span class="pin"></span>SportMaps</div>
+  <div class="eyebrow"><i></i>Guía para desarrollo · Uso interno</div>
+  <h1>Probar con Docker: el gemelo local de la base</h1>
+  <p class="lead">Supabase completo corriendo en tu máquina, con el <b>esquema real</b> de la base viva y <b>datos de prueba</b>. Ahí corren las pruebas de RLS, de concurrencia y de Playwright sin tocar producción.</p>
+  <div class="pills">
+    <span class="pill">Para: Julián</span>
+    <span class="pill">Windows + Docker Desktop</span>
+    <span class="pill">Primera vez ~15 min · después ~40 s</span>
+  </div>
+  <div class="meta">Versión del 14 de octubre de 2026 · Fuente técnica completa en el repo: docs/qa-gemelo-local.md</div>
+</section>
+
+<main class="body">
+
+  <div class="chap"><div class="badge">0</div><h2>Por qué existe</h2></div>
+  <div class="rule"></div>
+  <p>Hay <b>una sola Supabase</b> (<code>luebjarufsiadojhvxgi</code>) para dev, staging y producción. Cualquier prueba que escriba en ella escribe en datos reales de escuelas y familias. Además, unos 336 objetos de la base viva no están en <code>supabase/migrations/</code>, así que levantar Supabase con las migraciones del repo da <b>otra</b> base distinta.</p>
+  <p>El gemelo resuelve las dos cosas: copia <b>solo el esquema</b> de lo que la viva tiene hoy (tablas, funciones, policies, triggers y permisos) y le carga una semilla sintética. <b>Nunca</b> trae personas, pagos, escuelas ni documentos reales.</p>
+  <div class="callout warn"><div class="tag">Regla de oro</div>
+    Las pruebas que escriben o que validan permisos corren <b>contra el gemelo</b>, nunca contra la base viva. Las guardas del repo abortan la corrida si detectan la URL de producción (sección 7).</div>
+
+  <div class="chap"><div class="badge">1</div><h2>Instalar (una sola vez)</h2></div>
+  <div class="rule"></div>
+  <div class="step"><div class="num">1</div><div><h3>Docker Desktop</h3>
+    <p>Instalar Docker Desktop con el motor <b>WSL 2</b> y dejarlo abierto. Comprobar: <code>docker info</code> debe responder sin error. Necesita ~4 GB libres para las imágenes.</p></div></div>
+  <div class="step"><div class="num">2</div><div><h3>Node 20+ y la CLI de Supabase</h3>
+    <pre>node -v                      # 20 o más
+scoop install supabase       # o: npm i -g supabase
+supabase --version</pre></div></div>
+  <div class="step"><div class="num">3</div><div><h3>Repo y dependencias</h3>
+    <pre>git clone https://github.com/brylop/sportmaps-demo.git
+cd sportmaps-demo
+git checkout develop
+npm install
+cd bff; npm install; cd ..
+cd frontend; npm install; npx playwright install chromium; cd ..</pre></div></div>
+
+  <div class="chap"><div class="badge">2</div><h2>Conseguir el esquema</h2></div>
+  <div class="crumb">Va en supabase/qa-twin/dump/ · git lo ignora a propósito</div>
+  <div class="rule"></div>
+  <p>El gemelo se arma con un volcado del esquema de la viva. Hay dos caminos:</p>
+  <div class="two">
+    <div class="callout tip" style="margin:0"><div class="tag">A · Recomendado</div>
+      Pedirle a Brayan el <b>.zip del volcado</b> y descomprimirlo en <code>supabase/qa-twin/dump/</code>. Son 4 archivos <code>.sql</code> más <code>manifest.json</code>. Solo esquema y catálogos, sin datos personales.</div>
+    <div class="callout warn" style="margin:0"><div class="tag">B · Solo si tienes acceso</div>
+      Con acceso al proyecto de Supabase: <code>supabase login</code>, luego <code>supabase link --project-ref luebjarufsiadojhvxgi</code> y <code>npm run qa:dump-schema</code>. Es de solo lectura.</div>
+  </div>
+  <div class="callout warn"><div class="tag">Ojo con la base viva</div>
+    El volcado lee todo el catálogo de la base viva, y eso consume el presupuesto de disco que el 14 de octubre tumbó la plataforma ~14 horas. Generarlo <b>solo cuando cambie el esquema</b>, nunca en bucle, y nunca en paralelo con migraciones.</div>
+
+  <div class="chap"><div class="badge">3</div><h2>Levantar el gemelo</h2></div>
+  <div class="rule"></div>
+  <div class="step"><div class="num">1</div><div><h3>Arrancar</h3>
+    <pre>npm run qa:twin:up</pre>
+    <p>La primera vez baja ~2 GB de imágenes (~4 min). Si la base está vacía, carga el volcado y la semilla. Si Docker Desktop estaba apagado, el script intenta abrirlo.</p></div></div>
+  <div class="step"><div class="num">2</div><div><h3>Ver URL y llaves</h3>
+    <pre>npm run qa:twin:status</pre>
+    <p>Imprime la URL, las llaves <code>anon</code>/<code>service_role</code> locales (son las de demo de la CLI, iguales en toda máquina, no son secretas) y la cadena de conexión.</p></div></div>
+  <div class="step"><div class="num">3</div><div><h3>Verificar que es igual a la viva</h3>
+    <pre>npm run qa:twin:verify</pre>
+    <p>Compara relaciones, funciones, policies, triggers y <b>permisos</b> de <code>anon</code>/<code>authenticated</code>. Sale con error si difieren. Una prueba negativa de RLS solo vale si el gemelo tiene los mismos permisos que la viva.</p></div></div>
+
+  <table>
+    <tr><th>Servicio</th><th>Dirección local</th></tr>
+    <tr><td>API (<code>SUPABASE_URL</code>)</td><td><code>http://127.0.0.1:54321</code></td></tr>
+    <tr><td>Postgres</td><td><code>postgresql://postgres:postgres@127.0.0.1:54322/postgres</code></td></tr>
+    <tr><td>Studio</td><td><code>http://127.0.0.1:54323</code></td></tr>
+    <tr><td>Correos (Mailpit)</td><td><code>http://127.0.0.1:54324</code></td></tr>
+  </table>
+
+  <div class="chap"><div class="badge">4</div><h2>Usuarios y datos de prueba</h2></div>
+  <div class="crumb">Contraseña de todos: QaGemelo2026! · Correo: &lt;alias&gt;@qa.sportmaps.test</div>
+  <div class="rule"></div>
+  <table>
+    <tr><th>Alias</th><th>Rol</th><th>Alias</th><th>Rol</th></tr>
+    <tr><td><code>owner.a</code></td><td>Owner de <b>QA Academia Andes</b> (pro, tienda + contabilidad)</td><td><code>owner.b</code></td><td>Owner de <b>QA Club Llanos</b> (starter, sin addons)</td></tr>
+    <tr><td><code>admin.a</code></td><td>school_admin de A</td><td><code>padre.b</code></td><td>Padre <b>ajeno</b> a A (hijo en B)</td></tr>
+    <tr><td><code>coach.a</code></td><td>Coach de A</td><td><code>vendedor.ok</code></td><td>Vendedor externo verificado</td></tr>
+    <tr><td><code>padre.a</code></td><td>Padre miembro de A</td><td><code>vendedor.pend</code></td><td>Vendedor sin verificar</td></tr>
+    <tr><td><code>atleta.a</code></td><td>Atleta adulto de A</td><td><code>superadmin</code></td><td>Admin de plataforma</td></tr>
+  </table>
+  <p>Hay además 7 productos (con variantes, agotados, en borrador), cobros <code>paid</code>/<code>partial</code>/<code>pending</code>, proveedor con factura, gastos y un empleado de nómina. Los IDs son fijos; desde SQL: <code>select * from qa_twin.actores</code>.</p>
+
+  <div class="chap"><div class="badge">5</div><h2>Correr las pruebas</h2></div>
+  <div class="rule"></div>
+  <div class="step"><div class="num">1</div><div><h3>Casos SQL de RLS y permisos</h3>
+    <pre>npm run qa:sql -- supabase/tests/tienda_v2          # una carpeta
+npm run qa:sql -- supabase/tests/tienda_v2/R03_anon_no_lee_bank_data.sql</pre>
+    <p>Un archivo es un caso, todo dentro de <code>BEGIN … ROLLBACK</code>. Pasa si termina sin error. Hay carpetas para tienda, contabilidad, hermanos y Dreamers en <code>supabase/tests/</code>.</p></div></div>
+  <div class="step"><div class="num">2</div><div><h3>Vitest de integración del BFF (concurrencia)</h3>
+    <pre>cd bff
+$env:SUPABASE_URL="http://127.0.0.1:54321"
+$env:WOMPI_PUBLIC_KEY="pub_test_x"
+$env:PUBLIC_API_URL="http://127.0.0.1:3000"
+npx vitest run -c vitest.integration.config.ts</pre>
+    <p>Sin esas variables la guarda aborta, porque <code>bff/.env</code> apunta a la viva. Es a propósito.</p></div></div>
+  <div class="step"><div class="num">3</div><div><h3>Playwright contra el gemelo</h3>
+    <pre>cd frontend
+npx playwright test -c playwright.gemelo.config.ts</pre>
+    <p>Levanta <b>su propio</b> Vite en el puerto 3101 con las variables del gemelo. No reutiliza un <code>npm run dev</code> abierto en 3001, porque ese apunta a la viva y la UI escribiría en producción.</p></div></div>
+  <div class="callout tip"><div class="tag">Las unitarias no cambian</div>
+    <code>npx vitest run</code> dentro de <code>bff/</code> (archivos <code>src/**/*.test.ts</code>) usa mocks y no necesita el gemelo ni Docker.</div>
+
+  <div class="step"><div class="num">4</div><div><h3>Escribir un caso SQL nuevo</h3>
+    <pre>begin;
+select set_config('request.jwt.claims', json_build_object(
+  'sub', (select user_id from qa_twin.actores where alias = 'padre.a'),
+  'role','authenticated')::text, true);
+set local role authenticated;
+do $$ begin
+  begin
+    insert into public.orders(user_id,total_amount,status) values (auth.uid(),1000,'paid');
+    raise exception 'FALLO: el comprador inserta una orden pagada';
+  exception when insufficient_privilege then raise notice 'OK: 42501';
+  end;
+end $$;
+rollback;</pre>
+    <p>Leer el actor <b>antes</b> de bajar de rol: <code>authenticated</code> no ve el esquema <code>qa_twin</code>.</p></div></div>
+
+  <div class="chap"><div class="badge">6</div><h2>Probar una migración antes de aplicarla</h2></div>
+  <div class="rule"></div>
+  <div class="step"><div class="num">1</div><div><h3>Aplicarla en el gemelo</h3>
+    <pre>Get-Content supabase\migrations\2026XXXX_mi_cambio.sql |
+  docker exec -i supabase_db_sportmaps-qa-twin psql -U postgres -v ON_ERROR_STOP=1</pre></div></div>
+  <div class="step"><div class="num">2</div><div><h3>Correr los casos y la seguridad</h3>
+    <p>Correr los casos SQL del módulo y, si tocaste RLS o permisos, confirmar que no sale nada crítico en <code>select * from public.invariantes_seguridad()</code> dentro del gemelo.</p></div></div>
+  <div class="step"><div class="num">3</div><div><h3>Volver al estado de la viva</h3>
+    <pre>npm run qa:twin:reset      # base en blanco + volcado + semilla (~1 min)</pre></div></div>
+  <div class="callout warn"><div class="tag">La migración a la viva va aparte</div>
+    Probar en el gemelo no la aplica en producción. En la viva la aplica <b>una sola persona a la vez</b> y por una vía que deje rastro; coordinarlo con Brayan. Las reglas completas están en el <code>CLAUDE.md</code> del repo.</div>
+
+  <div class="chap"><div class="badge">7</div><h2>Guardas anti-producción</h2></div>
+  <div class="rule"></div>
+  <p>Estas guardas abortan la corrida si cualquier URL o cadena de conexión contiene <code>luebjarufsiadojhvxgi</code>, o si la llave de Wompi empieza por <code>pub_prod_</code>:</p>
+  <table>
+    <tr><th>Dónde</th><th>Archivo</th></tr>
+    <tr><td>Playwright</td><td><code>frontend/e2e/helpers/guard-no-prod.ts</code></td></tr>
+    <tr><td>Vitest de integración</td><td><code>bff/test/guard-no-prod.ts</code></td></tr>
+    <tr><td>Scripts del gemelo</td><td><code>scripts/qa-twin/lib.mjs</code> (solo localhost)</td></tr>
+  </table>
+  <p>Si una corrida aborta por la guarda, <b>no la desactives</b>: falta exportar las variables del gemelo.</p>
+
+  <div class="chap"><div class="badge">8</div><h2>Problemas comunes</h2></div>
+  <div class="rule"></div>
+  <table>
+    <tr><th>Síntoma</th><th>Qué hacer</th></tr>
+    <tr><td><code>500 Internal Server Error … images</code> al primer arranque</td><td>Docker Desktop recién encendido. Repetir <code>npm run qa:twin:up</code></td></tr>
+    <tr><td><code>qa:twin:verify</code> difiere justo después de un reset</td><td>La viva cambió desde el volcado, o hay un objeto que el volcado no cubre. Revisar <code>supabase/qa-twin/dump/load.log</code> y pedir un volcado nuevo</td></tr>
+    <tr><td>Un producto no se puede crear directo en <code>active</code></td><td>Comportamiento real de la base: insertar en <code>draft</code> y luego cambiarlo a <code>active</code></td></tr>
+    <tr><td>Un vendedor externo no puede editar productos</td><td>Comportamiento real (policies <code>trial_block_*</code> con escuela nula). No es un problema del gemelo</td></tr>
+    <tr><td>Correos de prueba</td><td>No salen a internet: se ven en Mailpit, <code>http://127.0.0.1:54324</code></td></tr>
+    <tr><td>No hay crons ni edge functions</td><td>El gemelo no los replica. <code>pg_net</code> existe, pero sus llamadas no llegan a ningún lado</td></tr>
+  </table>
+
+  <div class="final"><div class="chap"><div class="badge">✓</div><h2>Comandos del día a día</h2></div>
+  <div class="rule"></div>
+  <table>
+    <tr><th>Comando</th><th>Para qué</th></tr>
+    <tr><td><code>npm run qa:twin:up</code></td><td>Arrancar (~40 s si ya estaba cargado)</td></tr>
+    <tr><td><code>npm run qa:twin:status</code></td><td>URL, llaves y conexión</td></tr>
+    <tr><td><code>npm run qa:twin:verify</code></td><td>¿Sigue igual a la viva?</td></tr>
+    <tr><td><code>npm run qa:sql -- &lt;archivo|carpeta&gt;</code></td><td>Casos SQL</td></tr>
+    <tr><td><code>npm run qa:twin:seed</code></td><td>Volver a cargar solo la semilla</td></tr>
+    <tr><td><code>npm run qa:twin:reset</code></td><td>Dejarlo como recién cargado (~1 min)</td></tr>
+    <tr><td><code>npm run qa:twin:down</code></td><td>Apagar. Los datos quedan en el volumen</td></tr>
+  </table></div>
+</main>
+</body>
+</html>

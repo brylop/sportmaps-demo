@@ -12,16 +12,18 @@ import type { Fulfillment } from '@/lib/store/orderStatus';
  */
 export function useCartQuote(
   groupItems: CartItem[],
-  opts: { fulfillment?: Fulfillment; address?: QuoteInput['address']; enabled?: boolean } = {},
+  opts: { fulfillment?: Fulfillment; address?: QuoteInput['address']; enabled?: boolean; couponCode?: string | null } = {},
 ) {
   const { items: allItems, replaceItems } = useCart();
   const fulfillment = opts.fulfillment ?? 'pickup';
   const quoteItems = useMemo(() => toQuoteItems(groupItems), [groupItems]);
   const addressKey = fulfillment === 'shipping' ? (opts.address?.departamento ?? '') : '';
+  // Cupón (F3b): la base lo valida y calcula; el cliente solo manda el código.
+  const couponCode = opts.couponCode?.trim() ? opts.couponCode.trim().toUpperCase() : null;
 
   const query = useQuery<CartQuote>({
-    queryKey: ['store', 'quote', quoteItems, fulfillment, addressKey],
-    queryFn: () => quoteCart({ items: quoteItems, fulfillment, address: opts.address ?? null }),
+    queryKey: ['store', 'quote', quoteItems, fulfillment, addressKey, couponCode],
+    queryFn: () => quoteCart({ items: quoteItems, fulfillment, address: opts.address ?? null, couponCode }),
     enabled: (opts.enabled ?? true) && quoteItems.length > 0,
     staleTime: 15_000,
     retry: false,

@@ -148,6 +148,8 @@ export default function MyPaymentsPage() {
     discount_eligible?: boolean;
     discount_amount?: number;
     paymentCategory?: string | null;
+    /** Recargo por mora ya sumado en el cobro (apply_late_fees). Solo se muestra. */
+    late_fee_amount?: number | null;
   } | null>(null);
 
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
@@ -329,7 +331,12 @@ export default function MyPaymentsPage() {
           installments_pending: p.installments_pending,
           concept: p.concept,
           child_id: p.child_id,
-          child_name: childNameMap[p.child_id] || 'Deportista',
+          // Acudiente que además es atleta: sus cobros propios llegan con él como
+          // pagador y sin hijo (child_id NULL). Se muestran junto a los de los
+          // hijos, rotulados como suyos (spec cambio-de-rol-atleta-acudiente.md).
+          child_name: p.child_id
+            ? (childNameMap[p.child_id] || 'Deportista')
+            : (p.parent_id === user?.id ? 'Tú (como atleta)' : 'Deportista'),
           payment_method: p.payment_type || 'transfer',
           status: p.status === 'paid' ? 'approved' : p.status,
           reference: p.receipt_number || `SP-${p.id.slice(0, 8).toUpperCase()}`,
@@ -520,6 +527,7 @@ export default function MyPaymentsPage() {
     discount_eligible: p.discount_eligible,
     discount_amount: p.discount_amount,
     paymentCategory: p.payment_category ?? null,
+    late_fee_amount: p.late_fee_amount ?? null,
   });
 
   useEffect(() => {
@@ -608,6 +616,7 @@ export default function MyPaymentsPage() {
             discount_eligible: p.discount_eligible,
             discount_amount: p.discount_amount,
             paymentCategory: p.payment_category ?? null,
+            late_fee_amount: p.late_fee_amount ?? null,
           });
         }}
         isSelected={selectedPayment?.paymentId === txn.id}
@@ -871,6 +880,11 @@ export default function MyPaymentsPage() {
             ) : (
               <span className="font-bold text-xl text-emerald-400 dark:text-emerald-300">
                 {formatCurrency(selectedPayment.amount)}
+              </span>
+            )}
+            {(selectedPayment.late_fee_amount ?? 0) > 0 && (
+              <span className="text-[10px] font-semibold text-amber-400 dark:text-amber-300">
+                Incluye recargo por mora: {formatCurrency(selectedPayment.late_fee_amount as number)}
               </span>
             )}
           </div>

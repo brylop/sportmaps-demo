@@ -49,6 +49,21 @@ export function totalConRecargo(amount: number, s: { surchargeMode?: string | nu
     return amount + ((s.surchargeMode ?? 'same_as_online') === 'same_as_online' ? Math.round(amount * pct / 100) : 0);
 }
 
+/**
+ * Estados de una mensualidad que el débito cobra (mig 20261014133326, D14 revertida en
+ * lo vencido el 2026-10-14): pending, overdue (con la mora ya sumada) y partial.
+ */
+export const ESTADOS_DEBITABLES = ['pending', 'overdue', 'partial'] as const;
+
+export function esDebitable(status: string | null | undefined): boolean {
+    return (ESTADOS_DEBITABLES as readonly string[]).includes(String(status ?? ''));
+}
+
+/** Saldo del cobro = amount − amount_paid (la base del total, como autopay_payment_total). */
+export function saldoCobro(p: { amount: number | string | null; amount_paid?: number | string | null }): number {
+    return Math.max(Number(p.amount ?? 0) - Number(p.amount_paid ?? 0), 0);
+}
+
 /** Tope sugerido (D5): total vigente + 20 %, redondeado hacia arriba a miles. */
 export function topeSugerido(total: number | null): number | null {
     if (total == null || total <= 0) return null;
@@ -234,15 +249,17 @@ router.get('/mine', requireAuth, async (req: Request, res: Response) => {
             const aj = ajustes.get(d.schoolId);
             const { data: pagos } = await filtroAtleta(
                 supabase.from('payments')
-                    .select('id, amount, status, due_date, period_year, period_month')
+                    .select('id, amount, amount_paid, status, due_date, period_year, period_month')
                     .eq('school_id', d.schoolId).eq('payment_category', 'mensualidad')
                     .not('period_year', 'is', null).neq('status', 'cancelled'),
                 d,
             ).order('period_year', { ascending: false }).order('period_month', { ascending: false }).limit(12);
             const lista = (pagos as any[]) ?? [];
             const ultimo = lista[0];
-            const currentTotal = ultimo ? totalConRecargo(Number(ultimo.amount), aj) : null;
-            const currentPeriod = ultimo && ultimo.status === 'pending' && ultimo.due_date >= hoy
+            const currentTotal = ultimo ? totalConRecargo(saldoCobro(ultimo), aj) : null;
+            // «Debitar también la mensualidad de <mes>»: si está por cobrar, vencida o no
+            // (con la mora incluida en el total). Antes solo pending no vencida (D14).
+            const currentPeriod = ultimo && esDebitable(ultimo.status) && saldoCobro(ultimo) > 0
                 ? { paymentId: ultimo.id, periodMonth: ultimo.period_month, periodYear: ultimo.period_year, dueDate: ultimo.due_date, total: currentTotal! }
                 : null;
             const overdueCount = lista.filter(p => p.status === 'overdue' || (p.status === 'pending' && p.due_date < hoy)).length;
@@ -716,7 +733,7 @@ router.get('/school/:schoolId/panel', requireAuth, schoolGuard(), async (req: Re
                 providerTransactionId: i.provider_transaction_id, createdAt: i.created_at,
             })),
             parentSkips: ciclosArr
-                .filter(c => c.state === 'skipped' && c.skip_reason === 'parent_skip' && c.payments?.status === 'pending')
+                .filter(c => c.state === 'skipped' && c.skip_reason === 'parent_skip' && esDebitable(c.payments?.status))
                 .map(c => ({
                     cycleId: c.id, paymentId: c.payment_id, periodMonth: c.payments?.period_month,
                     athleteName: subPorId.get(c.subscription_id) ? nombreAtleta(subPorId.get(c.subscription_id)) : 'Deportista',

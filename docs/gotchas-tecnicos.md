@@ -546,3 +546,29 @@ simulada de un `staff` de Dreamers (0 filas) frente a la del owner (1 fila).
 pago de varios cobros va por la RPC `register_manual_payments` (migración `20261010143350`), atómica y con la
 misma regla de autorización (`is_school_admin` o super admin, escuela operativa, cobros pendientes/atrasados de
 un mismo deportista, máx. 50). Ampliar el permiso a `staff` es una decisión de producto aparte: hoy NO puede.
+
+### El primer cobro de un alta nacía vencido y con recargo al día siguiente
+
+**Causa:** `dueInEntryMonth` (`prorationUtils.ts`) pone el vencimiento en el día de corte *o el día del alta si el corte
+ya pasó* («un cobro no nace vencido»). Con corte 5 y gracia 0 (Dreamers), un alta el 10 vence el 10 y el cron
+`apply_late_fees` de las 02:00 del 11 lo pasaba a `overdue` y le sumaba 5 %. Además `overdue` alimenta el bloqueo
+automático. Pasó con Zoe Barrera y Avril Salomé Aguilar (2026-10-10).
+
+**Arreglo (migración `20261011101750`, solo con `school_settings.late_fee_skip_signup_month = true`):** trigger
+`trg_payments_primer_cobro_prox_corte` mueve el vencimiento del primer cobro mensual al corte del mes siguiente y
+`apply_late_fees` nunca le suma recargo (`fn_is_first_monthly_charge`: primera mensualidad no anulada del atleta).
+**Trampa:** quien redefina `apply_late_fees` debe partir del cuerpo VIVO, o pierde la exención sin que nada falle.
+
+### En Dreamers el «dorsal» se usaba como ID del torniquete, y sin mapeo no abre
+
+**Causa:** el registro tenía un campo «Dorsal» de texto libre; Dreamers escribía ahí el PIN del lector, pero el torniquete
+solo reconoce a alguien con una fila en `zk_user_mappings`. Tres inscritos recientes tenían el número y no abrían.
+**Arreglo:** el campo se reemplaza por el ID del torniquete y se asocia en el alta
+(`docs/specs/dreamers-id-torniquete-en-registro.md`). Un dorsal escrito **no** crea mapeo.
+
+### El botón «Compartir link» no aparecía: la escuela no tenía fila en `school_trial_class_settings`
+
+**Causa:** el botón (Planes y Membresías y Ajustes de clases de prueba) exige `self_service_enabled` de esa tabla, que
+se crea «lazy» al primer uso. Dreamers nunca la tuvo, así que no se mostraba. **Arreglo:** se activó con la RPC
+`trial_class_self_service_save_settings` (reagendar 12 h, cobro `en_sede`) el 2026-10-13. El link es
+`/agendar-clase/<slug>`; las categorías de clase de prueba de Dreamers están en 0.

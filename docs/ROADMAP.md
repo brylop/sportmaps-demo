@@ -1,11 +1,138 @@
 # SportMaps — Roadmap Maestro
 
-**Versión:** 2.35 · **Fecha:** 2026-10-05 · **Rama:** `develop`
+**Versión:** 2.37 · **Fecha:** 2026-10-14 · **Rama:** `develop`
 
 > **Este es el único roadmap.** Todo lo demás en `docs/` es *spec* (qué se construye y por qué),
 > *plan de fase* (cómo se migra), *doctrina de arquitectura* (cómo se hace) o *auditoría* (qué está
 > mal). Ninguno de esos documentos define prioridades: las define esta cola. Si un pendiente no
 > aparece aquí, no existe.
+
+**Cambios v2.36 → v2.37** (2026-10-14, tarde). Tres cosas: (a) cómo quedó la caída de Disk IO; (b) qué le falta a Besser para conectar su WhatsApp; (c) **el track V2: cómo se ejecuta el rediseño, en qué orden y con qué compuerta**. Este bloque y el de v2.36 mandan juntos sobre §4. Los ítems nuevos se suman a la cola v2.36 con sus números.
+
+*Caída del 14-oct (Disk IO):*
+- El arreglo `344f0be9` está en `main`, `staging` y `develop`. Prod desplegó `c30d265a` a las 12:18; dev, `018923ae`; staging sigue suspendido.
+- La base arrancó a las 10:28.
+- **Se perdieron mensajes de familias.** De Dynasty no entró ningún mensaje de WhatsApp entre las 20:47 del 13-oct y las 10:00 del 14-oct, ni siquiera tarde por los reintentos de Meta. El día anterior, en la misma franja de 6 a 10 a. m., habían entrado más de 160.
+- **Regla nueva:** después de cada incidente, cruzar `whatsapp_messages.wa_timestamp` contra `created_at` para saber qué se perdió.
+- La tasa de temp medida en una ventana de 2,4 min fue ~12 GB/día, contra ~30 GB/día el 10-06. Esa ventana no basta: hay que remedir con una ventana larga antes de sumar escuelas al bot.
+
+*Cola: se suman a la tabla v2.36:*
+
+| # | Crit. | Qué | Evidencia (14-oct) |
+|---|---|---|---|
+| 13 | 🟠 P1 | **«Milena» está escrita a mano en el prompt global del bot** (`whatsapp-bot.service.ts:3406`). Con una segunda escuela conectada, el bot hablaría de la profe de Dynasty | Arreglo de una línea: el nombre sale de `school_members`. Se hace antes de conectar a cualquier escuela nueva |
+| 14 | 🟠 P1 | **Besser: alistamiento para su WhatsApp.** Bloqueante: **14 cobros sin pagador ($4.970.000)**; a esas familias el bot les diría «estás al día» | Faltan además: el celular de la dueña, todas las cuentas en `payment_accounts`, rangos de edad (0), `business_hours` en las dos tablas y atención presencial / qué llevar. Ya están bien: 95 % de celulares, 8/8 horarios, 4 planes con precio y QR de cortesía. Revisión: `bff/scripts/wa-alistamiento-escuela.ts "BESSER"`. Conectar por Embedded Signup con el bot apagado, **no** con `wa-conectar-escuela.ts`, que lo deja encendido. Antes, pedir la foto de «Plataforma conectada» |
+| 15 | 🟡 P2 | `get_school_info` dice «no disponible» para precios y edades aunque existan. Los horarios de `semana_app` ofrecen grupos cerrados o marcados «NO USAR». `welcome_message` no lo lee nadie | `whatsapp-info-escuela.service.ts:434-435` · `whatsapp-cortesia-semana.service.ts:183-189` |
+
+---
+
+### Track V2 — cómo se ejecuta el rediseño (decidido el 2026-10-14)
+
+**Fuentes:**
+- Lienzo: https://claude.ai/artifact/CGQozXBXP91kJn7YNF5Cs4 (páginas V2 · Principios, Acudiente, Entrenador, Dueño, Deportista y **Comunicaciones**).
+- Cruce de pantallas: [`mapa-app/cruce-rediseno.md`](mapa-app/cruce-rediseno.md).
+- Plan de tamaños: [`specs/dimensionamiento-responsive.md`](specs/dimensionamiento-responsive.md).
+- Primer módulo: [`specs/comunicaciones-rediseno-v2.md`](specs/comunicaciones-rediseno-v2.md).
+
+**La V1 no se construye entera.** La V2 manda. Lo que la V2 no dibuja hereda de la V1 (regla del cruce). Fuera de alcance: construir las 30 pantallas de la V1 antes de probar las tareas de la V2.
+
+**Reglas para todo lo que se construya del track:**
+1. **Spec antes de código.** Cada módulo tiene su `docs/specs/<módulo>-v2.md` que cruza inventario, tableros y reglas, con fases y métricas. Rama por fase y revisión entre fases.
+2. **Las 8 reglas de la V2 son criterio de aceptación**, no estilo:
+   - WhatsApp primero;
+   - una frase y un botón;
+   - lo normal ya viene marcado;
+   - Deshacer en vez de «¿Seguro?»;
+   - funciona sin señal donde aplique;
+   - palabras de la cancha (`V2Palabras`);
+   - valores por defecto;
+   - celular primero.
+3. **Dimensionamiento:** cero píxeles fijos, solo tokens (`docs/design-tokens.md`). Toda pantalla nueva entra en la auditoría `scripts/qa-responsive/` (D3) a 360/768/1024/1440 × zoom 80–200 % × escala de Windows 125/150 %.
+4. **Cada fase se mide contra una línea base de la base viva**: no se da por cerrada sin el número de antes y el de después.
+5. **Full-stack por fase** (DB + RLS + BFF + frontend + QA real). Lo que toque WhatsApp se prueba con mensajes reales: ese módulo no se valida leyendo código.
+
+**Cómo se procede:**
+
+| Ola | Qué | IDs | Depende de | Estado |
+|---|---|---|---|---|
+| **0 · Cimientos** (en paralelo con la ola 1) | Ver el detalle debajo de esta tabla | V2-0a … V2-0d | — | D0–D3 en curso, quedan 39 px fijos |
+| **1 · WhatsApp primero** | Comunicaciones F0 → F1 → F2; Dueño · Hoy («Te esperan», «Aprobar los 9» con Deshacer); el cobro llega por WhatsApp y se paga sin sesión (`/p/:token` ya existe, falta subir el comprobante desde el enlace) | V2-1 … V2-4 | Estabilidad de la base; ítem 13; para la auto-aprobación, DKIM (ítem 6) y los 589 menores sin `parent_id` | **Arranca ya** con Comunicaciones F0 + F1 |
+| **2 · Entrenador en la cancha** | Hoy del profe (absorbe UX-10/11/12); lista con todos presentes y **sin señal** (IndexedDB: hoy no existe); evaluar al equipo con «Bien · Normal · Le costó»; plan de hoy en modo cancha | V2-5 … V2-8 | V2-0c | Después de la prueba de usuarios |
+| **3 · Primera vez y arranque** | «¿Eres Carolina?» con código por WhatsApp (hoy no hay OTP); escuela nueva en 3 pasos; carga de deportistas con una foto de la planilla | V2-9 … V2-11 | Canal de WhatsApp por escuela o de plataforma; [alta por foto de matrícula](specs/alta-atleta-por-foto-hoja-matricula.md) y [fotos de planillas](specs/fotos-de-planillas-y-autorregistro.md) | Después de la ola 1 |
+| **4 · Lo que depende de afuera** | Bre-B en el enlace (Factus Pay, ver D-FPAY); SportPoints (sin presupuesto: premios de marcas aliadas); autoevaluación dentro del chat; Inicio del acudiente; racha del deportista | V2-12 … | Factus · SportPoints F0 | Bloqueada |
+
+Lo que incluye la ola 0:
+- **V2-0a · Dimensionamiento D1–D5:** traspaso a Julián, `4fe235f9`.
+- **V2-0b · Vocabulario «Una palabra por cosa»:** solo cambio de textos. Incluye el voseo que queda en `TournamentRegisterPage.tsx:81` y `MyEnrollmentsPage.tsx:513`.
+- **V2-0c · Patrón Deshacer compartido:** un hook más un toast de 8 s. Hoy no existe en pagos, y lo necesitan Aprobar, Comunicaciones y Lista.
+- **V2-0d · Cerrar la contradicción del menú:** «Dinero» o «Cobros», «Deportivo» o «Entrenadores».
+
+**La compuerta: prueba con 5 personas reales**, antes de construir las olas 2 y 3.
+- Se usa el prototipo del lienzo en el celular de cada persona: el tablero de dueño, de profe y de acudiente.
+- Son 12 tareas: las 9 de `V2Main` y las 3 de Comunicaciones (§7 del spec).
+- Pasa si 4 de 5 lo logran solas en el tiempo meta.
+- Candidatos: Milena (Dynasty), Besser, 2 profes y acudientes de Dynasty.
+- La ola 1 no espera esta prueba: la línea base ya muestra el problema (0 respuestas desde el panel, 1/381 propuestas aprobadas, 72 % del WhatsApp escrito desde el celular) y sus fases son de bajo riesgo.
+
+**Orden inmediato (esta semana):**
+1. **Remedir el Disk IO** con una ventana larga.
+2. **Comunicaciones F0:** «Te esperan», interesados sin ruido, palabras, menú recogido a 64 px en WhatsApp, y quitar «Milena» (ítem 13).
+3. **Comunicaciones F1:** la respuesta llega lista y «Enviar» tiene Deshacer. Con eso queda el patrón V2-0c.
+4. **Besser:** cerrar los 14 cobros sin pagador y cargar sus datos (ítem 14).
+5. **Programar la prueba** de las 12 tareas con 5 personas.
+6. **Contestar D-V2NAV y D-COM** (§5).
+
+**Cambios v2.35 → v2.36** (2026-10-05 → 14). Auditoría de solo lectura del 13-oct contra la base viva y el repo, en tres frentes: dinero, seguridad y producto. El frente de migraciones e infraestructura **no se completó**: se cortó y no se reanudó porque el 14-oct la base se cayó ~14 h por Disk IO, y ese barrido lee el catálogo (ver CLAUDE.md). **Esta sección manda sobre la cola §4 hasta que se reescriba.**
+
+*Cola vigente por criticidad (reemplaza §4 y §7 mientras tanto):*
+
+| # | Crit. | Qué | Evidencia (13-oct) |
+|---|---|---|---|
+| 1 | 🔴 P0 | **Checkout de Dynasty sin cobrar en línea desde el 07-sep.** El 13-oct a las 16:25 pasó a `payment_mode='direct'` con llave `pub_prod_`, pero el estado es `connected_pending_webhook` y no se ha creado ningún link después del cambio. | 34 `payment_links` desde el 14-sep: 31 pendientes, 3 fallidos, 0 pagados. Validar con un pago real, registrar el webhook y quitar el fallback `VITE_WOMPI_PUBLIC_KEY` (`frontend/src/lib/api/wompi.ts:148`). |
+| 2 | 🔴 P0 | **Monster no factura.** | 125 inscripciones activas, 0 con plan o monto, $0 pagado desde septiembre. Además tiene `auto_cancel_overdue_enabled=true` y ninguna cuenta de recaudo cargada. Mientras no se carguen montos, apagar la autocancelación. |
+| 3 | 🔴 P0 | **Dreamers U3: 95 PIN deshabilitados el 06-oct y 0 rehabilitados.** U1/U2: la facturación de noviembre está apagada y el ciclo se revirtió. | Comandos `disable_user`=95 y `enable_user`=0. Hay que confirmar con la dueña antes del 01-nov (`docs/specs/dreamers-cierre-total.md`). |
+| 4 | 🟠 P1 | **Seguridad: `get_school_athletes(p_school_id, p_team_id)`** es `SECURITY DEFINER` y su gate es `user_school_ids()`. Cualquier padre o deportista lista el nombre y el correo de todos los acudientes de su escuela. | Arreglo: gate `user_staff_school_ids()`, o enmascarar `parent_name`/`parent_email` cuando quien llama no es staff. |
+| 5 | 🟠 P1 | **Cola de comprobantes por WhatsApp pierde archivos.** | 4 `failed` `token_decrypt_failed` en Dynasty (10-10 al 13-oct) porque otro BFF con otra llave toma la cola compartida. El reintento `12f38b78` no alcanzó al consumidor que falla. Hay que identificar ese BFF y reprocesar los 4. |
+| 6 | 🟠 P1 | **Conciliación por correo del banco (DKIM)** como requisito para encender la auto-aprobación. | `bank_statements`=0. 1.341 pagos `paid` sin conciliar. No existe el webhook `resend-inbound`. Dynasty aprueba todo a mano: 9,7 h de promedio, máximo 30 h. |
+| 7 | 🟠 P1 | **SEG-13: ningún super_admin tiene MFA.** | `auth.mfa_factors` sin factores verificados. Además, `auth_leaked_password_protection` está apagado. |
+| 8 | 🟠 P1 | **10 migraciones locales del 13-oct sin commitear ni aplicar:** aging de cartera (el que está vivo infla la mora), hermanos escalonado ×2, QR con inscripción + seguro, `reserve_hour_bank`, mensualidad que estampa el plan, `sync_access_group` (con encabezado «TODO») y 3 de tienda. | Las de tienda incluyen `tienda_compra_sin_cuenta`, que abre RPCs por token a anon: revisarla línea por línea antes de aplicar. **Una sola sesión aplica, al final regenera tipos** (regla de Disk IO). |
+| 9 | 🟡 P2 | Restos de dinero | Queda 1 persona con 2 fichas en Dynasty ($150.000/mes; antes eran 13 personas y $1,77 M). En la plataforma hay 3 más (Porras, GYM RM y una de prueba). 2 inscripciones activas sin equipo ni plan. El CHECK `enrollments_active_needs_target` está NOT VALID. `open_month` sigue sin filtrar atletas inactivos (DIN-25), aunque hoy el daño es 0. |
+| 10 | 🟡 P2 | Cosas construidas pero apagadas, sin piloto | Cobros y pagos F0–F3 (flag apagado, `charge_batches`=0). Débito automático F0–F3 (`autopay_runner.base_url` nulo, 0 suscripciones). Informe de cartera (0 escuelas). Canal WA de plataforma y ventas por WA (0 uso). |
+| 11 | 🟡 P2 | Métrica T0 de la pizarra nunca se cablea | `logTacticalEvent()` solo se usa en tests y `tactical_board_events`=0, aunque se editaron 21 alineaciones. Sin esa métrica no se pueden decidir T5–T7. |
+| 12 | 🟡 P2 | Deuda de seguridad | 41 I3 (FOR ALL sin WITH CHECK; las que usan `is_school_admin()` no son explotables). SEG-11: staging devuelve `err.message` y el 403 filtra UUID y rol. CSRF solo en 3 routers. |
+
+*Corrección:* las alertas I6 (`v_payment_adjustments_familia`) e I7 (`create_school_join_qr`, `request_athlete_certificate`, `issue_athlete_certificate`) son **falsos positivos**. La vista filtra por `auth.uid()` con `security_barrier`, y las RPC delegan en `*__interno`, que solo ejecuta service_role. Conviene allowlistearlas en el invariante con su motivo.
+
+*Verificado cerrado:* identity-documents (bucket privado, anon lee 0); `vendor_profiles` no da permiso a anon; los 5 huecos del linter del 05-oct (salvo el residuo de `get_school_athletes`); `buscar_menor_por_documento_publico` (enmascarado y con límite de tasa); SEG-2 `school_athletes`; guard de pagos desde el cliente vivo; 0 cobros de mensualidad duplicados del mismo periodo en 30 días; las 8 migraciones de `docs/migraciones-para-aplicar-2026-10-13.sql` aplicadas.
+
+*Entregado entre el 05 y el 13 de octubre (116 commits, todo en `origin/main`):*
+- NIV-8 / Dreamers F-A a F-F, con vigencia a fin de mes y primer cobro sin recargo.
+- Débito automático F0–F3, apagado.
+- Cobros y pagos F0–F3 y pagos únicos genéricos, con seguridad S1 (pronto pago) y S4 (monto desde el cliente).
+- Rechazar un comprobante ya no borra la deuda.
+- Profesionales de salud F0–F3 + i7.
+- Factura electrónica del pagador v2.
+- WhatsApp:
+  - clase de cortesía y prospectos;
+  - cadencia de cobro, notas de voz, tomar la conversación, bandejas y buzón F1;
+  - canal de plataforma, ajustes por escuela e informe de calidad y costo;
+  - bot con Claude;
+  - el comprobante elige el cobro por el pie de foto.
+- Informe de cartera, SportBot y ventas por WA F0.
+- Seguimiento deportivo F1–F6 y pizarra T1/T3/T4.
+- Carnets: plantilla predeterminada y privacidad.
+- Seguridad: alcance del coach, lista blanca de roles en el registro y `/admin` solo para plataforma.
+- Acceso GYM RM: deduplicación, wakeup por WebSocket y congelamiento por mora.
+- Pasarela por escuela desde Super Admin.
+- Dimensionamiento responsive y mapa de la app (`docs/mapa-app/`).
+
+*Encabezados de spec desactualizados:* `debito-automatico.md` («no hay código»), `canal-whatsapp-plataforma` («sin aplicar»), `rediseno-seguimiento-deportivo.md` («PLAN») y profesionales («pendiente i7»).
+
+*Rediseño global (lienzo V1/V2):* sin código. El cruce está en `docs/mapa-app/cruce-rediseno.md`: 130 pantallas viven, 62 se fusionan, 55 se eliminan y **38 faltan** (Planes, entre otras). La navegación quedó unificada el 13-oct como Hoy · Deportistas · Entrenadores · Asistencia · Calendario · Cobros · Tienda · WhatsApp · Escuela · Configuración. UX-* y MOV-* no avanzaron, salvo lo responsive.
+
+*Bre-B con Factus Pay:* bloqueado. La plata entra a Factus Pay con dispersión semanal, no hay webhook, B2B es imposible y no hay fecha de producción. Ver `docs/specs/plan-maestro-cobros-2026-10.md` §6.1–6.2.
+
+---
 
 **Cambios v2.34 → v2.35** (2026-10-04 → 05, verificado contra la base viva y los logs de Render).
 
@@ -41,6 +168,16 @@ WS (`bridgeWsServer.ts`). **Verificado:** los 4 `last_seen_at` volvieron a los s
   plan con traslado de horas y aviso parcial/completo construido (Dreamers y Academia Superior), falta desplegar BFF y
   frontend. Edna y Fabio ya salieron de estudiantes (Edna a staff, diferido).
   Spec: [`specs/dreamers-ciclo-cobro-1-al-5-y-bloqueo.md`](specs/dreamers-ciclo-cobro-1-al-5-y-bloqueo.md).
+- **Dreamers — primer cobro sin recargo, descuento que viaja, pago de varios cobros, ID del torniquete y link de
+  agendamiento** (2026-10-10 → 14): el cobro del mes de alta vence en el corte del mes siguiente y nunca recibe recargo
+  (migración `20261011101750`, flag `late_fee_skip_signup_month`); el descuento del primer mes viaja con el cobro
+  (`20261010140353`) y Zoe quedó reversada con descuento; «Registrar pago» admite varios cobros en una RPC atómica
+  (`20261010143350`); el registro pide el **ID del torniquete** en lugar del dorsal en Dreamers y Academia Superior
+  (`20261013180924`, flag `registration_zk_pin_enabled`); «Compartir link» activado para Dreamers. Todo lo de base está
+  en vivo; **falta desplegar BFF + frontend** y decidir: descuento solo del primer mes o recurrente, y asociar a Zoe,
+  Avril y Sofía al torniquete. Specs:
+  [`specs/dreamers-id-torniquete-en-registro.md`](specs/dreamers-id-torniquete-en-registro.md) y el plan de cierre en
+  [`specs/dreamers-ciclo-cobro-1-al-5-y-bloqueo.md`](specs/dreamers-ciclo-cobro-1-al-5-y-bloqueo.md).
 - **Banco de horas — parámetros y regla de cobro con Dreamers** (`MOD-21`): gracia 10 min antes / 20 después
   y reingreso 5 min (Dreamers; Academia Superior: igual gracia, reingreso 15) — son settings por escuela,
   no código. Nuevo `school_settings.hours_billing_rounding` (`none` | `hour_up`): pasada la gracia, todo
@@ -60,7 +197,7 @@ ya existe `alert_offline_access_devices()` (pg_cron cada 5 min, avisa al owner c
 el heartbeat y `last_seen_at` solo se movía al marcar. Ahora el heartbeat sale solo mientras la captura
 está viva, así que esa alerta cubre también «la captura murió».
 
-*Nuevo en la cola:* `MOD-34` 🔴 (carga de PINs de Dreamers — solo 6 mapeos), `MOD-35` (ciclo de vida de
+*Nuevo en la cola:* `MOD-34` 🔴 (carga de PINs de Dreamers — 7 mapeos; las altas nuevas ya los asocian con el campo de ID del torniquete, queda el backlog del lector), `MOD-35` (ciclo de vida de
 las reservas del banco de horas), `INF-16` (ingesta autenticada para los bridges).
 
 **Cambios v2.33 → v2.34** (2026-10-01 → 04, verificado contra git y la base viva el 2026-10-04 —
@@ -1881,6 +2018,8 @@ esfuerzo real todavía no está acotado.
 
 | Decisión | Bloquea | Nota |
 |---|---|---|
+| **D-V2NAV** — el lienzo se contradice en el menú de la escuela: ¿«Dinero» o «Cobros»?, ¿«Deportivo» o «Entrenadores»?, ¿y qué va en la barra inferior? | V2-0d y todo el track V2 | La navegación de 13-oct usa Cobros + Entrenadores, y el spec de Comunicaciones lo asume. Hay que confirmarlo y dibujarlo una sola vez en `Navegacion`, `Sidebar` y `TabBar` |
+| **D-COM** — cuatro decisiones de [Comunicaciones V2](specs/comunicaciones-rediseno-v2.md) §8: (1) ¿responder desde el WhatsApp personal de la dueña (relevo)?; (2) ¿«SportBot» o «el asistente» ante la escuela?; (3) ¿horario de atención por defecto L–S 8–18, o copiado de los entrenos?; (4) confirmar «Cobros» | Comunicaciones F2 (1) y F0 (2–4) | El relevo queda fuera de alcance por riesgo de suplantación; si se quiere, necesita su propio spec de seguridad |
 | Las 4 de `DIN-1` §8 | P0 completo | `students.ts:829` · las 16 huérfanas · backfill de `period_*` · GYM RM |
 | `D9/D11` de `NIV-4` — ¿bloqueo real por día vía grupos de acceso del F22, o solo log/aviso en el BFF? | `NIV-4` | El BFF no controla la puerta; automatizar bloqueo real es proyecto aparte — [spec §8.2](specs/dreamers-niveles-por-horas-y-progresion.md) |
 | **D-FPAY** — Factus Pay: ¿solo para la facturación SaaS de SportMaps (una cuenta, la plata entra a SportMaps) o también para mensualidades (cuenta por escuela)? ¿Tiene webhook o hay que hacer polling? | `DIN-23` F2–F3 | Sin webhook, cada cobro pendiente cuesta consultas periódicas; con cuenta única, la plata de las familias le entraría a SportMaps y habría que girarla — lo mismo que ya se descartó con Wompi |

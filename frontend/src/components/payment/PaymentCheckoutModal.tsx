@@ -85,15 +85,26 @@ interface PaymentCheckoutModalProps {
    * es un cobro ÚNICO (inscripción, seguro… — ver isOneTimeCategory).
    */
   paymentCategory?: string | null;
+  /**
+   * Medios que acepta quien cobra (claves: wompi, nequi, daviplata, breb,
+   * transferencia, efectivo). Hoy solo lo manda la inscripción a un torneo
+   * (events.payment_methods). Sin valor o vacío = todos, como siempre.
+   */
+  allowedMethods?: string[] | null;
   onSuccess?: () => void;
 }
 
 export function PaymentCheckoutModal({
-  open, onOpenChange, studentId, schoolId, paymentId, teamId, childId, childName, branchId, amount, concept, mode = 'update', initialConceptType, paymentCategory: paymentCategoryProp, onSuccess
+  open, onOpenChange, studentId, schoolId, paymentId, teamId, childId, childName, branchId, amount, concept, mode = 'update', initialConceptType, paymentCategory: paymentCategoryProp, allowedMethods, onSuccess
 }: PaymentCheckoutModalProps) {
   const [selectedMethod, setSelectedMethod] = useState<'pse' | 'card' | 'transfer' | 'online' | 'mercadopago' | null>(null);
   const [mpReference, setMpReference] = useState<string>('');
   const [wompiEnabled, setWompiEnabled] = useState(false);
+  // Restricción por medios aceptados (torneos). Sin lista = sin restricción.
+  const restringe = !!allowedMethods && allowedMethods.length > 0;
+  const permiteOnline = !restringe || allowedMethods!.includes('wompi');
+  const permiteTransfer = !restringe
+    || allowedMethods!.some((k) => ['nequi', 'daviplata', 'breb', 'transferencia'].includes(k));
   // true cuando ya se leyó school_settings: recién ahí se sabe qué método preseleccionar.
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [onlineFeePct, setOnlineFeePct] = useState(3);
@@ -368,9 +379,9 @@ export function PaymentCheckoutModal({
   // elección ya hecha.
   useEffect(() => {
     if (!open || !settingsLoaded || selectedMethod) return;
-    setSelectedMethod(wompiEnabled ? 'online' : 'transfer');
+    setSelectedMethod(wompiEnabled && permiteOnline ? 'online' : 'transfer');
     // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al cargar settings
-  }, [open, settingsLoaded, wompiEnabled]);
+  }, [open, settingsLoaded, wompiEnabled, permiteOnline]);
 
   // ── Wompi checkout hook ──────────────────────────────────────────────────
   const finalAmount = conceptType === 'articulos'
@@ -644,9 +655,14 @@ export function PaymentCheckoutModal({
   // eslint-disable-next-line no-constant-binary-expression -- kill switch intencional (SEG-23), no un error
   const mpEnabled = false && !!import.meta.env.VITE_MP_PUBLIC_KEY_DEFAULT;
 
+  // Wompi disponible Y aceptado por quien cobra; transferencia si el cobro la
+  // acepta o si no quedaría ningún otro camino (el modal no puede quedar vacío).
+  const ofreceOnline = wompiEnabled && permiteOnline;
+  const ofreceTransfer = permiteTransfer || !ofreceOnline;
+
   const paymentMethods = [
     // ── Pago online Wompi (solo si la escuela lo tiene habilitado) ────────
-    ...(wompiEnabled ? [{
+    ...(ofreceOnline ? [{
       id: 'online' as const,
       name: 'Pagar online (Wompi)',
       description: `Tarjeta, PSE o Nequi — inmediato y seguro`,
@@ -666,7 +682,7 @@ export function PaymentCheckoutModal({
       badge: `+${formatCurrency(sportmapsFee)} recargo`,
     }] : []),
     // ── Pago manual (siempre disponible) ──────────────────────────────────
-    { id: 'transfer' as const, name: 'Transferencia / Nequi / Daviplata', description: 'Nequi, Daviplata o transferencia bancaria', icon: Smartphone, popular: !wompiEnabled && !mpEnabled, enabled: true },
+    ...(ofreceTransfer ? [{ id: 'transfer' as const, name: 'Transferencia / Nequi / Daviplata', description: 'Nequi, Daviplata o transferencia bancaria', icon: Smartphone, popular: !ofreceOnline && !mpEnabled, enabled: true }] : []),
   ];
 
   // Generar reference MP una sola vez cuando MP esta habilitado para esta
@@ -820,15 +836,23 @@ export function PaymentCheckoutModal({
             throw new Error(`Ya existe un pago activo para ${effectivePeriod.label}.`);
           }
         }
-      } else if (conceptType !== 'mensualidad') {
+      } else if (conceptType !== 'mensualidad' && conceptType !== 'articulos' && conceptType !== 'torneo') {
         // No-mensualidad (inscripcion / abono): reutilizar cualquier impago sin
         // periodo; si hay uno en validacion/pagado, bloquear (legacy).
+        // Artículos y torneos quedan FUERA: cada compra es su propia fila
+        // (period_uniqueness_exempt). Antes un cobro viejo sin periodo ya pagado
+        // bloqueaba la compra con un falso "pendiente de aprobación", y uno impago
+        // se quedaba con el comprobante del artículo (Dreamers, 2026-10-13).
         const reusable = (pendingPayments || []).find((p: any) =>
           !p.period_year && !p.period_month && REUSABLE.includes(p.status));
         const blocking = (pendingPayments || []).find((p: any) =>
           !p.period_year && !p.period_month && BLOCKING.includes(p.status));
         if (reusable) reuseId = reusable.id;
-        else if (blocking) throw new Error('Ya existe un pago pendiente de aprobación para este deportista.');
+        else if (blocking) {
+          throw new Error(blocking.status === 'awaiting_approval'
+            ? 'Ya existe un pago pendiente de aprobación para este deportista.'
+            : 'Este deportista ya tiene ese pago registrado.');
+        }
       }
 
       if (mode === 'update' && paymentId && paymentId !== '') {

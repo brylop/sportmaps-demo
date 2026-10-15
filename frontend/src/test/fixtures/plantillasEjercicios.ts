@@ -26,8 +26,11 @@ import type { TacticalArrow, TacticalArrowColor } from '@/lib/school/footballQue
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
 import type { ExerciseBoard, ExerciseBoardPlayer } from '@/lib/school/exerciseLibrary';
 
+// Versión ORIGINAL: va dentro del texto de la migración (su encabezado), que no cambia al renombrar el archivo.
 export const MIGRATION_VERSION = '20261013194057';
-export const MIGRATION_FILE = `supabase/migrations/${MIGRATION_VERSION}_plantillas_ejercicios_otros_deportes.sql`;
+// El archivo se renumeró al integrar la pizarra a develop (el gate de migraciones exige una versión
+// posterior al head del ledger); el contenido es idéntico al aplicado.
+export const MIGRATION_FILE = 'supabase/migrations/20261015171123_plantillas_ejercicios_otros_deportes.sql';
 
 type P = [number, number];
 type ShapeType = NonNullable<TacticalArrow['type']>;

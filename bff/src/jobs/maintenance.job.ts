@@ -42,6 +42,22 @@ import { runSeguimientoNocheCortesia, detectarInscripcionesDeLeads } from '../se
  */
 export function initMaintenanceJobs() {
     // ────────────────────────────────────────────────────────────────────────
+    // Interruptor global (plan-arquitectura-robusta-2026-10, F0). Los tres BFF
+    // de Render (dev, stg, prod) comparten UNA sola base: cada cron que corre
+    // en dev o stg es un disparo duplicado contra los mismos datos de prod
+    // (correos dobles, bloqueos dobles, glosas, conciliación...). Los
+    // DISABLE_* por tarea no alcanzan: ~15 tareas no tienen interruptor.
+    //
+    // CRONS_ENABLED=false en sportmaps-bff-dev y sportmaps-bff-stg; en prod
+    // sin definir (= habilitado), así prod no necesita cambio de entorno.
+    // Los DISABLE_* de cada tarea siguen funcionando dentro de prod.
+    // ────────────────────────────────────────────────────────────────────────
+    if (process.env.CRONS_ENABLED === 'false') {
+        console.log('[CRON] CRONS_ENABLED=false: no se registra ningún cron en este proceso.');
+        return;
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
     // Mantenimiento diario de sesiones (auto_finalize_stale_sessions +
     // refresh_session_health): NO va acá. Lo corre pg_cron en la base, job
     // `auto-finalize-stale-sessions`, a las 04:55 UTC — que son las 23:55 COT,

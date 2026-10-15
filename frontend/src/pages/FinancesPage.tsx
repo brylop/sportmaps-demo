@@ -17,6 +17,8 @@ import { PaymentHistoryGridCard } from '@/components/finances/PaymentHistoryGrid
 import { TransactionsCard } from '@/components/finances/TransactionsCard';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { USED_STATUSES, FETCH_CAP, isOverdueCharge } from '@/lib/paymentCartera';
+import { fetchStoreIncome } from '@/lib/accounting/income';
+import { todayColombia } from '@/lib/dateUtils';
 
 /**
  * Reorganizado en tabs (antes: 6 <Card> apiladas en scroll vertical, 1370
@@ -27,7 +29,8 @@ import { USED_STATUSES, FETCH_CAP, isOverdueCharge } from '@/lib/paymentCartera'
  * autocontenido (Antigüedad, Próximo Cierre, Historial) trae su propia RPC.
  */
 export default function FinancesPage() {
-  const { schoolId, activeBranchId, schoolName } = useSchoolContext();
+  const { schoolId, activeBranchId, schoolName, totalBranches } = useSchoolContext();
+  const multiBranch = totalBranches > 1;
   const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   // Los dos tabs autocontenidos avisan su conteo para el badge del trigger,
@@ -37,7 +40,7 @@ export default function FinancesPage() {
 
   // Fetch payments from Supabase — filtrado por school_id y branch
   const { data: payments, isError, isFetching, refetch } = useQuery({
-    queryKey: ['school-payments-all', schoolId, activeBranchId],
+    queryKey: ['school-payments-all', schoolId, activeBranchId, multiBranch],
     queryFn: async () => {
       let query = supabase
         .from('payments')
@@ -78,10 +81,16 @@ export default function FinancesPage() {
         .limit(FETCH_CAP);
 
       if (schoolId) query = query.eq('school_id', schoolId);
-      // Un pago sin sede asignada (branch_id NULL) no es "de otra sede": con
-      // .eq() se caía de la vista al seleccionar sede, igual que pasaba en
-      // Gestión de Pagos y hacía desaparecer plata real de la pantalla.
-      if (activeBranchId) query = query.or(`branch_id.is.null,branch_id.eq.${activeBranchId}`);
+      // Sede (multisede S1): con una sede elegida solo los cobros de ESA sede;
+      // los sin sede se ven únicamente en «Todas» (no se reparten en cada sede,
+      // así no se cuentan dos veces al sumar sedes). En una escuela de UNA sola
+      // sede, NULL es esa sede y se sigue viendo (antes con .eq() se caía plata
+      // real de la pantalla).
+      if (activeBranchId) {
+        query = multiBranch
+          ? query.eq('branch_id', activeBranchId)
+          : query.or(`branch_id.is.null,branch_id.eq.${activeBranchId}`);
+      }
 
       const { data, error } = await query;
       if (error) throw error;
@@ -91,6 +100,25 @@ export default function FinancesPage() {
   });
 
   const overdueCount = (payments ?? []).filter(isOverdueCharge).length;
+
+  // Ventas de la tienda escolar (histórico): no están en `payments` (contrato
+  // contabilidad v2 §6). Sin tienda → undefined y la tarjeta queda como antes.
+  const storeQuery = useQuery({
+    queryKey: ['finances-store-income', schoolId, activeBranchId],
+    enabled: !!schoolId,
+    queryFn: () => fetchStoreIncome(supabase as any, {
+      schoolId: schoolId as string,
+      branchId: activeBranchId,
+      from: '2000-01-01',
+      to: todayColombia(),
+    }),
+  });
+  const storeIncome: number | null | undefined = (() => {
+    const r = storeQuery.data;
+    if (storeQuery.isError || r?.kind === 'error') return null;
+    if (!r || r.kind === 'forbidden' || !r.hasStore) return undefined;
+    return r.total;
+  })();
 
   // F-01: NO mostrar $0 silencioso ante un error de carga. En una pantalla de
   // dinero, una tabla vacía se lee como "no hay deuda" — hay que distinguir el
@@ -154,7 +182,7 @@ export default function FinancesPage() {
       )}
 
       {/* KPIs siempre visibles arriba de los tabs — no son un tab más. */}
-      <FinancialSummaryCards payments={payments} />
+      <FinancialSummaryCards payments={payments} storeIncome={storeIncome} />
 
       <Tabs defaultValue="cartera" className="space-y-4">
         <TabsList className="w-max min-w-full sm:w-auto flex-wrap h-auto">

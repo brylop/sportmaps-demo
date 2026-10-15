@@ -137,7 +137,10 @@ export function useAvailableSessions(childId?: string) {
   // allowed_days_by_enrollment (F-F, D9): días que permite el plan de cada
   // inscripción (0=dom … 6=sáb); ausente = sin restricción. El servidor ya no
   // ofrece sesiones de otros días; el front los pinta en gris.
-  return useQuery<{ sessions: BookableSession[]; flexible_hour_grid?: FlexibleHourGridGroup[]; allowed_days_by_enrollment?: Record<string, number[]> }>({
+  // no_schedule_reason_by_enrollment: por qué una inscripción "agendar por
+  // equipo" no tiene franjas (el equipo no tiene coach, o sus coaches no
+  // tienen horario cargado). Ausente = sin motivo conocido.
+  return useQuery<{ sessions: BookableSession[]; flexible_hour_grid?: FlexibleHourGridGroup[]; allowed_days_by_enrollment?: Record<string, number[]>; no_schedule_reason_by_enrollment?: Record<string, 'team_without_coach' | 'team_without_schedule'> }>({
     queryKey: ['athlete-available-sessions', schoolId, activeBranchId, childId],
     queryFn: () => bff('/athlete/available', undefined, childId, activeBranchId),
     staleTime: 60_000,

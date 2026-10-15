@@ -88,6 +88,31 @@ const getBranchFilter = (req: AuthenticatedRequest): string | null => {
     return null;
 };
 
+/**
+ * Filtro de sede sobre `payments` (multisede, docs/specs/multisede-selector-y-sede-del-atleta.md).
+ * Escuela con VARIAS sedes: con una sede elegida solo entran los cobros de esa
+ * sede; un cobro sin sede no se reparte en todas (se contaría dos veces al
+ * sumar sedes) y solo aparece sin filtro, como «Sin sede». Escuela de UNA sede:
+ * NULL es esa sede (como get_single_branch_id en la vista school_athletes), así
+ * que se sigue incluyendo — con `.eq()` se caían 44 de 89 pagos de Dynasty.
+ */
+const applyPaymentBranchFilter = <Q extends { eq: any; or: any }>(q: Q, branchFilterId: string | null, multiBranch: boolean): Q => {
+    if (!branchFilterId) return q;
+    return multiBranch
+        ? q.eq('branch_id', branchFilterId)
+        : q.or(`branch_id.is.null,branch_id.eq.${branchFilterId}`);
+};
+
+/** ¿La escuela tiene más de una sede? (una consulta `head`, sin filas). */
+const schoolHasManyBranches = async (schoolId: string | undefined | null): Promise<boolean> => {
+    if (!schoolId) return false;
+    const { count } = await supabase
+        .from('school_branches')
+        .select('id', { count: 'exact', head: true })
+        .eq('school_id', schoolId);
+    return (count || 0) > 1;
+};
+
 // ── GET /api/v1/reports/school/summary ───────────────────────────────────────
 router.get(
     '/school/summary',
@@ -193,6 +218,7 @@ router.get(
             //    Si esta consulta falla, el endpoint falla: devolver el reporte con
             //    `totalRevenue: 0` se lee como "no hubo ingresos". El frontend ya
             //    tiene su propio fallback contra Supabase para este caso.
+            const multiBranch = branchFilterId ? await schoolHasManyBranches(schoolId) : false;
             const payments: any[] = await fetchAllRows<any>(() => {
                 let q = supabase
                     .from('payments')
@@ -203,10 +229,8 @@ router.get(
                     // pueden repetir o saltarse filas.
                     .order('id', { ascending: true });
                 // Un cobro con `branch_id` NULL es un cobro SIN sede asignada, no uno
-                // de otra sede: con `.eq()` se caían 44 de los 89 pagos de agosto de
-                // Dynasty y el reporte de ingresos salía a la mitad.
-                if (branchFilterId) q = q.or(`branch_id.is.null,branch_id.eq.${branchFilterId}`);
-                return q;
+                // de otra sede. Ver applyPaymentBranchFilter.
+                return applyPaymentBranchFilter(q, branchFilterId, multiBranch);
             });
 
             let revenueSum = 0;
@@ -321,7 +345,7 @@ router.get(
             const [childRows, athProfileRows, uaRows, teamRows, planRows] = await Promise.all([
                 fetchRowsForIds<any>(athChildIds, chunk => supabase.from('children').select('id, full_name, branch_id, monthly_fee, created_at').in('id', chunk)),
                 fetchRowsForIds<any>(athUserIds, chunk => supabase.from('profiles').select('id, full_name').in('id', chunk)),
-                fetchRowsForIds<any>(athUaIds, chunk => supabase.from('unregistered_athletes').select('id, full_name, created_at').in('id', chunk)),
+                fetchRowsForIds<any>(athUaIds, chunk => supabase.from('unregistered_athletes').select('id, full_name, branch_id, created_at').in('id', chunk)),
                 // La cuota del equipo es `price_monthly`; `monthly_fee` NO existe en
                 // teams (sí en children/enrollments) y pedirla hacía fallar el select
                 // completo → 500 en todo el dashboard.
@@ -338,22 +362,34 @@ router.get(
             const teamNameMap = new Map<string, string>();
             teamRows.forEach((t: any) => teamNameMap.set(t.id, t.name));
 
+            // Sedes de la escuela (todas, sin el filtro: hace falta saber si es
+            // multisede para decidir qué hacer con lo que no tiene sede).
+            const { data: schoolBranchRows, error: schoolBranchErr } = await supabase
+                .from('school_branches')
+                .select('id, name')
+                .eq('school_id', schoolId)
+                .order('name', { ascending: true });
+            if (schoolBranchErr) throw schoolBranchErr;
+            const schoolBranches = (schoolBranchRows || []) as { id: string; name: string }[];
+            const branchNameMap = new Map<string, string>(schoolBranches.map(b => [b.id, b.name]));
+            const multiBranch = schoolBranches.length > 1;
+            // Escuela de una sola sede: lo que no tiene sede ES esa sede (misma regla
+            // que get_single_branch_id en la vista school_athletes).
+            const singleBranchId = schoolBranches.length === 1 ? schoolBranches[0].id : null;
+            const SIN_SEDE = 'Sin sede';
+            const sedeName = (branchId: string | null | undefined): string =>
+                (branchId && branchNameMap.get(branchId)) || SIN_SEDE;
+
             // La sede sale de `COALESCE(children.branch_id, teams.branch_id)`, igual que
-            // en open_month. Un adulto sin equipo no tiene sede: cae en 'Principal'.
+            // en open_month; el adulto (`user_id`) toma la del equipo, y la ficha sin
+            // cuenta la del equipo o, sin equipo con sede, la de la ficha. Lo que queda
+            // sin sede en una escuela multisede se reporta como «Sin sede» (antes
+            // «Principal», que hacía creer que estaba en la sede principal).
             const branchOf = (e: any): string | null =>
                 (childMap.get(e.child_id) as any)?.branch_id
                 || (teamMap.get(e.team_id) as any)?.branch_id
-                || null;
-
-            const branchIds = uniqIds(chosenEnrollments.map(branchOf));
-            const branchNameMap = new Map<string, string>();
-            if (branchIds.length > 0) {
-                const { data: branchRows } = await supabase
-                    .from('school_branches')
-                    .select('id, name')
-                    .in('id', branchIds);
-                (branchRows || []).forEach((b: any) => branchNameMap.set(b.id, b.name));
-            }
+                || (uaMap.get(e.unregistered_athlete_id) as any)?.branch_id
+                || singleBranchId;
 
             // Primer valor distinto de cero: el equivalente en JS del NULLIF(x, 0) de la
             // cadena canónica. `Number(null)` es 0 y `Number(undefined)` es NaN, así que
@@ -405,7 +441,7 @@ router.get(
                     // plan incluye, no "3 de 3 veces que se pasó lista".
                     sessions_attended: e.child_id ? (attendanceByChild.get(e.child_id) || 0) : null,
                     sessions_total: plan?.max_sessions ?? null,
-                    sede: (branchId && branchNameMap.get(branchId)) || 'Principal',
+                    sede: sedeName(branchId),
                     status: 'active',
                     fee: firstNonZero(e.monthly_fee, plan?.price, team?.price_monthly, child?.monthly_fee),
                     joined: child?.created_at || (uaMap.get(e.unregistered_athlete_id) as any)?.created_at || e.created_at,
@@ -456,9 +492,9 @@ router.get(
                 .order('created_at', { ascending: false })
                 .limit(PG_PAGE);
 
-            // branch_id NULL = sin sede asignada, no "de otra sede". Ver el reporte
-            // general más arriba.
-            if (branchFilterId) paymentsQuery = paymentsQuery.or(`branch_id.is.null,branch_id.eq.${branchFilterId}`);
+            // branch_id NULL = sin sede asignada, no "de otra sede". Ver
+            // applyPaymentBranchFilter.
+            paymentsQuery = applyPaymentBranchFilter(paymentsQuery, branchFilterId, multiBranch);
 
             const { data: paymentsRaw, error: paymentsErr } = await paymentsQuery;
             if (paymentsErr) throw paymentsErr;
@@ -559,41 +595,77 @@ router.get(
                 name: profileMap.get(m.profile_id)?.full_name || 'Sin nombre',
                 email: profileMap.get(m.profile_id)?.email || '—',
                 team: '—',
-                sede: branchNameMap.get(m.branch_id) || 'Principal',
+                sede: sedeName(m.branch_id || singleBranchId),
                 students: 0,
             }));
 
-            // 4. Sedes
-            let sedesQuery = supabase
-                .from('school_branches')
-                .select('id, name')
-                .eq('school_id', schoolId);
+            // 4. Sedes — desglose por sede SIN N+1: cuatro lecturas para toda la
+            // escuela (niños y fichas sin inscripción, staff, cobros) y se agrupa en
+            // memoria. Antes eran 3 consultas POR sede y los alumnos salían solo de
+            // `children.branch_id`: en Monster (todo fichas) cada sede daba ≈0.
+            //
+            // Alumnos = personas distintas: los de inscripción activa (niño, adulto
+            // o ficha, con su sede por `branchOf`) + los niños y fichas ACTIVOS sin
+            // inscripción activa, con la sede de su registro.
+            const [loneChildren, loneUas, staffRows, paidRows] = await Promise.all([
+                fetchAllRows<any>(() => supabase
+                    .from('children')
+                    .select('id, branch_id')
+                    .eq('school_id', schoolId)
+                    .eq('is_active', true)
+                    .order('id', { ascending: true })),
+                fetchAllRows<any>(() => supabase
+                    .from('unregistered_athletes')
+                    .select('id, branch_id')
+                    .eq('school_id', schoolId)
+                    .eq('is_active', true)
+                    .order('id', { ascending: true })),
+                fetchAllRows<any>(() => supabase
+                    .from('school_members')
+                    .select('id, branch_id')
+                    .eq('school_id', schoolId)
+                    .in('role', ['coach', 'staff'])
+                    .order('id', { ascending: true })),
+                fetchAllRows<any>(() => supabase
+                    .from('payments')
+                    .select('id, amount, amount_paid, status, branch_id')
+                    .eq('school_id', schoolId)
+                    .in('status', ['paid', 'partial'])
+                    .order('id', { ascending: true })),
+            ]);
 
-            if (branchFilterId) sedesQuery = sedesQuery.eq('id', branchFilterId);
+            const NO_BRANCH = '__sin_sede__';
+            const keyOf = (branchId: string | null | undefined) => branchId || singleBranchId || NO_BRANCH;
+            const tally = new Map<string, { students: number; coaches: number; income: number }>();
+            const bucket = (k: string) => {
+                let b = tally.get(k);
+                if (!b) { b = { students: 0, coaches: 0, income: 0 }; tally.set(k, b); }
+                return b;
+            };
+            const counted = new Set<string>();
+            athleteRows.forEach(r => {
+                if (!r.id || counted.has(r.id)) return;
+                counted.add(r.id);
+                bucket(keyOf(r.branchId)).students++;
+            });
+            [...loneChildren, ...loneUas].forEach((a: any) => {
+                if (counted.has(a.id)) return;
+                counted.add(a.id);
+                bucket(keyOf(a.branch_id)).students++;
+            });
+            staffRows.forEach((m: any) => { bucket(keyOf(m.branch_id)).coaches++; });
+            paidRows.forEach((p: any) => { bucket(keyOf(p.branch_id)).income += receivedAmount(p); });
 
-            const { data: sedesData, error: sedesErr } = await sedesQuery;
-            if (sedesErr) throw sedesErr;
-
-            const sedes = await Promise.all(
-                (sedesData || []).map(async (sede: any) => {
-                    // OJO: acá el `.eq('branch_id')` SÍ corresponde — es el desglose
-                    // POR sede. La consecuencia es que los cobros sin sede asignada
-                    // (44 de los 89 de agosto en Dynasty) no entran en ninguna fila,
-                    // así que la suma de las sedes es menor que el ingreso total.
-                    const [studRes, coachRes, pagos] = await Promise.all([
-                        supabase.from('children').select('id', { count: 'exact', head: true }).eq('branch_id', sede.id),
-                        supabase.from('school_members').select('id', { count: 'exact', head: true }).eq('branch_id', sede.id).in('role', ['coach', 'staff']),
-                        fetchAllRows<any>(() => supabase
-                            .from('payments')
-                            .select('amount, amount_paid, status')
-                            .eq('branch_id', sede.id)
-                            .in('status', ['paid', 'partial'])
-                            .order('id', { ascending: true })),
-                    ]);
-                    const income = pagos.reduce((s: number, p: any) => s + receivedAmount(p), 0);
-                    return { id: sede.id, name: sede.name, students: studRes.count || 0, coaches: coachRes.count || 0, income };
-                })
-            );
+            const sedes: { id: string; name: string; students: number; coaches: number; income: number }[] =
+                schoolBranches
+                    .filter(b => !branchFilterId || b.id === branchFilterId)
+                    .map(b => ({ id: b.id, name: b.name, ...(tally.get(b.id) ?? { students: 0, coaches: 0, income: 0 }) }));
+            // Fila «Sin sede»: lo que no tiene sede en una escuela multisede. Solo
+            // sin filtro de sede (con una sede elegida, lo sin sede no se reparte).
+            const sinSede = tally.get(NO_BRANCH);
+            if (!branchFilterId && sinSede && (sinSede.students || sinSede.coaches || sinSede.income)) {
+                sedes.push({ id: 'sin_sede', name: SIN_SEDE, ...sinSede });
+            }
 
             // 5. Teams
             let teamsQuery = supabase

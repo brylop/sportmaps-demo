@@ -6,7 +6,10 @@ import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
 import { todayColombia } from '@/lib/dateUtils';
-import { fetchMonthlyRevenue, roleRequestsSchoolRevenue } from '@/lib/accounting/income';
+import {
+  fetchMonthlyRevenue, fetchStoreIncome, combineRevenue, monthBounds, roleRequestsSchoolRevenue,
+  type RevenueBreakdown,
+} from '@/lib/accounting/income';
 
 export interface DashboardStats {
   // School stats
@@ -22,6 +25,12 @@ export interface DashboardStats {
    */
   monthly_revenue?: number | null;
   revenue_state?: 'ok' | 'forbidden' | 'error' | 'not_requested';
+  /**
+   * Desglose Mensualidades / Tienda (tienda v2, UX-14 c). `null` = la escuela
+   * no tiene tienda y el indicador queda igual que antes. `tienda: null` = la
+   * lectura de la tienda falló ("—", nunca $0).
+   */
+  revenue_breakdown?: RevenueBreakdown | null;
   pending_payments?: number;
   coaches_count?: number;
   plans_count?: number;
@@ -103,6 +112,7 @@ export function useDashboardStatsReal() {
         // Revenue: only if schoolId exists and the role asks for it
         let monthlyRevenue: number | null = null;
         let revenueState: DashboardStats['revenue_state'] = 'not_requested';
+        let revenueBreakdown: RevenueBreakdown | null = null;
         let pendingCount = 0;
         let coachesCount = 0;
         let plansCount = 0;
@@ -114,14 +124,20 @@ export function useDashboardStatsReal() {
           // sede (los cobros sin sede cuentan en todas) y el permiso: el coach
           // ni siquiera la pide (la base le respondería 42501, C4).
           if (roleRequestsSchoolRevenue(profile?.role)) {
-            const rev = await fetchMonthlyRevenue(supabase as any, {
-              schoolId,
-              branchId: activeBranchId,
-              todayIso: todayColombia(),
-            });
-            revenueState = rev.kind;
-            monthlyRevenue = rev.kind === 'ok' ? rev.amount : null;
+            const todayIso = todayColombia();
+            const { from, to, bucket } = monthBounds(todayIso);
+            // La tienda no está en payments (contrato contabilidad v2 §6): se
+            // lee aparte con el mismo permiso y se suma con su desglose.
+            const [rev, store] = await Promise.all([
+              fetchMonthlyRevenue(supabase as any, { schoolId, branchId: activeBranchId, todayIso }),
+              fetchStoreIncome(supabase as any, { schoolId, branchId: activeBranchId, from, to, group: 'month' }),
+            ]);
+            const combined = combineRevenue(rev, store, bucket);
+            revenueState = combined.state;
+            monthlyRevenue = combined.amount;
+            revenueBreakdown = combined.breakdown;
             if (rev.kind === 'error') console.error('[dashboard] ingresos del mes:', rev.message);
+            if (store.kind === 'error') console.error('[dashboard] ingresos de tienda del mes:', store.message);
           }
 
           // Pending payments query with branch filter
@@ -266,6 +282,7 @@ export function useDashboardStatsReal() {
           total_enrolled: classStats.total_enrolled,
           monthly_revenue: monthlyRevenue,
           revenue_state: revenueState,
+          revenue_breakdown: revenueBreakdown,
           pending_payments: pendingCount || 0,
           coaches_count: coachesCount,
           plans_count: plansCount,

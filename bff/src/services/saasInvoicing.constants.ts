@@ -27,8 +27,10 @@ export const ADDON_NAMES: Record<string, string> = {
 };
 
 export interface SaasInvoiceLineItem {
-    kind: 'plan' | 'addon';
+    kind: 'plan' | 'addon' | 'one_time';
     code: string;
+    /** Rótulo de un cobro 'one_time' (acuerdos comerciales). */
+    label?: string;
     amount_cents: number;
     negotiated?: boolean;
 }
@@ -51,7 +53,9 @@ export function invoiceLines(invoice: { plan_code: string; amount_cents: number;
     return items.map((it) => ({
         label: it.kind === 'plan'
             ? `Plan ${ACADEMY_PLAN_NAMES[it.code] ?? it.code}`
-            : `Adicional: ${ADDON_NAMES[it.code] ?? it.code}`,
+            : it.kind === 'one_time'
+                ? (it.label || (it.code === 'certificado_digital' ? 'Certificado digital (anual)' : it.code))
+                : `Adicional: ${ADDON_NAMES[it.code] ?? it.code}`,
         amount_cents: it.amount_cents,
     }));
 }

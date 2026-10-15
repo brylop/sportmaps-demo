@@ -39,7 +39,8 @@ import {
   TrendingUp,
   ShieldAlert,
   Clock,
-  ClipboardCheck
+  ClipboardCheck,
+  Tag
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
 import { SHOW_EXPLORE } from '@/lib/feature-flags';
@@ -119,6 +120,7 @@ export function getVendorNavGroup(opts: {
           { title: 'Productos',          href: '/vendor/products',        icon: ShoppingBag, requiresStore: true },
           { title: 'Inventario',         href: '/inventory',              icon: ClipboardList, requiresStore: true },
           { title: 'Cobros y entrega',   href: '/tienda-escuela/ajustes', icon: DollarSign, requiresStore: true },
+          { title: 'Cupones',            href: '/tienda-escuela/cupones', icon: Tag, requiresStore: true },
         ]
       : [{ title: 'Activar tienda', href: '/tienda-escuela/ajustes', icon: ShoppingBag, requiresStore: true }];
     return { title: 'Tu tienda', items: filterByStore(schoolItems, opts.storeEnabled ?? false) };

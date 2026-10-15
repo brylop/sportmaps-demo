@@ -411,7 +411,15 @@ export default function JoinSchoolPublicPage() {
     });
     setSubmitting(false);
     if (error) {
-      return toast({ title: 'No se pudo completar', description: error.message, variant: 'destructive' });
+      // La guarda school_is_operational (20261014113038) frena con 42501 tanto
+      // la prueba vencida como la escuela cancelada; el texto de la base solo
+      // habla de la prueba, así que al acudiente se le dice algo neutro.
+      const escuelaNoOperativa = error.code === '42501' && /periodo de prueba vencido/i.test(error.message);
+      return toast({
+        title: 'No se pudo completar',
+        description: escuelaNoOperativa ? 'Esta escuela no está recibiendo inscripciones en este momento.' : error.message,
+        variant: 'destructive',
+      });
     }
     const r = res as any;
     toast({ title: '¡Inscripción registrada!' });
@@ -429,8 +437,13 @@ export default function JoinSchoolPublicPage() {
       console.warn('[join] complete_onboarding falló, el dashboard pedirá el onboarding:', e);
     }
 
-    if (r?.requires_payment && r?.payment_id) {
-      navigate(`/parent-checkout?payment_id=${r.payment_id}&school_id=${r.school_id}&child_id=${r.child_id}&qr_id=${r.qr_id}`);
+    // Desde 20261013193011 el alta nueva con plan también emite inscripción y seguro
+    // (fee_payment_ids). El checkout abre la mensualidad y lista los demás; si el QR
+    // no exige la mensualidad, se abre directo el primero de esos cobros.
+    const feeIds: string[] = Array.isArray(r?.fee_payment_ids) ? r.fee_payment_ids : [];
+    const firstToPay = (r?.requires_payment && r?.payment_id) ? r.payment_id : feeIds[0];
+    if (firstToPay) {
+      navigate(`/parent-checkout?payment_id=${firstToPay}&school_id=${r.school_id}&child_id=${r.child_id}&qr_id=${r.qr_id}`);
     } else {
       setStep('done');
     }

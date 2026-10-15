@@ -32,6 +32,23 @@ export async function runBridgeHeartbeatCheck() {
 
   for (const hb of stale as any[]) {
     try {
+      // Reclamar ANTES de avisar: el cron corre a la vez en los 3 BFF
+      // (dev/stg/prod) contra una sola base y los tres ven la misma fila con
+      // alerted_at NULL. Solo la instancia cuyo UPDATE condicional devuelve la
+      // fila manda la notificación. Repite el filtro de last_seen_at para no
+      // sellar un puente que volvió entre el SELECT y este UPDATE. Se sella
+      // aunque no haya owner_id -- evita reintentar cada corrida por una
+      // escuela sin dueño configurado.
+      const { data: claimed, error: claimErr } = await supabase
+        .from('bridge_heartbeats')
+        .update({ alerted_at: new Date().toISOString() })
+        .eq('id', hb.id)
+        .is('alerted_at', null)
+        .lt('last_seen_at', staleBefore)
+        .select('id');
+      if (claimErr) throw claimErr;
+      if (!claimed || claimed.length === 0) continue; // otra instancia ya avisó (o el puente volvió)
+
       const { data: school } = await supabase
         .from('schools').select('owner_id, name').eq('id', hb.school_id).maybeSingle();
 
@@ -47,10 +64,6 @@ export async function runBridgeHeartbeatCheck() {
           link:      '/school/access-control',
         });
       }
-
-      // Sellar aunque no haya owner_id -- evita reintentar cada corrida por
-      // una escuela sin dueño configurado.
-      await supabase.from('bridge_heartbeats').update({ alerted_at: new Date().toISOString() }).eq('id', hb.id);
 
       console.log(`[CRON] bridge-heartbeat-check: alertado school=${hb.school_id} bridge=${hb.bridge_name}`);
     } catch (err: any) {

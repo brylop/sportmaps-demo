@@ -17,6 +17,23 @@
 import { resolveSchoolBranding, escapeHtml } from './schoolBrandingResolver';
 import { buildBrandedEmail } from './emailLayout';
 
+/**
+ * Desglose de un cobro con mora (2026-10-14): apply_late_fees() suma el
+ * recargo DENTRO de payments.amount, así que `amount` del correo ya es el
+ * total; esto solo explica de dónde sale. `base` = total - recargo, ya
+ * formateado como el resto de los montos (ver utils/desglose-mora).
+ */
+export interface DesgloseMoraCorreo {
+    base: string;
+    fee: string;
+}
+
+/** «Mensualidad $X · Recargo por mora $Y · Total $Z» (valores ya formateados). */
+function lineaMora(amount: string, mora: DesgloseMoraCorreo | null | undefined, etiquetaBase = 'Mensualidad'): string {
+    if (!mora) return '';
+    return `${escapeHtml(etiquetaBase)} ${escapeHtml(mora.base)} · Recargo por mora ${escapeHtml(mora.fee)} · Total ${escapeHtml(amount)}`;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // API moderna — async, con branding por escuela
 // ─────────────────────────────────────────────────────────────────────────────
@@ -192,6 +209,8 @@ export const BrandedEmailTemplates = {
         chargeLabel?: string | null;
         /** Concepto del cobro; si viene, se muestra en el recuadro. */
         concept?: string | null;
+        /** Cobro con mora (late_fee_amount > 0): desglose bajo el monto. `amount` ya es el total. */
+        lateFee?: DesgloseMoraCorreo | null;
     }): Promise<{ subject: string; html: string }> => {
         const branding = await resolveSchoolBranding(params.schoolId);
         const queCobro = params.chargeLabel
@@ -199,6 +218,10 @@ export const BrandedEmailTemplates = {
             : 'de la mensualidad';
         const lineaConcepto = params.concept
             ? `<p style="margin: 4px 0;"><strong>Concepto:</strong> ${escapeHtml(params.concept)}</p>`
+            : '';
+        const desglose = lineaMora(params.amount, params.lateFee, params.chargeLabel ? 'Valor del cobro' : 'Mensualidad');
+        const lineaDesglose = desglose
+            ? `<p style="margin: 4px 0; color: #991b1b; font-size: 13px;">${desglose}</p>`
             : '';
 
         return {
@@ -215,12 +238,187 @@ export const BrandedEmailTemplates = {
                         <tr><td style="padding: 16px;">
                             ${lineaConcepto}
                             <p style="margin: 4px 0;"><strong>Monto a pagar:</strong> ${escapeHtml(params.amount)}</p>
+                            ${lineaDesglose}
                             <p style="margin: 4px 0;"><strong>Venció el:</strong> ${escapeHtml(params.dueDate)}</p>
                         </td></tr>
                     </table>
                 `,
                 cta: { label: 'Pagar Ahora', url: params.paymentLink },
                 closingHtml: 'Si ya realizaste el pago, puedes omitir este mensaje.',
+            }),
+        };
+    },
+
+    /**
+     * Escalón de la cadencia de recordatorios de cobro por CORREO
+     * (recordatorios-cobro.service): mismo momento y mismo tono que la
+     * plantilla de WhatsApp del escalón. Uno por familia: si debe de varios
+     * hijos, los nombra juntos con el total. Ley 2300: respetuoso, sin
+     * amenazas; el botón abre /p/:token (paga sin iniciar sesión).
+     * Con `cutoffDay` (school_settings.payment_cutoff_day) recuerda hasta qué
+     * día del mes hay que estar al día.
+     */
+    recordatorioCobro: async (params: {
+        concepto: 'recordatorio_previo' | 'vence_manana' | 'vence_hoy' | 'pendiente_suave' | 'pendiente_directo' | 'aviso_final';
+        parentName: string;
+        athletes: string;          // "Samuel" o "Samuel y Sofía"
+        amount: string;
+        period: string | null;     // "octubre 2026"
+        dueDate: string;           // "10 de octubre"
+        daysOverdue: number | null;
+        paymentLink: string;
+        schoolId: string | null;
+        cutoffDay?: number | null; // 10 → "los primeros 10 días de cada mes"
+        /** Política de cobranza de la escuela (school_settings.collection_policy_notice): recuadro destacado. */
+        policyNotice?: string | null;
+        /** Mora incluida en `amount` (suma de late_fee_amount del mensaje): desglose bajo el total. */
+        lateFee?: DesgloseMoraCorreo | null;
+    }): Promise<{ subject: string; html: string }> => {
+        const branding = await resolveSchoolBranding(params.schoolId);
+        const escuela = branding.schoolName.replace(/&amp;/g, '&');
+        const primary = /^#[0-9A-Fa-f]{6}$/.test(branding.primaryColor) ? branding.primaryColor : '#248223';
+        const atletas = `<strong>${escapeHtml(params.athletes)}</strong>`;
+        const fecha = escapeHtml(params.dueDate);
+        const dias = params.daysOverdue ?? 0;
+
+        type Tono = 'info' | 'warn' | 'late';
+        const textos: Record<typeof params.concepto, { subject: string; title: string; pill: string; body: string; tone: Tono }> = {
+            recordatorio_previo: {
+                subject: `Recordatorio: tu mensualidad vence el ${params.dueDate} — ${escuela}`,
+                title: 'Tu mensualidad vence pronto',
+                pill: 'Próxima a vencer',
+                body: `Te recordamos que la mensualidad de ${atletas} vence el <strong>${fecha}</strong>.
+                    Puedes pagarla desde ya con el botón de abajo.`,
+                tone: 'info',
+            },
+            vence_manana: {
+                subject: `Tu mensualidad vence mañana — ${escuela}`,
+                title: 'Tu mensualidad vence mañana',
+                pill: 'Vence mañana',
+                body: `Te recordamos que la mensualidad de ${atletas} vence mañana, <strong>${fecha}</strong>.`,
+                tone: 'info',
+            },
+            vence_hoy: {
+                subject: `Hoy vence tu mensualidad — ${escuela}`,
+                title: 'Hoy vence tu mensualidad',
+                pill: 'Vence hoy',
+                body: `Hoy es el último día para pagar a tiempo la mensualidad de ${atletas}.`,
+                tone: 'warn',
+            },
+            pendiente_suave: {
+                subject: `Tu mensualidad está pendiente — ${escuela}`,
+                title: 'Tu mensualidad está pendiente',
+                pill: 'Pendiente de pago',
+                body: `La mensualidad de ${atletas} venció el <strong>${fecha}</strong> y aún no registramos el pago.
+                    Si tuviste algún inconveniente, escríbenos y lo resolvemos juntos.`,
+                tone: 'late',
+            },
+            pendiente_directo: {
+                subject: `Mensualidad con ${dias} días de vencida — ${escuela}`,
+                title: 'Tu mensualidad está vencida',
+                pill: `${dias} días de vencida`,
+                body: `La mensualidad de ${atletas} presenta <strong>${dias} días de vencida</strong>.
+                    Te invitamos a ponerte al día para que siga entrenando sin novedad.`,
+                tone: 'late',
+            },
+            aviso_final: {
+                subject: `Último recordatorio de pago — ${escuela}`,
+                title: 'Último recordatorio de pago',
+                pill: 'Último recordatorio',
+                body: `La mensualidad de ${atletas} sigue pendiente desde el ${fecha}. Este es el último recordatorio
+                    automático de este cobro; si necesitas un acuerdo de pago, comunícate con la escuela.`,
+                tone: 'late',
+            },
+        };
+        const t = textos[params.concepto];
+        const color = {
+            info: { pillBg: '#dbeafe', pillFg: '#1e40af', cardBg: '#f8fafc', amount: '#111827' },
+            warn: { pillBg: '#fef3c7', pillFg: '#92400e', cardBg: '#fffbeb', amount: '#111827' },
+            late: { pillBg: '#fee2e2', pillFg: '#991b1b', cardBg: '#fef2f2', amount: '#b91c1c' },
+        }[t.tone];
+
+        const fila = (etiqueta: string, valor: string, ultima: boolean) => {
+            const borde = ultima ? '' : ' border-bottom: 1px solid #f1f5f9;';
+            return `
+            <tr>
+                <td style="padding: 10px 20px; color: #6b7280; font-size: 14px;${borde}">${etiqueta}</td>
+                <td align="right" style="padding: 10px 20px; color: #111827; font-size: 14px; font-weight: 600;${borde}">${valor}</td>
+            </tr>`;
+        };
+        const periodo = params.period ? params.period.charAt(0).toUpperCase() + params.period.slice(1) : null;
+        const desglose = lineaMora(params.amount, params.lateFee);
+        const lineaDesglose = desglose
+            ? `
+                                <p style="margin: 6px 0 0 0; color: #6b7280; font-size: 13px; line-height: 1.4;">${desglose}</p>`
+            : '';
+        const filas: [string, string][] = [
+            ['Deportista', escapeHtml(params.athletes)],
+            ...(periodo ? [['Mensualidad', escapeHtml(periodo)] as [string, string]] : []),
+            [t.tone === 'late' ? 'Venció el' : 'Fecha límite', fecha],
+            ...(t.tone === 'late' && dias > 0 ? [['Días de atraso', `${dias} día${dias === 1 ? '' : 's'}`] as [string, string]] : []),
+        ];
+
+        const corte = params.cutoffDay && params.cutoffDay >= 1 && params.cutoffDay <= 28
+            ? `
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin: 20px 0 4px 0;">
+                    <tr>
+                        <td style="background-color: #f9fafb; border-left: 4px solid ${primary}; border-radius: 6px; padding: 14px 16px;">
+                            <p style="margin: 0; color: #374151; font-size: 14px; line-height: 1.5;">
+                                <strong>Recuerda:</strong> la mensualidad se paga dentro de los
+                                <strong>primeros ${params.cutoffDay} días de cada mes</strong>.
+                                Estar al día le permite a tu deportista entrenar sin interrupciones.
+                            </p>
+                        </td>
+                    </tr>
+                </table>`
+            : '';
+
+        const politica = params.policyNotice?.trim()
+            ? `
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                       style="margin: 20px 0 4px 0; border: 2px solid #dc2626; border-radius: 10px; border-collapse: separate; overflow: hidden;">
+                    <tr>
+                        <td style="background-color: #dc2626; padding: 10px 16px;">
+                            <p style="margin: 0; color: #ffffff; font-size: 14px; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase;">&#9888;&#65039; Importante</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="background-color: #fef2f2; padding: 14px 16px;">
+                            <p style="margin: 0; color: #7f1d1d; font-size: 16px; font-weight: 700; line-height: 1.45;">${escapeHtml(params.policyNotice.trim())}</p>
+                        </td>
+                    </tr>
+                </table>`
+            : '';
+
+        return {
+            subject: t.subject,
+            html: buildBrandedEmail({
+                branding,
+                title: t.title,
+                // El layout ya escapa el saludo.
+                greeting: `Hola ${params.parentName},`,
+                bodyHtml: `
+                    <p style="margin: 0 0 16px 0;">
+                        <span style="display: inline-block; background-color: ${color.pillBg}; color: ${color.pillFg};
+                                     font-size: 12px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+                                     padding: 5px 12px; border-radius: 999px;">${escapeHtml(t.pill)}</span>
+                    </p>
+                    <p style="margin: 0 0 20px 0;">${t.body}</p>
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                           style="border: 1px solid #e5e7eb; border-radius: 12px; border-collapse: separate; overflow: hidden;">
+                        <tr>
+                            <td colspan="2" style="background-color: ${color.cardBg}; padding: 18px 20px; border-bottom: 1px solid #e5e7eb;">
+                                <p style="margin: 0; color: #6b7280; font-size: 12px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase;">Total a pagar</p>
+                                <p style="margin: 4px 0 0 0; color: ${color.amount}; font-size: 30px; font-weight: 800; line-height: 1.2;">${escapeHtml(params.amount)}</p>${lineaDesglose}
+                            </td>
+                        </tr>
+                        ${filas.map(([k, v], i) => fila(k, v, i === filas.length - 1)).join('')}
+                    </table>
+                    ${politica}
+                    ${corte}
+                `,
+                cta: { label: 'Pagar ahora', url: params.paymentLink },
+                closingHtml: '¿Ya pagaste? Puedes omitir este mensaje: el pago puede tardar un poco en verse reflejado.',
             }),
         };
     },

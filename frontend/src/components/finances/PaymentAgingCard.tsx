@@ -20,7 +20,10 @@ interface AgingReport {
     adult_id: string | null;
     unregistered_athlete_id: string | null;
     branch_id: string | null;
+    /** Cobros vencidos (inscripción + seguro + mensualidad cuentan aparte). Informativo. */
     cuotas_debidas: number;
+    /** Periodos (meses) distintos con algo vencido — de aquí sale el bucket. Opcional: RPC vieja no lo trae. */
+    meses_debidos?: number;
     periodo_mas_antiguo: string;
     periodos_debidos: string[];
     monto_pendiente: number;
@@ -33,6 +36,8 @@ interface AgingReport {
   en_revision: { count: number; monto: number };
   en_disputa: { count: number; monto: number };
   sin_canal_automatico: { atletas: number; monto: number };
+  /** Vivo pero todavía no vence (due_date >= hoy): no es cartera. Opcional: RPC vieja no lo trae. */
+  por_vencer?: { count: number; monto: number };
 }
 
 const AGING_PAGE_SIZE = 25;
@@ -141,7 +146,8 @@ export function PaymentAgingCard({ schoolId, activeBranchId, onCount, periodFilt
       {/* No es cartera: quien subió comprobante o está en una glosa YA ACTUÓ.
           Se muestran aparte para no desaparecerlos, pero tampoco perseguirlos
           como si debieran. */}
-      {agingReport && (agingReport.en_revision.count > 0 || agingReport.en_disputa.count > 0) && (
+      {agingReport && (agingReport.en_revision.count > 0 || agingReport.en_disputa.count > 0
+        || (agingReport.por_vencer?.count ?? 0) > 0) && (
         <div className="mb-4 flex flex-wrap gap-2 text-xs">
           {agingReport.en_revision.count > 0 && (
             <span className="rounded-full border border-blue-300 bg-blue-50 px-3 py-1 font-medium text-blue-700">
@@ -151,6 +157,13 @@ export function PaymentAgingCard({ schoolId, activeBranchId, onCount, periodFilt
           {agingReport.en_disputa.count > 0 && (
             <span className="rounded-full border border-violet-300 bg-violet-50 px-3 py-1 font-medium text-violet-700">
               {agingReport.en_disputa.count} en disputa (glosa) · {formatCurrency(agingReport.en_disputa.monto)}
+            </span>
+          )}
+          {/* Cobros generados que todavía no vencen (p. ej. la mensualidad del
+              mes siguiente): no son deuda, pero la escuela los quiere ver. */}
+          {(agingReport.por_vencer?.count ?? 0) > 0 && (
+            <span className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1 font-medium text-slate-700">
+              {agingReport.por_vencer!.count} por vencer (aún no es deuda) · {formatCurrency(agingReport.por_vencer!.monto)}
             </span>
           )}
         </div>
@@ -211,12 +224,23 @@ export function PaymentAgingCard({ schoolId, activeBranchId, onCount, periodFilt
               {/* No solo el conteo: qué meses EXACTAMENTE — "2 meses" sin
                   decir cuáles era la queja de que este reporte no era claro. */}
               <TableCell>
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap items-center gap-1">
+                  {/* Meses = periodos distintos vencidos; las cuotas (inscripción,
+                      seguro, mensualidad del mismo mes) no suman meses. */}
+                  <span className="mr-1 text-sm font-medium">
+                    {(() => {
+                      const meses = item.meses_debidos ?? item.periodos_debidos.length;
+                      return `${meses} ${meses === 1 ? 'mes' : 'meses'}`;
+                    })()}
+                  </span>
                   {item.periodos_debidos.map((p) => (
                     <span key={p} className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium">
                       {p}
                     </span>
                   ))}
+                  {item.cuotas_debidas > (item.meses_debidos ?? item.periodos_debidos.length) && (
+                    <span className="text-xs text-muted-foreground">({item.cuotas_debidas} cobros)</span>
+                  )}
                 </div>
               </TableCell>
               <TableCell className="font-bold text-red-500">

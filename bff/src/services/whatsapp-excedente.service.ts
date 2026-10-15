@@ -32,27 +32,56 @@ const cop = (n: number) => `$${new Intl.NumberFormat('es-CO', { maximumFractionD
  * Montos con recargo de cada cobro (id → montos), leídos de sus enlaces de pago.
  * Cualquier estado del enlace: la familia pudo pagar con un link guardado. Un
  * error de lectura deja el mapa vacío (se decide como antes, sin recargo).
+ *
+ * Mora (2026-10-14): se relee `amount`/`amount_paid` del cobro para descartar
+ * los enlaces cuya base quedó vieja (creados antes de que `apply_late_fees()`
+ * sumara la mora). Ver `montosConRecargo`. Si esa lectura falla se usa el
+ * monto que trae el pendiente.
  */
 export async function cargarRecargos(schoolId: string, cobros: PagoPendiente[]): Promise<Map<string, number[]>> {
     const out = new Map<string, number[]>();
     if (!cobros.length) return out;
     try {
-        const { data, error } = await supabase.from('payment_links')
-            .select('payment_id, gross_amount, base_amount, fee_pct')
-            .eq('school_id', schoolId)
-            .in('payment_id', cobros.map((c) => c.id))
-            .limit(200);
+        const ids = cobros.map((c) => c.id);
+        const [enlacesRes, cobrosRes] = await Promise.all([
+            supabase.from('payment_links')
+                .select('payment_id, gross_amount, base_amount, fee_pct')
+                .eq('school_id', schoolId)
+                .in('payment_id', ids)
+                .limit(200),
+            supabase.from('payments')
+                .select('id, amount, amount_paid, early_payment_discount_applied')
+                .eq('school_id', schoolId)
+                .in('id', ids)
+                .limit(200),
+        ]);
+        const { data, error } = enlacesRes;
         if (error || !Array.isArray(data)) return out;
+        const actuales = new Map<string, { amount: number; pagado: number }>();
+        if (!cobrosRes.error && Array.isArray(cobrosRes.data)) {
+            for (const r of cobrosRes.data as any[]) {
+                const amount = Number(r?.amount);
+                // Lo ya cubierto: abonos + descuento por pronto pago (saldoPorCobrar).
+                const pagado = (Number(r.amount_paid ?? 0) || 0) + (Number(r.early_payment_discount_applied ?? 0) || 0);
+                if (r?.id && Number.isFinite(amount)) actuales.set(r.id, { amount, pagado });
+            }
+        }
         for (const c of cobros) {
             const enlaces = (data as any[]).filter((l) => l?.payment_id === c.id);
-            const montos = montosConRecargo(Number(c.amount), enlaces);
+            const actual = actuales.get(c.id);
+            const montos = montosConRecargo(actual?.amount ?? Number(c.amount), enlaces, actual?.pagado ?? 0);
             if (montos.length) out.set(c.id, montos);
         }
     } catch { /* sin recargos */ }
     return out;
 }
 
-/** Lo que espera el veredicto: el monto con recargo si es eso lo que llegó; si no, el cobro. Pura. */
+/**
+ * Lo que espera el veredicto: el monto con recargo si es eso lo que llegó; si
+ * no, el cobro. `recargos` ya viene sin los enlaces de base vieja (mora,
+ * `cargarRecargos`): un comprobante por el valor de antes de la mora espera el
+ * cobro actual y sale MONTO_DIFIERE / abono, no pago completo. Pura.
+ */
 export function montoEsperado(pago: PagoPendiente, monto: number | null, recargos: Map<string, number[]>): number {
     if (monto !== null && (recargos.get(pago.id) ?? []).includes(monto)) return monto;
     return Number(pago.amount);

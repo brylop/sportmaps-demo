@@ -36,6 +36,8 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import { useEntitlements } from '@/hooks/useEntitlements';
+import { ZkPinField, zkPinToPayload } from './ZkPinField';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
 import {
@@ -107,6 +109,7 @@ function Section({ icon, title, children }: { icon: React.ReactNode; title: stri
 
 export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, canWaiveFees = true }: CreateAdultAthleteModalProps) {
   const { toast } = useToast();
+  const { registrationZkPinEnabled } = useEntitlements();
   const [submitting, setSubmitting] = useState(false);
 
   // Lookup data
@@ -131,6 +134,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, ca
   const [uDob, setUDob]               = useState('');
   const [uGender, setUGender]         = useState('');
   const [uDorsal, setUDorsal]         = useState('');
+  const [uZkPin, setUZkPin]           = useState('');
   const [sendInviteEmail, setSendInviteEmail] = useState(true);
   const [sendInviteWhatsapp, setSendInviteWhatsapp] = useState(true);
 
@@ -161,7 +165,13 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, ca
   const [discountPct, setDiscountPct]         = useState(0);
  
   const handlePostSuccess = (result: any, name: string, phone?: string | null) => {
-    toast({ title: '✅ Listo', description: `${name} fue registrado correctamente.` });
+    toast({
+      title: '✅ Listo',
+      description: `${name} fue registrado correctamente.${result?.zk_pin ? ` ID del torniquete ${result.zk_pin} asociado.` : ''}`,
+    });
+    if (result?.zk_pin_warning) {
+      toast({ title: 'ID del torniquete sin asociar', description: result.zk_pin_warning, variant: 'destructive' });
+    }
 
     if (sendInviteWhatsapp && result?.registration_link && (phone || result?.phone)) {
       const phoneClean = (phone || result.phone || '').replace(/\D/g, '');
@@ -260,7 +270,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, ca
     setMonthlyFee('');
     setDiscountPct(0);
 
-    setUDocType('CC'); setUDocNumber(''); setUFullName(''); setUPhone('+57'); setUDob(''); setUGender(''); setUDorsal('');
+    setUDocType('CC'); setUDocNumber(''); setUFullName(''); setUPhone('+57'); setUDob(''); setUGender(''); setUDorsal(''); setUZkPin('');
     setSendInviteEmail(true); setSendInviteWhatsapp(true);
   };
 
@@ -367,7 +377,9 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, ca
           discount_pct:     discountPct > 0 ? discountPct : undefined,
           ...firstPaymentPayload,
           ...feeWaiversPayload(feeWaivers),
-          dorsal:           uDorsal.trim() || null,
+          ...(registrationZkPinEnabled
+            ? { zk_pin: zkPinToPayload(uZkPin) }
+            : { dorsal: uDorsal.trim() || null }),
         }, { 'x-school-id': schoolId });
 
         handlePostSuccess(result, uFullName.trim() || 'Atleta', uPhone);
@@ -384,7 +396,9 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, ca
           phone:            uPhone.replace(/\D/g, '') || null,
           date_of_birth:    uDob || null,
           gender:           uGender || null,
-          dorsal:           uDorsal.trim() || null,
+          ...(registrationZkPinEnabled
+            ? { zk_pin: zkPinToPayload(uZkPin) }
+            : { dorsal: uDorsal.trim() || null }),
           branch_id:        (branchId && branchId !== 'none') ? branchId : null,
           team_id:          (teamId && teamId !== 'none') ? teamId : null,
           offering_plan_id: (selectedPlanId && selectedPlanId !== 'none') ? selectedPlanId : null,
@@ -555,15 +569,21 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, ca
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label>Dorsal</Label>
-                <Input
-                  value={uDorsal}
-                  onChange={e => setUDorsal(e.target.value)}
-                  placeholder="Ej: 10"
-                  maxLength={10}
-                />
-              </div>
+              {registrationZkPinEnabled ? (
+                <div className="md:col-span-2">
+                  <ZkPinField id="adultZkPin" value={uZkPin} onChange={setUZkPin} />
+                </div>
+              ) : (
+                <div>
+                  <Label>Dorsal</Label>
+                  <Input
+                    value={uDorsal}
+                    onChange={e => setUDorsal(e.target.value)}
+                    placeholder="Ej: 10"
+                    maxLength={10}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Opciones de Invitación (solo si el correo NO existe y hay correo) */}

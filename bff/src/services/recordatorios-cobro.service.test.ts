@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
     llamadas: [] as { tabla: string; op: string; args: any[] }[],
     insertError: null as any,
     enviar: vi.fn(),
+    correo: vi.fn(),
 }));
 
 vi.mock('../config/supabase', () => {
@@ -28,6 +29,10 @@ vi.mock('./whatsapp-plantillas.service', async (orig) => {
 });
 vi.mock('./cobro-enlace-publico.service', () => ({ emitirTokenCobro: vi.fn(async () => 'tok') }));
 vi.mock('./duplicatePayerGuard.service', () => ({ findDuplicatePaymentIds: vi.fn(async () => new Set()) }));
+vi.mock('../utils/emailClient', () => ({ emailClient: { send: h.correo } }));
+vi.mock('../utils/emailTemplates', () => ({
+    BrandedEmailTemplates: { recordatorioCobro: vi.fn(async (p: any) => ({ subject: `s:${p.concepto}`, html: p.paymentLink })) },
+}));
 
 import {
     ESCALONES, diasDesdeVencimiento, escalonDelDia, unirNombres, planificar, esHoraDeRecordatorios,
@@ -39,6 +44,7 @@ beforeEach(() => {
     h.llamadas.length = 0;
     h.insertError = null;
     h.enviar.mockReset();
+    h.correo.mockReset();
     delete process.env.DISABLE_RECORDATORIOS_COBRO_WHATSAPP;
 });
 
@@ -175,6 +181,48 @@ describe('planificar', () => {
     });
 });
 
+describe('planificar — canal correo', () => {
+    it('sin WhatsApp con opt-in y la escuela con correo: sale por correo con el correo como clave', () => {
+        const sinTel = familia('b@x.co', null, [{ id: 'p2', atleta: 'Beto', vence: '2026-10-09' }]);            // 0
+        const sinOptin = familia('A@X.co', '573111111111', [{ id: 'p1', atleta: 'Ana', vence: '2026-10-06' }]); // +3
+        const plan = planificar(entrada([sinTel, sinOptin], [pago('p1', '2026-10-06'), pago('p2', '2026-10-09')], { canalCorreo: true, diaCorte: 10, avisoPolitica: 'Sin servicio con más de un mes de retraso.' }));
+        expect(plan.contactos.map((c) => [c.canal, c.familyKey, c.concepto])).toEqual([
+            ['email', 'b@x.co', 'vence_hoy'],
+            ['email', 'a@x.co', 'pendiente_suave'],
+        ]);
+        expect(plan.contactos[0].email).toBe('b@x.co');
+        expect(plan.contactos[0].waId).toBeNull();
+        expect(plan.contactos[0].diaCorte).toBe(10);
+        expect(plan.contactos[0].avisoPolitica).toBe('Sin servicio con más de un mes de retraso.');
+    });
+
+    it('con opt-in de WhatsApp va SOLO por WhatsApp (un canal por familia)', () => {
+        const f = familia('caro@x.co', '573001112233', [{ id: 'p1', atleta: 'S', vence: '2026-10-09' }]);
+        const plan = planificar(entrada([f], [pago('p1', '2026-10-09')], { canalCorreo: true }));
+        expect(plan.contactos).toHaveLength(1);
+        expect(plan.contactos[0].canal).toBe('whatsapp');
+    });
+
+    it('«vence mañana» no sale por correo', () => {
+        const f = familia('b@x.co', null, [{ id: 'p1', atleta: 'B', vence: '2026-10-10' }]); // -1
+        const plan = planificar(entrada([f], [pago('p1', '2026-10-10')], { canalCorreo: true }));
+        expect(plan.contactos).toHaveLength(0);
+        expect(plan.descartes.sin_escalon_hoy).toBe(1);
+    });
+
+    it('ya contactada hoy por correo (estado de cuenta o aviso): no sale', () => {
+        const f = familia('b@x.co', null, [{ id: 'p1', atleta: 'B', vence: '2026-10-09' }]);
+        const plan = planificar(entrada([f], [pago('p1', '2026-10-09')], { canalCorreo: true, contactadosHoy: new Set(['b@x.co']) }));
+        expect(plan.contactos).toHaveLength(0);
+        expect(plan.descartes.ya_contactada_hoy).toBe(1);
+    });
+
+    it('sin el canal correo prendido, igual que antes: sin teléfono no sale', () => {
+        const f = familia('b@x.co', null, [{ id: 'p1', atleta: 'B', vence: '2026-10-09' }]);
+        expect(planificar(entrada([f], [pago('p1', '2026-10-09')])).contactos).toHaveLength(0);
+    });
+});
+
 describe('atleta dado de baja', () => {
     it('hijo/ficha inactivos y adulto solo con membresía inactive no se recuerdan', () => {
         const pagos = [
@@ -196,7 +244,7 @@ describe('atleta dado de baja', () => {
 // ─── envío ───────────────────────────────────────────────────────────────────
 
 const contacto = (concepto: ContactoPlaneado['concepto']): ContactoPlaneado => ({
-    familyKey: 'wa:573001112233', waId: '573001112233', perfilId: null, concepto, paymentIds: ['p1', 'p2'],
+    canal: 'whatsapp', familyKey: 'wa:573001112233', waId: '573001112233', email: null, perfilId: null, concepto, paymentIds: ['p1', 'p2'],
     datos: { nombreContacto: 'Caro', nombreAtleta: 'Samuel y Sofía', nombreEscuela: 'Dynasty', monto: '$300.000' },
 });
 const AHORA = new Date('2026-10-09T13:00:00Z');
@@ -233,6 +281,29 @@ describe('enviarContacto', () => {
     });
 });
 
+describe('enviarContacto — correo', () => {
+    const porCorreo = (concepto: ContactoPlaneado['concepto']): ContactoPlaneado => ({
+        ...contacto(concepto), canal: 'email', familyKey: 'b@x.co', waId: null, email: 'b@x.co',
+    });
+
+    it('sale: candado con canal email, botón al enlace público y estampa como WhatsApp', async () => {
+        h.correo.mockResolvedValue({ success: true });
+        expect(await enviarContacto('s', porCorreo('pendiente_directo'), AHORA)).toBe('enviado');
+        expect(h.enviar).not.toHaveBeenCalled();
+        expect(ops('collection_notices', 'insert')[0].args[0]).toMatchObject({ channel: 'email', family_key: 'b@x.co', is_lead: true });
+        expect(h.correo.mock.calls[0][0]).toMatchObject({ to: 'b@x.co', subject: 's:pendiente_directo' });
+        expect(h.correo.mock.calls[0][0].html).toMatch(/\/p\/tok$/);
+        expect(ops('payments', 'update')[0].args[0]).toHaveProperty('overdue_notice_sent_at');
+    });
+
+    it('el correo falla: libera el candado y no estampa', async () => {
+        h.correo.mockResolvedValue({ success: false });
+        expect(await enviarContacto('s', porCorreo('vence_hoy'), AHORA)).toBe('no_enviado:correo_fallo');
+        expect(ops('collection_notices', 'delete')).toHaveLength(1);
+        expect(ops('payments', 'update')).toHaveLength(0);
+    });
+});
+
 describe('runRecordatoriosCobro', () => {
     it('kill-switch por env y días no hábiles: no toca la base', async () => {
         process.env.DISABLE_RECORDATORIOS_COBRO_WHATSAPP = 'true';
@@ -241,5 +312,44 @@ describe('runRecordatoriosCobro', () => {
         expect(await runRecordatoriosCobro(new Date('2026-10-12T13:00:00Z'))).toEqual({}); // festivo
         expect(await runRecordatoriosCobro(new Date('2026-10-11T13:00:00Z'))).toEqual({}); // domingo
         expect(h.llamadas).toHaveLength(0);
+    });
+});
+
+// ─── Mora (2026-10-14): la familia ve el total CON mora y su desglose ────────
+
+describe('mora en la cadencia', () => {
+    const conMora = (clave: string, waId: string | null) => familia(clave, waId, [
+        { id: 'p1', atleta: 'Samuel R', vence: '2026-09-29', saldo: 165000 },   // +10 con mora de 15.000
+        { id: 'p2', atleta: 'Sofía R', vence: '2026-09-29', saldo: 150000 },    // +10 sin mora
+    ]);
+    const ponerMora = (f: Familia) => { f.filas[0].mora = 15000; return f; };
+
+    it('WhatsApp: el monto suma la mora y lo dice en la variable de la plantilla', () => {
+        const f = ponerMora(conMora('caro@x.co', '573001112233'));
+        const plan = planificar(entrada([f], [pago('p1', '2026-09-29'), pago('p2', '2026-09-29')]));
+        const c = plan.contactos[0];
+        expect(c.concepto).toBe('pendiente_directo');
+        expect(c.total).toBe(315000);
+        expect(c.mora).toBe(15000);
+        expect(c.datos.monto).toBe('$315.000, que incluye $15.000 de recargo por mora');
+    });
+
+    it('sin mora: el monto como siempre', () => {
+        const plan = planificar(entrada([conMora('caro@x.co', '573001112233')], [pago('p1', '2026-09-29'), pago('p2', '2026-09-29')]));
+        expect(plan.contactos[0].mora).toBe(0);
+        expect(plan.contactos[0].datos.monto).toBe('$315.000');
+    });
+
+    it('correo: la plantilla recibe el desglose (mensualidad + recargo; amount = total)', async () => {
+        const f = ponerMora(conMora('caro@x.co', null));
+        const plan = planificar(entrada([f], [pago('p1', '2026-09-29'), pago('p2', '2026-09-29')], { canalCorreo: true }));
+        const c = plan.contactos[0];
+        expect(c.canal).toBe('email');
+        h.correo.mockResolvedValue({ success: true });
+        expect(await enviarContacto('s', c, AHORA)).toBe('enviado');
+        const { BrandedEmailTemplates } = await import('../utils/emailTemplates');
+        const params = (BrandedEmailTemplates.recordatorioCobro as any).mock.calls.at(-1)[0];
+        expect(params.lateFee).toEqual({ base: '$300.000', fee: '$15.000' });
+        expect(params.amount).toBe('$315.000');
     });
 });

@@ -34,6 +34,12 @@ describe('estado de pagos con mensualidad + inscripción + seguro', () => {
         expect(t).not.toContain('Mensualidad 09/2026');
     });
 
+    it('respaldo con mora: debajo del cobro, «Mensualidad · Recargo por mora · Total»', () => {
+        const t = fallbackPaymentText([pend('Mensualidad 10/2026 - Atleta Uno', 198000, undefined, { late_fee_amount: 18000, vencido: true })]);
+        expect(t).toBe('Estos son tus pagos pendientes:\n• Mensualidad 10/2026 - Atleta Uno: $198.000 — vence 2026-10-10 (vencida)'
+            + '\n   Mensualidad $180.000 · Recargo por mora $18.000 · Total $198.000');
+    });
+
     it('respaldo con un solo pendiente: sin total; sin tipo_cobro, el concepto como antes', () => {
         const t = fallbackPaymentText([pend('Mensualidad 10/2026 - Atleta Uno', 180000)]);
         expect(t).toBe('Estos son tus pagos pendientes:\n• Mensualidad 10/2026 - Atleta Uno: $180.000 — vence 2026-10-10');

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { BranchChip } from '@/components/common/BranchChip';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -110,6 +111,11 @@ interface BillingSettings {
    */
   sibling_discount_enabled: boolean;
   sibling_discount_percentage: number;
+  /**
+   * F2 hermanos escalonados: tiers[0] = % del 2.º hijo; el último vale para
+   * todos los siguientes. NULL = se usa `sibling_discount_percentage`.
+   */
+  sibling_discount_tiers?: number[] | null;
   // Validación automática de comprobantes (Fase 5)
   auto_approve_enabled: boolean;
   auto_approve_max_amount: number;
@@ -400,6 +406,8 @@ interface PaymentTransaction {
   wompi_transaction_id?: string | null;
   provider_transaction_id?: string | null;
   qr_id?: string | null;
+  /** Sede del cobro (payments.branch_id). NULL = «Sin sede»: solo se ve en «Todas». */
+  branch_id?: string | null;
 }
 
 // Devuelto por el RPC school_payment_kpis: agregados sobre TODO el histórico de
@@ -499,7 +507,12 @@ const CHARGE_PRIORITY: Record<string, number> = {
 export default function PaymentsAutomationPage() {
   const { profile, user } = useAuth();
   const { toast } = useToast();
-  const { schoolId, schoolName, activeBranchId, currentUserRole } = useSchoolContext();
+  const { schoolId, schoolName, activeBranchId, currentUserRole, branches, totalBranches } = useSchoolContext();
+  // Multisede: con más de una sede se muestra la columna Sede y lo que no
+  // tiene sede solo aparece en «Todas» (mismo criterio que la consulta de cobros).
+  const showBranchCol = totalBranches > 1;
+  const inActiveBranch = (branchId?: string | null) =>
+    !activeBranchId || branchId === activeBranchId || (!branchId && totalBranches <= 1);
   // «Cobros y pagos» (docs/specs/cobros-multiples.md F3). Apagado = «Registrar pago» de siempre.
   const cobrosYPagosOn = isCobrosYPagosEnabled();
   const showRegisterButton = !cobrosYPagosOn || canManageCharges(currentUserRole);
@@ -550,6 +563,9 @@ export default function PaymentsAutomationPage() {
   const accountsColumnReady = useRef(false);
   const coachPhotoColumnsReady = useRef(false);
   const remainingClassesColumnReady = useRef(false);
+  // Escalones de hermanos (F2): si la columna no existe aún en este ambiente,
+  // mandarla tumbaría el upsert completo.
+  const siblingTiersColumnReady = useRef(false);
   const [billingSaving, setBillingSaving] = useState(false);
   const [showSensitive, setShowSensitive] = useState(false);
 
@@ -605,6 +621,14 @@ export default function PaymentsAutomationPage() {
     }
   }, [schoolId, activeBranchId]);
 
+  // El conteo de sedes llega async (selectSchool) DESPUÉS de activeBranchId:
+  // un admin de sede que carga con totalBranches=0 vería también los cobros sin
+  // sede. Al conocerse el conteo, se recarga la lista (solo si hay sede elegida).
+  useEffect(() => {
+    if (schoolId && activeBranchId) fetchPayments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [totalBranches]);
+
   // Los estados opt-in (hoy solo 'Cancelado') no vienen en la carga base, así
   // que elegirlos exige volver a consultar. Se salta el primer render para no
   // duplicar el fetch del efecto de arriba.
@@ -642,6 +666,7 @@ export default function PaymentsAutomationPage() {
     coachPhotoColumnsReady.current = 'coach_can_upload_enrollment_forms' in data;
     // Y con el cobro por clases restantes (mig 20261005214250).
     remainingClassesColumnReady.current = 'remaining_classes_billing_enabled' in data;
+    siblingTiersColumnReady.current = 'sibling_discount_tiers' in data;
     // `onlyActive: false` porque el admin también edita las llaves apagadas. Si la
     // escuela nunca guardó la lista (deploy recién hecho), se arma desde las
     // columnas viejas para que no vea el formulario en blanco teniendo datos.
@@ -716,7 +741,14 @@ export default function PaymentsAutomationPage() {
         early_payment_discount_days: billing.early_payment_discount_days,
         early_payment_discount_percentage: billing.early_payment_discount_percentage,
         sibling_discount_enabled: billing.sibling_discount_enabled,
-        sibling_discount_percentage: billing.sibling_discount_percentage,
+        // Los escalones mandan: el % plano queda igual al del 2.º hijo (el
+        // trigger de la base hace lo mismo; se manda igual por si no está).
+        ...(siblingTiersColumnReady.current
+            ? (() => {
+                const tiers = normalizeSiblingTiers(billing.sibling_discount_tiers, billing.sibling_discount_percentage);
+                return { sibling_discount_tiers: tiers, sibling_discount_percentage: tiers[0] };
+              })()
+            : { sibling_discount_percentage: billing.sibling_discount_percentage }),
         auto_approve_enabled: billing.auto_approve_enabled,
         auto_approve_max_amount: billing.auto_approve_max_amount,
         auto_glosa_enabled: billing.auto_glosa_enabled,
@@ -753,7 +785,7 @@ export default function PaymentsAutomationPage() {
         .from('payments')
         .select(`
           id, amount, amount_paid, status, created_at, payment_date, payment_method, payment_type,
-          receipt_url, concept, child_id, parent_id, user_id, team_id,
+          receipt_url, concept, child_id, parent_id, user_id, team_id, branch_id,
           unregistered_athlete_id, early_payment_discount_applied,
           period_year, period_month,
           payment_channel, payment_provider, wompi_reference, wompi_transaction_id,
@@ -806,10 +838,17 @@ export default function PaymentsAutomationPage() {
         );
       }
 
-      // Un pago con branch_id NULL no es "de otra sede": es un pago sin sede
-      // asignada (207 de 499 en Dynasty). Con .eq() se caían todos al
-      // seleccionar una sede, incluidos comprobantes esperando validación.
-      if (activeBranchId) query = query.or(`branch_id.is.null,branch_id.eq.${activeBranchId}`);
+      // Sede (multisede S1, docs/specs/multisede-selector-y-sede-del-atleta.md):
+      // con una sede elegida solo salen los cobros de ESA sede. Un cobro sin
+      // sede no se reparte en todas: se ve en «Todas» con la etiqueta «Sin
+      // sede». Excepción: escuela de UNA sola sede (Dynasty: 207 de 499 sin
+      // sede) — ahí NULL es implícitamente esa sede, como en la vista
+      // school_athletes (get_single_branch_id), y se sigue viendo.
+      if (activeBranchId) {
+        query = totalBranches > 1
+          ? query.eq('branch_id', activeBranchId)
+          : query.or(`branch_id.is.null,branch_id.eq.${activeBranchId}`);
+      }
       return query;
       };
 
@@ -885,6 +924,7 @@ export default function PaymentsAutomationPage() {
         receipt_url: p.receipt_url, concept: p.concept,
         child_id: p.child_id, parent_id: p.parent_id, user_id: p.user_id,
         team_id: p.team_id,
+        branch_id: p.branch_id ?? null,
         payment_channel: p.payment_channel ?? null,
         payment_provider: p.payment_provider ?? null,
         wompi_reference: p.wompi_reference ?? null,
@@ -1425,14 +1465,14 @@ export default function PaymentsAutomationPage() {
   // sin que les cascadeara. Mismo alcance de sede que `subsFiltered`, pero sin
   // el filtro de texto — es un conteo, no debe moverse al buscar.
   const subsEnSede = teamSubscriptions
-    .filter(s => !activeBranchId || !s.branch_id || s.branch_id === activeBranchId);
+    .filter(s => inActiveBranch(s.branch_id));
   const subsConPlanPropio = subsEnSede.filter(s => s.fee_source === 'enrollment' && s.plan_price_now != null);
   const subsConTarifaCongelada = subsConPlanPropio.filter(s => s.plan_price_now !== s.fee);
 
   const subsFiltered = teamSubscriptions
-    // Una inscripción sin sede no es "de otra sede": es una sin asignar. Misma
-    // regla que la lista de cobros, o al filtrar por sede se caen 55 de Dynasty.
-    .filter(s => !activeBranchId || !s.branch_id || s.branch_id === activeBranchId)
+    // Misma regla que la lista de cobros: sin sede solo en «Todas», salvo en
+    // escuelas de una sola sede (ahí se veían caer 55 de Dynasty).
+    .filter(s => inActiveBranch(s.branch_id))
     .filter(s => {
       const term = subsSearch.trim().toLowerCase();
       const searchMatch = !term ||
@@ -1625,6 +1665,7 @@ export default function PaymentsAutomationPage() {
                                   {(payment as any).period_label}
                                 </Badge>
                               )}
+                              {showBranchCol && <BranchChip branchId={payment.branch_id} branches={branches} className="h-4" />}
                               {!payment.team?.name && !(payment as any).plan?.name && (
                                 <span className="text-xs text-muted-foreground truncate">{payment.concept}</span>
                               )}
@@ -1680,6 +1721,7 @@ export default function PaymentsAutomationPage() {
                         <TableRow>
                           <TableHead>Fecha</TableHead>
                           <TableHead>Deportista / Programa</TableHead>
+                          {showBranchCol && <TableHead>Sede</TableHead>}
                           <TableHead>Padre</TableHead>
                           <TableHead>Monto</TableHead>
                           <TableHead>Origen</TableHead>
@@ -1727,6 +1769,9 @@ export default function PaymentsAutomationPage() {
                                 <FamilyNote note={familyNotes[payment.id]} />
                               </div>
                             </TableCell>
+                            {showBranchCol && (
+                              <TableCell className="align-top"><BranchChip branchId={payment.branch_id} branches={branches} /></TableCell>
+                            )}
                             <TableCell><span className="text-sm">{(payment as any).parent_responsible || <span className="text-muted-foreground text-xs">—</span>}</span></TableCell>
                             <TableCell className="font-bold text-primary whitespace-nowrap align-top">
                               <div className="flex flex-col gap-0.5">
@@ -2223,6 +2268,7 @@ export default function PaymentsAutomationPage() {
                                 Cubre {(payment as any).period_label}
                               </Badge>
                             )}
+                            {showBranchCol && <BranchChip branchId={payment.branch_id} branches={branches} className="h-4" />}
                             {!payment.team?.name && !(payment as any).plan?.name && (
                               <span className="text-xs text-muted-foreground truncate">{payment.concept}</span>
                             )}
@@ -2272,6 +2318,7 @@ export default function PaymentsAutomationPage() {
                       <TableHead>Fecha de pago</TableHead>
                       <TableHead>Deportista</TableHead>
                       <TableHead>Concepto</TableHead>
+                      {showBranchCol && <TableHead>Sede</TableHead>}
                       <TableHead>Monto</TableHead>
                       <TableHead>Entró por</TableHead>
                       <TableHead>Estado</TableHead>
@@ -2280,7 +2327,7 @@ export default function PaymentsAutomationPage() {
                   </TableHeader>
                   <TableBody>
                     {historyPayments.length === 0 ? (
-                      <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No se encontraron transacciones con los filtros actuales.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={showBranchCol ? 8 : 7} className="text-center py-8 text-muted-foreground">No se encontraron transacciones con los filtros actuales.</TableCell></TableRow>
                     ) : pagedHistory.map((payment) => {
                       const cfg = STATUS_CONFIG[payment.status] ?? { label: payment.status, className: 'bg-gray-100 text-gray-600' };
                       return (
@@ -2327,6 +2374,9 @@ export default function PaymentsAutomationPage() {
                               )}
                             </div>
                           </TableCell>
+                          {showBranchCol && (
+                            <TableCell><BranchChip branchId={payment.branch_id} branches={branches} /></TableCell>
+                          )}
                           <TableCell className="font-semibold">{formatCurrency(payment.amount)}</TableCell>
                           {/* Antes: {payment.payment_method || 'TRANSFER'} — inventaba
                               "TRANSFER" en los pagos sin método registrado. */}
@@ -2557,19 +2607,12 @@ export default function PaymentsAutomationPage() {
                   </div>
                   {billing.sibling_discount_enabled && (
                     <div className="space-y-3 p-3 rounded-lg border bg-muted/30" data-testid="sibling-discount-percentage-block">
-                      <div className="space-y-2">
-                        <Label htmlFor="sib_pct">Porcentaje de descuento</Label>
-                        <div className="flex items-center gap-2">
-                          <NumberStepper
-                            min={1} max={50} className="w-28 h-9"
-                            value={billing.sibling_discount_percentage}
-                            onChange={v => updateBilling('sibling_discount_percentage', v === "" ? 0 : v)}
-                          />
-                          <span className="text-sm text-muted-foreground">% de descuento</span>
-                        </div>
-                      </div>
+                      <SiblingTiersEditor
+                        tiers={normalizeSiblingTiers(billing.sibling_discount_tiers, billing.sibling_discount_percentage)}
+                        onChange={tiers => setBilling(b => b ? { ...b, sibling_discount_tiers: tiers, sibling_discount_percentage: tiers[0] ?? 0 } : b)}
+                      />
                       <p className="text-[11px] text-muted-foreground leading-snug">
-                        El primer hijo (la inscripción activa más antigua) paga completo; el resto de hermanos activos en esta escuela lleva el descuento. Se recalcula cada mes: si un hermano se retira, el descuento desaparece solo.
+                        El primer hijo (la inscripción activa más antigua) paga completo; desde el 2.º cada hermano activo en esta escuela lleva el descuento de su escalón. Se recalcula cada mes: si un hermano se retira, los demás suben de puesto solos.
                       </p>
                     </div>
                   )}
@@ -3178,5 +3221,106 @@ function BackfillPaymentsCard({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ─── Descuento por hermanos escalonado (F2) ─────────────────────────────────
+
+const SIBLING_TIERS_MAX = 10;
+
+/** tiers null/vacío → [percentage] (comportamiento previo a F2). */
+function normalizeSiblingTiers(tiers: number[] | null | undefined, percentage: number): number[] {
+  const clean = (tiers ?? [])
+    .map(t => Number(t))
+    .filter(t => Number.isFinite(t))
+    .map(t => Math.min(100, Math.max(0, t)))
+    .slice(0, SIBLING_TIERS_MAX);
+  return clean.length > 0 ? clean : [Math.min(100, Math.max(0, Number(percentage) || 0))];
+}
+
+function siblingOrdinal(n: number): string {
+  return `${n}.º`;
+}
+
+function SiblingTiersEditor({ tiers, onChange }: { tiers: number[]; onChange: (tiers: number[]) => void }) {
+  const BASE = 100000;
+  const setAt = (idx: number, raw: string) => {
+    const n = raw === '' ? 0 : Math.min(100, Math.max(0, Number(raw)));
+    const next = [...tiers];
+    next[idx] = Number.isFinite(n) ? n : 0;
+    onChange(next);
+  };
+  const add = () => {
+    if (tiers.length >= SIBLING_TIERS_MAX) return;
+    onChange([...tiers, tiers[tiers.length - 1] ?? 0]);
+  };
+  const remove = (idx: number) => {
+    if (tiers.length <= 1) return;
+    onChange(tiers.filter((_, i) => i !== idx));
+  };
+  const decreasing = tiers.some((t, i) => i > 0 && t < tiers[i - 1]);
+  const example = [
+    `1.º ${formatCurrency(BASE)}`,
+    ...tiers.map((t, i) => {
+      const label = i === tiers.length - 1 ? `${siblingOrdinal(i + 2)} en adelante` : siblingOrdinal(i + 2);
+      return `${label} ${formatCurrency(Math.round(BASE * (1 - t / 100)))}`;
+    }),
+  ].join(' · ');
+
+  return (
+    <div className="space-y-2">
+      <Label>Descuento por puesto del hijo</Label>
+      <div className="space-y-2">
+        {tiers.map((t, i) => {
+          const isLast = i === tiers.length - 1;
+          return (
+            <div key={i} className="flex items-center gap-2" data-testid={`sibling-tier-row-${i}`}>
+              <span className="text-sm w-40 shrink-0">
+                {siblingOrdinal(i + 2)} hijo{isLast ? ' en adelante' : ''}
+              </span>
+              <Input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                max={100}
+                step={0.5}
+                className="w-24 h-9"
+                value={t}
+                onChange={e => setAt(i, e.target.value)}
+                data-testid={`sibling-tier-input-${i}`}
+                aria-label={`Porcentaje de descuento del ${siblingOrdinal(i + 2)} hijo`}
+              />
+              <span className="text-sm text-muted-foreground">%</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2 text-muted-foreground"
+                disabled={tiers.length <= 1}
+                onClick={() => remove(i)}
+                data-testid={`sibling-tier-remove-${i}`}
+                aria-label={`Quitar escalón del ${siblingOrdinal(i + 2)} hijo`}
+              >
+                <XCircle className="h-4 w-4" />
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+      {tiers.length < SIBLING_TIERS_MAX && (
+        <Button type="button" variant="outline" size="sm" onClick={add} data-testid="sibling-tier-add">
+          + Agregar escalón
+        </Button>
+      )}
+      {decreasing && (
+        <p className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400" data-testid="sibling-tier-warning">
+          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          Ojo: hay un escalón con menos descuento que el anterior. Se puede guardar así, pero revisa que sea lo que quieres.
+        </p>
+      )}
+      <p className="text-xs text-muted-foreground" data-testid="sibling-tier-example">
+        Ejemplo con mensualidad de {formatCurrency(BASE)}: {example}
+      </p>
+    </div>
   );
 }

@@ -58,7 +58,7 @@ la debita y el pago queda registrado y conciliado sin que nadie cargue un compro
 | **D11** | **La fuente de pago pertenece al comercio que la creó.** La fuente guarda su comercio y el cobro exige que coincida con el comercio vigente de la escuela; si no, fail-closed y cancelación con `merchant_changed`. | [CONFIRMADA] |
 | **D12** | **Suspensión.** Dos ciclos seguidos que terminan **sin débito** pasan la suscripción a `suspended`: fallo de Wompi en los 3 intentos, `over_max_amount` o `token_not_available`. El mensaje depende del motivo (subir el tope o actualizar el medio). Un ciclo pagado **por cualquier vía** reinicia el contador. `manual_checkout_open` y `parent_skip` no cuentan. | [CONFIRMADA con cambios] |
 | **D13** | **Cancelación.** El padre cancela cuando quiera, con efecto inmediato. La fuente se anula en Wompi (`void`) **solo si ninguna otra suscripción viva la usa**. La escuela puede cancelar la de una familia. La baja de cuenta del padre cancela todas y anula sus fuentes. | [CONFIRMADA con condición] |
-| **D14** | **Qué se debita al activar.** La suscripción guarda `first_period` y solo se toman cobros con periodo ≥ `first_period`. Por defecto es el periodo **siguiente al último cobro de mensualidad ya generado** para el atleta en la escuela. En el paso 3 del alta, el padre puede marcar expresamente "Debitar también la mensualidad de <mes>" si ese cobro está `pending` y **no vencido**; en ese caso `first_period` es ese mes. **Lo `overdue` nunca entra al débito programado.** Pagar lo vencido es una acción aparte, explícita y con confirmación, fuera del débito. | [CONFIRMADA] |
+| **D14** | **Qué se debita al activar.** La suscripción guarda `first_period` y solo se toman cobros con periodo ≥ `first_period`. Por defecto es el periodo **siguiente al último cobro de mensualidad ya generado** para el atleta en la escuela. En el paso 3 del alta, el padre puede marcar expresamente "Debitar también la mensualidad de <mes>" si ese cobro está `pending` y **no vencido**; en ese caso `first_period` es ese mes. ~~**Lo `overdue` nunca entra al débito programado.** Pagar lo vencido es una acción aparte, explícita y con confirmación, fuera del débito.~~ **REVERTIDA 2026-10-14 por el dueño de producto (mig `20261014133326`):** la mora nunca cancela cobros y todo canal cobra el monto CON el recargo. Un cobro `overdue` o `partial` de un periodo ≥ `first_period` **sí** se debita, por el saldo (`amount − amount_paid`, ya con la mora) + el recargo online; como el total sube, se re-avisa antes (C.5). La casilla del alta acepta el último cobro `pending`, `overdue` o `partial`. | [CONFIRMADA · lo vencido REVERTIDO 2026-10-14] |
 
 ---
 
@@ -261,7 +261,7 @@ GRANT solo a `service_role`.
 ### 5.1 Regla del ciclo (fecha Bogotá)
 
 **A. Planificar.** Por cada suscripción `active` y cada cobro `p` que cumpla todo esto:
-- `payment_category='mensualidad'`, **`status='pending'`** (nunca `overdue`, D14).
+- `payment_category='mensualidad'`, **`status IN ('pending','overdue','partial')`** (desde 2026-10-14; antes solo `pending`, D14 revertida en lo vencido).
 - Del atleta y la escuela de la suscripción.
 - Periodo ≥ `first_period`.
 
@@ -278,7 +278,7 @@ se crea el ciclo si no existe (`state='scheduled'`), con `first_attempt_on` prov
 1. `platform_config.autopay_kill_switch.debits_enabled = true`. Si no, el claim no devuelve nada.
 2. `school_settings.autopay_debits_paused = false`.
 3. `state='noticed'`, `notice_sent_at` no nulo y `hoy ≥ next_attempt_on`.
-4. `p.status='pending'`. Si ya está `paid`/`awaiting_approval`/`partial` → `skipped`/`paid_elsewhere`, y eso reinicia D12. Si pasó a `cancelled` → `cancelled`.
+4. `p.status IN ('pending','overdue','partial')` (desde 2026-10-14). Si ya está `paid`/`awaiting_approval` (o el saldo es 0) → `skipped`/`paid_elsewhere`, y eso reinicia D12. Si pasó a `cancelled`/`rejected`/`failed`/`glosado` → `cancelled` (y vuelve a `scheduled` si el cobro reabre como `overdue`).
 5. El total recalculado ≤ `announced_total`. Si subió: re-aviso (vuelve al paso B) y **ningún intento**.
 6. Mismo comercio (D11), o `skipped`/`merchant_mismatch` + incidente.
 7. Sin intento vivo (`processing`/`pending_provider`) y `attempts_used < 3`.

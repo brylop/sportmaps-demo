@@ -1,3 +1,4 @@
+import { BranchChip } from '@/components/common/BranchChip';
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -42,6 +43,8 @@ import { StudentTypeSelector } from '@/components/students/StudentTypeSelector';
 import { EpsCombobox } from '@/components/common/EpsCombobox';
 import { TSHIRT_SIZES, BLOOD_TYPES } from '@/lib/athlete-options';
 import { CreateChildModal } from '@/components/students/CreateChildModal';
+import { SiblingFamilySection } from '@/components/students/siblings';
+import { ZkPinField } from '@/components/students/ZkPinField';
 import { CreateAdultAthleteModal } from '@/components/students/CreateAdultAthleteModal';
 import { CobrosYPagosModal } from '@/components/payment/CobrosYPagosModal';
 import { isCobrosYPagosEnabled } from '@/lib/cobrosYPagosFlag';
@@ -101,7 +104,39 @@ const studentSchema = z.object({
   blood_type:       z.string().optional(),
   eps_name:         z.string().optional(),
   dorsal:           z.string().max(10).optional(),
+  // ID del torniquete (solo escuelas con registrationZkPinEnabled): dígitos, vacío = no tocar.
+  zk_pin:           z.string().regex(/^\d{0,8}$/, 'Solo números (hasta 8 dígitos)').optional(),
 });
+
+/** ID del lector asociado a un deportista (zk_user_mappings; solo lo lee la administración). */
+async function fetchZkPin(
+  schoolId: string,
+  athleteId: string,
+  athleteType: 'child' | 'adult' | 'unregistered',
+): Promise<number | null> {
+  const col = athleteType === 'child' ? 'child_id'
+    : athleteType === 'adult' ? 'user_id'
+    : 'unregistered_athlete_id';
+  const { data } = await (supabase as any)
+    .from('zk_user_mappings')
+    .select('zk_pin')
+    .eq('school_id', schoolId)
+    .eq(col, athleteId)
+    .maybeSingle();
+  return data?.zk_pin ?? null;
+}
+
+/** Fila «ID torniquete» de la ficha (escuelas con registrationZkPinEnabled). */
+function ZkPinInfoRow({ schoolId, athleteId, athleteType }: {
+  schoolId: string; athleteId: string; athleteType: 'child' | 'adult' | 'unregistered';
+}) {
+  const { data: pin } = useQuery({
+    queryKey: ['zk-pin', schoolId, athleteId],
+    queryFn: () => fetchZkPin(schoolId, athleteId, athleteType),
+    staleTime: 60_000,
+  });
+  return <InfoRow label="ID torniquete (ZKTeco)" value={pin != null ? String(pin) : 'Sin asociar'} />;
+}
 
 type StudentFormData = z.infer<typeof studentSchema>;
 
@@ -228,7 +263,9 @@ export default function SchoolStudentsManagementPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const { coachCanCreateAthletes, coachHideFinancialInfo, coachCanEditCategories, militaryDiscountEnabled, coachCanUploadEnrollmentForms } = useEntitlements();
+  const { coachCanCreateAthletes, coachHideFinancialInfo, coachCanEditCategories, militaryDiscountEnabled, coachCanUploadEnrollmentForms, registrationZkPinEnabled } = useEntitlements();
+  // ID del lector que ya tiene el deportista que se está editando (para no reenviarlo igual).
+  const [currentZkPin, setCurrentZkPin] = useState<number | null>(null);
 
   // Alta de deportistas: SOLO admin/owner. El coach de escuela es solo lectura
   // (ve/gestiona los atletas de sus equipos, pero no los da de alta) — esto NO
@@ -319,7 +356,7 @@ export default function SchoolStudentsManagementPage() {
   } | null>(null);
   const [loadingPlanInfo, setLoadingPlanInfo] = useState(false);
 
-  const { schoolId, schoolName, teams, branches, activeBranchId, defaultMonthlyFee, schoolSettings, loading: schoolLoading } = useSchoolContext();
+  const { schoolId, schoolName, teams, branches, activeBranchId, activeBranchName, totalBranches, defaultMonthlyFee, schoolSettings, loading: schoolLoading } = useSchoolContext();
 
   // Pausa por vacaciones/lesión: opt-in por escuela (D7). Con el flag apagado
   // no se muestra nada — es el mismo patrón que `militaryDiscountEnabled`.
@@ -768,6 +805,10 @@ export default function SchoolStudentsManagementPage() {
       const { bffClient } = await import('@/lib/api/bffClient');
       await bffClient.put(`/api/v1/students/${editingStudent.id}`, {
         athlete_type: editingAthleteType,
+        // ID del torniquete: solo si cambió; vacío = no tocar (quitarlo se hace en Control de acceso).
+        ...(registrationZkPinEnabled && data.zk_pin && Number(data.zk_pin) !== currentZkPin
+          ? { zk_pin: Number(data.zk_pin) }
+          : {}),
         profile: {
           full_name:     data.full_name,
           date_of_birth: data.date_of_birth     || null,
@@ -872,6 +913,12 @@ export default function SchoolStudentsManagementPage() {
       const { data } = await (supabase as any).from('children').select('tshirt_size, blood_type, eps_name').eq('id', student.id).maybeSingle();
       if (data) extraFields = { tshirt_size: data.tshirt_size || '', blood_type: data.blood_type || '', eps_name: data.eps_name || '' };
     }
+    // ID del torniquete: lo lee solo la administración (RLS); un coach lo ve vacío.
+    let zkPinNow: number | null = null;
+    if (registrationZkPinEnabled && schoolId) {
+      try { zkPinNow = await fetchZkPin(schoolId, student.id, athleteType); } catch { /* sin permiso: vacío */ }
+    }
+    setCurrentZkPin(zkPinNow);
     const teamStartDate: string = (student as any).enrollment_start_date || '';
     const planStartDate: string  = (student as any).plan_start_date       || '';
     // Con plan activo el equipo es SOLO roster y no cobra: la cuota de equipo se
@@ -900,6 +947,7 @@ export default function SchoolStudentsManagementPage() {
       blood_type:       extraFields.blood_type,
       eps_name:         extraFields.eps_name,
       dorsal:           (student as any).dorsal || '',
+      zk_pin:           zkPinNow != null ? String(zkPinNow) : '',
     });
     setDialogOpen(true);
   };
@@ -1378,8 +1426,19 @@ export default function SchoolStudentsManagementPage() {
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Atletas</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            {filteredStudents.length} atleta{filteredStudents.length !== 1 ? 's' : ''}
-            {filteredStudents.length !== tabStudents.length && ` de ${tabStudents.length}`} en <strong>{schoolName}</strong>
+            {totalBranches > 1 ? (
+              // Multisede (S1): deja claro qué sede está mirando el selector del menú.
+              <>
+                Mostrando <strong>{activeBranchId ? activeBranchName : 'todas las sedes'}</strong>
+                {' · '}{filteredStudents.length} deportista{filteredStudents.length !== 1 ? 's' : ''}
+                {filteredStudents.length !== tabStudents.length && ` de ${tabStudents.length}`}
+              </>
+            ) : (
+              <>
+                {filteredStudents.length} atleta{filteredStudents.length !== 1 ? 's' : ''}
+                {filteredStudents.length !== tabStudents.length && ` de ${tabStudents.length}`} en <strong>{schoolName}</strong>
+              </>
+            )}
           </p>
         </div>
         {(canManageStudents || canCreateOrEditStudents || coachUploadsEnrollmentForms) && (
@@ -1585,7 +1644,7 @@ export default function SchoolStudentsManagementPage() {
                           </Badge>
                         )}
                         {!student.team_name && !(student as any).plan_name && <span className="text-xs text-muted-foreground">Sin asignar</span>}
-                        <span className="text-muted-foreground text-xs ml-1">· {student.branch_name || "Sin sede"}</span>
+                        <BranchChip branchId={student.branch_id} name={student.branch_name} branches={branches} className="ml-1" />
                       </div>
                       {!hideFinancials && (
                         <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -1685,7 +1744,7 @@ export default function SchoolStudentsManagementPage() {
                             {!student.team_name && !(student as any).plan_name && <span className="text-xs text-muted-foreground">Sin asignar</span>}
                           </div>
                         </TableCell>
-                        <TableCell><span className="text-xs text-muted-foreground">{student.branch_name || <span className="text-muted-foreground text-xs">Sin sede</span>}</span></TableCell>
+                        <TableCell><BranchChip branchId={student.branch_id} name={student.branch_name} branches={branches} /></TableCell>
                         <TableCell>{(student as any).athlete_type === 'adult' || isAdultByBirthdate((student as any).date_of_birth) ? '—' : (student.display_parent_name || student.parent_name || '-')}</TableCell>
                         {!hideFinancials && (
                           <>
@@ -1841,10 +1900,23 @@ export default function SchoolStudentsManagementPage() {
                 <Label htmlFor="medical_info">Información médica</Label>
                 <Textarea id="medical_info" {...form.register('medical_info')} rows={2} />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="dorsal">Dorsal</Label>
-                <Input id="dorsal" placeholder="Ej: 10" maxLength={10} {...form.register('dorsal')} />
-              </div>
+              {registrationZkPinEnabled ? (
+                // Al editar: ID del torniquete en lugar del dorsal. El alta (legacy, sin
+                // dorsal) no lo muestra: las altas van por los formularios de menor/adulto.
+                editingStudent && (
+                  <ZkPinField
+                    id="zk_pin"
+                    value={form.watch('zk_pin') ?? ''}
+                    onChange={v => form.setValue('zk_pin', v, { shouldDirty: true })}
+                    currentPin={currentZkPin}
+                  />
+                )
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="dorsal">Dorsal</Label>
+                  <Input id="dorsal" placeholder="Ej: 10" maxLength={10} {...form.register('dorsal')} />
+                </div>
+              )}
               {(!editingStudent || editingAthleteType === 'child') && (
                 <div className="space-y-2">
                   <p className="text-xs text-muted-foreground">Campos opcionales</p>
@@ -2200,6 +2272,13 @@ export default function SchoolStudentsManagementPage() {
               )}
             </div>
 
+            {/* F2 hermanos: familia del menor (vínculo manual para acudientes sin
+                cuenta). Solo administración; la RPC vuelve a exigirlo. */}
+            {editingStudent && editingAthleteType === 'child' && schoolId
+              && profile?.role !== 'coach' && canManageCharges(schoolRole) && (
+              <SiblingFamilySection schoolId={schoolId} childId={editingStudent.id} />
+            )}
+
             {!editingStudent && dupAviso && (
               <div className="rounded-md border border-amber-400 bg-amber-50 p-3 space-y-2 dark:bg-amber-950/30">
                 <div className="flex items-start gap-2">
@@ -2321,7 +2400,9 @@ export default function SchoolStudentsManagementPage() {
                           ? `${studentDocInfo.doc_type.toUpperCase()} ${studentDocInfo.doc_number}`
                           : null
                       } />
-                      <InfoRow label="Dorsal" value={s.dorsal} />
+                      {registrationZkPinEnabled && schoolId
+                        ? <ZkPinInfoRow schoolId={schoolId} athleteId={s.id} athleteType={athleteType} />
+                        : <InfoRow label="Dorsal" value={s.dorsal} />}
                       <InfoRow label="Talla camiseta" value={studentDocInfo.tshirt_size} />
                       <InfoRow label="Tipo de sangre" value={studentDocInfo.blood_type} />
                       <InfoRow label="EPS" value={studentDocInfo.eps_name} />

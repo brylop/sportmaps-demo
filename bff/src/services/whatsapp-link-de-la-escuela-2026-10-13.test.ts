@@ -50,7 +50,7 @@ describe('link de pago propio de la escuela', () => {
         const out = await conEnlacesDePago([pago('Mensualidad Octubre', 150000), pago('Seguro', 40000)] as any[], 'parent-1', 'school-1');
         expect(out.map((p) => p.enlace_pago)).toEqual([LINK, LINK]);
         expect(out.every((p) => p.enlace_de_la_escuela === true)).toBe(true);
-        expect(out[0].enlace_instrucciones).toBe('Toca «Ir a pagar», escribe $150.000 y, al terminar, mándame la foto del comprobante por aquí para que la escuela lo aplique.');
+        expect(out[0].enlace_instrucciones).toBe('Toca «Ir a pagar», escribe $150.000 (sin recargo) y, al terminar, mándame la foto del comprobante por aquí para que la escuela lo aplique.');
         expect(h.link).not.toHaveBeenCalled();
         expect(h.emitir).not.toHaveBeenCalled();
         expect(lineaPagar(out[0])).toContain('escribe $150.000');
@@ -70,6 +70,29 @@ describe('link de pago propio de la escuela', () => {
         expect(out[0].enlace_pago).toBe('https://app.sportmaps.co/p/abcdefghijklmnopqrstuvwx');
         expect(out[0].enlace_de_la_escuela).toBeUndefined();
         expect(botonPagarUnico(out)).toEqual({ texto: 'Pagar', url: 'https://app.sportmaps.co/p/abcdefghijklmnopqrstuvwx' });
+    });
+
+    it('mora (2026-10-14): el valor es el ACTUAL del cobro y dice cuánto es mora', async () => {
+        h.cuentas = [{ type: 'payment_link', value: LINK, active: true }];
+        h.cobros = [
+            { id: 'p1', concept: 'Mensualidad Octubre', amount: '160000.00', due_date: '2026-10-10', status: 'overdue', late_fee_amount: '10000.00' },
+        ];
+        const out = await conEnlacesDePago([{ ...pago('Mensualidad Octubre', 160000), status: 'overdue' }] as any[], 'parent-1', 'school-1');
+        expect(out[0].enlace_instrucciones).toBe('Toca «Ir a pagar», escribe $160.000 y, al terminar, mándame la foto del comprobante por aquí para que la escuela lo aplique. Incluye recargo por mora: $10.000.');
+        expect(lineaPagar(out[0])).toContain('Incluye recargo por mora: $10.000');
+        // Sin mora, nada extra.
+        expect(instruccionesDelLinkDeLaEscuela(150000, 0)).not.toContain('mora');
+        expect(instruccionesDelLinkDeLaEscuela(150000, null)).not.toContain('mora');
+    });
+
+    it('cobro parcial: el valor a escribir es el SALDO, no el total', async () => {
+        h.cuentas = [{ type: 'payment_link', value: LINK, active: true }];
+        h.cobros = [
+            { id: 'p1', concept: 'Mensualidad Octubre', amount: 160000, amount_paid: 150000, early_payment_discount_applied: 0,
+                due_date: '2026-10-10', status: 'partial', late_fee_amount: 10000 },
+        ];
+        const out = await conEnlacesDePago([{ ...pago('Mensualidad Octubre', 160000), status: 'partial' }] as any[], 'parent-1', 'school-1');
+        expect(out[0].enlace_instrucciones).toContain('escribe $10.000 y');
     });
 
     it('sin monto, no inventa un valor', () => {

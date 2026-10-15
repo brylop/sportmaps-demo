@@ -29,7 +29,7 @@ import { getStepsForRole } from '@/lib/onboarding/getStepsForRole';
 import { acceptPendingInvitations } from '@/lib/invitations/acceptPendingInvitations';
 
 export default function DashboardPage() {
-  const { profile, user } = useAuth();
+  const { profile, user, realRole } = useAuth();
   const { toast } = useToast();
   const { activeBranchId, activeBranchName, totalBranches } = useSchoolContext();
   const navigate = useNavigate();
@@ -310,7 +310,9 @@ export default function DashboardPage() {
       coach: '/onboarding/coach',
       wellness_professional: '/onboarding/wellness',
     };
-    const dest = PERSON_ONBOARDING[profile.role as string];
+    // Con el rol REAL, no el del contexto elegido: un dueño que entra «como
+    // acudiente» (multirol) no debe caer en el onboarding de acudiente.
+    const dest = PERSON_ONBOARDING[(realRole ?? profile.role) as string];
     if (dest && profile.onboarding_completed === false) {
       return <Navigate to={dest} replace />;
     }
@@ -397,6 +399,13 @@ export default function DashboardPage() {
             // Ingreso cobrado este mes (Bogotá) por fecha de pago, con la misma
             // fórmula que Contabilidad y Gestión de Pagos (finance_income_summary).
             description = 'Cobrado este mes';
+            // Con tienda: desglose Mensualidades / Tienda (las ventas de la
+            // tienda no están en payments; se leen con store_income_summary).
+            const bd = realStats.revenue_breakdown;
+            if (bd) {
+              description = `Mensualidades ${formatCurrency(bd.mensualidades)} · Tienda ${
+                bd.tienda == null ? '—' : formatCurrency(bd.tienda)}`;
+            }
           }
 
           return {

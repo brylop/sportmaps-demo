@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { ProtectedRoute } from '../components/ProtectedRoute';
 import { useAuth } from '../contexts/AuthContext';
 import { useSchoolContext } from '../hooks/useSchoolContext';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 
 vi.mock('../contexts/AuthContext', () => ({
     useAuth: vi.fn(),
@@ -230,5 +230,69 @@ describe('ProtectedRoute — membresía de escuela respeta allowedRoles', () => 
             { currentUserRole: 'coach', schoolId: 's1' },
         );
         expect(screen.getByText('Unauthorized Page')).toBeInTheDocument();
+    });
+});
+
+
+// ─── Selector de rol para personas multirol (spec cambio-de-rol-atleta-acudiente.md) ─
+describe('ProtectedRoute — selector de rol (needsRoleChoice)', () => {
+    const LocationProbe = () => {
+        const loc = useLocation();
+        return <div data-testid="loc">{loc.pathname + loc.search}</div>;
+    };
+    const renderEn = (route: string, ui: React.ReactNode) => {
+        (useSchoolContext as any).mockReturnValue({ loading: false, onboardingStatus: 'completed', currentUserRole: null });
+        return render(
+            <MemoryRouter initialEntries={[route]}>
+                <Routes>
+                    <Route path="/pagos" element={ui} />
+                    <Route path="/elegir-rol" element={route.startsWith('/elegir-rol') ? ui : <LocationProbe />} />
+                    <Route path="/onboarding/role" element={ui} />
+                    <Route path="*" element={<LocationProbe />} />
+                </Routes>
+            </MemoryRouter>,
+        );
+    };
+
+    it('multirol sin elección: manda a /elegir-rol conservando a dónde iba', () => {
+        (useAuth as any).mockReturnValue({ loading: false, user: { id: '1' }, profile: { role: 'parent' }, needsRoleChoice: true });
+        renderEn('/pagos?x=1', <ProtectedRoute><div>Contenido</div></ProtectedRoute>);
+        expect(screen.queryByText('Contenido')).not.toBeInTheDocument();
+        expect(screen.getByTestId('loc').textContent).toBe(`/elegir-rol?redirectTo=${encodeURIComponent('/pagos?x=1')}`);
+    });
+
+    it('en /elegir-rol NO redirige (sin bucle)', () => {
+        (useAuth as any).mockReturnValue({ loading: false, user: { id: '1' }, profile: { role: 'parent' }, needsRoleChoice: true });
+        renderEn('/elegir-rol', <ProtectedRoute><div>Selector</div></ProtectedRoute>);
+        expect(screen.getByText('Selector')).toBeInTheDocument();
+    });
+
+    it('un solo rol (needsRoleChoice false): no cambia nada', () => {
+        (useAuth as any).mockReturnValue({ loading: false, user: { id: '1' }, profile: { role: 'parent' }, needsRoleChoice: false });
+        renderEn('/pagos', <ProtectedRoute><div>Contenido</div></ProtectedRoute>);
+        expect(screen.getByText('Contenido')).toBeInTheDocument();
+    });
+
+    it('needs_role_selection pendiente gana: va a /onboarding/role y allí NO rebota a /elegir-rol', () => {
+        (useAuth as any).mockReturnValue({
+            loading: false, user: { id: '1' }, profile: { role: 'athlete', needs_role_selection: true }, needsRoleChoice: true,
+        });
+        renderEn('/onboarding/role', <ProtectedRoute skipOnboardingCheck><div>Elegir rol inicial</div></ProtectedRoute>);
+        expect(screen.getByText('Elegir rol inicial')).toBeInTheDocument();
+    });
+
+    it('needs_role_selection pendiente: /elegir-rol cede a /onboarding/role (que no devuelve)', () => {
+        (useAuth as any).mockReturnValue({
+            loading: false, user: { id: '1' }, profile: { role: 'athlete', needs_role_selection: true }, needsRoleChoice: true,
+        });
+        render(
+            <MemoryRouter initialEntries={['/elegir-rol']}>
+                <Routes>
+                    <Route path="/elegir-rol" element={<ProtectedRoute><div>Selector</div></ProtectedRoute>} />
+                    <Route path="/onboarding/role" element={<ProtectedRoute skipOnboardingCheck><div>Elegir rol inicial</div></ProtectedRoute>} />
+                </Routes>
+            </MemoryRouter>,
+        );
+        expect(screen.getByText('Elegir rol inicial')).toBeInTheDocument();
     });
 });

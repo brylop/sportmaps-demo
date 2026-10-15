@@ -18,6 +18,7 @@ import { supabase } from '@/integrations/supabase/client';
 import type { StoreProduct } from '@/lib/store/variants';
 import type { CartQuote } from '@/lib/store/cart';
 import type { Fulfillment, StorePaymentMethod } from '@/lib/store/orderStatus';
+import type { CouponRedemption, StoreCoupon } from '@/lib/store/coupons';
 
 // ─── Vitrina ─────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,8 @@ export interface QuoteInput {
     items: Array<{ product_id?: string; variant_id?: string; quantity: number }>;
     fulfillment: Fulfillment;
     address?: { departamento: string; ciudad?: string; direccion?: string } | null;
+    /** Código de descuento de la tienda (F3b). La base lo valida y calcula; con anon → COUPON_LOGIN_REQUIRED. */
+    couponCode?: string | null;
 }
 
 export async function quoteCart(input: QuoteInput): Promise<CartQuote> {
@@ -70,7 +73,7 @@ export async function quoteCart(input: QuoteInput): Promise<CartQuote> {
         p_items: input.items,
         p_fulfillment: input.fulfillment,
         p_address: input.fulfillment === 'shipping' ? (input.address ?? null) : null,
-        p_coupon_code: null,
+        p_coupon_code: input.couponCode?.trim() ? input.couponCode.trim() : null,
     } as never);
     if (error) throw error;
     return data as unknown as CartQuote;
@@ -131,6 +134,8 @@ export interface CreateOrderInput {
     buyer?: { name?: string; document?: string; email?: string; phone?: string; notes?: string };
     paymentMethod: StorePaymentMethod;
     idempotencyKey: string;
+    /** Cupón de la tienda (F3b). El descuento lo pone la base; nunca se manda un monto. */
+    couponCode?: string | null;
 }
 
 export interface TransferAccount {
@@ -161,6 +166,9 @@ export interface CreatedOrder {
     subtotal: number;
     taxTotal: number;
     shippingCost: number;
+    /** Cupón (F3b): subtotal es ANTES del descuento; grossAmount = subtotal − discountTotal + envío. */
+    discountTotal?: number;
+    couponCode?: string | null;
     grossAmount: number;
     amountInCents: number;
     expiresAt: string | null;
@@ -188,6 +196,9 @@ export interface BuyerOrderItem {
     quantity: number;
     unit_price: number;
     tax_amount?: number | null;
+    /** Neto de la línea (después del cupón) y su parte del descuento (F3b). */
+    line_total?: number | null;
+    discount_amount?: number | null;
     products?: { id: string; name: string; image_url: string | null } | null;
     product_variants?: { id: string; name: string; attributes?: Record<string, string> | null } | null;
 }
@@ -201,6 +212,9 @@ export interface StoreOrder {
     pickup_branch_id: string | null;
     shipping_address: Record<string, string> | null;
     subtotal: number | null;
+    /** Cupón (F3b): descuento total y código aplicado. total = subtotal − discount_total + envío. */
+    discount_total?: number | null;
+    coupon_code?: string | null;
     tax_total: number | null;
     shipping_cost: number | null;
     total_amount: number;
@@ -219,7 +233,7 @@ export interface StoreOrder {
     buyer_snapshot?: Record<string, string> | null;
     notes?: string | null;
     vendor_profile_id: string | null;
-    user_id?: string;
+    user_id?: string | null;
     order_items?: BuyerOrderItem[];
 }
 
@@ -302,10 +316,10 @@ export async function confirmReceived(orderId: string): Promise<void> {
 // ─── Tienda (quien la administra) ────────────────────────────────────────────
 
 export const SELLER_ORDER_COLUMNS = `id, reference, status, payment_method, fulfillment_mode, pickup_branch_id, shipping_address,
-  subtotal, tax_total, shipping_cost, total_amount, expires_at, created_at, paid_at, receipt_path, receipt_submitted_at,
+  subtotal, discount_total, coupon_code, tax_total, shipping_cost, total_amount, expires_at, created_at, paid_at, receipt_path, receipt_submitted_at,
   rejection_reason, tracking_number, shipping_carrier, customer_name, customer_document, contact_email, contact_phone,
   buyer_snapshot, notes, vendor_profile_id, user_id,
-  order_items (id, product_id, variant_id, quantity, unit_price, line_total,
+  order_items (id, product_id, variant_id, quantity, unit_price, line_total, discount_amount,
     products (id, name, image_url))`;
 
 /**
@@ -317,7 +331,8 @@ export async function fetchSellerOrders(userId: string): Promise<StoreOrder[]> {
         .from('orders')
         .select(SELLER_ORDER_COLUMNS)
         .not('vendor_profile_id', 'is', null)
-        .neq('user_id', userId)
+        // Las compras sin cuenta (user_id NULL) también son de la tienda: `neq` sola las descartaba.
+        .or(`user_id.is.null,user_id.neq.${userId}`)
         .order('created_at', { ascending: false })
         .limit(300);
     if (error) throw error;
@@ -413,4 +428,29 @@ export const PICKUP_CODE_REGENERATED_NOTE = 'Código de retiro regenerado';
 
 export function pickupCodeRegenerations(history: Array<{ note: string | null; actor_role?: string | null }>): number {
     return history.filter((h) => (h.note ?? '').startsWith(PICKUP_CODE_REGENERATED_NOTE)).length;
+}
+
+// ─── Cupones de la tienda (F3b, mig. 20261013170543) ─────────────────────────
+// Los gestiona quien administra la tienda (BFF /api/v1/store/vendor/:vp/coupons,
+// can_manage_store_as). El comprador nunca los lista: escribe un código y
+// quote_cart lo valida (coupon_error / coupon).
+
+export async function fetchStoreCoupons(vendorProfileId: string): Promise<StoreCoupon[]> {
+    const res = await bffClient.get<{ ok: boolean; data: StoreCoupon[] }>(`/api/v1/store/vendor/${vendorProfileId}/coupons`);
+    return res.data ?? [];
+}
+
+export async function createStoreCoupon(vendorProfileId: string, body: Record<string, unknown>): Promise<StoreCoupon> {
+    const res = await bffClient.post<{ ok: boolean; data: StoreCoupon }>(`/api/v1/store/vendor/${vendorProfileId}/coupons`, body);
+    return res.data;
+}
+
+export async function updateStoreCoupon(vendorProfileId: string, couponId: string, body: Record<string, unknown>): Promise<StoreCoupon> {
+    const res = await bffClient.patch<{ ok: boolean; data: StoreCoupon }>(`/api/v1/store/vendor/${vendorProfileId}/coupons/${couponId}`, body);
+    return res.data;
+}
+
+export async function fetchCouponRedemptions(vendorProfileId: string, couponId: string): Promise<CouponRedemption[]> {
+    const res = await bffClient.get<{ ok: boolean; data: CouponRedemption[] }>(`/api/v1/store/vendor/${vendorProfileId}/coupons/${couponId}/redemptions`);
+    return res.data ?? [];
 }

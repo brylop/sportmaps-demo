@@ -126,7 +126,7 @@ function logDevice(eventType: string, detail: Record<string, unknown>, sn?: stri
 }
 
 // ─── Cache de dispositivos por serial (multi-tenant, perf) ───────────────────
-type DeviceInfo = {
+export type DeviceInfo = {
   id: string;
   schoolId: string;
   direction: 'entry' | 'exit';
@@ -987,16 +987,38 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
   return res.type('text/plain').status(200).send('OK');
 });
 
-// ─── GET /iclock/getrequest — F22 consulta comandos pendientes ────────────────
-router.get('/iclock/getrequest', async (req: Request, res: Response) => {
-  const sn = (req.query.SN || req.query.sn) as string;
-  logDebug(`GET /iclock/getrequest | SN: ${sn}`);
+// ─── Sondeo de comandos (GET /iclock/getrequest) ─────────────────────────────
+// Los F22 preguntan cada ~10 s (Delay=10). Antes eran 3 llamadas PostgREST por
+// sondeo (touch last_seen_at + SELECT pendientes + PATCH expirados); ahora una
+// sola RPC `adms_poll` (migración 20261014105210) que hace las tres. Si la RPC
+// aún no está aplicada (PGRST202 / 42883) se cae al camino viejo, así que el
+// código puede desplegarse antes que la migración.
+export type PendingCommand = { id: string; cmd_seq: number | null; command_type: string; metadata: any };
 
-  const device = sn ? await getDeviceBySerial(sn) : null;
-  if (!device) {
-    return res.type('text/plain').status(200).send('OK');
-  }
+const PENDING_LIMIT = 5;
+const RPC_MISSING_RETRY_MS = 5 * 60 * 1000;
+let admsPollMissingUntil = 0;
 
+/** Solo tests. */
+export function resetAdmsPollState(): void {
+  admsPollMissingUntil = 0;
+}
+
+function isMissingRpc(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false;
+  return error.code === 'PGRST202' || error.code === '42883';
+}
+
+// `open_door` en dispositivos con bridge local (pyzk) NO se manda por acá:
+// el F22ID acepta CONTROL DEVICE con Return:0 sin mover el relé, y de acá
+// abajo se marcaría `executed` en falso por ese mismo Return code, ganándole
+// la carrera a GET /bridge/door-commands (que sí lo ejecuta de verdad).
+// Ver scripts/gymrm-door-bridge/VALIDACION-2026-08-25.md, hallazgo 1.
+function excludedCommandTypes(device: DeviceInfo): string[] | null {
+  return device.hasLocalBridge ? ['open_door'] : null;
+}
+
+async function pollPendingCommandsLegacy(sn: string, device: DeviceInfo): Promise<PendingCommand[]> {
   await touchDevice(sn);
   const deviceId = device.id;
 
@@ -1007,15 +1029,11 @@ router.get('/iclock/getrequest', async (req: Request, res: Response) => {
     .eq('status', 'pending')
     .gt('expires_at', new Date().toISOString())
     .order('issued_at', { ascending: true })
-    .limit(5);
+    .limit(PENDING_LIMIT);
 
-  // `open_door` en dispositivos con bridge local (pyzk) NO se manda por acá:
-  // el F22ID acepta CONTROL DEVICE con Return:0 sin mover el relé, y de acá
-  // abajo se marcaría `executed` en falso por ese mismo Return code, ganándole
-  // la carrera a GET /bridge/door-commands (que sí lo ejecuta de verdad).
-  // Ver scripts/gymrm-door-bridge/VALIDACION-2026-08-25.md, hallazgo 1.
-  if (device.hasLocalBridge) {
-    pendingQuery = pendingQuery.neq('command_type', 'open_door');
+  const excluded = excludedCommandTypes(device);
+  if (excluded) {
+    for (const t of excluded) pendingQuery = pendingQuery.neq('command_type', t);
   }
 
   const { data: commands } = await pendingQuery;
@@ -1027,6 +1045,39 @@ router.get('/iclock/getrequest', async (req: Request, res: Response) => {
     .eq('device_id', deviceId)
     .eq('status', 'pending')
     .lt('expires_at', new Date().toISOString());
+
+  return (commands as PendingCommand[] | null) ?? [];
+}
+
+export async function pollPendingCommands(sn: string, device: DeviceInfo): Promise<PendingCommand[]> {
+  if (Date.now() >= admsPollMissingUntil) {
+    const { data, error } = await supabase.rpc('adms_poll', {
+      p_device_id: device.id,
+      p_limit: PENDING_LIMIT,
+      p_exclude_types: excludedCommandTypes(device),
+    });
+    if (!error) return (data as PendingCommand[] | null) ?? [];
+    if (isMissingRpc(error)) {
+      admsPollMissingUntil = Date.now() + RPC_MISSING_RETRY_MS;
+      console.warn('[ADMS] adms_poll no existe aún — camino viejo de 3 llamadas por 5 min');
+    } else {
+      console.error(`[ADMS] adms_poll falló (${error.code ?? '?'}: ${error.message}) — camino viejo`);
+    }
+  }
+  return pollPendingCommandsLegacy(sn, device);
+}
+
+// ─── GET /iclock/getrequest — F22 consulta comandos pendientes ────────────────
+router.get('/iclock/getrequest', async (req: Request, res: Response) => {
+  const sn = (req.query.SN || req.query.sn) as string;
+  logDebug(`GET /iclock/getrequest | SN: ${sn}`);
+
+  const device = sn ? await getDeviceBySerial(sn) : null;
+  if (!device) {
+    return res.type('text/plain').status(200).send('OK');
+  }
+
+  const commands = await pollPendingCommands(sn, device);
 
   if (!commands || commands.length === 0) {
     return res.type('text/plain').status(200).send('OK');

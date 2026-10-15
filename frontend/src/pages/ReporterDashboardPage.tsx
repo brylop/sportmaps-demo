@@ -348,7 +348,7 @@ export default function ReporterDashboardPage() {
                 { label: 'Por Cobrar', value: compactCurrency(pending), full: currency(pending), sub: 'Pendiente de pago', trend: 'neutral', color: 'bg-yellow-500' },
                 { label: 'Morosos', value: overdue, sub: 'Con deuda vencida', trend: overdue > 0 ? 'down' : 'neutral', trendValue: overdue > 0 ? 'Requiere atención' : 'Al día', color: 'bg-red-500' },
                 { label: 'Entrenadores', value: res.coaches.length, sub: 'Activos', color: 'bg-purple-500' },
-                { label: 'Sedes', value: res.sedes.length, sub: 'Ubicaciones activas', color: 'bg-orange-500' }
+                { label: 'Sedes', value: res.sedes.filter(s => s.id !== 'sin_sede').length, sub: 'Ubicaciones activas', color: 'bg-orange-500' }
             ]);
 
         } catch (err: any) {
@@ -728,7 +728,7 @@ export default function ReporterDashboardPage() {
                             <div className="flex items-center justify-between">
                                 <div>
                                     <CardTitle className="text-base">Resumen por Sede</CardTitle>
-                                    <CardDescription>{sedes.length} sedes registradas</CardDescription>
+                                    <CardDescription>{sedes.filter(s => s.id !== 'sin_sede').length} sedes registradas{sedes.some(s => s.id === 'sin_sede') ? ' + lo que no tiene sede' : ''}</CardDescription>
                                 </div>
                                 <div className="flex gap-2">
                                     <Button asChild variant="ghost" size="sm" className="text-xs h-7">

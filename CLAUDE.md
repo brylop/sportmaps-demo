@@ -84,6 +84,15 @@ select set_config('request.jwt.claims', json_build_object('sub','<uuid>')::text,
 select public.user_school_ids(), public.user_staff_school_ids(), public.user_admin_school_ids();
 ```
 
+## Disk IO de la base — OBLIGATORIO (caída de ~14 h el 2026-10-14)
+
+**Desde el 2026-10-14 Supabase es plan Pro** (se compró para trabajar con más holgura), pero **el plan de optimización sigue vigente**: Pro sube el techo, no lo quita, y la base sigue siendo **una sola** para dev, stg y prod. Si se agota el presupuesto de Disk IO, se cae TODO (login incluido; el navegador lo muestra como error de CORS, pero es un 504). Las reglas de abajo NO se relajan por el cambio de plan. Lo que más quema IO no son las consultas de la app sino **leer el catálogo** (814 funciones): cada lectura escribe archivos temporales.
+
+- **Una sola sesión a la vez aplica migraciones.** Nunca aplicar migraciones (`apply_migration`, `db push`, SQL con DDL) desde agentes o sesiones en paralelo: cada DDL obliga a PostgREST a recargar todo el esquema.
+- **Regenerar `types.ts` (`gen types` / `generate_typescript_types`) solo una vez, al final del lote de migraciones**, no después de cada una.
+- **No usar `list_tables`, `get_advisors` ni el listado de funciones como sondeo.** Para un objeto puntual, consultar `pg_policies` / `pg_proc` filtrando por nombre.
+- **Jobs del BFF que corren cada minuto: nada de N+1.** Leer el lote con `.in('id', ids)`, no una consulta por fila. Los tres BFF comparten la base, así que cada consulta por minuto se multiplica por tres.
+
 ## Cómo se entregan las features
 
 - **Full-stack por feature:** DB + RLS + RPCs + BFF + API + Frontend + Auditoría + QA. No migraciones sueltas.

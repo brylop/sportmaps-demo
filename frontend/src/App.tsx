@@ -38,6 +38,7 @@ const Index = lazy(() => import("./pages/Index"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const RegisterPage = lazy(() => import("./pages/RegisterPage"));
 const OnboardingRolePage = lazy(() => import("./pages/OnboardingRolePage"));
+const ElegirRolPage = lazy(() => import("./pages/ElegirRolPage"));
 const JoinTeamPage = lazy(() => import("./pages/JoinTeamPage"));
 const JoinPlanPage = lazy(() => import("./pages/JoinPlanPage"));
 const TermsPage = lazy(() => import("./pages/TermsPage"));
@@ -47,6 +48,7 @@ const SchoolDetailPage = lazy(() => import("./pages/SchoolDetailPage"));
 const UnauthorizedPage = lazy(() => import("./pages/UnauthorizedPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const StoreCheckoutPage = lazy(() => import("./pages/StoreCheckoutPage"));
+const PedidoInvitadoPage = lazy(() => import("./pages/PedidoInvitadoPage"));
 const CarritoPage = lazy(() => import("./pages/CarritoPage"));
 const TiendaProductoPage = lazy(() => import("./pages/TiendaProductoPage"));
 const MisComprasPage = lazy(() => import("./pages/MisComprasPage"));
@@ -229,6 +231,7 @@ const VendorSubscribersPage = lazy(() => import("./pages/vendor/VendorSubscriber
 const VendorShippingSettingsPage = lazy(() => import("./pages/vendor/VendorShippingSettingsPage"));
 // Tu tienda (escuela): cobros, entrega y compartir. Resuelve la tienda por escuela (bug N0).
 const SchoolStoreSettingsPage = lazy(() => import("./pages/school/SchoolStoreSettingsPage"));
+const SchoolStoreCouponsPage = lazy(() => import("./pages/school/SchoolStoreCouponsPage"));
 
 const OrganizerGuard = lazy(() => import("@/components/organizer/OrganizerGuard").then(module => ({ default: module.OrganizerGuard })));
 const OrganizerOnboardingPage = lazy(() => import("./pages/organizer/OrganizerOnboardingPage"));
@@ -340,6 +343,10 @@ const App = () => (
                     <Route path="/onboarding/role" element={
                       <ProtectedRoute skipOnboardingCheck><OnboardingRolePage /></ProtectedRoute>
                     } />
+                    {/* Personas multirol: elegir con qué rol entrar (no usa AuthLayout). */}
+                    <Route path="/elegir-rol" element={
+                      <ProtectedRoute><ElegirRolPage /></ProtectedRoute>
+                    } />
                     <Route path="/join-team/:teamId" element={<JoinTeamPage />} />
                     <Route path="/join-plan/:planId" element={<JoinPlanPage />} />
                     <Route path="/c/:qrToken" element={<AthleteCardPublicPage />} />
@@ -363,9 +370,11 @@ const App = () => (
                     {/* Tienda v2: el checkout viejo (/checkout) se eliminó; se paga una tienda a la vez. */}
                     <Route path="/checkout" element={<Navigate to="/carrito" replace />} />
                     <Route path="/carrito" element={<StoreGate><CarritoPage /></StoreGate>} />
-                    <Route path="/checkout/tienda/:vendorProfileId" element={
-                      <ProtectedRoute><StoreGate><StoreCheckoutPage /></StoreGate></ProtectedRoute>
-                    } />
+                    {/* Sin ProtectedRoute: sin sesión la página ofrece iniciar sesión o comprar sin cuenta (mig. 20261013170553). */}
+                    <Route path="/checkout/tienda/:vendorProfileId" element={<StoreGate><StoreCheckoutPage /></StoreGate>} />
+                    {/* Pedido sin cuenta: el token del correo es la credencial. Sin StoreGate: un pedido
+                        pagado se tiene que poder ver aunque la tienda se apague después. */}
+                    <Route path="/pedido/:token" element={<PedidoInvitadoPage />} />
                     <Route path="/onboarding/school" element={
                       <ProtectedRoute><SchoolOnboardingPage /></ProtectedRoute>
                     } />
@@ -1017,6 +1026,11 @@ const App = () => (
                       <Route path="tienda-escuela/ajustes" element={
                         <ProtectedRoute allowedRoles={['school', 'school_admin', 'admin', 'super_admin']}>
                           <SchoolStoreSettingsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="tienda-escuela/cupones" element={
+                        <ProtectedRoute allowedRoles={['school', 'school_admin', 'admin', 'super_admin']}>
+                          <StoreGate><SchoolStoreCouponsPage /></StoreGate>
                         </ProtectedRoute>
                       } />
 

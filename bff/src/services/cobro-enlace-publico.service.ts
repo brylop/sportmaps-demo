@@ -12,7 +12,8 @@
  * cobro"), así el webhook de Wompi lo concilia sin saber que vino de acá.
  *
  * Reglas que se respetan del checkout existente (create-session):
- *   · El monto se calcula en el servidor: base = payments.amount; en línea se
+ *   · El monto se calcula en el servidor: base = payments.amount - amount_paid
+ *     (la mora ya va dentro de amount: apply_late_fees la suma); en línea se
  *     suma `online_fee_pct` de school_settings (recargo de la escuela, ver
  *     memoria "recargo online = de la escuela"). Por transferencia, la base.
  *   · Solo se cobra en línea lo que está en 'pending' u 'overdue' y sin
@@ -58,6 +59,7 @@ import { enlaceActivarAvisosParaPagador } from './whatsapp-activar-avisos';
 import { categoriaDeCobro, esCobroUnico } from './payment-accounts';
 import { findDuplicatePaymentIds } from './duplicatePayerGuard.service';
 import { debitoEnCurso, MENSAJE_DEBITO_EN_CURSO } from './autopay.service';
+import { saldoPorCobrar, saldoDelCobro, ESTADOS_PAGABLES_EN_LINEA } from '../utils/saldo-cobro';
 
 /** Formato del token que emite la RPC: 18 bytes → 24 caracteres base64url. */
 export const TOKEN_COBRO_RE = /^[A-Za-z0-9_-]{24}$/;
@@ -76,8 +78,15 @@ export interface VistaCobroPublico {
     periodo: string | null;
     deportista: string | null;
     estado: EstadoCobro;
-    /** Lo que se paga por transferencia (sin recargo). */
+    /** Lo que se paga por transferencia (sin recargo): saldo = amount - amount_paid, mora incluida. */
     monto: number;
+    /**
+     * Recargo por mora que ya está DENTRO de `monto` (payments.late_fee_amount,
+     * lo suma apply_late_fees cada noche); 0 si no hay. Es solo para mostrar el
+     * desglose «Mensualidad $X · Recargo por mora $Y»: no se suma otra vez.
+     * Nombre en snake_case a propósito: es el contrato con la página /p/:token.
+     */
+    late_fee_amount: number;
     fechaVencimiento: string | null;
     fechaPago: string | null;
     enlaceVenceEn: string;
@@ -120,6 +129,12 @@ export interface VistaCobroPublico {
      * no tiene WhatsApp activo o si el número del pagador ya lo dio.
      */
     whatsappAvisos: string | null;
+    /**
+     * true si este cobro acepta que se suba la foto/PDF del comprobante aquí
+     * mismo (POST /:token/comprobante). Pensado para escuelas sin WhatsApp
+     * (Dreamers): sin esto el enlace no tenía cómo cerrar una transferencia.
+     */
+    subirComprobante: boolean;
     otrosPendientes: {
         token: string;
         concepto: string;
@@ -222,6 +237,15 @@ export function estadoPublico(status: string, dueDate: string | null, hoyISO: st
     }
 }
 
+/** Saldo del cobro y estados pagables en línea (pending/overdue/partial): ver utils/saldo-cobro. */
+export { saldoDelCobro, ESTADOS_PAGABLES_EN_LINEA };
+
+/** Recargo por mora del cobro (payments.late_fee_amount); 0 si no hay o no es número. */
+export function moraDelCobro(p: { late_fee_amount?: number | string | null }): number {
+    const v = Number(p.late_fee_amount);
+    return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
 /** Mismo cálculo que create-session (payments.routes.ts §5): recargo redondeado al peso. */
 export function montosEnLinea(base: number, feePct: number): { recargo: number; total: number } {
     const recargo = Math.round(base * (feePct / 100));
@@ -244,7 +268,7 @@ const permiteSandbox = () => process.env.PAGO_PUBLICO_PERMITE_SANDBOX === 'true'
 // Lecturas
 // ─────────────────────────────────────────────────────────────────────────────
 
-const COLS_COBRO = 'id, school_id, amount, status, concept, payment_category, due_date, payment_date, period_year, period_month, '
+const COLS_COBRO = 'id, school_id, amount, amount_paid, early_payment_discount_applied, late_fee_amount, status, concept, payment_category, due_date, payment_date, period_year, period_month, '
     + 'child_id, user_id, parent_id, unregistered_athlete_id, requires_review';
 
 async function leerCobro(paymentId: string, schoolId: string) {
@@ -286,7 +310,7 @@ async function escuelaOperativa(schoolId: string): Promise<boolean> {
  * resueltas (para firmar) o null. No escribe nada.
  */
 async function pasarelaParaCobro(p: any) {
-    if (!['pending', 'overdue'].includes(p.status) || p.requires_review) return null;
+    if (!ESTADOS_PAGABLES_EN_LINEA.includes(p.status) || p.requires_review) return null;
     if (!(await escuelaOperativa(p.school_id))) return null;
 
     const resolved = await resolveProvider({ schoolId: p.school_id, preferredProvider: 'wompi' });
@@ -372,7 +396,7 @@ async function otrosPendientesDelPagador(p: any): Promise<VistaCobroPublico['otr
             concepto: String(o.concept || 'Mensualidad'),
             periodo: periodoDeCobro(o),
             deportista: await nombreDelDeportista(o),
-            monto: Number(o.amount),
+            monto: saldoDelCobro(o),
             fechaVencimiento: o.due_date ? String(o.due_date).slice(0, 10) : null,
             vencido: estadoPublico(o.status, o.due_date, hoy) === 'vencido',
         });
@@ -406,7 +430,9 @@ export async function vistaDelCobro(r: Extract<ResultadoResolver, { ok: true }>)
         otrosPendientesDelPagador(p),
     ]);
 
-    const monto = Number(p.amount);
+    // Saldo vigente, recalculado en cada clic: si anoche apply_late_fees sumó
+    // la mora a payments.amount, la familia ve (y paga) el monto ya con mora.
+    const monto = saldoDelCobro(p);
     const periodo = periodoDeCobro(p);
     const concepto = String(p.concept || 'Mensualidad');
     const estado = estadoPublico(p.status, p.due_date, hoyBogota());
@@ -431,10 +457,11 @@ export async function vistaDelCobro(r: Extract<ResultadoResolver, { ok: true }>)
         deportista,
         estado,
         monto,
+        late_fee_amount: moraDelCobro(p),
         fechaVencimiento: p.due_date ? String(p.due_date).slice(0, 10) : null,
         fechaPago: estado === 'pagado' && p.payment_date ? String(p.payment_date).slice(0, 10) : null,
         enlaceVenceEn: r.venceEn,
-        enLinea: pasarela
+        enLinea: pasarela && monto > 0
             ? { proveedor: 'wompi', recargoPct: feePct, ...montosEnLinea(monto, feePct) }
             : null,
         transferencia: pagable
@@ -448,6 +475,7 @@ export async function vistaDelCobro(r: Extract<ResultadoResolver, { ok: true }>)
             : { cuentas: [], whatsappComprobante: null, qrEscuelaUrl: null, linkDePago: null },
         whatsappAvisos: await enlaceActivarAvisosParaPagador(
             p.school_id, p.parent_id || p.user_id || null, (escuela as any)?.name ?? 'la escuela'),
+        subirComprobante: ESTADOS_QUE_ACEPTAN_COMPROBANTE.includes(p.status),
         otrosPendientes: otros,
     };
 }
@@ -531,7 +559,8 @@ export async function prepararCheckoutDeCobro(
     const minutosUrl = Math.max(5, Math.floor(opts.minutosUrl ?? MINUTOS_LINK_CON_MONTO));
 
     if (p.status === 'paid') return NO_EN_LINEA('ya_pagado', 'Este cobro ya está pagado.');
-    if (!['pending', 'overdue'].includes(p.status)) {
+    // 'partial' también (2026-10-14): ver saldoPorCobrar.
+    if (!ESTADOS_PAGABLES_EN_LINEA.includes(p.status)) {
         return NO_EN_LINEA('no_pagable', 'Este cobro no se puede pagar en línea en este momento.');
     }
     if (p.requires_review) {
@@ -561,7 +590,12 @@ export async function prepararCheckoutDeCobro(
     const { creds } = pasarela;
 
     const feePct = await feePctDe(p.school_id);
-    const baseAmount = Number(p.amount);
+    // Saldo vigente (amount - amount_paid - pronto pago), mora incluida: se recalcula en cada
+    // clic, así que un link creado antes de que corriera apply_late_fees no se
+    // reusa con el monto viejo (ver la comparación de base_amount abajo).
+    const baseAmount = saldoDelCobro(p);
+    // Nada por cobrar (abonos + pronto pago ya cubren el total): Wompi no acepta $0.
+    if (baseAmount <= 0) return NO_EN_LINEA('sin_saldo', 'Este cobro no tiene saldo pendiente.');
     const { recargo: sportmapsFee, total: grossAmount } = montosEnLinea(baseAmount, feePct);
 
     const ahora = Date.now();
@@ -615,11 +649,13 @@ export async function prepararCheckoutDeCobro(
 
     // Reuso solo si los montos siguen vigentes (create-session §5.b: el caso
     // Dynasty de un link con fee_pct=0 cobrando la tarifa vieja).
+    //     También la mora (2026-10-14): `apply_late_fees()` suma el recargo a
+    //     `payments.amount`; un link de antes de la mora cobraría de menos.
+    const vigente = (l: any) => Number(l?.fee_pct) === feePct
+        && Math.abs(Number(l?.base_amount) - baseAmount) <= 0.5;
     const { data: existente } = await linkActivo();
     if (existente && ref(existente)) {
-        const igual = Number((existente as any).fee_pct) === feePct
-            && Math.abs(Number((existente as any).base_amount) - baseAmount) <= 0.5;
-        if (igual) return ok(desdeFila(existente), true);
+        if (vigente(existente)) return ok(desdeFila(existente), true);
         await supabase
             .from('payment_links')
             .update({ status: 'expired', updated_at: new Date().toISOString() })
@@ -658,8 +694,15 @@ export async function prepararCheckoutDeCobro(
         // 23505: otra pestaña/otro acudiente/otro BFF abrió el checkout del mismo
         // cobro a la vez (uq_payment_links_one_pending_per_payment). Se reusa el suyo.
         if ((insErr as any).code === '23505') {
+            // Mismo chequeo de vigencia que el reuso de arriba: la ganadora pudo
+            // leer el cobro antes de la mora o con otra tarifa. Una con montos
+            // viejos NO se reusa: se pide reintentar (la siguiente llamada la
+            // expira y crea la buena).
             const { data: ganador } = await linkActivo();
-            if (ganador && ref(ganador)) return ok(desdeFila(ganador), true);
+            if (ganador && ref(ganador)) {
+                if (vigente(ganador)) return ok(desdeFila(ganador), true);
+                return NO_EN_LINEA('monto_cambio', 'El valor de este cobro acaba de cambiar. Intenta de nuevo.');
+            }
             // La 'pending' que ganó es de otra pasarela (p.ej. un checkout MP abierto
             // desde la app). No se pisa: se pide esperar a que venza (72 h máx).
             return NO_EN_LINEA('checkout_en_curso', 'Ya hay un pago en curso para este cobro. Intenta de nuevo más tarde.');
@@ -668,4 +711,150 @@ export async function prepararCheckoutDeCobro(
     }
 
     return ok({ reference, gross: grossAmount, base: baseAmount, expiresAt }, false);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Subir el comprobante por el token (escuelas sin WhatsApp)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Dreamers no tiene WhatsApp: el enlace solo decía «manda el comprobante por
+// WhatsApp» y los cobros sin acudiente vinculado (Sofía, Avril, Zoe) no tenían
+// cómo cerrarse. Esto deja el cobro EXACTAMENTE como lo deja el bot de
+// comprobantes (`estamparComprobante`: archivo en payment-receipts, OCR,
+// veredicto, `awaiting_approval`) y, como el flujo del acudiente en la app,
+// solo un verde/amarillo pasa por `evaluatePaymentReceipt` (auto-aprobación si
+// la escuela la tiene, o glosa); un rojo queda para revisión humana. El aviso a
+// la escuela lo da el job receipt-review-alerts como para cualquier otro camino.
+//
+// Seguridad: el cobro sale SOLO del token (el cuerpo es el archivo, nada más);
+// el tipo se valida por los bytes, no por el Content-Type; la respuesta no trae
+// ni el veredicto ni nada del pagador.
+
+/**
+ * Estados en que se acepta un comprobante: los que estampa el bot más
+ * 'partial' (abono): el comprobante debe ser del SALDO (saldoDelCobro).
+ */
+export const ESTADOS_QUE_ACEPTAN_COMPROBANTE = ['pending', 'overdue', 'partial'];
+
+/** 6 MB: un pantallazo de banco pesa < 1 MB; un PDF de comprobante, < 500 KB. */
+export const MAX_BYTES_COMPROBANTE = 6 * 1024 * 1024;
+const MIN_BYTES_COMPROBANTE = 512;
+
+/** Tipo real del archivo por su firma (magic bytes). null = no se acepta. */
+export function tipoDeComprobante(buf: Buffer): { mime: string; ext: string } | null {
+    if (buf.length >= 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+        return { mime: 'image/png', ext: 'png' };
+    }
+    if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return { mime: 'image/jpeg', ext: 'jpg' };
+    if (buf.length >= 12 && buf.subarray(0, 4).toString('ascii') === 'RIFF' && buf.subarray(8, 12).toString('ascii') === 'WEBP') {
+        return { mime: 'image/webp', ext: 'webp' };
+    }
+    if (buf.length >= 5 && buf.subarray(0, 5).toString('ascii') === '%PDF-') return { mime: 'application/pdf', ext: 'pdf' };
+    return null;
+}
+
+export type ResultadoSubirComprobante =
+    | { ok: true; estado: 'en_revision' | 'pagado' | 'rechazado' }
+    | { ok: false; status: number; code: string; error: string };
+
+const NO_SUBE = (status: number, code: string, error: string): ResultadoSubirComprobante => ({ ok: false, status, code, error });
+
+const MENSAJE_REPETIDO = 'Este comprobante ya se usó en otro cobro de la escuela. Si hiciste otra transferencia, sube ese comprobante.';
+
+type LogMin = { info?: (...a: any[]) => void; warn?: (...a: any[]) => void };
+
+export async function subirComprobantePorToken(
+    r: Extract<ResultadoResolver, { ok: true }>,
+    archivo: Buffer,
+    log?: LogMin,
+): Promise<ResultadoSubirComprobante> {
+    if (!Buffer.isBuffer(archivo) || archivo.length < MIN_BYTES_COMPROBANTE) {
+        return NO_SUBE(400, 'archivo_invalido', 'Sube la foto o el PDF del comprobante.');
+    }
+    if (archivo.length > MAX_BYTES_COMPROBANTE) {
+        return NO_SUBE(413, 'archivo_grande', 'El archivo es muy pesado (máximo 6 MB). Sube una captura de pantalla.');
+    }
+    const tipo = tipoDeComprobante(archivo);
+    if (!tipo) return NO_SUBE(415, 'tipo_no_permitido', 'Solo se aceptan imágenes (JPG, PNG, WEBP) o PDF.');
+
+    const p = await leerCobro(r.paymentId, r.schoolId);
+    if (!p) return NO_SUBE(404, 'no_existe', 'Este enlace de pago no es válido.');
+    if (p.status === 'paid') return NO_SUBE(409, 'ya_pagado', 'Este cobro ya está pagado.');
+    if (p.status === 'awaiting_approval') {
+        return NO_SUBE(409, 'en_revision', 'Ya recibimos un comprobante para este cobro y la escuela lo está revisando.');
+    }
+    if (!ESTADOS_QUE_ACEPTAN_COMPROBANTE.includes(p.status)) {
+        return NO_SUBE(409, 'no_pagable', 'Este cobro no recibe comprobantes por aquí. Escríbele a la escuela.');
+    }
+    if (!(await escuelaOperativa(p.school_id))) {
+        return NO_SUBE(409, 'escuela_no_operativa', 'La escuela no está recibiendo pagos por SportMaps en este momento.');
+    }
+
+    const sha = crypto.createHash('sha256').update(archivo).digest('hex');
+
+    // La misma imagen ya está en otro cobro vivo de la escuela: no se sube de nuevo.
+    const { data: repetido } = await supabase
+        .from('payments')
+        .select('id')
+        .eq('school_id', p.school_id)
+        .eq('receipt_image_sha256', sha)
+        .neq('id', p.id)
+        .not('status', 'in', '(cancelled,rejected)')
+        .limit(1);
+    if (repetido && repetido.length > 0) return NO_SUBE(409, 'comprobante_repetido', MENSAJE_REPETIDO);
+
+    const storagePath = `${p.school_id}/enlace-publico/${p.id}-${Date.now()}.${tipo.ext}`;
+    const { error: upErr } = await supabase.storage
+        .from('payment-receipts')
+        .upload(storagePath, archivo, { contentType: tipo.mime, upsert: false });
+    if (upErr) throw new Error(`storage upload: ${upErr.message}`);
+
+    // OCR: si falla (proveedor caído), el comprobante igual queda para revisión
+    // manual con el veredicto de una lectura vacía — nunca se pierde.
+    const { extractReceipt } = await import('./ocr.service');
+    let ocr: Awaited<ReturnType<typeof extractReceipt>> = {
+        amount: null, currency: null, date: null, time: null, bank: null, reference: null,
+        destination: null, destinationName: null, originName: null,
+        isReceipt: true, isTransactionList: false, missingFields: [], provider: 'none',
+    };
+    try {
+        ocr = await extractReceipt(archivo.toString('base64'), tipo.mime);
+    } catch (e: any) {
+        log?.warn?.({ paymentId: p.id, err: e?.message }, '[cobro-publico] OCR falló; queda para revisión manual');
+    }
+
+    // Import diferido: el job arrastra media capa de WhatsApp y varios de esos
+    // servicios importan este archivo (evita el ciclo en la carga).
+    const { estamparComprobante } = await import('../jobs/whatsapp-queue.job');
+    const estampado = await estamparComprobante(
+        { schoolId: p.school_id, storagePath, sha, ocr, queueId: `enlace-publico:${p.id}`, log: log as any },
+        { id: p.id, amount: Number(p.amount) } as any,
+        // Lo que el comprobante debe decir: el saldo (con mora, menos abonos y
+        // pronto pago). Sin esto un abono saldado marcaría MONTO_DIFIERE.
+        saldoDelCobro(p),
+        { estados: ESTADOS_QUE_ACEPTAN_COMPROBANTE },
+    );
+
+    if (!estampado.ok || !estampado.actualizado) {
+        await supabase.storage.from('payment-receipts').remove([storagePath]).catch(() => undefined);
+        if (!estampado.ok && estampado.duplicado) return NO_SUBE(409, 'comprobante_repetido', MENSAJE_REPETIDO);
+        if (!estampado.ok) throw new Error(estampado.error);
+        return NO_SUBE(409, 'no_pagable', 'Este cobro cambió de estado mientras subías el comprobante. Recarga la página.');
+    }
+
+    // Misma regla que el flujo del acudiente en la app (PaymentCheckoutModal →
+    // autoEvaluateGlosa): solo verde/amarillo pasan por la evaluación automática
+    // (auto-aprobación si la escuela la tiene, o glosa). Un ROJO se queda en
+    // `awaiting_approval` para que lo vea una persona: aquí no hay canal para
+    // explicarle a la familia un rechazo automático, y un rojo falso (cuenta
+    // enmascarada → DESTINO_NO_COINCIDE) le tumbaría un pago legítimo.
+    let accion: string | undefined;
+    if (estampado.veredicto.verdict === 'verde' || estampado.veredicto.verdict === 'amarillo') {
+        const { evaluatePaymentReceipt } = await import('./receipt-approval.service');
+        const resultado = await evaluatePaymentReceipt(p.id, log as any).catch(() => ({ action: 'none' as const }));
+        accion = (resultado as { action?: string })?.action;
+    }
+    log?.info?.({ paymentId: p.id, veredicto: estampado.veredicto.verdict, accion }, '[cobro-publico] comprobante subido');
+
+    return { ok: true, estado: accion === 'approved' ? 'pagado' : accion === 'rejected' ? 'rechazado' : 'en_revision' };
 }

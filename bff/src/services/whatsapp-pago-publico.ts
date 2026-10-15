@@ -134,9 +134,11 @@ export function textoComoPagar(p: {
     if (p.pregunta.pagar || !p.pregunta.presencial) {
         const cuentas = p.datos.cuentas.slice(0, MAX_CUENTAS)
             .map((c) => `• *${c.tipo}*: ${c.numero}${c.titular ? ` (${c.titular})` : ''}`);
-        if (p.datos.linkDePago) cuentas.push(`• En línea: ${p.datos.linkDePago}`);
+        // El link público de la escuela es el propio de ella: la familia escribe el
+        // valor de su cobro, sin recargo. La transferencia directa tampoco lo lleva.
+        if (p.datos.linkDePago) cuentas.push(`• En línea (escribes el valor de tu cobro): ${p.datos.linkDePago}`);
         if (cuentas.length) {
-            partes.push(`Puedes pagar así:\n${cuentas.join('\n')}`);
+            partes.push(`Puedes pagar así (sin recargo):\n${cuentas.join('\n')}`);
             partes.push('Cuando pagues, mándame por aquí la foto del comprobante 📄 y lo aplico.');
         } else {
             partes.push('Los datos para pagar te los confirma la escuela por aquí.');
