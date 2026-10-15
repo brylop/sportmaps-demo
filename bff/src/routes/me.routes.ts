@@ -82,6 +82,7 @@ router.get('/entitlements', requireAuth, async (req: Request, res: Response) => 
                 coach_attendance_retro_days: 7,
                 coach_can_upload_enrollment_forms: false,
                 coach_can_upload_attendance_sheets: false,
+                registration_zk_pin_enabled: false,
             });
         }
 
@@ -98,6 +99,18 @@ router.get('/entitlements', requireAuth, async (req: Request, res: Response) => 
             if (fotosErr) req.log?.warn({ err: fotosErr, schoolId }, 'permisos de fotos del coach no legibles; quedan en false');
             data.coach_can_upload_enrollment_forms = (fotos as any)?.coach_can_upload_enrollment_forms === true;
             data.coach_can_upload_attendance_sheets = (fotos as any)?.coach_can_upload_attendance_sheets === true;
+        }
+
+        // ID del torniquete en el registro (Dreamers, mig 20261013…). Select APARTE por
+        // la misma razón: sin la migración falla solo esta lectura y queda en false.
+        {
+            const { data: zk, error: zkErr } = await supabase
+                .from('school_settings')
+                .select('registration_zk_pin_enabled')
+                .eq('school_id', schoolId)
+                .maybeSingle();
+            if (zkErr) req.log?.warn({ err: zkErr, schoolId }, 'registration_zk_pin_enabled no legible; queda en false');
+            data.registration_zk_pin_enabled = (zk as any)?.registration_zk_pin_enabled === true;
         }
 
         if (process.env.NODE_ENV === 'staging') {
