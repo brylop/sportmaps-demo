@@ -13,6 +13,7 @@
 import type { TacticalArrow } from '@/lib/school/footballQueries';
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
 import type { TacticalSport } from '@/lib/school/tacticalSports';
+import type { TacticalTeamsConfig } from '@/lib/school/tacticalTeams';
 import type { TacticalStaticPlayer } from '@/components/school/TacticalStaticSvg';
 import { renderTacticalPng } from './tacticalImage';
 import { canvasToBlob, loadImage } from './tacticalExportUtils';
@@ -55,6 +56,10 @@ export interface TacticalExportInput {
   playerLabels?: Record<string, string>;
   /** `TacticalFramePlayer.key` → dorsal. */
   playerJerseys?: Record<string, number | null>;
+  /** M6b: configuración de los equipos (sin ella, el dibujo de siempre). */
+  teams?: TacticalTeamsConfig | null;
+  /** M6b: clave → nombre real. Solo viaja con «Mostrar nombres» prendido. */
+  playerNames?: Record<string, string>;
   objective?: string | null;
   minutes?: number | string | null;
   ageGroup?: string | null;
@@ -69,6 +74,8 @@ export interface ExportPngInput {
   arrows: TacticalArrow[];
   title?: string | null;
   teamName?: string | null;
+  /** M6b: configuración de los equipos. */
+  teams?: TacticalTeamsConfig | null;
   /** Ancho del PNG en px (1080 = nítido en WhatsApp sin pesar de más). */
   widthPx?: number;
   /** Deporte de la cancha (T4). Sin él, fútbol 11. */
@@ -87,7 +94,7 @@ function fitText(ctx: CanvasRenderingContext2D, text: string, maxW: number): str
 /** Jugada → PNG con una franja abajo: título + equipo a la izquierda, «SportMaps» a la derecha. */
 export async function exportPng(input: ExportPngInput): Promise<Blob> {
   const width = Math.round(input.widthPx ?? 1080);
-  const { dataUrl, aspect } = await renderTacticalPng(input.players || [], input.arrows || [], width, input.sport);
+  const { dataUrl, aspect } = await renderTacticalPng(input.players || [], input.arrows || [], width, input.sport, input.teams);
   const pitchH = Math.round(width * aspect);
   const band = Math.max(48, Math.round(width * 0.085));
   const img = await loadImage(dataUrl);

@@ -10,6 +10,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { TacticalArrow } from '@/lib/school/footballQueries';
 import { TacticalStaticSvg, type TacticalStaticPlayer } from '@/components/school/TacticalStaticSvg';
 import type { TacticalSport } from '@/lib/school/tacticalSports';
+import { chipCaption, chipInnerText, chipLook, type TacticalTeamsConfig } from '@/lib/school/tacticalTeams';
+import { isGoalkeeperLabel } from '@/lib/school/tacticalPalette';
+import { TeamPlayerGlyph } from '@/components/school/tacticalTeamGlyphs';
 
 /** Ancho en px del PNG. 600 px a ~70 mm ≈ 220 dpi: nítido impreso, liviano. */
 const DEFAULT_WIDTH_PX = 600;
@@ -20,8 +23,9 @@ export function tacticalSvgMarkup(
   arrows: TacticalArrow[],
   widthPx = DEFAULT_WIDTH_PX,
   sport?: TacticalSport | null,
+  teams?: TacticalTeamsConfig | null,
 ): string {
-  return renderToStaticMarkup(<TacticalStaticSvg players={players} arrows={arrows} width={widthPx} sport={sport} />);
+  return renderToStaticMarkup(<TacticalStaticSvg players={players} arrows={arrows} width={widthPx} sport={sport} teams={teams} />);
 }
 
 export async function renderTacticalPng(
@@ -29,9 +33,10 @@ export async function renderTacticalPng(
   arrows: TacticalArrow[],
   widthPx = DEFAULT_WIDTH_PX,
   sport?: TacticalSport | null,
+  teams?: TacticalTeamsConfig | null,
 ): Promise<{ dataUrl: string; aspect: number }> {
   const heightPx = Math.round((widthPx * 340) / 300);
-  const markup = tacticalSvgMarkup(players, arrows, widthPx, sport);
+  const markup = tacticalSvgMarkup(players, arrows, widthPx, sport, teams);
   const blob = new Blob([markup], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   try {
@@ -53,4 +58,31 @@ export async function renderTacticalPng(
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+/** M6b: caja (en unidades del viewBox) de la ficha de un jugador con su
+ *  etiqueta, para pintarla como imagen en el video/GIF. */
+export function teamPlayerBox(playerScale: number) {
+  return { x: -23 * playerScale, y: -14 * playerScale, w: 46 * playerScale, h: 36 * playerScale };
+}
+
+/** M6b: SVG suelto de UN jugador propio con la configuración de equipos (el
+ *  pintor de cuadros lo rasteriza una vez por jugador). Mismo dibujo que
+ *  TacticalStaticSvg. */
+export function teamPlayerMarkup(
+  teams: TacticalTeamsConfig,
+  p: { label?: string | null; jersey?: number | null; name?: string | null },
+  pxPerUnit: number,
+): string {
+  const box = teamPlayerBox(teams.player_scale);
+  const label = (p.label ?? '').trim();
+  const subject = { number: p.jersey != null && String(p.jersey) !== '' ? String(p.jersey) : null, name: p.name ?? null, position: label || null };
+  const look = chipLook(teams.home, !!label && isGoalkeeperLabel(label));
+  return renderToStaticMarkup(
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox={`${box.x} ${box.y} ${box.w} ${box.h}`}
+      width={Math.ceil(box.w * pxPerUnit)} height={Math.ceil(box.h * pxPerUnit)}>
+      <TeamPlayerGlyph x={0} y={0} r={11 * teams.player_scale} look={look}
+        text={chipInnerText(teams.home, subject)} caption={chipCaption(teams.home, subject)} />
+    </svg>,
+  );
 }

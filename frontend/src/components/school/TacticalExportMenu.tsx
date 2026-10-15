@@ -64,7 +64,7 @@ export function TacticalExportMenu({ getInput, frameCount, onEvent, disabled, cl
   const downloadPng = async (input?: TacticalExportInput) => {
     const mod = await loadExport();
     const data = input ?? (await getInput());
-    const blob = await mod.exportPng({ players: data.players, arrows: data.arrows, title: data.title, teamName: data.teamName, sport: data.sport });
+    const blob = await mod.exportPng({ players: data.players, arrows: data.arrows, title: data.title, teamName: data.teamName, sport: data.sport, teams: data.teams });
     saveAs(blob, mod.exportFileName(data.title, 'png'));
   };
 
@@ -134,6 +134,8 @@ export function TacticalExportMenu({ getInput, frameCount, onEvent, disabled, cl
         frames: data.frames ?? [],
         playerLabels: data.playerLabels,
         playerJerseys: data.playerJerseys,
+        teams: data.teams,
+        playerNames: data.playerNames,
         sport: data.sport,
         onProgress: (p) => {
           const pct = Math.round(p * 10) * 10;
@@ -182,7 +184,7 @@ export function TacticalExportMenu({ getInput, frameCount, onEvent, disabled, cl
       t.update({ id: t.id, title: 'Preparando para compartir…' });
       const mod = await loadExport();
       const data = await getInput();
-      const blob = await mod.exportPng({ players: data.players, arrows: data.arrows, title: data.title, teamName: data.teamName, sport: data.sport });
+      const blob = await mod.exportPng({ players: data.players, arrows: data.arrows, title: data.title, teamName: data.teamName, sport: data.sport, teams: data.teams });
       const text = data.title ? `Jugada: ${data.title}` : 'Te comparto la jugada';
       const res = await mod.shareFile(blob, mod.exportFileName(data.title, 'png'), text);
       if (res.method === 'cancelled') return 'Compartir cancelado';

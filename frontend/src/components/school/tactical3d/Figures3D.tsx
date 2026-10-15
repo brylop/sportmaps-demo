@@ -27,7 +27,7 @@ const LABEL_SCREEN = 0.034;
 export function PlayerFigure({
   visual, scale, geos, selected = false, onSelect, groupRef, name,
 }: {
-  visual: Pick<PlayerVisual, 'number' | 'label' | 'color'>;
+  visual: Pick<PlayerVisual, 'number' | 'label' | 'color' | 'shorts' | 'numberColor'>;
   scale: number;
   geos: FigureGeometries;
   selected?: boolean;
@@ -40,10 +40,10 @@ export function PlayerFigure({
   const compact = useThree((st) => isCompactAspect(st.size.width / Math.max(1, st.size.height)));
   const r = useResources(() => {
     const text = compact && visual.number ? '' : visual.label;
-    const lbl = visual.number || text ? labelTexture(visual.number, text, visual.color) : null;
+    const lbl = visual.number || text ? labelTexture(visual.number, text, visual.color, visual.numberColor) : null;
     return {
       jersey: track(new THREE.MeshStandardMaterial({ color: visual.color, roughness: 0.6, transparent: true })),
-      shorts: track(new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.7, transparent: true })),
+      shorts: track(new THREE.MeshStandardMaterial({ color: visual.shorts ?? '#0f172a', roughness: 0.7, transparent: true })),
       skin: track(new THREE.MeshStandardMaterial({ color: '#e0b48f', roughness: 0.8, transparent: true })),
       shadow: track(new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.3, depthWrite: false })),
       ring: track(new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, side: THREE.DoubleSide, depthWrite: false })),
@@ -52,7 +52,7 @@ export function PlayerFigure({
         label: track(new THREE.SpriteMaterial({ map: lbl.texture, sizeAttenuation: false, depthTest: false, transparent: true })),
       } : {}),
     };
-  }, [visual.color, visual.number, visual.label, compact]);
+  }, [visual.color, visual.number, visual.label, visual.shorts, visual.numberColor, compact]);
 
   const labelImg = r.labelTex?.image as HTMLCanvasElement | undefined;
   const aspect = labelImg ? labelImg.width / labelImg.height : 1;

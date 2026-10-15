@@ -53,7 +53,7 @@ export async function loadCourtTexture(sport: TacticalSport, maxTextureSize = CO
 }
 
 /** Cartel de un jugador: dorsal en un círculo del color del equipo + etiqueta. */
-export function labelTexture(number: string | null, label: string, color: string): { texture: THREE.CanvasTexture; aspect: number } {
+export function labelTexture(number: string | null, label: string, color: string, numberColor = '#ffffff'): { texture: THREE.CanvasTexture; aspect: number } {
   const canvas = document.createElement('canvas');
   const H = 96;
   const ctx = canvas.getContext('2d')!;
@@ -87,9 +87,9 @@ export function labelTexture(number: string | null, label: string, color: string
     c.textAlign = 'center';
     c.textBaseline = 'middle';
     c.lineWidth = 5;
-    c.strokeStyle = '#0f172a';
+    c.strokeStyle = numberColor === '#ffffff' ? '#0f172a' : (parseInt(numberColor.slice(1, 3), 16) > 140 ? '#0f172a' : '#ffffff');
     c.strokeText(number, H / 2, H / 2 + 3);
-    c.fillStyle = '#ffffff';
+    c.fillStyle = numberColor;
     c.fillText(number, H / 2, H / 2 + 3);
   }
   const texture = new THREE.CanvasTexture(canvas);

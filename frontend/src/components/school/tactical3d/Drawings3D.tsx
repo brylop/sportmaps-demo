@@ -13,7 +13,9 @@ import * as THREE from 'three';
 import type { TacticalArrow } from '@/lib/school/footballQueries';
 import { isPointShape, OBJECT_BOX, type ObjectType } from '@/lib/school/tacticalGeometry';
 import { ARROW_COLOR_HEX, objectColor } from '@/lib/school/tacticalPalette';
-import { figureScale, strokePath, toMeters, type Court3D, type Vec3 } from '@/lib/school/tactical3d';
+import { figureScale, strokePath, toMeters, type Court3D, type PlayerVisual, type Vec3 } from '@/lib/school/tactical3d';
+import { chipLook, pointScale, rivalSlots, type TacticalTeamsConfig } from '@/lib/school/tacticalTeams';
+import { sportDef } from '@/lib/school/tacticalSports';
 import type { InterpolatedArrow } from '@/lib/school/tacticalAnimation';
 import { Ball3D, PlayerFigure } from './Figures3D';
 import { setFigureOpacity, useFigureGeometries, type FigureGeometries, type LiveRef } from './figureKit';
@@ -25,8 +27,10 @@ const round = (n: number) => Math.round(n * 20) / 20;
 const signature = (arrows: InterpolatedArrow[]) =>
   arrows.map((a) => `${a.shape.type ?? 'arrow'}:${round(a.shape.x1)},${round(a.shape.y1)},${round(a.shape.x2)},${round(a.shape.y2)}:${a.shape.rot ?? 0}:${a.shape.size ?? 1}:${Math.round(a.opacity * 20)}`).join('|');
 
-export function Drawings3D({ court, live, layer = 'main', tint }: {
+export function Drawings3D({ court, live, layer = 'main', tint, teams }: {
   court: Court3D; live: LiveRef; layer?: 'main' | 'overlay'; tint?: string;
+  /** M6b: rivales con los colores y números del equipo de afuera. */
+  teams?: TacticalTeamsConfig | null;
 }) {
   const [arrows, setArrows] = useState<InterpolatedArrow[]>([]);
   const sig = useRef('');
@@ -37,6 +41,7 @@ export function Drawings3D({ court, live, layer = 'main', tint }: {
     if (s !== sig.current) { sig.current = s; setArrows(next); }
   });
   const geos = useFigureGeometries();
+  const rivals = teams ? rivalSlots(arrows.map((a) => a.shape), teams, sportDef(court.sport).hasGoalkeeper) : null;
   return (
     <group name={`drawings-${layer}`}>
       {arrows.map((a, i) => {
@@ -44,7 +49,13 @@ export function Drawings3D({ court, live, layer = 'main', tint }: {
         if (isPointShape(t)) {
           // El balón de la jugada lo dibuja Ball3D (sigue al balón del cuadro).
           if (t === 'ball' && layer === 'main') return null;
-          return <PointObject key={`${i}:${t}`} court={court} shape={a.shape} type={t} opacity={a.opacity} geos={geos} tint={tint} />;
+          const slot = rivals?.get(i);
+          const rival: PlayerVisual | undefined = teams && slot ? (() => {
+            const look = chipLook(teams.away, slot.isGK);
+            return { number: teams.away.inner === 'none' ? null : slot.number, label: slot.alias, isGoalkeeper: slot.isGK, color: look.fill, shorts: look.accent, numberColor: look.text };
+          })() : undefined;
+          return <PointObject key={`${i}:${t}`} court={court} shape={a.shape} type={t} opacity={a.opacity} geos={geos} tint={tint}
+            rival={rival} scaleMul={pointScale(teams, t)} />;
         }
         if (t === 'zone') return <Zone key={`${i}:zone`} court={court} shape={a.shape} opacity={a.opacity} tint={tint} />;
         if (t === 'text') return <FloorText key={`${i}:text`} court={court} shape={a.shape} opacity={a.opacity} />;
@@ -174,11 +185,12 @@ const FloorText = memo(function FloorText({ court, shape, opacity }: { court: Co
 
 // ─── Material ───────────────────────────────────────────────────────────────
 
-const PointObject = memo(function PointObject({ court, shape, type, opacity, geos, tint }: {
+const PointObject = memo(function PointObject({ court, shape, type, opacity, geos, tint, rival, scaleMul = 1 }: {
   court: Court3D; shape: TacticalArrow; type: ObjectType; opacity: number; geos: FigureGeometries; tint?: string;
+  rival?: PlayerVisual; scaleMul?: number;
 }) {
   const m = toMeters(court, shape.x1, shape.y1);
-  const s = figureScale(court) * (shape.size ?? 1);
+  const s = figureScale(court) * (shape.size ?? 1) * scaleMul;
   // La pizarra gira en pantalla (y hacia abajo) = horario visto desde arriba.
   const rotY = -((shape.rot ?? 0) * Math.PI) / 180;
   if (type === 'ball') return <Ball3D court={court} position={[shape.x1, shape.y1]} opacity={opacity} />;
@@ -187,7 +199,7 @@ const PointObject = memo(function PointObject({ court, shape, type, opacity, geo
     return (
       <group position={[m.x, 0, m.z]}>
         <FadingFigure
-          visual={{ number: type === 'opponent' ? 'R' : null, label: type === 'opponent' ? 'Rival' : '', color }}
+          visual={rival && type === 'opponent' && !tint ? rival : { number: type === 'opponent' ? 'R' : null, label: type === 'opponent' ? 'Rival' : '', color }}
           scale={s}
           geos={geos}
           opacity={opacity}

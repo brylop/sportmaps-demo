@@ -7,6 +7,8 @@ import {
   validateArrows, sanitizeArrows, validatePresetSlots, sanitizeSlots, MAX_PRESET_NAME,
   validateFrames, sanitizeFrames, isMissingFramesColumn,
 } from './footballShapes';
+// M6b: configuración de los equipos por jugada (columna `teams`, mig 20261014162158).
+import { validateTeamsConfig, sanitizeTeamsConfig, isMissingTeamsColumn } from './tacticalTeamsShapes';
 
 const router = Router();
 
@@ -18,10 +20,15 @@ const router = Router();
 const LINEUP_COLS = 'id, team_id, source_type, source_id, formation, arrows, created_by, created_at, updated_at';
 const FRAMES_UNAVAILABLE = 'La animación por cuadros todavía no está habilitada. Guarda la jugada con un solo cuadro.';
 
-/** Corre un SELECT pidiendo `frames`; si la columna no existe, lo repite sin ella. */
+/** Corre un SELECT pidiendo `frames` y `teams`; si alguna columna no existe
+ *  (migración sin aplicar), lo repite sin ella. */
 async function selectWithFrames<R extends { error: unknown }>(base: string, run: (cols: string) => PromiseLike<R>): Promise<R> {
-  const r = await run(`${base}, frames`);
-  if (r.error && isMissingFramesColumn(r.error)) return run(base);
+  let withTeams = true;
+  let r = await run(`${base}, frames, teams`);
+  if (r.error && isMissingTeamsColumn(r.error)) { withTeams = false; r = await run(`${base}, frames`); }
+  if (r.error && isMissingFramesColumn(r.error)) return run(withTeams ? `${base}, teams` : base).then((r2) => (
+    r2.error && isMissingTeamsColumn(r2.error) ? run(base) : r2
+  ));
   return r;
 }
 
@@ -31,13 +38,28 @@ async function writeWithFrames<R extends { error: unknown }>(
   payload: Record<string, unknown>,
   run: (p: Record<string, unknown>) => PromiseLike<R>,
 ): Promise<R | 'unavailable'> {
-  const r = await run(payload);
+  let r = await run(payload);
+  // M6b: sin la columna `teams` la jugada se guarda igual, sin la
+  // configuración de equipos (vuelve al aspecto de siempre).
+  if (r.error && 'teams' in payload && isMissingTeamsColumn(r.error)) {
+    const { teams: _t, ...noTeams } = payload;
+    payload = noTeams;
+    r = await run(payload);
+  }
   if (r.error && 'frames' in payload && isMissingFramesColumn(r.error)) {
     if (payload.frames !== null) return 'unavailable';
     const { frames: _omit, ...rest } = payload;
     return run(rest);
   }
   return r;
+}
+
+/** `teams` del body: undefined = no tocar; null = aspecto de siempre. */
+function parseTeams(teams: unknown): { provided: false } | { provided: true; value: Record<string, unknown> | null } | { errors: string[] } {
+  if (teams === undefined) return { provided: false };
+  const errors = validateTeamsConfig(teams);
+  if (errors.length > 0) return { errors };
+  return { provided: true, value: sanitizeTeamsConfig(teams as Record<string, any> | null) };
 }
 
 /** `frames` del body: undefined = no tocar la columna; null = un solo cuadro;
@@ -335,7 +357,7 @@ router.post(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { schoolId, user } = req;
-      const { team_id, source_type, source_id, formation, players, arrows, frames } = req.body;
+      const { team_id, source_type, source_id, formation, players, arrows, frames, teams } = req.body;
 
       if (!team_id || !source_type || !VALID_LINEUP_SOURCE_TYPES.includes(source_type) || !source_id) {
         return res.status(400).json({
@@ -377,6 +399,10 @@ router.post(
       if ('errors' in parsedFrames) {
         return res.status(422).json({ error: 'Cuadros inválidos.', details: parsedFrames.errors });
       }
+      const parsedTeams = parseTeams(teams);
+      if ('errors' in parsedTeams) {
+        return res.status(422).json({ error: 'Configuración de equipos inválida.', details: parsedTeams.errors });
+      }
 
       if (!(await assertTeamBelongsToSchool(team_id, schoolId!))) {
         return res.status(403).json({ error: 'El equipo no pertenece a esta escuela.' });
@@ -396,6 +422,7 @@ router.post(
         };
         if (arrowsProvided) updatePayload.arrows = arrowList;
         if (parsedFrames.provided) updatePayload.frames = parsedFrames.value;
+        if (parsedTeams.provided) updatePayload.teams = parsedTeams.value;
 
         const updatedRes = await writeWithFrames(updatePayload, (p) => supabase
           .from('match_lineups')
@@ -425,6 +452,7 @@ router.post(
           created_by: user.id,
         };
         if (parsedFrames.provided) insertPayload.frames = parsedFrames.value;
+        if (parsedTeams.provided) insertPayload.teams = parsedTeams.value;
         const createdRes = await writeWithFrames(insertPayload, (p) => supabase
           .from('match_lineups')
           .insert(p)
@@ -778,7 +806,7 @@ router.post(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { schoolId, user } = req;
-      const { team_id, name, situation, slots, arrows, frames } = req.body;
+      const { team_id, name, situation, slots, arrows, frames, teams } = req.body;
 
       if (!team_id || typeof name !== 'string' || !name.trim() || !VALID_SITUATIONS.includes(situation)) {
         return res.status(400).json({
@@ -822,6 +850,11 @@ router.post(
         created_by: user.id,
       };
       if (parsedFrames.provided) presetPayload.frames = parsedFrames.value;
+      const parsedTeams = parseTeams(teams);
+      if ('errors' in parsedTeams) {
+        return res.status(422).json({ error: 'Configuración de equipos inválida.', details: parsedTeams.errors });
+      }
+      if (parsedTeams.provided) presetPayload.teams = parsedTeams.value;
       const insertedRes = await writeWithFrames(presetPayload, (p) => supabase
         .from('team_tactical_presets')
         .insert(p)
@@ -855,7 +888,7 @@ router.put(
       // `expected_updated_at` (opcional): la versión que el cliente tenía al
       // cargar la plantilla. Si otro miembro del cuerpo técnico la modificó
       // en el medio, se responde 409 en vez de pisarle el cambio en silencio.
-      const { name, situation, slots, arrows, frames, expected_updated_at } = req.body;
+      const { name, situation, slots, arrows, frames, teams, expected_updated_at } = req.body;
 
       const { data: current, error: currentErr } = await supabase
         .from('team_tactical_presets')
@@ -909,6 +942,11 @@ router.put(
         return res.status(422).json({ error: 'Cuadros inválidos.', details: parsedFrames.errors });
       }
       if (parsedFrames.provided) update.frames = parsedFrames.value;
+      const parsedTeams = parseTeams(teams);
+      if ('errors' in parsedTeams) {
+        return res.status(422).json({ error: 'Configuración de equipos inválida.', details: parsedTeams.errors });
+      }
+      if (parsedTeams.provided) update.teams = parsedTeams.value;
       if (Object.keys(update).length === 0) {
         return res.status(400).json({ error: 'Nada para actualizar.' });
       }

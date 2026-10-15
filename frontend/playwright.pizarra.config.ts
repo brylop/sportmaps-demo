@@ -24,6 +24,7 @@ export default defineConfig({
         'pizarra-por-deporte.spec.ts',
         'pizarra-paquetes.spec.ts',
         'pizarra-ia-3d.spec.ts',
+        'pizarra-equipos.spec.ts',
     ],
     fullyParallel: false,
     workers: 2,

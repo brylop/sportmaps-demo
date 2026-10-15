@@ -5,6 +5,7 @@
  * componentes (regla de Fast Refresh); colores y etiquetas viven en
  * lib/school/tacticalPalette.ts.
  */
+import type { ReactNode } from 'react';
 import type { TacticalArrowColor } from '@/lib/school/footballQueries';
 import type { ObjectType } from '@/lib/school/tacticalGeometry';
 import { objectColor, type PinStyle } from '@/lib/school/tacticalPalette';
@@ -27,7 +28,11 @@ export function BallGlyph({ r = 6 }: { r?: number }) {
 /** Silueta genérica de jugador vista de frente, en una caja de 40×44. Es una
  *  FIGURA, no la persona: nunca lleva foto (decisión de producto 2026-09-24,
  *  consentimiento de menores). `jersey` = camiseta, `accent` = pantaloneta. */
-export function SilhouetteGlyph({ jersey, accent = '#0f172a', number }: { jersey: string; accent?: string; number?: string | null }) {
+export function SilhouetteGlyph({ jersey, accent = '#0f172a', number, numberColor = 'white', numberOutline = '#0f172a' }: {
+  jersey: string; accent?: string; number?: string | null;
+  /** M6b: color del número y su contorno (por defecto, los de siempre). */
+  numberColor?: string; numberOutline?: string;
+}) {
   return (
     <g>
       <circle cx={20} cy={7} r={5.2} fill="#f1c9a5" stroke="#3f2a1d" strokeWidth={0.8} />
@@ -37,7 +42,7 @@ export function SilhouetteGlyph({ jersey, accent = '#0f172a', number }: { jersey
       <rect x={14} y={36.5} width={4.2} height={6.5} rx={1.6} fill="#e0b48f" />
       <rect x={21.8} y={36.5} width={4.2} height={6.5} rx={1.6} fill="#e0b48f" />
       {number ? (
-        <text x={20} y={26.5} textAnchor="middle" fontSize={8.5} fontWeight={900} fill="white" stroke="#0f172a" strokeWidth={0.6} paintOrder="stroke">{number}</text>
+        <text x={20} y={26.5} textAnchor="middle" fontSize={8.5} fontWeight={900} fill={numberColor} stroke={numberOutline} strokeWidth={0.6} paintOrder="stroke">{number}</text>
       ) : null}
     </g>
   );
@@ -48,12 +53,15 @@ export function SilhouetteGlyph({ jersey, accent = '#0f172a', number }: { jersey
  *  transform, igual para el ícono, su área de toque y su marco de selección.
  *  El arco usa el patrón `#tb-net` (lo define el <defs> de la capa de dibujo;
  *  en un SVG suelto sin ese patrón queda el fondo oscuro, sin la malla). */
-export function ObjectIcon({ type, x, y, size = 1, rot = 0, color, pinStyle = 'disc' }: {
+export function ObjectIcon({ type, x, y, size = 1, rot = 0, color, pinStyle = 'disc', override }: {
   type: ObjectType; x: number; y: number; size?: number; rot?: number; color?: TacticalArrowColor; pinStyle?: PinStyle;
+  /** M6b: dibujo que reemplaza al de siempre (la ficha del rival configurado).
+   *  Recibe el mismo transform (posición, giro, tamaño). */
+  override?: ReactNode;
 }) {
   return (
     <g transform={`translate(${x} ${y}) rotate(${rot}) scale(${size})`}>
-      {renderObjectBody(type, color, pinStyle)}
+      {override ?? renderObjectBody(type, color, pinStyle)}
     </g>
   );
 }

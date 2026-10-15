@@ -6,6 +6,7 @@
  * dice «+n») y los campos del ejercicio. Lo que no cabe en la hoja se corta
  * con «…»: es una ficha, no un documento.
  */
+import type { TacticalTeamsConfig } from '@/lib/school/tacticalTeams';
 import jsPDF from 'jspdf';
 import { format } from 'date-fns';
 import type { TacticalArrow } from '@/lib/school/footballQueries';
@@ -29,6 +30,10 @@ export interface ExercisePdfInput {
   arrows: TacticalArrow[];
   playerLabels?: Record<string, string>;
   playerJerseys?: Record<string, number | null>;
+  /** M6b: configuración de los equipos (sin ella, el dibujo de siempre). */
+  teams?: TacticalTeamsConfig | null;
+  /** M6b: clave → nombre real. Solo viaja con «Mostrar nombres» prendido. */
+  playerNames?: Record<string, string>;
   /** Deporte de la cancha (T4). Sin él, fútbol 11. */
   sport?: TacticalSport | null;
 }
@@ -51,15 +56,15 @@ export function stripSlots(frameCount: number): { thumbs: number; more: number }
 export async function exportExercisePdf(input: ExercisePdfInput): Promise<Blob> {
   const frames = input.frames && input.frames.length > 0 ? input.frames : null;
   const first = frames
-    ? frameToStatic(frames[0], input.playerLabels, input.playerJerseys)
+    ? frameToStatic(frames[0], input.playerLabels, input.playerJerseys, input.playerNames)
     : { players: input.players || [], arrows: input.arrows || [] };
   const { thumbs, more } = stripSlots(frames?.length ?? 0);
 
-  const main = await renderTacticalPng(first.players, first.arrows, 900, input.sport);
+  const main = await renderTacticalPng(first.players, first.arrows, 900, input.sport, input.teams);
   const thumbImgs: string[] = [];
   for (let i = 0; i < thumbs; i++) {
-    const s = frameToStatic(frames![i], input.playerLabels, input.playerJerseys);
-    thumbImgs.push((await renderTacticalPng(s.players, s.arrows, 300, input.sport)).dataUrl);
+    const s = frameToStatic(frames![i], input.playerLabels, input.playerJerseys, input.playerNames);
+    thumbImgs.push((await renderTacticalPng(s.players, s.arrows, 300, input.sport, input.teams)).dataUrl);
   }
 
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });

@@ -40,7 +40,7 @@ import {
   DropdownMenuSeparator, DropdownMenuCheckboxItem, DropdownMenuSub, DropdownMenuSubTrigger,
   DropdownMenuSubContent, DropdownMenuRadioGroup, DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
-import { Loader2, Square, X, Bookmark, Redo2, Trash2, ChevronDown, PenLine, Undo2, Eraser, Ruler, Sparkles, Plus, Play, Copy, RotateCw, Pencil, Type, Users, MoreHorizontal, Package, LayoutGrid } from 'lucide-react';
+import { Shirt, Loader2, Square, X, Bookmark, Redo2, Trash2, ChevronDown, PenLine, Undo2, Eraser, Ruler, Sparkles, Plus, Play, Copy, RotateCw, Pencil, Type, Users, MoreHorizontal, Package, LayoutGrid } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { startHintFormationLabel } from '@/lib/school/tacticalStartHint';
 import { useTeamPerformanceRoster } from '@/hooks/usePerformanceData';
@@ -101,6 +101,13 @@ import {
 import { TacticalTimeline, TacticalFramePlayback, type PlayState, type PlaybackSpeed } from './TacticalTimeline';
 import { TacticalAiOverlay, TacticalAiPanel, type AiPreview } from './TacticalAiPanel';
 import { buildAnalyzeRequest, hasAiAnalysis } from '@/lib/school/tacticalAi';
+// M6b «Configuración de los equipos»: la lógica vive en estos módulos; acá solo los enganches.
+import { TacticalTeamsContext, useBoardTeams, useTeamsConfig, useTeamsContext } from '@/hooks/useTacticalTeams';
+import { chipCaption, pointScale, rivalSlots } from '@/lib/school/tacticalTeams';
+import { sportDef } from '@/lib/school/tacticalSports';
+import { TacticalTeamsDialog } from './TacticalTeamsDialog';
+import { TeamPinVisual } from './TacticalTeamPin';
+import { RivalChip } from './tacticalTeamGlyphs';
 
 const SITUATION_LABEL: Record<TacticalSituation, string> = {
   ataque: 'Ataque',
@@ -376,6 +383,9 @@ function ArrowLayer({
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const textInputRef = useRef<HTMLInputElement>(null);
+  // M6b: rivales con la configuración del equipo de afuera (null = como siempre).
+  const teamsCtx = useTeamsContext();
+  const rivals = useMemo(() => (teamsCtx ? rivalSlots(shapes, teamsCtx.teams, teamsCtx.hasGoalkeeper) : null), [teamsCtx, shapes]);
   // Lápiz: puntos crudos del trazo en curso (en % de cancha). Se guarda en
   // state para dibujarlo mientras se arrastra; al soltar se simplifica.
   const [stroke, setStroke] = useState<ArrowPoint[] | null>(null);
@@ -763,7 +773,7 @@ function ArrowLayer({
 
         if (isPointShape(type)) {
           if (hiddenIndexes.has(i)) return null; // balón real "en juego": lo reemplaza el fantasma
-          const size = s.size ?? 1;
+          const size = (s.size ?? 1) * pointScale(teamsCtx?.teams, type);
           const rot = s.rot ?? 0;
           const box = OBJECT_BOX[type];
           const hw = (box.w / 2 + 2) * size;
@@ -779,7 +789,8 @@ function ArrowLayer({
                 onPointerMove={handleHandlePointerMove}
                 onPointerUp={() => handleObjectPointerUp(i)}
               >
-                <ObjectIcon type={type} x={p1.x} y={p1.y} size={size} rot={rot} color={s.color} pinStyle={pinStyle} />
+                <ObjectIcon type={type} x={p1.x} y={p1.y} size={size} rot={rot} color={s.color} pinStyle={pinStyle}
+                  override={teamsCtx && type === 'opponent' ? <RivalChip teams={teamsCtx.teams} slot={rivals?.get(i)} /> : undefined} />
                 <rect x={p1.x - hw} y={p1.y - hh} width={hw * 2} height={hh * 2} fill="transparent" transform={`rotate(${rot} ${p1.x} ${p1.y})`} />
               </g>
               {selected && (
@@ -1038,6 +1049,10 @@ function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events, 
   // para que useDraggable siga registrado y la posición guardada no cambie.
   const hidden = topPct < -1 || topPct > 101;
   const isGK = isGoalkeeperLabel(slot.slot_label);
+  // M6b: con «Configuración de los equipos» la ficha y lo de abajo salen de ahí.
+  const teams = useTeamsConfig();
+  const teamSubject = { number: displayNumber, name: subject.full_name, position: slot.slot_label };
+  const teamCaption = teams ? chipCaption(teams.home, teamSubject) : null;
 
   // P2c: goles/asistencias de este partido, de un vistazo.
   const eventsBadge = events && (events.goals > 0 || events.assists > 0) ? (
@@ -1080,7 +1095,11 @@ function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events, 
         {...attributes}
         className="flex flex-col items-center gap-1 touch-none cursor-grab active:cursor-grabbing"
       >
-        {pinStyle === 'silhouette' ? (
+        {teams ? (
+          <TeamPinVisual teams={teams} isGK={isGK} subject={teamSubject} dragging={isDragging} onClick={onOpenCard}>
+            {eventsBadge}
+          </TeamPinVisual>
+        ) : pinStyle === 'silhouette' ? (
           <div
             onClick={(e) => { e.stopPropagation(); onOpenCard(); }}
             className={`relative h-12 w-11 cursor-pointer transition-transform drop-shadow-[0_3px_8px_rgba(0,0,0,0.65)] ${isDragging ? 'scale-110' : ''}`}
@@ -1137,12 +1156,12 @@ function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events, 
               if (e.key === 'Escape') { e.stopPropagation(); cancelLabelEdit.current = true; (e.target as HTMLInputElement).blur(); }
             }}
           />
-        ) : (
+        ) : teamCaption === '' ? null : (
           <span
             onClick={() => { if (!readOnly) setEditing(true); }}
             className="text-[10px] font-bold text-white bg-black/55 backdrop-blur-sm rounded-full px-2 py-0.5 leading-tight max-w-[84px] truncate cursor-text shadow"
           >
-            {slot.slot_label}
+            {teamCaption ?? slot.slot_label}
           </span>
         )}
       </div>
@@ -1227,12 +1246,17 @@ function PlaybackPin({ subject, meta, x, top, opacity, pinStyle, showPhotos }: {
   const number = meta && meta.jersey_number !== '' ? String(meta.jersey_number) : null;
   const label = meta?.slot_label ?? '';
   const photo = showPhotos && pinStyle === 'disc' ? subject.avatar_url : null;
+  const teams = useTeamsConfig();
+  const teamSubject = { number, name: subject.full_name, position: label };
+  const caption = teams ? chipCaption(teams.home, teamSubject) : label;
   return (
     <div
       style={{ position: 'absolute', left: `${x}%`, top: `${top}%`, transform: 'translate(-50%, -50%)', opacity, zIndex: 10 }}
       className="flex flex-col items-center gap-1"
     >
-      {pinStyle === 'silhouette' ? (
+      {teams ? (
+        <TeamPinVisual teams={teams} isGK={isGoalkeeperLabel(label)} subject={teamSubject} />
+      ) : pinStyle === 'silhouette' ? (
         <div className="relative h-12 w-11 drop-shadow-[0_3px_8px_rgba(0,0,0,0.65)]">
           <svg viewBox="0 0 40 44" className="h-full w-full overflow-visible" aria-hidden="true">
             <SilhouetteGlyph jersey={isGoalkeeperLabel(label) ? '#facc15' : '#10b981'} accent="#0f172a" number={number ?? initialsOf(subject.full_name)} />
@@ -1243,9 +1267,9 @@ function PlaybackPin({ subject, meta, x, top, opacity, pinStyle, showPhotos }: {
           {photo ? <img src={photo} alt="" className="absolute inset-0 h-full w-full object-cover" /> : (number ?? initialsOf(subject.full_name))}
         </div>
       )}
-      {label && (
+      {caption && (
         <span className="text-[10px] font-bold text-white bg-black/55 rounded-full px-2 py-0.5 leading-tight max-w-[84px] truncate shadow">
-          {label}
+          {caption}
         </span>
       )}
     </div>
@@ -1260,7 +1284,7 @@ const TACTICAL_EDIT_ROLES = ['owner', 'coach', 'super_admin'];
 
 export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sourceId, contextLabel, mode = 'edit', sport: sportProp }: TacticalBoardProps) {
   const { toast } = useToast();
-  const { currentUserRole, schoolId: activeSchoolId } = useSchoolContext();
+  const { currentUserRole, schoolId: activeSchoolId, schoolBranding } = useSchoolContext();
   // T4: el deporte del equipo manda la cancha. Quien abre puede pasarlo; si
   // no, se resuelve del equipo (teams.sport) — fútbol 11 por defecto.
   const teamSport = useTeamTacticalSport(teamId, { enabled: open });
@@ -1293,6 +1317,12 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   const existingLineupId = existingList?.[0]?.id;
   const { data: existingLineup, isLoading: loadingLineup } = useFootballLineup(existingLineupId);
   const saveLineup = useSaveFootballLineup();
+  // M6b: configuración de los equipos de ESTA jugada (null = aspecto de siempre).
+  const teamsCtl = useBoardTeams();
+  const teamsCtxValue = useMemo(
+    () => (teamsCtl.teams ? { teams: teamsCtl.teams, hasGoalkeeper: sportDef(sport).hasGoalkeeper } : null),
+    [teamsCtl.teams, sport],
+  );
 
   // P2c: eventos de ESTE partido, para resaltar goles/asistencias en la
   // cancha. Un entrenamiento no tiene eventos (no es 'team_match' ni
@@ -1557,6 +1587,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     // migración `existingLineup.arrows` no existía (undefined): el `?? []`
     // deja el tablero vacío en vez de romper con alineaciones ya guardadas.
     setArrows((existingLineup.arrows ?? []).map(hydrateShape));
+    teamsCtl.load(existingLineup.teams);
     // Jugada animada (T1): con `frames` las posiciones salen de los cuadros;
     // sin `frames` (jugadas de siempre) es un solo cuadro con lo de arriba.
     metaRef.current = { ...nextPlaced };
@@ -1743,6 +1774,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     }
     setFrameIndex(0);
     setSelectedShape(null);
+    if (preset.teams) teamsCtl.load(preset.teams);
     setLoadedPresetId(preset.id);
   }
 
@@ -1783,7 +1815,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       return;
     }
     try {
-      const created = await createPreset.mutateAsync({ team_id: teamId, name, situation, slots, arrows: presetArrows, frames: presetFrames });
+      const created = await createPreset.mutateAsync({ team_id: teamId, name, situation, slots, arrows: presetArrows, frames: presetFrames, teams: teamsCtl.teams });
       logEvent('save', 'preset');
       toast({ title: 'Guardada en Mis jugadas', description: `"${name}" para ${SITUATION_LABEL[situation]}.` });
       setSavingName(null);
@@ -1809,7 +1841,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       return;
     }
     try {
-      await updatePreset.mutateAsync({ id: loadedPresetId, slots, arrows: presetArrows, frames: presetFrames });
+      await updatePreset.mutateAsync({ id: loadedPresetId, slots, arrows: presetArrows, frames: presetFrames, teams: teamsCtl.teams });
       logEvent('save', 'preset');
       toast({ title: 'Jugada actualizada en Mis jugadas' });
     } catch (err: any) {
@@ -2291,6 +2323,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
         arrows: allFrames[0].arrows,
         // null = un solo cuadro: la fila no carga una animación de 1 cuadro.
         frames: serializeFrames(allFrames),
+        teams: teamsCtl.teams,
       });
       logEvent('save');
       toast({
@@ -2453,8 +2486,16 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       playerLabels[key] = s.slot_label;
       playerJerseys[key] = jerseyOf(s);
     }
-    const players: TacticalStaticPlayer[] = Object.values(now).map((s) => ({
+    // M6b: nombres reales SOLO si el coach prendió «Mostrar nombres al exportar».
+    const playerNames: Record<string, string> | undefined = teamsCtl.teams?.export_names
+      ? Object.fromEntries(Object.keys(playerLabels).flatMap((k) => {
+        const sub = subjectByKey.get(k);
+        return sub ? [[k, sub.full_name]] : [];
+      }))
+      : undefined;
+    const players: TacticalStaticPlayer[] = Object.entries(now).map(([key, s]) => ({
       x: s.x, y: s.y, label: s.slot_label, jersey: jerseyOf(s), role: 'starter',
+      ...(playerNames?.[key] ? { name: playerNames[key] } : {}),
     }));
     return {
       title: contextLabel,
@@ -2465,6 +2506,8 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       playerLabels,
       playerJerseys,
       sport,
+      teams: teamsCtl.teams,
+      playerNames,
     };
   }
 
@@ -2668,7 +2711,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   ) : null;
 
   return (
-    <>
+    <TacticalTeamsContext.Provider value={teamsCtxValue}>
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       {/* rounded-none Y sm:rounded-none a propósito: la base de DialogContent
           trae "sm:rounded-lg" -- sin el mismo prefijo, el merge de clases no
@@ -2781,6 +2824,19 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
               >
                 <PenLine className="h-3.5 w-3.5" />
                 Dibujar{arrows.length > 0 ? ` (${arrows.length})` : ''}
+              </Button>
+
+              {/* M6b: «Configuración de los equipos» (TacticalTeamsDialog). */}
+              <Button
+                size="sm"
+                variant="ghost"
+                className={`${TB_BTN} ${teamsCtl.teams ? TB_ON : TB_IDLE}`}
+                onClick={() => teamsCtl.setDialogOpen(true)}
+                title="Nombre, escudo, colores y estilo de ficha de tu equipo y del rival"
+                data-testid="tb-equipos"
+              >
+                <Shirt className="h-3.5 w-3.5" />
+                Equipos
               </Button>
 
               {/* Celular: Material ya es una pestaña de la hoja de Dibujar. */}
@@ -3719,6 +3775,24 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
         onSaved={() => logEvent('library_save')}
       />
     )}
-    </>
+    {/* Montado solo al abrirlo: la pizarra no consulta «Equipos almacenados» si nadie los pide. */}
+    {teamsCtl.dialogOpen && <TacticalTeamsDialog
+      open={teamsCtl.dialogOpen}
+      onOpenChange={teamsCtl.setDialogOpen}
+      value={teamsCtl.teams}
+      onApply={teamsCtl.setTeams}
+      homeName={teamName}
+      schoolLogoUrl={schoolBranding?.logo_url ?? null}
+      sample={(() => {
+        const keys = Object.keys(placed);
+        const key = keys.find((k) => !isGoalkeeperLabel(placed[k].slot_label)) ?? keys[0];
+        const sub = key ? subjectByKey.get(key) : undefined;
+        const sl = key ? placed[key] : undefined;
+        return sub && sl ? { number: sl.jersey_number === '' ? null : String(sl.jersey_number), name: sub.full_name, position: sl.slot_label } : undefined;
+      })()}
+      onOpenRoster={() => { if (!rosterOpen) toggleRoster(); }}
+      readOnly={!canEdit}
+    />}
+    </TacticalTeamsContext.Provider>
   );
 }
