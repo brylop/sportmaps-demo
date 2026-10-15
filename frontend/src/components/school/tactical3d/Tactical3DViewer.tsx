@@ -1,8 +1,12 @@
 /**
- * «Ver en 3D» (fase M4, decisión D5 de docs/specs/pizarra-multideporte-3d-ia.md):
- * VISOR, no editor. Reproduce los MISMOS cuadros de la pizarra con la MISMA
+ * «Ver en 3D» (fase M4, decisión D5 de docs/specs/pizarra-multideporte-3d-ia.md;
+ * cámaras y animación M6e, docs/specs/pizarra-m6e-camaras-3d.md): VISOR, no
+ * editor. Reproduce los MISMOS cuadros de la pizarra con la MISMA
  * interpolación (tacticalAnimation.ts) sobre la cancha del deporte a escala
- * real, con cámara que se gira con el dedo o el mouse y tres cámaras fijas.
+ * real, con 11 cámaras (transmisión de TV, táctica alta, cenital, isométrica,
+ * detrás de cada arco/aro, seguir balón, seguir jugador, spider-cam, dron y
+ * libre), director automático, cámara lenta, repetición, cuadro congelado con
+ * foco, cuadro a cuadro y video de lo que se ve.
  *
  * Se carga en un chunk aparte (React.lazy desde Tactical3DLauncher): three.js
  * no entra al chunk de la pizarra. Cero almacenamiento: todo sale de los
@@ -12,22 +16,29 @@
  * primeros 2 s promedian menos de 20 fps, llama `onFallback` y quien lo abrió
  * vuelve a la pizarra con el aviso.
  */
-import { Component, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { Component, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { Pause, Play, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Circle, Pause, Play, Repeat, Snowflake, Square, Video, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import {
-  createPlaybackClock, frameStartMs, PLAYBACK_SPEEDS, totalDurationMs, type PlaybackSpeed,
-} from '@/lib/school/tacticalAnimation';
+import { createPlaybackClock, totalDurationMs } from '@/lib/school/tacticalAnimation';
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
 import { sportDef, type TacticalSport } from '@/lib/school/tacticalSports';
 import {
-  CAMERA_MODES, cameraLabel, collectPlayerKeys, court3D, MIN_FPS, OVERLAY_COLOR, playerVisual,
-  prefersReducedMotion, resolveCamera, TEAM_COLOR, type CameraMode, type PlayerVisual,
+  collectPlayerKeys, court3D, MIN_FPS, OVERLAY_COLOR, playerVisual,
+  prefersReducedMotion, TEAM_COLOR, type CameraMode, type PlayerVisual,
 } from '@/lib/school/tactical3d';
+import {
+  AUTO_MOVING, CAMERA_KINDS, cameraKindLabel, resolveCameraKind, type CameraKind, type PlayerView,
+} from '@/lib/school/tactical3dCameras';
+import {
+  frameIndexAt, REPLAY_SPEED, replayRange, stepFrame, VIEWER_SPEEDS, type ViewerSpeed,
+} from '@/lib/school/tactical3dMotion';
+import { minFpsOverride } from '@/lib/school/tactical3dLaunch';
+import { exportFileName } from '@/lib/export/tacticalExportUtils';
 import { Scene3D } from './Scene3D';
 import { tactical3dStats } from './resources';
+import { canRecordVideo, downloadBlob, startRecording3D, type Recording3D } from './record3d';
 
 export type Tactical3DFallbackReason = 'webgl' | 'slow' | 'error';
 
@@ -60,27 +71,56 @@ export interface Tactical3DViewerProps {
   /** Piso de fps de los primeros 2 s (0 = no caer por lento; lo usan las pruebas). */
   minFps?: number;
   onStats?: (s: Tactical3DStats) => void;
-  initialCamera?: CameraMode;
+  /** Cámara al abrir (por defecto Transmisión TV). Acepta las 3 de M4. */
+  initialCamera?: CameraKind | CameraMode;
   initialTimeMs?: number;
   autoPlay?: boolean;
+  /** Director automático encendido al abrir. */
+  initialDirector?: boolean;
 }
+
+/** Las cámaras de M4 con su nombre nuevo. */
+function toKind(c: CameraKind | CameraMode): CameraKind {
+  return c === 'tribuna' ? 'tactica' : c;
+}
+
+const speedLabel = (s: number) => `${String(s).replace('.', ',')}×`;
 
 export default function Tactical3DViewer({
   sport, frames, playerLabels, playerJerseys, teamColor = TEAM_COLOR,
   overlayFrames = null, overlayColor = OVERLAY_COLOR, overlayLabels, overlayJerseys,
   overlayName = 'Contraataque del rival', title, onClose, onFallback, minFps = MIN_FPS, onStats,
-  initialCamera = 'tribuna', initialTimeMs = 0, autoPlay = false,
+  initialCamera = 'tv', initialTimeMs = 0, autoPlay = false, initialDirector = false,
 }: Tactical3DViewerProps) {
   const court = useMemo(() => court3D(sport), [sport]);
   const def = sportDef(court.sport);
   const overlay = overlayFrames && overlayFrames.length > 0 ? overlayFrames : null;
   const totalMs = useMemo(() => Math.max(totalDurationMs(frames), overlay ? totalDurationMs(overlay) : 0), [frames, overlay]);
   const clock = useMemo(() => createPlaybackClock(Math.min(initialTimeMs, totalMs)), []); // eslint-disable-line react-hooks/exhaustive-deps
-  const [playing, setPlaying] = useState(autoPlay && totalMs > 0);
-  const [speed, setSpeed] = useState<PlaybackSpeed>(1);
-  const [cameraMode, setCameraMode] = useState<CameraMode>(initialCamera);
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const reducedMotion = useMemo(() => prefersReducedMotion(), []);
+  const debug = useMemo(() => minFpsOverride() !== undefined, []);
+  const [playing, setPlaying] = useState(autoPlay && totalMs > 0);
+  const [speed, setSpeed] = useState<ViewerSpeed>(1);
+  const [cameraKind, setCameraKind] = useState<CameraKind>(() => {
+    const k = toKind(initialCamera);
+    return reducedMotion && AUTO_MOVING.has(k) ? 'tv' : k;
+  });
+  const [director, setDirector] = useState(initialDirector && !reducedMotion);
+  const [onAir, setOnAir] = useState<CameraKind>(cameraKind);
+  const [playerView, setPlayerView] = useState<PlayerView>('pov');
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [showTrails, setShowTrails] = useState(false);
+  const [frozen, setFrozen] = useState(false);
+  const [replay, setReplay] = useState<{ endMs: number; prevSpeed: ViewerSpeed } | null>(null);
+  const replayRef = useRef(replay);
+  replayRef.current = replay;
+  // Canvas 2D que se graba (RecorderTap3D copia ahí cada cuadro). null = no se graba.
+  const [recordTarget, setRecordTarget] = useState<HTMLCanvasElement | null>(null);
+  const recording = recordTarget !== null;
+  const [recError, setRecError] = useState<string | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const recRef = useRef<Recording3D | null>(null);
+  const canRecord = useMemo(() => canRecordVideo(), []);
 
   const keys = useMemo(() => collectPlayerKeys(frames), [frames]);
   const overlayKeys = useMemo(() => collectPlayerKeys(overlay), [overlay]);
@@ -96,11 +136,11 @@ export default function Tactical3DViewer({
     return out;
   }, [overlayKeys, overlayLabels, overlayJerseys, overlayColor]);
 
-  const resolved = resolveCamera(cameraMode, selectedKey, keys);
+  const resolved = resolveCameraKind(cameraKind, selectedKey, keys);
 
   // ─── Caída a 2D ──
   const mounted = useRef(true);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; recRef.current?.cancel(); }; }, []);
   const fallbackRef = useRef(onFallback);
   fallbackRef.current = onFallback;
   const fallback = useCallback((reason: Tactical3DFallbackReason) => {
@@ -110,21 +150,109 @@ export default function Tactical3DViewer({
   statsRef.current = onStats;
   const onFpsVerdict = useCallback((verdict: 'ok' | 'slow', fps: number, info: Omit<Tactical3DStats, 'fps'>) => {
     statsRef.current?.({ fps, ...info });
+    if (debug) (window as unknown as { __TACTICAL3D_FPS__?: number }).__TACTICAL3D_FPS__ = fps;
     if (verdict === 'slow') fallback('slow');
-  }, [fallback]);
+  }, [fallback, debug]);
 
-  const onEnded = useCallback(() => setPlaying(false), []);
-  const togglePlay = () => {
-    if (playing) { setPlaying(false); return; }
+  const onShot = useCallback((k: CameraKind) => {
+    setOnAir(k);
+    if (debug) {
+      const w = window as unknown as { __TACTICAL3D__?: Record<string, unknown> };
+      const prev = w.__TACTICAL3D__ ?? {};
+      const shots = Array.isArray(prev.shots) ? (prev.shots as string[]) : [];
+      w.__TACTICAL3D__ = { ...prev, shot: k, shots: [...shots, k] };
+    }
+  }, [debug]);
+
+  // ─── Reproducción ──
+  const finishRecording = useCallback(async () => {
+    const rec = recRef.current;
+    recRef.current = null;
+    if (!rec) return;
+    try {
+      const { blob, ext } = await rec.stop();
+      downloadBlob(blob, exportFileName(title ?? undefined, ext, 'jugada-3d'));
+    } catch (e) {
+      setRecError(e instanceof Error ? e.message : 'No se pudo grabar el video.');
+    } finally {
+      if (mounted.current) setRecordTarget(null);
+    }
+  }, [title]);
+
+  const onEnded = useCallback(() => {
+    setPlaying(false);
+    const r = replayRef.current;
+    if (r) { setSpeed(r.prevSpeed); setReplay(null); }
+    if (recRef.current) void finishRecording();
+  }, [finishRecording]);
+
+  const play = () => {
+    setFrozen(false);
     if (clock.get() >= totalMs) clock.set(0);
     setPlaying(true);
+  };
+  const pause = () => setPlaying(false);
+  const stopReplay = () => {
+    if (replay) { setSpeed(replay.prevSpeed); setReplay(null); }
+  };
+  const togglePlay = () => (playing ? pause() : play());
+  const step = (dir: -1 | 1) => {
+    pause();
+    stopReplay();
+    clock.set(stepFrame(frames, clock.get(), dir));
+  };
+  const startReplay = () => {
+    const r = replayRange(frames);
+    setFrozen(false);
+    setReplay({ endMs: r.endMs, prevSpeed: replay?.prevSpeed ?? speed });
+    setSpeed(REPLAY_SPEED);
+    clock.set(r.startMs);
+    setPlaying(true);
+  };
+  const toggleFreeze = () => {
+    if (frozen) { setFrozen(false); return; }
+    pause();
+    stopReplay();
+    setFrozen(true);
+  };
+  const startRecording = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    setRecError(null);
+    try {
+      stopReplay();
+      setFrozen(false);
+      clock.set(0);
+      // Proporción del canvas WebGL, con tope de ~400 mil píxeles (p. ej. 808×505): el
+      // MP4 que elige pickVideoMime es H.264 nivel 3.0 (avc1.42E01E, ≤ 1620
+      // macrobloques); más grande, Chromium entrega un video VACÍO (medido).
+      // Lados pares para el códec.
+      const k = Math.min(1, Math.sqrt(400_000 / Math.max(1, canvas.width * canvas.height)));
+      const target = document.createElement('canvas');
+      target.width = Math.max(2, Math.round((canvas.width * k) / 2) * 2);
+      target.height = Math.max(2, Math.round((canvas.height * k) / 2) * 2);
+      recRef.current = startRecording3D(target);
+      setRecordTarget(target);
+      setPlaying(true);
+    } catch (e) {
+      setRecError(e instanceof Error ? e.message : 'No se pudo grabar el video.');
+    }
+  };
+  const chooseCamera = (k: CameraKind) => { setDirector(false); setCameraKind(k); };
+
+  const onKey = (e: KeyboardEvent) => {
+    const tag = (e.target as HTMLElement).tagName;
+    if (tag === 'INPUT' || tag === 'SELECT') return;
+    if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
   };
 
   const animated = frames.length > 1 || !!overlay;
   const fxLabel = def.label;
+  const liveKind = director ? onAir : resolved.kind;
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-slate-950 text-white" data-testid="tactical-3d-viewer">
+    <div className="relative h-full w-full overflow-hidden bg-slate-950 text-white" data-testid="tactical-3d-viewer" data-camera={liveKind} onKeyDown={onKey}>
       <CanvasBoundary onError={() => fallback('error')}>
         <Canvas
           className="!absolute inset-0"
@@ -134,6 +262,7 @@ export default function Tactical3DViewer({
           onCreated={({ gl }) => {
             tactical3dStats.contextsCreated += 1;
             const canvas = gl.domElement;
+            canvasRef.current = canvas;
             canvas.addEventListener('webglcontextlost', () => {
               tactical3dStats.contextsLost += 1;
               fallback('webgl');
@@ -154,13 +283,22 @@ export default function Tactical3DViewer({
             playing={playing}
             speed={speed}
             totalMs={totalMs}
+            stopAtMs={replay?.endMs ?? null}
             onEnded={onEnded}
-            cameraMode={resolved.mode}
+            cameraKind={resolved.kind}
+            director={director}
             playerKey={resolved.playerKey}
+            playerView={playerView}
+            selectedKey={selectedKey}
             onSelectPlayer={(k) => setSelectedKey(k)}
+            onShot={onShot}
+            showTrails={showTrails}
+            frozen={frozen}
+            recordTarget={recordTarget}
             reducedMotion={reducedMotion}
             minFps={minFps}
             onFpsVerdict={onFpsVerdict}
+            debug={debug}
           />
         </Canvas>
       </CanvasBoundary>
@@ -170,7 +308,9 @@ export default function Tactical3DViewer({
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
             <p className="line-clamp-2 break-words text-sm font-bold">{title || 'Jugada en 3D'}</p>
-            <p className="text-xs text-white/75">{fxLabel} · gira la cámara arrastrando con el dedo o el mouse</p>
+            <p className="text-xs text-white/75">
+              {fxLabel} · {liveKind === 'libre' ? 'gira la cámara arrastrando con el dedo o el mouse' : 'toca un jugador para elegirlo'}
+            </p>
           </div>
           <Button
             type="button"
@@ -181,34 +321,76 @@ export default function Tactical3DViewer({
             Volver a 2D
           </Button>
         </div>
-        <div className="pointer-events-auto flex flex-wrap items-center gap-1.5" role="group" aria-label="Cámara">
-          {CAMERA_MODES.map((m) => (
+        <div className="pointer-events-auto -mx-3 flex items-center gap-1.5 overflow-x-auto px-3 pb-1 [scrollbar-width:none]" role="group" aria-label="Cámara">
+          {animated && (
             <Button
-              key={m}
               type="button"
-              aria-pressed={cameraMode === m}
-              onClick={() => setCameraMode(m)}
-              className={cn('h-11 px-3 text-xs', cameraMode === m ? 'bg-emerald-600 text-white hover:bg-emerald-500' : 'bg-white/10 text-white hover:bg-white/20')}
+              aria-pressed={director}
+              disabled={reducedMotion}
+              title={reducedMotion ? 'Desactivada: tu dispositivo pide reducir el movimiento' : 'Elige la cámara según la jugada'}
+              onClick={() => setDirector((d) => !d)}
+              className={cn('h-11 shrink-0 px-3 text-xs', director ? 'bg-amber-500 text-slate-950 hover:bg-amber-400' : 'bg-white/10 text-white hover:bg-white/20')}
             >
-              {cameraLabel(m, court.sport)}
+              Cámara automática
             </Button>
-          ))}
-          {cameraMode === 'jugador' && keys.length > 0 && (
-            <label className="flex items-center gap-1.5 text-xs">
+          )}
+          {CAMERA_KINDS.map((k) => {
+            const blocked = reducedMotion && AUTO_MOVING.has(k);
+            return (
+              <Button
+                key={k}
+                type="button"
+                aria-pressed={!director && cameraKind === k}
+                data-on-air={liveKind === k ? 'true' : undefined}
+                disabled={blocked}
+                title={blocked ? 'Desactivada: tu dispositivo pide reducir el movimiento' : undefined}
+                onClick={() => chooseCamera(k)}
+                className={cn(
+                  'h-11 shrink-0 px-3 text-xs',
+                  !director && cameraKind === k ? 'bg-emerald-600 text-white hover:bg-emerald-500' : 'bg-white/10 text-white hover:bg-white/20',
+                  director && liveKind === k && 'ring-2 ring-amber-400',
+                )}
+              >
+                {cameraKindLabel(k, court.sport)}
+              </Button>
+            );
+          })}
+        </div>
+        {!director && cameraKind === 'jugador' && keys.length > 0 && (
+          <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 text-xs">
+            <div className="flex items-center gap-1" role="group" aria-label="Vista del jugador">
+              {(['pov', 'tercera'] as const).map((v) => (
+                <Button
+                  key={v}
+                  type="button"
+                  aria-pressed={playerView === v}
+                  onClick={() => setPlayerView(v)}
+                  className={cn('h-11 px-3 text-xs', playerView === v ? 'bg-white text-slate-900 hover:bg-white/90' : 'bg-white/10 text-white hover:bg-white/20')}
+                >
+                  {v === 'pov' ? 'Sus ojos' : 'Detrás de él'}
+                </Button>
+              ))}
+            </div>
+            <label className="flex items-center gap-1.5">
               <span className="sr-only sm:not-sr-only">Jugador</span>
               <select
                 className="h-11 rounded-md border border-white/20 bg-slate-900 px-2 text-xs text-white"
                 value={resolved.playerKey ?? ''}
                 onChange={(e) => setSelectedKey(e.target.value)}
-                aria-label="Jugador de la vista"
+                aria-label="Jugador que sigue la cámara"
               >
-                {keys.map((k) => (
-                  <option key={k} value={k}>{playerOptionLabel(visuals[k], keys.indexOf(k))}</option>
+                {keys.map((k, i) => (
+                  <option key={k} value={k}>{playerOptionLabel(visuals[k], i)}</option>
                 ))}
               </select>
             </label>
-          )}
-        </div>
+          </div>
+        )}
+        {director && (
+          <p className="text-xs font-semibold text-amber-300" data-testid="director-on-air">
+            Al aire: {cameraKindLabel(onAir, court.sport)}
+          </p>
+        )}
         {overlay && (
           <p className="flex items-center gap-1.5 text-xs text-white/85">
             <span className="inline-block h-3 w-3 rounded-full" style={{ background: overlayColor }} aria-hidden="true" />
@@ -217,36 +399,79 @@ export default function Tactical3DViewer({
         )}
       </div>
 
+      {/* Avisos de transmisión. */}
+      <div className="pointer-events-none absolute right-3 top-1/2 flex -translate-y-1/2 flex-col items-end gap-1.5">
+        {replay && <Badge className="bg-sky-500 text-slate-950">Repetición · {speedLabel(REPLAY_SPEED)}</Badge>}
+        {frozen && <Badge className="bg-amber-400 text-slate-950">Cuadro congelado</Badge>}
+        {recording && <Badge className="bg-red-600 text-white"><Circle className="h-2.5 w-2.5 fill-current" aria-hidden="true" /> Grabando</Badge>}
+      </div>
+
       {/* Abajo: reproducción. */}
       {animated && totalMs > 0 && (
-        <div className="absolute inset-x-0 bottom-0 flex flex-wrap items-center gap-2 bg-gradient-to-t from-black/75 to-transparent p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-          <Button
-            type="button"
-            onClick={togglePlay}
-            className="h-11 min-w-11 gap-1.5 bg-emerald-600 px-4 text-white hover:bg-emerald-500"
-          >
-            {playing ? <Pause className="h-4 w-4" aria-hidden="true" /> : <Play className="h-4 w-4" aria-hidden="true" />}
-            {playing ? 'Pausar' : 'Reproducir'}
-          </Button>
-          <div className="flex items-center gap-1" role="group" aria-label="Velocidad">
-            {PLAYBACK_SPEEDS.map((s) => (
-              <Button
-                key={s}
-                type="button"
-                aria-pressed={speed === s}
-                aria-label={`Velocidad ${String(s).replace('.', ',')} veces`}
-                onClick={() => setSpeed(s)}
-                className={cn('h-11 min-w-11 px-2 text-xs', speed === s ? 'bg-white text-slate-900 hover:bg-white/90' : 'bg-white/10 text-white hover:bg-white/20')}
-              >
-                {String(s).replace('.', ',')}×
-              </Button>
-            ))}
+        <div className="absolute inset-x-0 bottom-0 flex flex-col gap-2 bg-gradient-to-t from-black/80 to-transparent p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <Timeline clock={clock} frames={frames} totalMs={totalMs} disabled={recording} onSeek={() => { pause(); stopReplay(); }} />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Button type="button" onClick={() => step(-1)} disabled={recording} aria-label="Cuadro anterior" className="h-11 min-w-11 bg-white/10 px-2 text-white hover:bg-white/20">
+              <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+            </Button>
+            <Button
+              type="button"
+              onClick={togglePlay}
+              disabled={recording}
+              className="h-11 min-w-11 gap-1.5 bg-emerald-600 px-4 text-white hover:bg-emerald-500"
+            >
+              {playing ? <Pause className="h-4 w-4" aria-hidden="true" /> : <Play className="h-4 w-4" aria-hidden="true" />}
+              {playing ? 'Pausar' : 'Reproducir'}
+            </Button>
+            <Button type="button" onClick={() => step(1)} disabled={recording} aria-label="Cuadro siguiente" className="h-11 min-w-11 bg-white/10 px-2 text-white hover:bg-white/20">
+              <ChevronRight className="h-5 w-5" aria-hidden="true" />
+            </Button>
+            <div className="flex items-center gap-1" role="group" aria-label="Velocidad">
+              {VIEWER_SPEEDS.map((s) => (
+                <Button
+                  key={s}
+                  type="button"
+                  aria-pressed={speed === s}
+                  aria-label={`Velocidad ${String(s).replace('.', ',')} veces`}
+                  disabled={recording}
+                  onClick={() => { setReplay(null); setSpeed(s); }}
+                  className={cn('h-11 min-w-11 px-2 text-xs', speed === s ? 'bg-white text-slate-900 hover:bg-white/90' : 'bg-white/10 text-white hover:bg-white/20')}
+                >
+                  {speedLabel(s)}
+                </Button>
+              ))}
+            </div>
+            <Button type="button" onClick={startReplay} disabled={recording || frames.length < 2} className="h-11 gap-1.5 bg-white/10 px-3 text-xs text-white hover:bg-white/20">
+              <Repeat className="h-4 w-4" aria-hidden="true" /> Repetición
+            </Button>
+            <Button type="button" aria-pressed={frozen} onClick={toggleFreeze} disabled={recording} className={cn('h-11 gap-1.5 px-3 text-xs', frozen ? 'bg-amber-400 text-slate-950 hover:bg-amber-300' : 'bg-white/10 text-white hover:bg-white/20')}>
+              <Snowflake className="h-4 w-4" aria-hidden="true" /> Congelar
+            </Button>
+            <Button type="button" aria-pressed={showTrails} onClick={() => setShowTrails((v) => !v)} className={cn('h-11 px-3 text-xs', showTrails ? 'bg-white text-slate-900 hover:bg-white/90' : 'bg-white/10 text-white hover:bg-white/20')}>
+              Rastro
+            </Button>
+            {canRecord && (
+              recording ? (
+                <Button type="button" onClick={() => { pause(); void finishRecording(); }} className="h-11 gap-1.5 bg-red-600 px-3 text-xs text-white hover:bg-red-500">
+                  <Square className="h-4 w-4 fill-current" aria-hidden="true" /> Terminar video
+                </Button>
+              ) : (
+                <Button type="button" onClick={startRecording} className="h-11 gap-1.5 bg-white/10 px-3 text-xs text-white hover:bg-white/20">
+                  <Video className="h-4 w-4" aria-hidden="true" /> Grabar video
+                </Button>
+              )
+            )}
           </div>
-          <Timeline clock={clock} frames={frames} totalMs={totalMs} onSeek={() => setPlaying(false)} />
+          {frozen && <p className="text-xs text-white/85">Toca un jugador para ponerle el foco.</p>}
+          {recError && <p role="alert" className="text-xs text-red-300">{recError}</p>}
         </div>
       )}
     </div>
   );
+}
+
+function Badge({ className, children }: { className?: string; children: ReactNode }) {
+  return <span className={cn('flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide shadow', className)}>{children}</span>;
 }
 
 function playerOptionLabel(v: PlayerVisual | undefined, i: number) {
@@ -255,23 +480,23 @@ function playerOptionLabel(v: PlayerVisual | undefined, i: number) {
   return parts.length > 0 ? parts.join(' · ') : `Jugador ${i + 1}`;
 }
 
-function Timeline({ clock, frames, totalMs, onSeek }: {
-  clock: ReturnType<typeof createPlaybackClock>; frames: TacticalFrame[]; totalMs: number; onSeek: () => void;
+function Timeline({ clock, frames, totalMs, onSeek, disabled }: {
+  clock: ReturnType<typeof createPlaybackClock>; frames: TacticalFrame[]; totalMs: number; onSeek: () => void; disabled?: boolean;
 }) {
   const t = useSyncExternalStore(clock.subscribe, clock.get);
-  let index = 0;
-  for (let i = 0; i < frames.length; i++) if (t >= frameStartMs(frames, i)) index = i;
+  const index = frameIndexAt(frames, t);
   return (
-    <div className="flex min-w-44 flex-1 items-center gap-2">
+    <div className="flex items-center gap-2">
       <input
         type="range"
         min={0}
         max={totalMs}
         step={10}
         value={Math.round(t)}
+        disabled={disabled}
         onChange={(e) => { onSeek(); clock.set(Number(e.target.value)); }}
         aria-label="Línea de tiempo de la jugada"
-        className="h-11 flex-1 accent-emerald-500"
+        className="h-8 flex-1 accent-emerald-500"
       />
       <span className="whitespace-nowrap text-xs tabular-nums text-white/85">
         Cuadro {index + 1} de {frames.length}
