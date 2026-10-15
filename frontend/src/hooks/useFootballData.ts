@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import type { PlayNotes, PlayVideo } from '@/lib/school/tacticalMedia';
 import {
   getFootballLineups,
   getFootballLineup,
@@ -51,6 +52,8 @@ export function useSaveFootballLineup() {
       players: LineupPlayerInput[];
       arrows?: TacticalArrow[];
       frames?: TacticalFrame[] | null;
+      notes?: PlayNotes | null;
+      videos?: PlayVideo[] | null;
     }) => saveFootballLineup(payload),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['football-lineups'] });
@@ -122,7 +125,7 @@ export function useTacticalPresets(params: { team_id?: string; situation?: Tacti
 export function useCreateTacticalPreset() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { team_id: string; name: string; situation: TacticalSituation; slots: TacticalPresetSlot[]; arrows?: TacticalArrow[]; frames?: TacticalFrame[] | null }) =>
+    mutationFn: (payload: { team_id: string; name: string; situation: TacticalSituation; slots: TacticalPresetSlot[]; arrows?: TacticalArrow[]; frames?: TacticalFrame[] | null; notes?: PlayNotes | null; videos?: PlayVideo[] | null }) =>
       createTacticalPreset(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tactical-presets'] });
@@ -135,7 +138,7 @@ export function useCreateTacticalPreset() {
 export function useUpdateTacticalPreset() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...payload }: { id: string; name?: string; situation?: TacticalSituation; slots?: TacticalPresetSlot[]; arrows?: TacticalArrow[]; frames?: TacticalFrame[] | null }) =>
+    mutationFn: ({ id, ...payload }: { id: string; name?: string; situation?: TacticalSituation; slots?: TacticalPresetSlot[]; arrows?: TacticalArrow[]; frames?: TacticalFrame[] | null; notes?: PlayNotes | null; videos?: PlayVideo[] | null }) =>
       updateTacticalPreset(id, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tactical-presets'] });

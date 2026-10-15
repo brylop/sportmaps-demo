@@ -101,6 +101,11 @@ import {
 import { TacticalTimeline, TacticalFramePlayback, type PlayState, type PlaybackSpeed } from './TacticalTimeline';
 import { TacticalAiOverlay, TacticalAiPanel, type AiPreview } from './TacticalAiPanel';
 import { buildAnalyzeRequest, hasAiAnalysis } from '@/lib/school/tacticalAi';
+// M6c notas y videos: la lógica vive en ./tacticalMedia; acá solo el enganche.
+import { usePlayMedia } from './tacticalMedia/usePlayMedia';
+import { PlayMediaButtons, PlayMediaDialogs, PlayMediaMenuItems, type MediaDialog } from './tacticalMedia/PlayMediaControls';
+import { FrameNoteBar } from './tacticalMedia/FrameNoteBar';
+import { PresetTagFilterSub, filterPresetsByTag, presetTags } from './tacticalMedia/PresetTagFilter';
 
 const SITUATION_LABEL: Record<TacticalSituation, string> = {
   ataque: 'Ataque',
@@ -1288,6 +1293,11 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   const [aiOpen, setAiOpen] = useState(false);
   const [aiPreview, setAiPreview] = useState<AiPreview | null>(null);
   useEffect(() => { if (!open) { setAiOpen(false); setAiPreview(null); } }, [open]);
+  // M6c: notas + videos de la jugada (usePlayMedia) y sus diálogos.
+  const media = usePlayMedia();
+  const [mediaDialog, setMediaDialog] = useState<MediaDialog>(null);
+  const [presetTag, setPresetTag] = useState<string | null>(null);
+  useEffect(() => { if (!open) setMediaDialog(null); }, [open]);
   const { data: roster, isLoading: loadingRoster } = useTeamPerformanceRoster({ team_id: teamId });
   const { data: existingList, isLoading: loadingList } = useFootballLineups({ source_type: sourceType, source_id: sourceId });
   const existingLineupId = existingList?.[0]?.id;
@@ -1557,6 +1567,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     // migración `existingLineup.arrows` no existía (undefined): el `?? []`
     // deja el tablero vacío en vez de romper con alineaciones ya guardadas.
     setArrows((existingLineup.arrows ?? []).map(hydrateShape));
+    media.hydrate(existingLineup);
     // Jugada animada (T1): con `frames` las posiciones salen de los cuadros;
     // sin `frames` (jugadas de siempre) es un solo cuadro con lo de arriba.
     metaRef.current = { ...nextPlaced };
@@ -1744,6 +1755,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     setFrameIndex(0);
     setSelectedShape(null);
     setLoadedPresetId(preset.id);
+    media.hydrate(preset);
   }
 
   /** Cargar una plantilla reubica a los jugadores y reemplaza los dibujos --
@@ -1783,7 +1795,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       return;
     }
     try {
-      const created = await createPreset.mutateAsync({ team_id: teamId, name, situation, slots, arrows: presetArrows, frames: presetFrames });
+      const created = await createPreset.mutateAsync({ team_id: teamId, name, situation, slots, arrows: presetArrows, frames: presetFrames, ...media.payload() });
       logEvent('save', 'preset');
       toast({ title: 'Guardada en Mis jugadas', description: `"${name}" para ${SITUATION_LABEL[situation]}.` });
       setSavingName(null);
@@ -1809,7 +1821,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       return;
     }
     try {
-      await updatePreset.mutateAsync({ id: loadedPresetId, slots, arrows: presetArrows, frames: presetFrames });
+      await updatePreset.mutateAsync({ id: loadedPresetId, slots, arrows: presetArrows, frames: presetFrames, ...media.payload() });
       logEvent('save', 'preset');
       toast({ title: 'Jugada actualizada en Mis jugadas' });
     } catch (err: any) {
@@ -2291,6 +2303,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
         arrows: allFrames[0].arrows,
         // null = un solo cuadro: la fila no carga una animación de 1 cuadro.
         frames: serializeFrames(allFrames),
+        ...media.payload(),
       });
       logEvent('save');
       toast({
@@ -2465,6 +2478,8 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       playerLabels,
       playerJerseys,
       sport,
+      notes: media.notes,
+      videos: media.videos,
     };
   }
 
@@ -2483,7 +2498,8 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       arrows: first.arrows,
       frames: list,
     });
-    window.setTimeout(() => setLibraryBoard(board), 0);
+    const { notes, videos } = media.payload();
+    window.setTimeout(() => setLibraryBoard({ ...board, notes, videos }), 0);
   }
 
   function buildPresetPayload(): { slots: { slot_label: string; x: number; y: number }[]; arrows: TacticalArrow[]; frames: TacticalFrame[] | null } {
@@ -2731,6 +2747,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                   Solo lectura
                 </Badge>
               )}
+              <PlayMediaButtons media={media} onOpen={setMediaDialog} isMobile={isMobile} viewing className={`${TB_BTN} ${TB_IDLE}`} />
             </>
           )}
 
@@ -2795,6 +2812,8 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                 Material
               </Button>
 
+              <PlayMediaButtons media={media} onOpen={setMediaDialog} isMobile={isMobile} viewing={false} className={`${TB_BTN} ${TB_IDLE}`} />
+
               <DropdownMenu modal={false}>
                 <DropdownMenuTrigger asChild>
                   <Button size="sm" variant="ghost" className={`${TB_BTN} ${TB_IDLE}`} aria-label="Más opciones" title="Más opciones">
@@ -2809,6 +2828,12 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                   // "Guardar en Mis jugadas…" ni a los diálogos de confirmación.
                   onCloseAutoFocus={(e) => e.preventDefault()}
                 >
+                  {isMobile && (
+                    <>
+                      <PlayMediaMenuItems media={media} onOpen={setMediaDialog} />
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger>
                       Situación: <span className="ml-1 font-semibold">{SITUATION_LABEL[situation]}</span>
@@ -2824,12 +2849,13 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
 
                   <DropdownMenuSeparator />
                   <DropdownMenuLabel>Mis jugadas · {SITUATION_LABEL[situation]}</DropdownMenuLabel>
+                  <PresetTagFilterSub tags={presetTags(presets)} value={presetTag} onChange={setPresetTag} />
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger disabled={!presets || presets.length === 0}>
-                      {presets && presets.length > 0 ? `Abrir una jugada (${presets.length})` : 'Todavía no hay jugadas guardadas'}
+                      {presets && presets.length > 0 ? `Abrir una jugada (${filterPresetsByTag(presets, presetTag).length})` : 'Todavía no hay jugadas guardadas'}
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent className="max-h-[60vh] overflow-y-auto">
-                      {(presets ?? []).map((p) => (
+                      {filterPresetsByTag(presets, presetTag).map((p) => (
                         <DropdownMenuItem key={p.id} onSelect={() => handleLoadPreset(p.id)}>
                           <span className={p.id === loadedPresetId ? 'font-semibold' : ''}>{p.name}</span>
                         </DropdownMenuItem>
@@ -3202,6 +3228,8 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                   )}
                 </div>
               </div>
+              <FrameNoteBar frames={timelineFrames} frameIndex={frameIndex} clock={clock} playing={framePlaybackActive}
+                compact={isMobile && (tacticsOpen || rosterOpen)} />
               {timeline}
               </div>
 
@@ -3664,7 +3692,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                 getRequest={() => {
                   const list = committedFrames().map((f) => ({ ...f, players: f.players.filter((p) => subjectByKey.has(p.key)) }));
                   if (!list.some((f) => f.players.length > 0)) return null;
-                  return buildAnalyzeRequest({ teamId, sport, frames: list, labelOf: (k) => (placed[k] ?? metaRef.current[k])?.slot_label });
+                  return buildAnalyzeRequest({ teamId, sport, frames: list, labelOf: (k) => (placed[k] ?? metaRef.current[k])?.slot_label, intention: media.intention });
                 }}
                 sport={sport}
                 canApply={roleCanEdit}
@@ -3716,9 +3744,20 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
         onOpenChange={(v) => { if (!v) setLibraryBoard(null); }}
         board={libraryBoard}
         defaultSport={sport}
+        defaultTags={libraryBoard.notes?.tags}
         onSaved={() => logEvent('library_save')}
       />
     )}
+    <PlayMediaDialogs
+      media={media}
+      open={open ? mediaDialog : null}
+      onOpenChange={setMediaDialog}
+      readOnly={!canEdit}
+      frameIndex={frameIndex}
+      frameCount={liveFrames.length}
+      frameNote={liveFrames[frameIndex]?.note ?? ''}
+      onFrameNoteSave={(note) => setFrames((prev) => prev.map((f, i) => (i === frameIndex ? { ...f, note: note || undefined } : f)))}
+    />
     </>
   );
 }

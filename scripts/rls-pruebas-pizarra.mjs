@@ -9,6 +9,8 @@
 //   · columnas `frames` de match_lineups / team_tactical_presets
 //   · paquetes de la biblioteca (M2): exercise_packs, school_exercise_packs,
 //     training_exercises.pack_id y las RPCs activate_/deactivate_/import_exercise_pack
+//   · notas y videos (M6c): columnas notes/videos con sus CHECK, board.notes/videos
+//     de la biblioteca y la tabla tactical_saved_videos (esperado tras 20261014163705)
 //
 // ── Por qué existe ──────────────────────────────────────────────────────────
 // Lo que creó la pizarra (migraciones 20261008155454, 20261008183744 y
@@ -78,6 +80,17 @@ const FIX_LECTURA_TACTICA = '20261005173002'; // pizarra_blindaje_datos_y_lectur
 const FIX_PIZARRA = '20261013200604';         // pizarra_rls_biblioteca_y_rpc_ejercicio (H1/H2/H3)
 const MIG_PAQUETES = '20261014121142';        // pizarra_paquetes_biblioteca (M2: exercise_packs + RPCs)
 const PAQ = { requiere: 'public.exercise_packs', tras: MIG_PAQUETES };
+const MIG_MEDIOS = '20261014163705';          // pizarra_notas_y_videos (M6c: notes/videos + tactical_saved_videos)
+const MED = { requiere: 'public.tactical_saved_videos', tras: MIG_MEDIOS };
+// M6c: un video guardado mínimo (YouTube) de la escuela `school` a nombre de `autor`.
+const NUEVO_VID = (school, autor, extra = {}) => {
+    const v = { provider: 'youtube', video_id: 'dQw4w9WgXcQ', title: 'RLS video', start_s: 90, ...extra };
+    const cols = Object.keys(v);
+    const vals = cols.map((k) => (typeof v[k] === 'number' ? v[k] : v[k] === null ? 'null' : `'${String(v[k]).replace(/'/g, "''")}'`));
+    return W(`insert into public.tactical_saved_videos (school_id, created_by, ${cols.join(', ')}) values (${school}, ${autor}, ${vals.join(', ')})`);
+};
+const NOTA_OK = `'{"text":"**Salida** por derecha","tags":["presión"]}'::jsonb`;
+const VIDS_OK = `'[{"provider":"youtube","video_id":"dQw4w9WgXcQ","title":"Clip","start_s":90,"end_s":null,"is_private":false},{"provider":"veo","url":"https://app.veo.co/matches/abc-123/","title":"Partido","start_s":0,"is_private":true}]'::jsonb`;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Casos. Cada `sql` corre como `actor` y devuelve UN entero n:
@@ -343,6 +356,72 @@ const CASOS = [
         `select coalesce('security_invoker=true' = any (reloptions), false)::int from pg_class where oid = 'public.v_tactical_board_usage_weekly'::regclass`],
     ['postgres', 'CHECK de forma/tamaño de frames en match_lineups y team_tactical_presets', 'ACEPTAR',
         `select (count(*) = 2)::int from pg_constraint where contype = 'c' and conname in ('match_lineups_frames_shape_check', 'team_tactical_presets_frames_shape_check')`],
+
+    // ── 14. Notas y videos (M6c) — esperado tras 20261014163705 ──────────────
+    // «Videos guardados»: leen staff, escriben los que editan la pizarra.
+    ['coach', 'coach de A lee los videos guardados de A', 'ACEPTAR', LEER('tactical_saved_videos', `id = '{vid_a}'`), MED],
+    ['owner', 'owner de A lee los videos guardados de A', 'ACEPTAR', LEER('tactical_saved_videos', `id = '{vid_a}'`), MED],
+    ['nontac', 'admin NO táctico de A lee los videos guardados (es staff)', 'ACEPTAR', LEER('tactical_saved_videos', `id = '{vid_a}'`), MED],
+    ['reporter', 'staff NO gestor lee los videos guardados de su escuela', 'ACEPTAR', LEER('tactical_saved_videos', `id = '{vid_r}'`), MED],
+    ['parent', 'padre de A lee los videos guardados de A', 'RECHAZAR', LEER('tactical_saved_videos', `school_id = '{sch_a}'`), MED],
+    ['athlete', 'atleta de A lee los videos guardados de A', 'RECHAZAR', LEER('tactical_saved_videos', `school_id = '{sch_a}'`), MED],
+    ['staff_b', 'coach de B lee los videos guardados de A', 'RECHAZAR', LEER('tactical_saved_videos', `id = '{vid_a}'`), MED],
+    ['coach', 'coach de A lee los videos guardados de B', 'RECHAZAR', LEER('tactical_saved_videos', `id = '{vid_b}'`), MED],
+    ['anon', 'anon lee videos guardados', 'RECHAZAR', LEER('tactical_saved_videos', 'true'), MED],
+    ['coach', 'coach de A guarda un video en A a su nombre', 'ACEPTAR', NUEVO_VID(`'{sch_a}'`, `'{coach}'`, { start_s: 120 }), MED],
+    ['coach', 'coach de A guarda un video en A a nombre del owner', 'RECHAZAR', NUEVO_VID(`'{sch_a}'`, `'{owner}'`, { start_s: 121 }), MED],
+    ['coach', 'coach de A guarda un video en la escuela B', 'RECHAZAR', NUEVO_VID(`'{sch_b}'`, `'{coach}'`, { start_s: 122 }), MED],
+    ['owner', 'owner de A guarda un enlace de Veo en A', 'ACEPTAR',
+        NUEVO_VID(`'{sch_a}'`, `'{owner}'`, { provider: 'veo', video_id: null, url: 'https://app.veo.co/matches/rls-1/', start_s: 0 }), MED],
+    ['nontac', 'admin NO táctico de A guarda un video', 'RECHAZAR', NUEVO_VID(`'{sch_a}'`, `'{nontac}'`, { start_s: 123 }), MED],
+    ['reporter', 'staff NO gestor guarda un video en su escuela', 'RECHAZAR', NUEVO_VID(`'{sch_r}'`, `'{reporter}'`, { start_s: 124 }), MED],
+    ['parent', 'padre de A guarda un video en A', 'RECHAZAR', NUEVO_VID(`'{sch_a}'`, `'{parent}'`, { start_s: 125 }), MED],
+    ['anon', 'anon guarda un video', 'RECHAZAR', NUEVO_VID(`'{sch_a}'`, 'null', { start_s: 126 }), MED],
+    ['coach', 'CHECK: proveedor fuera de la lista (dailymotion)', 'RECHAZAR', NUEVO_VID(`'{sch_a}'`, `'{coach}'`, { provider: 'dailymotion', start_s: 127 }), MED],
+    ['coach', 'CHECK: id de YouTube con caracteres raros', 'RECHAZAR', NUEVO_VID(`'{sch_a}'`, `'{coach}'`, { video_id: 'abc<script>x', start_s: 128 }), MED],
+    ['coach', 'CHECK: enlace javascript: como Veo', 'RECHAZAR',
+        NUEVO_VID(`'{sch_a}'`, `'{coach}'`, { provider: 'veo', video_id: null, url: 'javascript:alert(1)', start_s: 129 }), MED],
+    ['coach', 'CHECK: dominio parecido (veo.co.evil.com)', 'RECHAZAR',
+        NUEVO_VID(`'{sch_a}'`, `'{coach}'`, { provider: 'veo', video_id: null, url: 'https://veo.co.evil.com/x', start_s: 130 }), MED],
+    ['coach', 'CHECK: fin antes del inicio', 'RECHAZAR', NUEVO_VID(`'{sch_a}'`, `'{coach}'`, { start_s: 200, end_s: 100 }), MED],
+    ['coach', 'coach de A edita el título de un video de A', 'ACEPTAR', W(`update public.tactical_saved_videos set title = 'RLS editado' where id = '{vid_a}'`), MED],
+    ['coach', 'coach de A mueve un video de A a la escuela B', 'RECHAZAR', W(`update public.tactical_saved_videos set school_id = '{sch_b}' where id = '{vid_a}'`), MED],
+    ['staff_b', 'coach de B borra un video de A', 'RECHAZAR', W(`delete from public.tactical_saved_videos where id = '{vid_a}'`), MED],
+    ['nontac', 'admin NO táctico de A borra un video de A', 'RECHAZAR', W(`delete from public.tactical_saved_videos where id = '{vid_a}'`), MED],
+    ['coach', 'coach de A borra un video de A', 'ACEPTAR', W(`delete from public.tactical_saved_videos where id = '{vid_a}'`), MED],
+    // Columnas notes/videos de la jugada: bajo las policies de siempre + CHECK de forma.
+    ['coach', 'coach de A guarda nota y videos válidos en una jugada de A', 'ACEPTAR',
+        W(`update public.match_lineups set notes = ${NOTA_OK}, videos = ${VIDS_OK} where id = '{ml_a}'`), MED],
+    ['coach', 'CHECK: nota de más de 2000 caracteres', 'RECHAZAR',
+        W(`update public.match_lineups set notes = jsonb_build_object('text', repeat('a', 2001)) where id = '{ml_a}'`), MED],
+    ['coach', 'CHECK: nota con un campo de más', 'RECHAZAR',
+        W(`update public.match_lineups set notes = '{"text":"x","html":"<b>"}'::jsonb where id = '{ml_a}'`), MED],
+    ['coach', 'CHECK: 11 videos en una jugada (tope 10)', 'RECHAZAR',
+        W(`update public.team_tactical_presets set videos = (select jsonb_agg(jsonb_build_object('provider','youtube','video_id','dQw4w9WgXcQ','title','v','start_s',g)) from generate_series(1, 11) g) where id = '{preset_a}'`), MED],
+    ['coach', 'CHECK: video de la jugada con proveedor desconocido', 'RECHAZAR',
+        W(`update public.team_tactical_presets set videos = '[{"provider":"tiktok","url":"https://tiktok.com/x","title":"t","start_s":0}]'::jsonb where id = '{preset_a}'`), MED],
+    ['coach', "CHECK: provider 'sportmaps' sin asset_id (reservado M6h)", 'RECHAZAR',
+        W(`update public.team_tactical_presets set videos = '[{"provider":"sportmaps","title":"t","start_s":0}]'::jsonb where id = '{preset_a}'`), MED],
+    ['parent', 'padre de A escribe notas en una jugada de A', 'RECHAZAR',
+        W(`update public.match_lineups set notes = ${NOTA_OK} where id = '{ml_a}'`), MED],
+    ['coach', 'CHECK: ejercicio con board.notes inválido', 'RECHAZAR',
+        UPD_EJ('{ex_a_coach}', `board = board || '{"notes":{"text":7}}'::jsonb`), MED],
+    ['coach', 'insert_exercise_into_session_block copia board.notes/videos a la jugada del bloque', 'ACEPTAR',
+        RPC_INS('{ex_a_media}', 'null', `'{team_a}'::uuid`),
+        { ...MED, chk: `select (count(*) = 1)::int from public.match_lineups where school_id = '{sch_a}' and notes ->> 'text' = '**Salida** por derecha' and jsonb_array_length(videos) = 2 and updated_at >= now() - interval '1 minute'` }],
+    // Invariantes estáticos de la tabla nueva.
+    ['postgres', 'tactical_saved_videos: RLS activa, sin FOR ALL y ninguna policy de escritura con user_school_ids()', 'ACEPTAR',
+        `select ((select relrowsecurity from pg_class where oid = 'public.tactical_saved_videos'::regclass) and not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'tactical_saved_videos' and (cmd = 'ALL' or (cmd <> 'SELECT' and (coalesce(qual, '') || coalesce(with_check, '')) ~ 'user_school_ids\\(')) ))::int`, MED],
+    ['postgres', 'tactical_saved_videos: INSERT/UPDATE con WITH CHECK táctico', 'ACEPTAR',
+        `select (count(*) = 2)::int from pg_policies where schemaname = 'public' and tablename = 'tactical_saved_videos' and cmd in ('INSERT', 'UPDATE') and with_check ~ 'user_tactical_edit_school_ids'`, MED],
+    ['postgres', 'anon sin ningún privilegio en tactical_saved_videos', 'ACEPTAR',
+        `select (not exists (select 1 from unnest(array['SELECT','INSERT','UPDATE','DELETE']) p where has_table_privilege('anon', 'public.tactical_saved_videos', p)))::int`, MED],
+    ['postgres', 'CHECK de forma de notes/videos en las tres tablas de jugadas', 'ACEPTAR',
+        `select (count(*) = 3)::int from pg_constraint where contype = 'c' and conname in ('match_lineups_media_shape_check', 'team_tactical_presets_media_shape_check', 'training_exercises_board_media_check')`, MED],
+    ...['public.tactical_video_url_ok(text,text)', 'public.tactical_video_ok(text,text,text,text,text,text,integer,integer)',
+        'public.tactical_play_notes_ok(jsonb)', 'public.tactical_play_videos_ok(jsonb)'].map((firma) =>
+        ['postgres', `${firma.split('(')[0]}: search_path fijo y sin EXECUTE para anon`, 'ACEPTAR',
+            `select ((select exists (select 1 from unnest(p.proconfig) c where c like 'search_path=%pg_temp%') from pg_proc p where p.oid = '${firma}'::regprocedure) and not has_function_privilege('anon', '${firma}', 'EXECUTE'))::int`, MED]),
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -541,6 +620,27 @@ BEGIN
         EXECUTE 'INSERT INTO public.school_exercise_packs (school_id, pack_id, activated_by) VALUES ($1, $2, NULL) ON CONFLICT DO NOTHING'
           USING v_schr, (ids->>'pk_sys')::uuid;
       END IF;
+    END IF;
+  END IF;
+
+  -- Videos guardados (M6c): solo si la migración está aplicada (SQL dinámico).
+  IF to_regclass('public.tactical_saved_videos') IS NOT NULL THEN
+    EXECUTE 'INSERT INTO public.tactical_saved_videos (school_id, provider, video_id, title, start_s, created_by) VALUES ($1, ''youtube'', ''dQw4w9WgXcQ'', ''RLS A'', 1, $2) RETURNING id'
+      INTO v_id USING v_sch, v_coach;
+    ids := ids || jsonb_build_object('vid_a', v_id);
+    EXECUTE 'INSERT INTO public.tactical_saved_videos (school_id, provider, video_id, title, start_s, created_by) VALUES ($1, ''youtube'', ''dQw4w9WgXcQ'', ''RLS B'', 1, $2) RETURNING id'
+      INTO v_id USING v_schb, v_staffb;
+    ids := ids || jsonb_build_object('vid_b', v_id);
+    -- Ejercicio de A con nota y videos en board (para la copia de la RPC).
+    INSERT INTO public.training_exercises (school_id, created_by, name, board)
+    VALUES (v_sch, v_coach, 'RLS pizarra · con notas',
+            '{"players":[{"key":"slot#0","slot_label":"Pivote","x":50,"y":50}],"notes":{"text":"**Salida** por derecha","tags":["presión"]},"videos":[{"provider":"youtube","video_id":"dQw4w9WgXcQ","title":"Clip","start_s":90,"end_s":null,"is_private":false},{"provider":"veo","url":"https://app.veo.co/matches/abc-123/","title":"Partido","start_s":0,"is_private":true}]}')
+    RETURNING id INTO v_id;
+    ids := ids || jsonb_build_object('ex_a_media', v_id);
+    IF v_schr IS NOT NULL THEN
+      EXECUTE 'INSERT INTO public.tactical_saved_videos (school_id, provider, video_id, title, start_s) VALUES ($1, ''youtube'', ''dQw4w9WgXcQ'', ''RLS R'', 2) RETURNING id'
+        INTO v_id USING v_schr;
+      ids := ids || jsonb_build_object('vid_r', v_id);
     END IF;
   END IF;
 

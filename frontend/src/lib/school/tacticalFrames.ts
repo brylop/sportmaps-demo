@@ -24,6 +24,9 @@ export interface TacticalFrame {
   players: TacticalFramePlayer[];
   ball: { x: number; y: number } | null;
   arrows: TacticalArrow[];
+  /** M6c: nota del cuadro (subtítulo al reproducir). Texto con markdown
+   *  mínimo, ≤ FRAME_NOTE_MAX (lib/school/tacticalMedia.ts). Opcional. */
+  note?: string;
 }
 
 export const MAX_FRAMES = 30;

@@ -49,6 +49,10 @@ const OBJECTIVE_CHIPS: { tag: string; label: string }[] = [
   { tag: 'finalización', label: 'Finalización' },
   { tag: 'defensa', label: 'Defensa' },
   { tag: 'transición ofensiva', label: 'Transición' },
+  // M6c: fases de juego de las notas de la jugada (lib/school/tacticalMedia.ts).
+  { tag: 'transición defensiva', label: 'Transición defensiva' },
+  { tag: 'ataque organizado', label: 'Ataque organizado' },
+  { tag: 'defensa organizada', label: 'Defensa organizada' },
   { tag: 'balón parado', label: 'Balón parado' },
   { tag: 'conducción', label: 'Conducción' },
   { tag: 'calentamiento', label: 'Calentamiento' },

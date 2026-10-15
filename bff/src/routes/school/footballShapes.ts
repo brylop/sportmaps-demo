@@ -9,6 +9,8 @@
  * de entorno). Lógica pura: sin Express, sin base.
  */
 
+import { validateFrameNote } from './tacticalMediaShapes';
+
 export const VALID_ARROW_COLORS = ['white', 'yellow', 'red', 'blue', 'green', 'orange', 'purple', 'pink', 'black'] as const;
 export const VALID_SHAPE_TYPES = [
   'arrow', 'curve', 'zone', 'ball_path',
@@ -227,6 +229,9 @@ export function validateFrames(frames: unknown): string[] {
     } else {
       for (const e of validateArrows(f.arrows)) errors.push(`cuadro ${n}: ${e}`);
     }
+    // M6c: nota del cuadro (subtítulo al reproducir), opcional.
+    const note = validateFrameNote(f.note, n);
+    if (note.error) errors.push(note.error);
   });
   if (errors.length > 0) return errors;
   const bytes = Buffer.byteLength(JSON.stringify(sanitizeFrames(frames)), 'utf8');
@@ -245,6 +250,7 @@ export function sanitizeFrames(frames: any[]): Record<string, unknown>[] {
     players: f.players.map((p: any) => ({ key: p.key, x: p.x, y: p.y })),
     ball: f.ball ? { x: f.ball.x, y: f.ball.y } : null,
     arrows: sanitizeArrows(f.arrows),
+    ...(validateFrameNote(f.note, 0).value ? { note: validateFrameNote(f.note, 0).value } : {}),
   }));
 }
 

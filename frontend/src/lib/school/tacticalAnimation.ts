@@ -18,6 +18,7 @@
  */
 import type { TacticalArrow } from './footballQueries';
 import { hydrateShape, isPointShape } from './tacticalGeometry';
+import { sanitizeNoteText, FRAME_NOTE_MAX } from './tacticalMedia';
 import {
   DEFAULT_FRAME_MS, MAX_FRAME_MS, MIN_FRAME_MS, MAX_FRAMES,
   type TacticalFrame, type TacticalFramePlayer, type TacticalPlayerKey,
@@ -348,12 +349,14 @@ export function hydrateFrames(raw: unknown, opts: { ballAsObject?: boolean } = {
       if (!arrows.some((a) => a.type === 'ball')) arrows.push({ type: 'ball', x1: ball.x, y1: ball.y, x2: ball.x, y2: ball.y });
       ball = null;
     }
+    const note = sanitizeNoteText(fr.note, FRAME_NOTE_MAX);
     out.push({
       id: typeof fr.id === 'string' && fr.id ? fr.id : newFrameId(),
       duration_ms: frameDuration({ duration_ms: fr.duration_ms ?? DEFAULT_FRAME_MS }),
       players,
       ball,
       arrows,
+      ...(note ? { note } : {}),
     });
   }
   return out.length > 0 ? out : null;
@@ -372,6 +375,7 @@ export function serializeFrames(frames: TacticalFrame[]): TacticalFrame[] | null
     players: f.players.map((p) => ({ key: p.key, x: round2(p.x), y: round2(p.y) })),
     ball: f.ball ? { x: round2(f.ball.x), y: round2(f.ball.y) } : null,
     arrows: f.arrows,
+    ...(sanitizeNoteText(f.note, FRAME_NOTE_MAX) ? { note: sanitizeNoteText(f.note, FRAME_NOTE_MAX) } : {}),
   }));
 }
 

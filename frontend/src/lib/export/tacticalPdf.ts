@@ -15,6 +15,10 @@ import type { TacticalStaticPlayer } from '@/components/school/TacticalStaticSvg
 import { renderTacticalPng } from './tacticalImage';
 import { frameToStatic } from './tacticalInterpolation';
 import { cleanPdfText as clean } from './tacticalExportUtils';
+import {
+  PROVIDER_LABEL, formatClock, noteToPlainLines, publicVideos, watchUrl,
+  type PlayNotes, type PlayVideo,
+} from '@/lib/school/tacticalMedia';
 
 export interface ExercisePdfInput {
   title: string;
@@ -31,6 +35,35 @@ export interface ExercisePdfInput {
   playerJerseys?: Record<string, number | null>;
   /** Deporte de la cancha (T4). Sin él, fútbol 11. */
   sport?: TacticalSport | null;
+  /** M6c: notas de la jugada y videos (enlaces como texto, nunca incrustados). */
+  notes?: PlayNotes | null;
+  videos?: PlayVideo[] | null;
+}
+
+export interface PdfMediaSections {
+  noteLines: string[];
+  tags: string;
+  frameNotes: string[];
+  videos: { label: string; url: string }[];
+  /** Videos con «enlace privado»: la ficha se comparte, no salen. */
+  privateCount: number;
+}
+
+/** Lo que la ficha muestra de notas y videos (lógica pura, se prueba en unidad). */
+export function pdfMediaSections(input: Pick<ExercisePdfInput, 'notes' | 'videos' | 'frames'>): PdfMediaSections {
+  const noteLines = input.notes?.text ? noteToPlainLines(input.notes.text).map((l) => clean(l)) : [];
+  const tags = (input.notes?.tags ?? []).map((t) => clean(t)).filter(Boolean).join(' · ');
+  const frames = input.frames && input.frames.length > 1 ? input.frames : [];
+  const frameNotes = frames.flatMap((f, i) => (f.note ? [`Cuadro ${i + 1}: ${noteToPlainLines(f.note).map((l) => clean(l)).filter(Boolean).join(' ')}`] : []));
+  const all = input.videos ?? [];
+  const shown = publicVideos(all);
+  const videos = shown.flatMap((v) => {
+    const url = watchUrl(v);
+    if (!url) return [];
+    const when = v.start_s ? ` · desde ${formatClock(v.start_s)}${v.end_s ? ` hasta ${formatClock(v.end_s)}` : ''}` : '';
+    return [{ label: clean(`${v.title} (${PROVIDER_LABEL[v.provider]}${when})`), url }];
+  });
+  return { noteLines, tags, frameNotes, videos, privateCount: all.length - shown.length };
 }
 
 const BRAND_GREEN: [number, number, number] = [26, 97, 24]; // mismo verde que MesocycleExportButton/executivePdf
@@ -178,14 +211,82 @@ export async function exportExercisePdf(input: ExercisePdfInput): Promise<Blob> 
     y += shown.length * LINE + 4;
   }
 
-  // ── Pie ─────────────────────────────────────────────────────────────────
-  doc.setDrawColor(229, 231, 235);
-  doc.line(MARGIN, pageH - 11, pageW - MARGIN, pageH - 11);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.setTextColor(...TEXT_MUTED);
-  doc.text(`SportMaps · Ficha generada el ${format(new Date(), 'dd/MM/yyyy')}`, MARGIN, pageH - 6.5);
-  if (team) doc.text(doc.splitTextToSize(team, 80)[0] ?? '', pageW - MARGIN, pageH - 6.5, { align: 'right' });
+  // ── Notas y videos (M6c) ────────────────────────────────────────────────
+  // Lo que no entra en la hoja sigue en una segunda: una nota no se corta.
+  const media = pdfMediaSections(input);
+  const ensure = (h: number) => {
+    if (y + h <= bottom) return;
+    doc.addPage();
+    y = MARGIN + 4;
+  };
+  const heading = (label: string) => {
+    ensure(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(...BRAND_GREEN);
+    doc.text(label.toUpperCase(), MARGIN, y);
+    y += 4.8;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    doc.setTextColor(...TEXT_DARK);
+  };
+  const paragraph = (lines: string[]) => {
+    for (const raw of lines) {
+      if (!raw) { y += 1.6; continue; }
+      for (const l of doc.splitTextToSize(raw, contentW) as string[]) {
+        ensure(LINE);
+        doc.text(l, MARGIN, y);
+        y += LINE;
+      }
+    }
+    y += 3;
+  };
+  if (media.noteLines.length || media.tags) {
+    heading('Notas');
+    if (media.noteLines.length) paragraph(media.noteLines);
+    if (media.tags) {
+      doc.setTextColor(...TEXT_MUTED);
+      paragraph([`Etiquetas: ${media.tags}`]);
+      doc.setTextColor(...TEXT_DARK);
+    }
+  }
+  if (media.frameNotes.length) {
+    heading('Notas por cuadro');
+    paragraph(media.frameNotes);
+  }
+  if (media.videos.length || media.privateCount) {
+    heading('Videos');
+    for (const v of media.videos) {
+      paragraph([v.label]);
+      y -= 3;
+      doc.setTextColor(37, 99, 235);
+      for (const l of doc.splitTextToSize(v.url, contentW) as string[]) {
+        ensure(LINE);
+        doc.textWithLink(l, MARGIN, y, { url: v.url });
+        y += LINE;
+      }
+      doc.setTextColor(...TEXT_DARK);
+      y += 2;
+    }
+    if (media.privateCount) {
+      doc.setTextColor(...TEXT_MUTED);
+      paragraph([`${media.privateCount} ${media.privateCount === 1 ? 'video privado no se incluye' : 'videos privados no se incluyen'} en la ficha.`]);
+      doc.setTextColor(...TEXT_DARK);
+    }
+  }
+
+  // ── Pie (en cada hoja) ──────────────────────────────────────────────────
+  const pages = doc.getNumberOfPages();
+  for (let pg = 1; pg <= pages; pg++) {
+    doc.setPage(pg);
+    doc.setDrawColor(229, 231, 235);
+    doc.line(MARGIN, pageH - 11, pageW - MARGIN, pageH - 11);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(...TEXT_MUTED);
+    doc.text(`SportMaps · Ficha generada el ${format(new Date(), 'dd/MM/yyyy')}${pages > 1 ? ` · ${pg}/${pages}` : ''}`, MARGIN, pageH - 6.5);
+    if (team) doc.text(doc.splitTextToSize(team, 80)[0] ?? '', pageW - MARGIN, pageH - 6.5, { align: 'right' });
+  }
 
   return doc.output('blob');
 }
