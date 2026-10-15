@@ -75,9 +75,6 @@ export interface TacticalExportInput {
   /** Ajustes de la pizarra del coach (M6g): curva de velocidad y rastros
    *  para el GIF/video y el visor 3D. */
   playback?: TacticalPlaybackOptions;
-  /** «Powered by SportMaps» (false solo con marca blanca; hooks/useSportmapsWatermark).
-   *  Hoy lo usa el video del 3D. */
-  showSportmapsWatermark?: boolean;
 }
 
 export interface ExportPngInput {

@@ -9,6 +9,7 @@ import type { Viewer3DSource } from '@/lib/school/tactical3dLaunch';
 import { viewerFrames } from '@/lib/school/tactical3d';
 import { resolveViewerSource } from '@/lib/school/tactical3dSuggestion';
 import Tactical3DViewer from './Tactical3DViewer';
+import { useSportmapsWatermark } from '@/hooks/useSportmapsWatermark';
 
 export default function Tactical3DModal({ source: raw, onClose, onFallback, minFps }: {
   /** Foto de la jugada tomada al tocar el botón. */
@@ -19,6 +20,10 @@ export default function Tactical3DModal({ source: raw, onClose, onFallback, minF
 }) {
   const source = useMemo(() => resolveViewerSource(raw), [raw]);
   const input = useMemo(() => viewerFrames(source), [source]);
+  // «Powered by SportMaps» en el video del 3D: siempre, salvo marca blanca (la
+  // misma regla de recibos y carnets). Se resuelve acá, en el chunk del 3D,
+  // para que la pizarra no dependa de React Query.
+  const watermark = useSportmapsWatermark();
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
       {/* Sin la animación de entrada (zoom 95 %): el canvas de three mide su
@@ -46,7 +51,7 @@ export default function Tactical3DModal({ source: raw, onClose, onFallback, minF
           minFps={minFps}
           teams={source.teams ?? null}
           curve={source.playback?.curve}
-          watermark={source.showSportmapsWatermark !== false}
+          watermark={watermark}
         />
       </DialogContent>
     </Dialog>
