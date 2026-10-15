@@ -1,0 +1,12 @@
+import { chromium, newSession, BASE_URL, ACC, sleep } from './lib.mjs';
+const browser = await chromium.launch();
+const { page } = await newSession(browser, ACC.parent, { dpr: 1, viewport: { width: 1600, height: 1400 } });
+page.on('response', async r => { if (r.url().includes('/rest/v1/children')) console.log('[children]', r.status(), r.url().slice(40, 260), (await r.text().catch(()=>'')).slice(0, 200)); });
+await page.goto(BASE_URL + '/schools/57ba9352-2c11-4b5b-aa5b-e5ec6f526cbe'); await sleep(8000);
+const card = page.locator('div', { hasText: 'Plan Gimnasia Recreativa' }).filter({ has: page.getByRole('button', { name: 'Inscribirme' }) }).last();
+await card.screenshot({ path: 'discover/s2-card.png' });
+console.log(await card.locator('select, [role=combobox]').count(), 'selects');
+await card.getByRole('button', { name: 'Inscribirme' }).click(); await sleep(8000);
+await page.screenshot({ path: 'discover/s3.png' });
+console.log(await page.locator('[role=dialog]').last().innerText().catch(() => 'no dialog'));
+await browser.close();

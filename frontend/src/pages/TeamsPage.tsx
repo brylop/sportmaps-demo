@@ -782,7 +782,7 @@ export default function TeamsPage() {
                     <TableCell className="hidden lg:table-cell">
                       <div className="flex items-center gap-1.5 text-xs">
                         <MapPin className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                        {team.school_branches?.name || 'Sede Principal'}
+                        {team.school_branches?.name || 'Sin sede'}
                       </div>
                     </TableCell>
                     <TableCell>

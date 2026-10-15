@@ -121,3 +121,20 @@ Regla de Dreamers (`school_settings.late_fee_skip_signup_month = true`): la **pr
 - **«Primer cobro»:** primera mensualidad del atleta en la escuela, sin otra mensualidad no anulada de un período anterior. No exenta: cambio de plan a mitad de mes de quien ya pagaba, ni reingreso tras un descanso (ya tiene cobros previos).
 - **Otras escuelas:** el flag nace en `false`; sin cambio. No hay UI para el flag todavía (se cambia por SQL).
 
+## Plan de cierre y estado (2026-10-14)
+
+| # | Tarea | Estado |
+|---|---|---|
+| 1 | Corte 5, gracia 0, recargo 5 % el día 6, vigencia a fin de mes | ✅ en vivo |
+| 2 | Primer cobro sin recargo (migración `20261011101750`) + Zoe y Avril corregidas a mano | ✅ en vivo y probado con rollback |
+| 3 | Descuento del primer mes viaja con el cobro (`discount_pct`/`list_amount`); Zoe reversada con descuento | ✅ en vivo; **falta desplegar BFF + frontend** (editor, modal de pago) |
+| 4 | Pago de varios cobros a la vez (`register_manual_payments`) | ✅ RPC en vivo; **falta desplegar el modal** |
+| 5 | Cambio de plan con traslado de horas | ✅ construido; falta desplegar y probar C2–C7 (necesita un deportista de prueba con pago) |
+| 6 | Mostrar el descuento en la ficha y en «Registrar pago» (hoy muestran el precio de lista) | ⏳ decidir: ¿el descuento es solo del primer mes o se repite? |
+| 7 | Bloqueo físico por mora: el MB360 ignora el bit de privilegio; `access_auto_block_overdue_enabled` sigue **apagado** | ⏳ falta modelo/firmware y tipo de credencial de Athenea |
+| 8 | Excluir a Dreamers de la cancelación a 7 días (`auto_cancel_overdue_enabled`) | 🕓 diferido |
+| 9 | Eliminar el plan PGP12x3 (una invitación aceptada lo referencia) | 🕓 diferido |
+| 10 | Edna a `staff` cuando termine la validación con Athenea | 🕓 diferido |
+| 11 | ¿Puede `staff` registrar pagos? Hoy solo owner/admin/school_admin | ⏳ decisión de producto |
+| 12 | Interruptor `late_fee_skip_signup_month` sin pantalla (SQL) | 🕓 opcional |
+

@@ -38,6 +38,7 @@ const Index = lazy(() => import("./pages/Index"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const RegisterPage = lazy(() => import("./pages/RegisterPage"));
 const OnboardingRolePage = lazy(() => import("./pages/OnboardingRolePage"));
+const ElegirRolPage = lazy(() => import("./pages/ElegirRolPage"));
 const JoinTeamPage = lazy(() => import("./pages/JoinTeamPage"));
 const JoinPlanPage = lazy(() => import("./pages/JoinPlanPage"));
 const TermsPage = lazy(() => import("./pages/TermsPage"));
@@ -340,6 +341,10 @@ const App = () => (
                     <Route path="/register" element={<RegisterPage />} />
                     <Route path="/onboarding/role" element={
                       <ProtectedRoute skipOnboardingCheck><OnboardingRolePage /></ProtectedRoute>
+                    } />
+                    {/* Personas multirol: elegir con qué rol entrar (no usa AuthLayout). */}
+                    <Route path="/elegir-rol" element={
+                      <ProtectedRoute><ElegirRolPage /></ProtectedRoute>
                     } />
                     <Route path="/join-team/:teamId" element={<JoinTeamPage />} />
                     <Route path="/join-plan/:planId" element={<JoinPlanPage />} />

@@ -25,7 +25,7 @@ export const SCHOOL_ADMIN_CONTEXT_ROLES = ['owner', 'admin', 'school_admin'] as 
 const SCHOOL_ADMIN_ROUTE_ROLES = ['school', 'school_admin'] as const;
 
 export function ProtectedRoute({ children, allowedRoles, skipOnboardingCheck = false, strictRoleCheck = false }: ProtectedRouteProps) {
-  const { user, profile, loading: authLoading } = useAuth();
+  const { user, profile, loading: authLoading, needsRoleChoice } = useAuth();
   const { onboardingStatus, loading: schoolLoading, currentUserRole, schoolId } = useSchoolContext();
   const location = useLocation();
 
@@ -53,6 +53,20 @@ export function ProtectedRoute({ children, allowedRoles, skipOnboardingCheck = f
     location.pathname !== '/onboarding/role'
   ) {
     return <Navigate to="/onboarding/role" replace />;
+  }
+
+  // Persona multirol sin rol elegido: primero elige con qué rol entrar, para que
+  // la app cargue de una vez con el módulo correcto. Vuelve a donde iba.
+  // Nunca desde /onboarding/role (skipOnboardingCheck) ni con needs_role_selection
+  // pendiente: /elegir-rol mandaría a /onboarding/role y este de vuelta acá (bucle).
+  if (
+    needsRoleChoice &&
+    !skipOnboardingCheck &&
+    !profile?.needs_role_selection &&
+    location.pathname !== '/elegir-rol'
+  ) {
+    const destino = location.pathname + location.search;
+    return <Navigate to={`/elegir-rol?redirectTo=${encodeURIComponent(destino)}`} replace />;
   }
 
   // Allow access even without profile - it will be created automatically

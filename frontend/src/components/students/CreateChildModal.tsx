@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useEntitlements } from '@/hooks/useEntitlements';
+import { ZkPinField, zkPinToPayload } from './ZkPinField';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
 import {
@@ -131,6 +132,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveF
   const [gender, setGender]       = useState('');
   const [grade, setGrade]         = useState('');
   const [dorsal, setDorsal]       = useState('');
+  const [zkPin, setZkPin]         = useState('');
   const [medicalHasAllergies, setMedicalHasAllergies] = useState<'false' | 'true'>('false');
   const [medicalNotes, setMedicalNotes] = useState('');
 
@@ -162,7 +164,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveF
   // `hasBilling` y no el tipo de escuela: la pregunta es si esta escuela
   // factura por SportMaps, no si ademas alquila espacios. Falla ABIERTO
   // (true mientras carga), asi que el caso normal no cambia.
-  const { hasBilling, parentEmailOptional } = useEntitlements();
+  const { hasBilling, parentEmailOptional, registrationZkPinEnabled } = useEntitlements();
 
   const [monthlyFee, setMonthlyFee] = useState('');
   const [discountPct, setDiscountPct] = useState(0);
@@ -240,7 +242,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveF
   // ── Reset ──────────────────────────────────────────────────────────────────
   const reset = () => {
     setDocType('TI'); setDocNumber(''); setFullName(''); setDob('');
-    setGender(''); setGrade(''); setDorsal('');
+    setGender(''); setGrade(''); setDorsal(''); setZkPin('');
     setMedicalHasAllergies('false'); setMedicalNotes('');
     setParentName(''); setParentEmail(''); setParentPhone('+57');
     setBranchId('none'); setTeamId('none');
@@ -418,7 +420,11 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveF
         date_of_birth: dob || null,
         gender:       gender || null,
         grade:        grade  || null,
-        dorsal:       dorsal.trim() || null,
+        // Escuelas con torniquete en el registro (Dreamers): el ID del lector
+        // reemplaza al dorsal y se asocia en el alta.
+        ...(registrationZkPinEnabled
+          ? { zk_pin: zkPinToPayload(zkPin) }
+          : { dorsal: dorsal.trim() || null }),
         medical_info: medicalInfo,
         parent_name:  parentName.trim(),
         parent_email: parentEmail.trim() ? parentEmail.trim().toLowerCase() : null,
@@ -426,7 +432,13 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveF
         send_invite:  sendInviteEmail,
       }, { 'x-school-id': schoolId }) as any;
 
-      toast({ title: '✅ Registro exitoso', description: `${fullName} fue procesado correctamente.` });
+      toast({
+        title: '✅ Registro exitoso',
+        description: `${fullName} fue procesado correctamente.${result?.zk_pin ? ` ID del torniquete ${result.zk_pin} asociado.` : ''}`,
+      });
+      if (result?.zk_pin_warning) {
+        toast({ title: 'ID del torniquete sin asociar', description: result.zk_pin_warning, variant: 'destructive' });
+      }
 
       if (sendInviteWhatsapp && result?.registration_link && parentPhone) {
         const phoneClean = parentPhone.replace(/\D/g, '');
@@ -571,10 +583,16 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveF
                 <Label>Grado Escolar</Label>
                 <Input placeholder="Ej: 6A, 7B, Primaria" value={grade} onChange={e => setGrade(e.target.value)} />
               </div>
-              <div>
-                <Label>Dorsal</Label>
-                <Input placeholder="Ej: 10" maxLength={10} value={dorsal} onChange={e => setDorsal(e.target.value)} />
-              </div>
+              {registrationZkPinEnabled ? (
+                <div className="col-span-2">
+                  <ZkPinField id="childZkPin" value={zkPin} onChange={setZkPin} />
+                </div>
+              ) : (
+                <div>
+                  <Label>Dorsal</Label>
+                  <Input placeholder="Ej: 10" maxLength={10} value={dorsal} onChange={e => setDorsal(e.target.value)} />
+                </div>
+              )}
             </div>
 
             <button type="button" onClick={() => setShowMedical(v => !v)} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
