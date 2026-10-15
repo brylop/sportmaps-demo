@@ -20,7 +20,9 @@ import {
   BOARD_H, BOARD_W, isTacticalSport, sportDef, DEFAULT_SPORT,
   type CourtFrame, type TacticalSport,
 } from './tacticalSports';
-import { GOAL_WIDTH_M } from '@/components/school/courts/courtGeometry';
+import {
+  GOAL_LINE_FROM_END_M, GOAL_WIDTH_EXTRA_M, GOAL_WIDTH_M, H_POSTS_M, NET_M, NETBALL_POST_M, VOLLEY_POST_OUTSIDE_M,
+} from '@/components/school/courts/courtGeometry';
 import { isGoalkeeperLabel } from './tacticalPalette';
 import { DEFAULT_FRAME_MS, type TacticalFrame } from './tacticalFrames';
 import type { Viewer3DSource } from './tactical3dLaunch';
@@ -93,6 +95,11 @@ export function figureScale(court: Court3D): number {
 /** Alto del travesaño por deporte (el ancho es el del 2D: GOAL_WIDTH_M). */
 export const GOAL_HEIGHT_M = { futbol: 2.44, futbol7: 2, futbol5: 2, futsal: 2, balonmano: 2 } as const;
 
+/** M6f: alto de los arcos de hockey césped (2,14 m, FIH), hockey sobre
+ *  patines (1,05 m, World Skate art. 3) y waterpolo (0,90 m sobre el agua,
+ *  World Aquatics WP 2; el piso del 3D es la superficie del agua). */
+export const GOAL_HEIGHT_EXTRA_M = { hockey_cesped: 2.14, hockey_patines: 1.05, waterpolo: 0.9 } as const;
+
 /** Alturas de la canasta FIBA (la planta es la del 2D: BASKET_M). */
 export const BASKET_HEIGHTS_M = { boardHeight: 1.05, boardBottom: 2.9, rimHeight: 3.05 } as const;
 
@@ -100,26 +107,61 @@ export const BASKET_HEIGHTS_M = { boardHeight: 1.05, boardBottom: 2.9, rimHeight
  *  y antenas que sobresalen 0,8 m. */
 export const VOLLEY_NET_M = { height: 2.43, meshHeight: 1, antennaAbove: 0.8 } as const;
 
+/** Red al medio de la cancha: borde superior a `height`, malla de
+ *  `meshHeight` (hasta el piso en tenis y pádel), postes a `postOutside` de
+ *  la banda y antenas (vóley). */
+export interface NetSpec { height: number; meshHeight: number; postOutside: number; antennas: boolean }
+
 export type Fixture3D =
-  | { kind: 'goals'; width: number; height: number }
-  | { kind: 'net' }
+  /** `lineFromEnd`: la línea de gol está corrida del fondo (hockey sobre patines). */
+  | { kind: 'goals'; width: number; height: number; lineFromEnd?: number }
+  | { kind: 'net'; net: NetSpec }
   | { kind: 'hoops' }
+  /** Palos en H (rugby, fútbol americano). */
+  | { kind: 'hposts'; width: number; crossbar: number; height: number; lineFromEnd: number }
+  /** Postes de netball con aro, sobre la línea de fondo. */
+  | { kind: 'rings'; height: number; ringRadius: number; ringFromGoalLine: number }
   | { kind: 'none' };
+
+export const VOLLEY_NET: NetSpec = { height: VOLLEY_NET_M.height, meshHeight: VOLLEY_NET_M.meshHeight, postOutside: VOLLEY_POST_OUTSIDE_M, antennas: true };
 
 export function fixtureFor(sport: TacticalSport): Fixture3D {
   switch (sport) {
     case 'futbol': case 'futbol7': case 'futbol5': case 'futsal': case 'balonmano':
       return { kind: 'goals', width: GOAL_WIDTH_M[sport], height: GOAL_HEIGHT_M[sport] };
+    case 'hockey_cesped': case 'hockey_patines': case 'waterpolo': {
+      const lineFromEnd = GOAL_LINE_FROM_END_M[sport];
+      return {
+        kind: 'goals', width: GOAL_WIDTH_EXTRA_M[sport], height: GOAL_HEIGHT_EXTRA_M[sport],
+        ...(lineFromEnd ? { lineFromEnd } : {}),
+      };
+    }
     case 'voleibol':
-      return { kind: 'net' };
+      return { kind: 'net', net: VOLLEY_NET };
+    case 'tenis': case 'padel': case 'badminton': case 'voley_playa': {
+      const n = NET_M[sport];
+      // Tenis y pádel: la red baja hasta el piso; bádminton 0,76 m de malla;
+      // vóley playa 1 m como el de sala.
+      const meshHeight = sport === 'badminton' ? 0.76 : sport === 'voley_playa' ? 1 : n.height;
+      return { kind: 'net', net: { height: n.height, meshHeight, postOutside: n.postOutside, antennas: n.antennas } };
+    }
     case 'baloncesto':
       return { kind: 'hoops' };
+    case 'rugby': case 'futbol_americano':
+      return { kind: 'hposts', ...H_POSTS_M[sport] };
+    case 'netball':
+      return { kind: 'rings', ...NETBALL_POST_M };
     default:
+      // Ultimate y genérico: piso plano (los conos de las esquinas van en la textura).
       return { kind: 'none' };
   }
 }
 
-export type BallStyle = 'football' | 'volleyball' | 'basketball' | 'handball';
+/** Estilos del balón. M6f: el ovalado (rugby, americano), pelotas chicas
+ *  (tenis, pádel, hockey), volante de bádminton y disco de ultimate se
+ *  dibujan como esfera con su color y tamaño real (no hay modelos propios). */
+export type BallStyle = 'football' | 'volleyball' | 'basketball' | 'handball'
+  | 'oval' | 'tennis' | 'shuttlecock' | 'hockey' | 'waterpolo' | 'disc';
 export interface BallSpec {
   style: BallStyle;
   /** Radio real, metros. */
@@ -135,6 +177,17 @@ export function ballFor(sport: TacticalSport): BallSpec {
     case 'baloncesto': return { style: 'basketball', radius: 0.12, height: 1 };
     case 'balonmano': return { style: 'handball', radius: 0.095, height: 1.1 };
     case 'futsal': return { style: 'football', radius: 0.1, height: 0.1 };
+    case 'rugby': return { style: 'oval', radius: 0.1, height: 1 };
+    case 'futbol_americano': return { style: 'oval', radius: 0.09, height: 1 };
+    case 'tenis': return { style: 'tennis', radius: 0.034, height: 1 };
+    case 'padel': return { style: 'tennis', radius: 0.033, height: 1 };
+    case 'badminton': return { style: 'shuttlecock', radius: 0.035, height: 2 };
+    case 'voley_playa': return { style: 'volleyball', radius: 0.105, height: 2.3 };
+    case 'hockey_cesped': return { style: 'hockey', radius: 0.037, height: 0.037 };
+    case 'hockey_patines': return { style: 'hockey', radius: 0.036, height: 0.036 };
+    case 'netball': return { style: 'volleyball', radius: 0.11, height: 1.2 };
+    case 'waterpolo': return { style: 'waterpolo', radius: 0.11, height: 0.25 };
+    case 'ultimate': return { style: 'disc', radius: 0.0875, height: 1 };
     default: return { style: 'football', radius: 0.11, height: 0.11 };
   }
 }
@@ -149,7 +202,8 @@ export function cameraLabel(mode: CameraMode, sport: TacticalSport): string {
   if (mode === 'jugador') return 'Vista del jugador';
   const fx = fixtureFor(sport).kind;
   if (fx === 'goals') return 'Detrás del arco';
-  if (fx === 'hoops') return 'Detrás del aro';
+  if (fx === 'hoops' || fx === 'rings') return 'Detrás del aro';
+  if (fx === 'hposts') return 'Detrás de los palos';
   return 'Detrás de la cancha';
 }
 
@@ -171,9 +225,10 @@ export function fixedCameraPose(court: Court3D, mode: Exclude<CameraMode, 'jugad
     const tall = isCompactAspect(aspect);
     return { position: { x: -d * (tall ? 0.5 : 0.82), y: d * (tall ? 0.95 : 0.52), z: 0 }, target: { x: 0, y: 0, z: 0 } };
   }
-  if (fixtureFor(court.sport).kind === 'hoops') {
+  const fxKind = fixtureFor(court.sport).kind;
+  if (fxKind === 'hoops' || fxKind === 'rings') {
     // Detrás del aro: arriba del tablero propio (el poste queda a la espalda,
-    // no tapa), mirando hacia la otra canasta.
+    // no tapa), mirando hacia la otra canasta. Igual el poste de netball.
     return {
       position: { x: 0, y: 6.5, z: court.lengthM / 2 - 0.3 },
       target: { x: 0, y: 0, z: -court.lengthM * 0.15 },

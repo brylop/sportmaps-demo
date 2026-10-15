@@ -130,9 +130,14 @@ describe('sportFromTeam: fútbol idéntico a antes de M1', () => {
   });
 });
 
-/** Única diferencia sobre los textos reales, a propósito: «Minifutbol» (1
- *  escuela en schools.sports, ningún equipo) es fútbol de cancha chica →
- *  Fútbol 5. Ningún teams.sport real cambia de cancha. */
-const EXPECTED_REAL_DIFFS: { text: string; before: string; after: string }[] = [
-  { text: 'Minifutbol', before: 'futbol', after: 'futbol5' },
-];
+/** Diferencias sobre los textos reales, a propósito:
+ *  · «Minifutbol» (1 escuela en schools.sports, ningún equipo) es fútbol de
+ *    cancha chica → Fútbol 5.
+ *  · M6f: los de nivel «cancha» (Tenis, Pádel, Waterpolo, Rugby, Bádminton,
+ *    Hockey sobre césped, Disco volador…) dejan el lienzo genérico y abren SU
+ *    cancha. Ningún equipo de fútbol ni de pizarra completa cambia. */
+const EXPECTED_REAL_DIFFS: { text: string; before: string; after: string }[] = REAL_SPORT_TEXTS
+  .filter((r) => r.text === 'Minifutbol' || r.boardLevel === 'cancha')
+  .map((r) => (r.text === 'Minifutbol'
+    ? { text: r.text, before: 'futbol', after: 'futbol5' }
+    : { text: r.text, before: 'generico', after: r.tacticalSport as string }));

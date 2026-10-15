@@ -8,6 +8,9 @@
  *
  *   · hasTacticalBoard (fútbol 11/7/5, futsal, voleibol, baloncesto,
  *     balonmano): bloques con «Tablero táctico» y «Desde la biblioteca».
+ *     M6f: también los de nivel «cancha» (rugby, tenis, waterpolo…), pero
+ *     SOLO con «Tablero táctico»: no tienen biblioteca (teamSport fuera de
+ *     LIBRARY_BOARD_SPORTS). Sin teamSport (llamador viejo) no cambia nada.
  *   · isFootball (fútbol 11/7/5): además principios de juego, evaluación de la
  *     sesión y la plantilla de bloques del Excel de Club Carmel.
  *   · el resto: ejercicios sueltos (drills) y calentamiento, como siempre.
@@ -17,6 +20,7 @@
  * esa sesión a bloques escondería lo que el coach escribió.
  */
 import { sportDef, type TacticalSport } from './tacticalSports';
+import { isLibraryBoardSport } from '@/lib/sports/sportCatalog';
 
 export type BlockTemplateKind = 'futbol' | 'generico';
 
@@ -30,8 +34,10 @@ export interface SessionFormLayoutInput {
 
 export interface SessionFormLayout {
   editor: 'blocks' | 'drills';
-  /** Botones «Tablero táctico» y «Desde la biblioteca» en cada bloque. */
+  /** Botón «Tablero táctico» en cada bloque. */
   showBoardButtons: boolean;
+  /** «Desde la biblioteca» en cada bloque (deportes con biblioteca). */
+  showLibraryButton: boolean;
   showGamePrinciples: boolean;
   showWarmup: boolean;
   showEvaluation: boolean;
@@ -49,9 +55,11 @@ export function sessionFormLayout(input: SessionFormLayoutInput): SessionFormLay
   const s = input.session;
   const legacyDrills = !!s && hasNamedItems(s.drills) && !(Array.isArray(s.session_blocks) && s.session_blocks.length > 0);
   const editor: SessionFormLayout['editor'] = isFootball || (hasBoard && !legacyDrills) ? 'blocks' : 'drills';
+  const showBoardButtons = editor === 'blocks' && (hasBoard || isFootball);
   return {
     editor,
-    showBoardButtons: editor === 'blocks' && (hasBoard || isFootball),
+    showBoardButtons,
+    showLibraryButton: showBoardButtons && (!input.teamSport || isLibraryBoardSport(input.teamSport)),
     showGamePrinciples: isFootball,
     // Fútbol tiene su bloque «Calentamiento»; los demás conservan el campo.
     showWarmup: !isFootball,

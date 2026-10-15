@@ -7,10 +7,16 @@ import { bffClient } from '@/lib/api/bffClient';
 import type { TacticalArrow } from './footballQueries';
 import { presetSlotKey, presetSlotIndex, type TacticalFrame } from './tacticalFrames';
 import type { TacticalStaticPlayer } from '@/components/school/TacticalStaticSvg';
+import { isLibraryBoardSport } from '@/lib/sports/sportCatalog';
 
 export type ExerciseSport =
   | 'futbol' | 'futbol7' | 'futbol5' | 'futsal'
   | 'voleibol' | 'baloncesto' | 'balonmano' | 'generico';
+
+/** ¿La cancha tiene biblioteca? Solo las de nivel «completa» + genérico
+ *  (= EXERCISE_SPORTS del BFF). Rugby, tenis, waterpolo… (nivel «cancha»,
+ *  M6f) abren la pizarra pero no guardan ni buscan ejercicios. */
+export const isExerciseSport = (s: unknown): s is ExerciseSport => isLibraryBoardSport(s);
 
 export const EXERCISE_SPORT_LABEL: Record<ExerciseSport, string> = {
   futbol: 'Fútbol 11',

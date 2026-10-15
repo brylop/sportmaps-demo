@@ -28,6 +28,18 @@ export const TACTICAL_SPORTS = [
   'voleibol',
   'baloncesto',
   'balonmano',
+  // M6f: deportes de nivel «cancha» (pizarra sin biblioteca).
+  'rugby',
+  'futbol_americano',
+  'tenis',
+  'padel',
+  'badminton',
+  'voley_playa',
+  'hockey_cesped',
+  'hockey_patines',
+  'netball',
+  'waterpolo',
+  'ultimate',
   'generico',
 ] as const;
 export type TacticalSport = (typeof TACTICAL_SPORTS)[number];
@@ -154,6 +166,24 @@ const objectsExcept = (...out: ObjectType[]): ObjectType[] => OBJECT_TYPES.filte
 
 // Medidas reales (ancho × largo, metros). Fútbol 7 y 5 varían por liga; se
 // toma la medida típica de escuela (F7 40×60; F5 sintética 25×40).
+//
+// M6f — medidas OFICIALES (líneas exteriores; fuente al lado):
+//   rugby            70 × 120: 100 m entre líneas de ensayo + 2 in-goal de 10 m
+//                    (World Rugby, Law 1: máx. 100 × 70, in-goal 6-22 m). XV y 7s.
+//   futbol_americano 48,77 × 109,73: 53⅓ × 120 yardas con las zonas de anotación
+//                    de 10 yd (NFL Rule 1, Sec. 1; NCAA Rule 1-2 igual).
+//   tenis            10,97 × 23,77: cancha de dobles (ITF Rules of Tennis, Rule 1).
+//   padel            10 × 20: medidas interiores (FIP, Reglamento de juego, 1).
+//   badminton        6,10 × 13,40: cancha de dobles (BWF Laws of Badminton, 1).
+//   voley_playa      8 × 16 (FIVB Official Beach Volleyball Rules, Regla 1.1).
+//   hockey_cesped    55 × 91,40 (FIH Rules of Hockey, «Field of play» 1.1).
+//   hockey_patines   20 × 40: pista estándar internacional, esquinas de 3 m
+//                    (World Skate, Rink Hockey Rules of the Game 2026, art. 1.8).
+//   netball          15,25 × 30,50 (World Netball Rules of Netball, 1.1).
+//   waterpolo        20 × 25 entre líneas de gol (World Aquatics, certificación
+//                    de piscinas de waterpolo 2026; reglas WP 1.1: 20-30 × 10-20).
+//   ultimate         37 × 100: zona central de 64 m + zonas de anotación de 18 m
+//                    (WFDF Rules of Ultimate 2025-2028, Apéndice A).
 export const COURT_METERS: Record<Exclude<TacticalSport, 'futbol'>, { w: number; l: number }> = {
   futbol7: { w: 40, l: 60 },
   futbol5: { w: 25, l: 40 },
@@ -161,8 +191,22 @@ export const COURT_METERS: Record<Exclude<TacticalSport, 'futbol'>, { w: number;
   voleibol: { w: 9, l: 18 },
   baloncesto: { w: 15, l: 28 },
   balonmano: { w: 20, l: 40 },
+  rugby: { w: 70, l: 120 },
+  futbol_americano: { w: 48.768, l: 109.728 },
+  tenis: { w: 10.97, l: 23.77 },
+  padel: { w: 10, l: 20 },
+  badminton: { w: 6.1, l: 13.4 },
+  voley_playa: { w: 8, l: 16 },
+  hockey_cesped: { w: 55, l: 91.4 },
+  hockey_patines: { w: 20, l: 40 },
+  netball: { w: 15.25, l: 30.5 },
+  waterpolo: { w: 20, l: 25 },
+  ultimate: { w: 37, l: 100 },
   generico: { w: 40, l: 50 },
 };
+
+const frameOf = (s: Exclude<TacticalSport, 'futbol'>, availW?: number, availH?: number) =>
+  courtFrameFor(COURT_METERS[s].w, COURT_METERS[s].l, availW, availH);
 
 const FRAMES: Record<Exclude<TacticalSport, 'futbol'>, CourtFrame> = {
   futbol7: courtFrameFor(COURT_METERS.futbol7.w, COURT_METERS.futbol7.l),
@@ -172,6 +216,18 @@ const FRAMES: Record<Exclude<TacticalSport, 'futbol'>, CourtFrame> = {
   voleibol: courtFrameFor(COURT_METERS.voleibol.w, COURT_METERS.voleibol.l, 288, 290),
   baloncesto: courtFrameFor(COURT_METERS.baloncesto.w, COURT_METERS.baloncesto.l),
   balonmano: courtFrameFor(COURT_METERS.balonmano.w, COURT_METERS.balonmano.l),
+  rugby: frameOf('rugby'),
+  futbol_americano: frameOf('futbol_americano'),
+  // Raqueta y red: aire en los fondos (se saca y se juega detrás de la línea).
+  tenis: frameOf('tenis', 288, 250),
+  padel: frameOf('padel', 270, 300),
+  badminton: frameOf('badminton', 288, 280),
+  voley_playa: frameOf('voley_playa', 288, 270),
+  hockey_cesped: frameOf('hockey_cesped'),
+  hockey_patines: frameOf('hockey_patines', 280, 318),
+  netball: frameOf('netball', 288, 300),
+  waterpolo: frameOf('waterpolo', 270, 300),
+  ultimate: frameOf('ultimate'),
   generico: courtFrameFor(COURT_METERS.generico.w, COURT_METERS.generico.l),
 };
 
@@ -185,8 +241,22 @@ const R = {
   voleibol: frameToPct(FRAMES.voleibol),
   baloncesto: frameToPct(FRAMES.baloncesto),
   balonmano: frameToPct(FRAMES.balonmano),
+  rugby: frameToPct(FRAMES.rugby),
+  futbol_americano: frameToPct(FRAMES.futbol_americano),
+  tenis: frameToPct(FRAMES.tenis),
+  padel: frameToPct(FRAMES.padel),
+  badminton: frameToPct(FRAMES.badminton),
+  voley_playa: frameToPct(FRAMES.voley_playa),
+  hockey_cesped: frameToPct(FRAMES.hockey_cesped),
+  hockey_patines: frameToPct(FRAMES.hockey_patines),
+  netball: frameToPct(FRAMES.netball),
+  waterpolo: frameToPct(FRAMES.waterpolo),
+  ultimate: frameToPct(FRAMES.ultimate),
   generico: frameToPct(FRAMES.generico),
 };
+
+/** Material de las canchas de red (sin arcos ni maniquíes). */
+const NET_OBJECTS: ObjectType[] = ['cone', 'marker', 'ball', 'hurdle', 'ring', 'ladder', 'pole', 'opponent'];
 
 const GRASS: CourtColors = { court: '#1f8a3f', surround: '#0e5c28', line: '#ffffff' };
 
@@ -380,6 +450,293 @@ export const SPORTS: Record<TacticalSport, TacticalSportDef> = {
     objects: objectsExcept('mini_goal'),
     colors: { court: '#24589a', surround: '#b45309', line: '#ffffff', accent: '#3b82c4' },
   },
+  // ── M6f: nivel «cancha» (jugadores libres + 1-2 posiciones de arranque) ──
+  rugby: {
+    key: 'rugby',
+    label: 'Rugby',
+    viewBox: VIEWBOX,
+    frame: FRAMES.rugby,
+    court: R.rugby,
+    // Rugby 7 (lo que juegan las escuelas); el XV se arma agregando jugadores.
+    playersPerSide: 7,
+    hasGoalkeeper: false,
+    formations: [
+      onCourt(R.rugby, 'rg7-recepcion', 'Rugby 7: recepción del saque', [
+        { x: 25, y: 60, label: 'Pilar izq.' },
+        { x: 50, y: 60, label: 'Talonador' },
+        { x: 75, y: 60, label: 'Pilar der.' },
+        { x: 40, y: 71, label: 'Medio scrum' },
+        { x: 62, y: 73, label: 'Apertura' },
+        { x: 28, y: 82, label: 'Centro' },
+        { x: 80, y: 82, label: 'Ala' },
+      ]),
+      onCourt(R.rugby, 'rg7-defensa', 'Rugby 7: defensa en línea', [
+        { x: 8, y: 58, label: 'Ala' },
+        { x: 23, y: 58, label: 'Centro' },
+        { x: 37, y: 58, label: 'Apertura' },
+        { x: 50, y: 58, label: 'Pilar izq.' },
+        { x: 63, y: 58, label: 'Talonador' },
+        { x: 77, y: 58, label: 'Pilar der.' },
+        { x: 50, y: 74, label: 'Medio scrum (barredor)' },
+      ]),
+    ],
+    objects: objectsExcept('goal', 'mini_goal'),
+    colors: GRASS,
+  },
+  futbol_americano: {
+    key: 'futbol_americano',
+    label: 'Fútbol americano',
+    viewBox: VIEWBOX,
+    frame: FRAMES.futbol_americano,
+    court: R.futbol_americano,
+    playersPerSide: 11,
+    hasGoalkeeper: false,
+    formations: [
+      // Ofensiva en I sobre la yarda 50, atacando hacia arriba.
+      onCourt(R.futbol_americano, 'fa-formacion-i', 'Ofensiva en I', [
+        { x: 36, y: 51, label: 'Tackle izq.' },
+        { x: 43, y: 51, label: 'Guardia izq.' },
+        { x: 50, y: 51, label: 'Centro' },
+        { x: 57, y: 51, label: 'Guardia der.' },
+        { x: 64, y: 51, label: 'Tackle der.' },
+        { x: 71, y: 52, label: 'Ala cerrada' },
+        { x: 6, y: 51, label: 'Receptor abierto' },
+        { x: 90, y: 53, label: 'Receptor (flanker)' },
+        { x: 50, y: 55, label: 'Mariscal de campo' },
+        { x: 50, y: 60, label: 'Fullback' },
+        { x: 50, y: 65, label: 'Corredor' },
+      ]),
+      onCourt(R.futbol_americano, 'fa-defensa-4-3', 'Defensa 4-3', [
+        { x: 36, y: 52, label: 'Ala defensiva' },
+        { x: 45, y: 52, label: 'Tackle defensivo' },
+        { x: 55, y: 52, label: 'Tackle defensivo' },
+        { x: 64, y: 52, label: 'Ala defensiva' },
+        { x: 32, y: 58, label: 'Apoyador' },
+        { x: 50, y: 59, label: 'Apoyador central' },
+        { x: 68, y: 58, label: 'Apoyador' },
+        { x: 8, y: 56, label: 'Esquinero' },
+        { x: 92, y: 56, label: 'Esquinero' },
+        { x: 35, y: 70, label: 'Profundo' },
+        { x: 65, y: 70, label: 'Profundo' },
+      ]),
+    ],
+    objects: objectsExcept('goal', 'mini_goal'),
+    colors: { court: '#2f7d32', surround: '#1b4d1f', line: '#ffffff', accent: '#1e3a8a' },
+  },
+  tenis: {
+    key: 'tenis',
+    label: 'Tenis',
+    viewBox: VIEWBOX,
+    frame: FRAMES.tenis,
+    court: R.tenis,
+    playersPerSide: 2,
+    hasGoalkeeper: false,
+    formations: [
+      onCourt(R.tenis, 'tn-dobles-saque', 'Dobles: saque', [
+        { x: 66, y: 99, label: 'Sacador' },
+        { x: 30, y: 63, label: 'En la red' },
+      ]),
+      onCourt(R.tenis, 'tn-dobles-red', 'Dobles: los dos en la red', [
+        { x: 28, y: 63, label: 'Jugador izq.' },
+        { x: 72, y: 63, label: 'Jugador der.' },
+      ]),
+    ],
+    objects: NET_OBJECTS,
+    colors: { court: '#2f6db5', surround: '#3f8a5a', line: '#ffffff' },
+  },
+  padel: {
+    key: 'padel',
+    label: 'Pádel',
+    viewBox: VIEWBOX,
+    frame: FRAMES.padel,
+    court: R.padel,
+    playersPerSide: 2,
+    hasGoalkeeper: false,
+    formations: [
+      onCourt(R.padel, 'pd-saque', 'Saque', [
+        { x: 72, y: 96, label: 'Sacador' },
+        { x: 28, y: 62, label: 'En la red' },
+      ]),
+      onCourt(R.padel, 'pd-red', 'Los dos en la red', [
+        { x: 28, y: 62, label: 'Revés' },
+        { x: 72, y: 62, label: 'Drive' },
+      ]),
+    ],
+    objects: NET_OBJECTS,
+    colors: { court: '#2563a8', surround: '#0f172a', line: '#ffffff' },
+  },
+  badminton: {
+    key: 'badminton',
+    label: 'Bádminton',
+    viewBox: VIEWBOX,
+    frame: FRAMES.badminton,
+    court: R.badminton,
+    playersPerSide: 2,
+    hasGoalkeeper: false,
+    formations: [
+      onCourt(R.badminton, 'bd-ataque', 'Dobles: ataque (adelante-atrás)', [
+        { x: 50, y: 62, label: 'Delantero' },
+        { x: 50, y: 88, label: 'Zaguero' },
+      ]),
+      onCourt(R.badminton, 'bd-defensa', 'Dobles: defensa (lado a lado)', [
+        { x: 27, y: 78, label: 'Jugador izq.' },
+        { x: 73, y: 78, label: 'Jugador der.' },
+      ]),
+    ],
+    objects: NET_OBJECTS,
+    colors: { court: '#15803d', surround: '#8a5a2b', line: '#ffffff' },
+  },
+  voley_playa: {
+    key: 'voley_playa',
+    label: 'Vóley playa',
+    viewBox: VIEWBOX,
+    frame: FRAMES.voley_playa,
+    court: R.voley_playa,
+    playersPerSide: 2,
+    hasGoalkeeper: false,
+    formations: [
+      onCourt(R.voley_playa, 'vp-recepcion', 'Recepción 2 contra 2', [
+        { x: 28, y: 80, label: 'Bloqueador' },
+        { x: 72, y: 80, label: 'Defensor' },
+      ]),
+      onCourt(R.voley_playa, 'vp-bloqueo', 'Bloqueo y defensa', [
+        { x: 50, y: 53, label: 'Bloqueador' },
+        { x: 50, y: 84, label: 'Defensor' },
+      ]),
+    ],
+    objects: NET_OBJECTS,
+    colors: { court: '#ecd29a', surround: '#d6b26b', line: '#1d4ed8' },
+  },
+  hockey_cesped: {
+    key: 'hockey_cesped',
+    label: 'Hockey sobre césped',
+    viewBox: VIEWBOX,
+    frame: FRAMES.hockey_cesped,
+    court: R.hockey_cesped,
+    playersPerSide: 11,
+    hasGoalkeeper: true,
+    formations: [
+      onCourt(R.hockey_cesped, 'hc-4-3-3', '4-3-3', [
+        { x: 50, y: 97, label: 'Portero' },
+        { x: 15, y: 80, label: 'Defensa izq.' },
+        { x: 38, y: 83, label: 'Defensa central' },
+        { x: 62, y: 83, label: 'Defensa central' },
+        { x: 85, y: 80, label: 'Defensa der.' },
+        { x: 25, y: 60, label: 'Volante' },
+        { x: 50, y: 63, label: 'Volante central' },
+        { x: 75, y: 60, label: 'Volante' },
+        { x: 18, y: 36, label: 'Delantero izq.' },
+        { x: 50, y: 33, label: 'Delantero centro' },
+        { x: 82, y: 36, label: 'Delantero der.' },
+      ]),
+    ],
+    objects: [...OBJECT_TYPES],
+    colors: { court: '#1d5fa8', surround: '#1f7a3f', line: '#ffffff' },
+  },
+  hockey_patines: {
+    key: 'hockey_patines',
+    label: 'Hockey sobre patines',
+    viewBox: VIEWBOX,
+    frame: FRAMES.hockey_patines,
+    court: R.hockey_patines,
+    playersPerSide: 5,
+    hasGoalkeeper: true,
+    formations: [
+      onCourt(R.hockey_patines, 'hp-rombo', 'Rombo (1-2-1)', [
+        { x: 50, y: 90, label: 'Portero' },
+        { x: 50, y: 75, label: 'Defensa' },
+        { x: 20, y: 58, label: 'Ala izq.' },
+        { x: 80, y: 58, label: 'Ala der.' },
+        { x: 50, y: 38, label: 'Delantero' },
+      ]),
+      onCourt(R.hockey_patines, 'hp-cuadrado', 'Cuadrado (2-2)', [
+        { x: 50, y: 90, label: 'Portero' },
+        { x: 30, y: 74, label: 'Defensa' },
+        { x: 70, y: 74, label: 'Defensa' },
+        { x: 30, y: 46, label: 'Delantero' },
+        { x: 70, y: 46, label: 'Delantero' },
+      ]),
+    ],
+    objects: objectsExcept('mini_goal'),
+    colors: { court: '#c99a5b', surround: '#1f2937', line: '#b91c1c', accent: '#1d4ed8' },
+  },
+  netball: {
+    key: 'netball',
+    label: 'Netball',
+    viewBox: VIEWBOX,
+    frame: FRAMES.netball,
+    court: R.netball,
+    playersPerSide: 7,
+    hasGoalkeeper: false,
+    formations: [
+      // Pase central: cada una en el tercio que le toca, atacando hacia arriba.
+      onCourt(R.netball, 'nb-pase-central', 'Pase central', [
+        { x: 50, y: 14, label: 'Tiradora (GS)' },
+        { x: 34, y: 27, label: 'Ataque de gol (GA)' },
+        { x: 76, y: 29, label: 'Ala de ataque (WA)' },
+        { x: 50, y: 50, label: 'Centro (C)' },
+        { x: 24, y: 71, label: 'Ala de defensa (WD)' },
+        { x: 62, y: 73, label: 'Defensa de gol (GD)' },
+        { x: 50, y: 86, label: 'Guardia de gol (GK)' },
+      ]),
+    ],
+    objects: ['cone', 'marker', 'ball', 'hurdle', 'ring', 'ladder', 'pole', 'mannequin', 'opponent'],
+    colors: { court: '#1f6f8b', surround: '#14404f', line: '#ffffff' },
+  },
+  waterpolo: {
+    key: 'waterpolo',
+    label: 'Waterpolo',
+    viewBox: VIEWBOX,
+    frame: FRAMES.waterpolo,
+    court: R.waterpolo,
+    playersPerSide: 7,
+    hasGoalkeeper: true,
+    formations: [
+      // Ataque 3-3 sobre el arco de arriba (boya en el centro, a 2-3 m).
+      onCourt(R.waterpolo, 'wp-3-3', 'Ataque 3-3', [
+        { x: 50, y: 97, label: 'Portero' },
+        { x: 50, y: 11, label: 'Boya (centro)' },
+        { x: 14, y: 12, label: 'Extremo izq.' },
+        { x: 86, y: 12, label: 'Extremo der.' },
+        { x: 26, y: 26, label: 'Lateral izq.' },
+        { x: 74, y: 26, label: 'Lateral der.' },
+        { x: 50, y: 30, label: 'Punto' },
+      ]),
+    ],
+    objects: ['cone', 'marker', 'ball', 'goal', 'ring', 'opponent'],
+    colors: { court: '#1e88c9', surround: '#cbd5e1', line: '#ffffff' },
+  },
+  ultimate: {
+    key: 'ultimate',
+    label: 'Ultimate',
+    viewBox: VIEWBOX,
+    frame: FRAMES.ultimate,
+    court: R.ultimate,
+    playersPerSide: 7,
+    hasGoalkeeper: false,
+    formations: [
+      onCourt(R.ultimate, 'ul-vertical', 'Stack vertical', [
+        { x: 50, y: 70, label: 'Lanzador (handler)' },
+        { x: 30, y: 74, label: 'Lanzador' },
+        { x: 50, y: 56, label: 'Cortador' },
+        { x: 50, y: 49, label: 'Cortador' },
+        { x: 50, y: 42, label: 'Cortador' },
+        { x: 50, y: 35, label: 'Cortador' },
+        { x: 50, y: 28, label: 'Cortador' },
+      ]),
+      onCourt(R.ultimate, 'ul-horizontal', 'Stack horizontal', [
+        { x: 30, y: 68, label: 'Lanzador' },
+        { x: 50, y: 72, label: 'Lanzador (handler)' },
+        { x: 70, y: 68, label: 'Lanzador' },
+        { x: 14, y: 48, label: 'Cortador' },
+        { x: 38, y: 48, label: 'Cortador' },
+        { x: 62, y: 48, label: 'Cortador' },
+        { x: 86, y: 48, label: 'Cortador' },
+      ]),
+    ],
+    objects: ['cone', 'marker', 'ball', 'hurdle', 'ring', 'ladder', 'pole', 'mannequin', 'opponent'],
+    colors: GRASS,
+  },
   generico: {
     key: 'generico',
     label: 'Genérico',
@@ -415,8 +772,9 @@ export const SPORT_OPTIONS = TACTICAL_SPORTS.map((k) => ({ value: k, label: SPOR
  * delega en boardSportFromTeam de lib/sports/sportCatalog.ts (resolveSport
  * sobre `teams.sport`, que guarda el NOMBRE VISIBLE: "Fútbol", "Voleibol"…).
  * "Fútbol Sala" y "Microfútbol" = futsal. Fútbol 7/5 solo si está escrito
- * ("F7", "Fútbol 5", "7 vs 7"); "Sub 7" es edad y no cuenta. Lo que no tiene
- * cancha propia (natación, tenis, porrismo…) cae a 'generico'. Si el equipo
+ * ("F7", "Fútbol 5", "7 vs 7"); "Sub 7" es edad y no cuenta. Tenis, rugby,
+ * waterpolo… (nivel «cancha», M6f) tienen su cancha. Lo que no tiene cancha
+ * propia (natación, porrismo…) cae a 'generico'. Si el equipo
  * abre o no la pizarra lo dice teamBoardAccess / hasTacticalBoard, no esto.
  */
 export function sportFromTeam(team: TeamSportInput | null | undefined): TacticalSport {

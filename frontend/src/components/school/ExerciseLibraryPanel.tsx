@@ -27,11 +27,11 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TacticalStaticSvg } from '@/components/school/TacticalStaticSvg';
 import { ExercisePacksTab } from '@/components/school/ExercisePacksTab';
-import { isTacticalSport } from '@/lib/school/tacticalSports';
 import type { TacticalPackEvent } from '@/lib/school/tacticalUsage';
 import {
   EXERCISE_SPORT_LABEL,
   exerciseThumbnail,
+  isExerciseSport,
   listExercises,
   listLibrarySports,
   type ExerciseSport,
@@ -98,7 +98,7 @@ export function ExerciseLibraryPanel({
 }: ExerciseLibraryPanelProps) {
   const [source, setSource] = useState<Source>('templates');
   const [search, setSearch] = useState('');
-  const [sport, setSport] = useState<ExerciseSport | undefined>(isTacticalSport(defaultSport) ? defaultSport : undefined);
+  const [sport, setSport] = useState<ExerciseSport | undefined>(isExerciseSport(defaultSport) ? defaultSport : undefined);
   const [tag, setTag] = useState<string | undefined>();
   const [viewing, setViewing] = useState<TrainingExercise | null>(null);
 
@@ -110,7 +110,7 @@ export function ExerciseLibraryPanel({
   });
   const { chips, showRow: showSportRow } = librarySportChips(
     sportsQuery.data,
-    isTacticalSport(defaultSport) ? defaultSport : undefined,
+    isExerciseSport(defaultSport) ? defaultSport : undefined,
   );
   // Un deporte que la escuela no tiene (o la fila escondida con un solo
   // deporte) = sin filtro: el BFF ya devuelve solo lo de la escuela.
