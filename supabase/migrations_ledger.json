@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 773,
-  "head": "20261015153059",
+  "count": 776,
+  "head": "20261015163556",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -776,6 +776,9 @@
     {"v":"20261014212620","file":"20261014212620_contextos_familia_invitaciones.sql","sha256":"384ddc33c304b71895dcb79e2d5b3566b3f52e0b56d74a17b066835c1dafdccf","added":"2026-10-15","by":"Brayan Steven Lopez"},
     {"v":"20261014212627","file":"20261014212627_sede_del_atleta_por_equipo.sql","sha256":"95d1dcf82c3b47ad5e53c5239c122cdc8369b21438985bf14b8d9bd723e36b6c","added":"2026-10-15","by":"Brayan Steven Lopez"},
     {"v":"20261014215112","file":"20261014215112_staff_no_se_reactiva_ni_cambia_de_escuela.sql","sha256":"10beb334a6b8c5691b7b6f9b838a6890ff13150cc807711bd7eadbf2553880f0","added":"2026-10-15","by":"Brayan Steven Lopez"},
-    {"v":"20261015153059","file":"20261015153059_torneos_escuela_inscribe_y_gratis.sql","sha256":"daf6390a9da730c38ffc81d98d7b9b27111abe993e8ca167abc6df199118eca4","added":"2026-10-15","by":"Brayan Steven Lopez"}
+    {"v":"20261015153059","file":"20261015153059_torneos_escuela_inscribe_y_gratis.sql","sha256":"daf6390a9da730c38ffc81d98d7b9b27111abe993e8ca167abc6df199118eca4","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261015163554","file":"20261015163554_mora_no_cancela_reactiva_y_detector_autocierra.sql","sha256":"37edf49e9fb252e2cffe62a27534c3f3a4113a8a1b5929301acf76fdbb8fdfdf","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261015163555","file":"20261015163555_mora_vence_enlaces_y_autopay_cobra_vencidos.sql","sha256":"418f0c5f5424d444946540d8bc801099efd3cece1d95543c122c209ad52571cc","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261015163556","file":"20261015163556_wa_estado_pagos_con_mora.sql","sha256":"4f1b0c8d28f8258efd9a2e4e53001687a4064da3cf85a01e457add38d4bf7e12","added":"2026-10-15","by":"Brayan Steven Lopez"}
   ]
 }

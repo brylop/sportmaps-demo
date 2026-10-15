@@ -12,7 +12,8 @@
  *   · §7.3 checkout manual viejo: PENDING/APPROVED → se libera; sin tx → se expira y se cobra;
  *   · carrera con un checkout nuevo (23505) → se libera;
  *   · cobro doble (webhook y red diaria) → incidente + avisos;
- *   · latido y cron perdido; tokens de aceptación solo con el flag.
+ *   · latido y cron perdido; tokens de aceptación solo con el flag;
+ *   · vencidos/parciales (2026-10-14): enlace con base = saldo con la mora; sin cobrar de menos.
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -251,6 +252,41 @@ describe('intento (§7.2)', () => {
         const t = crearDeps({ store: { insertAutopayLink: async () => ({ ok: false, conflict: true }) } as any });
         expect(await procesarIntento(t.deps, claim(), new Map())).toBe('released_manual_checkout');
         expect(t.deps.wompi.charge).not.toHaveBeenCalled();
+    });
+});
+
+// Regla 2026-10-14 (D14 revertida en lo vencido): un cobro overdue/partial se debita
+// por su SALDO, que ya trae la mora. La base decide el monto (autopay_payment_total,
+// mig 20261014133326); el motor arma el enlace con base = saldo y no cobra de menos.
+describe('vencidos y parciales: se debita el saldo con la mora', () => {
+    it('overdue con mora: base = saldo con recargo de mora, total = saldo + recargo online', async () => {
+        // 150.000 + 5 % de mora = 157.500 de saldo; + 5 % online = 165.375.
+        const t = crearDeps({ store: { paymentForLink: async () => ({ amount: 157500, feePct: 5 }) } as any });
+        expect(await procesarIntento(t.deps, claim({ amount: 165375 }), new Map())).toBe('approved');
+        expect(t.links[0]).toMatchObject({ gross_amount: 165375, base_amount: 157500, sportmaps_fee: 7875, fee_pct: 5 });
+        expect((t.deps.wompi.charge as any).mock.calls[0][0]).toMatchObject({ amountInCents: 16537500 });
+    });
+
+    it('partial: se debita solo lo que falta (amount − amount_paid)', async () => {
+        const t = crearDeps({ store: { paymentForLink: async () => ({ amount: 50000, feePct: 5 }) } as any });
+        expect(await procesarIntento(t.deps, claim({ amount: 52500 }), new Map())).toBe('approved');
+        expect(t.links[0]).toMatchObject({ gross_amount: 52500, base_amount: 50000, sportmaps_fee: 2500 });
+        expect((t.deps.wompi.charge as any).mock.calls[0][0]).toMatchObject({ amountInCents: 5250000 });
+    });
+
+    it('el saldo subió después del claim (entró la mora) → no cobra de menos: error amount_changed', async () => {
+        // Se reclamó 150.000 (antes de la mora) y el saldo ya es 157.500.
+        const t = crearDeps({ store: { paymentForLink: async () => ({ amount: 157500, feePct: 5 }) } as any });
+        expect(await procesarIntento(t.deps, claim({ amount: 150000 }), new Map())).toBe('error');
+        expect(t.deps.wompi.charge).not.toHaveBeenCalled();
+        expect(t.links).toHaveLength(0);
+        expect(t.de('autopay_finish_attempt')[0]).toMatchObject({ p_status: 'error', p_error_code: 'amount_changed' });
+    });
+
+    it('sin recargo online (autopay_surcharge_mode = none): total = saldo, se cobra sin fee', async () => {
+        const t = crearDeps({ store: { paymentForLink: async () => ({ amount: 157500, feePct: 5 }) } as any });
+        expect(await procesarIntento(t.deps, claim({ amount: 157500 }), new Map())).toBe('approved');
+        expect(t.links[0]).toMatchObject({ gross_amount: 157500, base_amount: 157500, sportmaps_fee: 0, fee_pct: 0 });
     });
 });
 

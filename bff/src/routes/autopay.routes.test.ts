@@ -88,7 +88,7 @@ vi.mock('../services/wompi.service', async (orig) => {
     };
 });
 
-import router, { totalConRecargo, topeSugerido, etiquetaTarjeta, vencimientoTarjeta, phoneHmac, hoyBogota } from './autopay.routes';
+import router, { totalConRecargo, topeSugerido, etiquetaTarjeta, vencimientoTarjeta, phoneHmac, hoyBogota, esDebitable, saldoCobro } from './autopay.routes';
 
 const SCHOOL = '11111111-1111-4111-8111-111111111111';
 const PADRE = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -134,6 +134,16 @@ describe('cálculos que ve la familia', () => {
         expect(totalConRecargo(150000, { surchargeMode: 'same_as_online', feePct: 5 })).toBe(157500);
         expect(totalConRecargo(150000, { surchargeMode: 'none', feePct: 5 })).toBe(150000);
         expect(totalConRecargo(150001, {})).toBe(154501);
+    });
+    it('vencidos y parciales se debitan por el saldo con la mora (D14 revertida 2026-10-14)', () => {
+        expect(['pending', 'overdue', 'partial'].map(esDebitable)).toEqual([true, true, true]);
+        expect(['paid', 'awaiting_approval', 'cancelled', 'rejected', null].map(esDebitable)).toEqual([false, false, false, false, false]);
+        // 150.000 + 5 % de mora = 157.500; ya abonó 57.500 → saldo 100.000.
+        expect(saldoCobro({ amount: 157500, amount_paid: 57500 })).toBe(100000);
+        expect(saldoCobro({ amount: '157500', amount_paid: null })).toBe(157500);
+        expect(saldoCobro({ amount: 100, amount_paid: 150 })).toBe(0);
+        // Total que se muestra = saldo + recargo online, igual que autopay_payment_total.
+        expect(totalConRecargo(saldoCobro({ amount: 157500, amount_paid: 0 }), { surchargeMode: 'same_as_online', feePct: 5 })).toBe(165375);
     });
     it('tope sugerido: +20 % redondeado a miles hacia arriba', () => {
         expect(topeSugerido(157500)).toBe(189000);

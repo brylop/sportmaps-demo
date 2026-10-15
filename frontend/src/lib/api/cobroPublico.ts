@@ -16,6 +16,12 @@ export interface VistaCobroPublico {
     deportista: string | null;
     estado: EstadoCobro;
     monto: number;
+    /**
+     * Recargo por mora ya sumado en `monto` (payments.late_fee_amount; la mora
+     * nunca cancela, apply_late_fees() lo suma al cobro). Solo informativo.
+     * Opcional: un BFF anterior no lo manda.
+     */
+    late_fee_amount?: number | null;
     fechaVencimiento: string | null;
     fechaPago: string | null;
     enlaceVenceEn: string;

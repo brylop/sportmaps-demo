@@ -138,13 +138,16 @@ export default function ParentCheckoutPage() {
   // como fuente de verdad (monto/concepto reales) y al pagar lo ACTUALIZAMOS en vez
   // de crear uno nuevo → evita el pago duplicado sin comprobante.
   const paymentIdParam = searchParams.get('payment_id');
-  const [qrPayment, setQrPayment] = useState<{ amount: number; amount_paid: number | null; concept: string; child_id: string | null; team_id: string | null; payment_category?: string | null } | null>(null);
+  const [qrPayment, setQrPayment] = useState<{ amount: number; amount_paid: number | null; late_fee_amount?: number | null; concept: string; child_id: string | null; team_id: string | null; payment_category?: string | null } | null>(null);
 
   const amount = qrPayment?.amount ?? parseInt(searchParams.get('amount') || '150000');
   // Abono previo (si el pago ya tiene un parcial). Se cobra solo el SALDO.
   const amountPaid = Number(qrPayment?.amount_paid) || 0;
   const balanceDue = Math.max(amount - amountPaid, 0);
   const chargeAmount = amountPaid > 0 ? balanceDue : amount;
+  // Recargo por mora (2026-10-14): apply_late_fees() lo suma DENTRO de `amount`
+  // por la noche. El total ya lo incluye; esto solo se lo explica al acudiente.
+  const lateFee = Number(qrPayment?.late_fee_amount) || 0;
   const concept = qrPayment?.concept ?? (searchParams.get('concept') || 'Mensualidad Octubre 2024');
   // Nombres reales: primero lo resuelto del pago (child_id / school_id), luego
   // los query params. NUNCA placeholders demo hardcodeados.
@@ -283,14 +286,45 @@ export default function ParentCheckoutPage() {
   }, [schoolNameParam, schoolIdParam]);
 
   // Cargar el pago preexistente del QR como fuente de verdad (monto/concepto/ids)
+  const QR_PAYMENT_COLUMNS = 'amount, amount_paid, late_fee_amount, concept, child_id, team_id, payment_category';
   useEffect(() => {
     if (!paymentIdParam) return;
     supabase.from('payments')
-      .select('amount, amount_paid, concept, child_id, team_id, payment_category')
+      .select(QR_PAYMENT_COLUMNS)
       .eq('id', paymentIdParam)
       .maybeSingle()
       .then(({ data }) => { if (data) setQrPayment(data as any); });
   }, [paymentIdParam]);
+
+  /**
+   * Relee el cobro justo antes de pagar. La página pudo quedar abierta de un día
+   * para otro y en el medio la mora de la noche subió el valor: el acudiente
+   * vería (y transferiría) el monto viejo. Si cambió, se actualiza la pantalla,
+   * se le avisa con el valor nuevo y NO se sigue: el siguiente clic confirma.
+   * Devuelve true si se puede continuar.
+   */
+  const confirmFreshAmount = async (): Promise<boolean> => {
+    if (!paymentIdParam || !qrPayment) return true;
+    const { data, error } = await supabase.from('payments')
+      .select(QR_PAYMENT_COLUMNS)
+      .eq('id', paymentIdParam)
+      .maybeSingle();
+    // Sin poder releer no se frena el pago: el servidor y la escuela validan el monto.
+    if (error || !data) return true;
+    const fresh = data as any;
+    const changed = Number(fresh.amount) !== Number(qrPayment.amount)
+      || (Number(fresh.amount_paid) || 0) !== (Number(qrPayment.amount_paid) || 0)
+      || (Number(fresh.late_fee_amount) || 0) !== (Number(qrPayment.late_fee_amount) || 0);
+    if (!changed) return true;
+    setQrPayment(fresh);
+    const freshDue = Math.max((Number(fresh.amount) || 0) - (Number(fresh.amount_paid) || 0), 0);
+    const freshFee = Number(fresh.late_fee_amount) || 0;
+    toast({
+      title: 'El valor de este cobro se actualizó',
+      description: `Ahora es ${formatPrice(freshDue)}${freshFee > 0 ? ` (incluye recargo por mora de ${formatPrice(freshFee)})` : ''}. Revisa el total y vuelve a confirmar.`,
+    });
+    return false;
+  };
 
   // Otros cobros abiertos del mismo deportista en la escuela. El alta por QR emite
   // hasta tres (inscripción + seguro + mensualidad, migración 20261013193011) y el
@@ -575,6 +609,8 @@ export default function ParentCheckoutPage() {
     setProcessing(true);
 
     try {
+      if (!(await confirmFreshAmount())) return;
+
       // 1. Crear la sesión server-side → registra la referencia en payment_links
       //    y devuelve el monto firmado por el servidor (fuente de verdad del monto).
       const session = await bffClient.post<{
@@ -669,10 +705,11 @@ export default function ParentCheckoutPage() {
     }
   
     setProcessing(true);
-    const reference = generatePaymentReference();
-    setReceiptNumber(reference);
 
     try {
+      if (!(await confirmFreshAmount())) return;
+      const reference = generatePaymentReference();
+      setReceiptNumber(reference);
       await new Promise((resolve) => setTimeout(resolve, 2000));
       setPaymentMethodUsed('Transferencia manual');
       if (!(await recordPaymentWithTraceability(reference))) return;
@@ -842,6 +879,11 @@ export default function ParentCheckoutPage() {
           <CardContent>
             <div className="flex justify-between mb-2"><span className="text-muted-foreground">Concepto</span><span>{nextPeriod && isMensualidad ? `Mensualidad ${nextPeriod.label}` : concept}</span></div>
             <div className="flex justify-between mb-2"><span className="text-muted-foreground">Total</span><span className="font-bold">{formatPrice(amount)}</span></div>
+            {lateFee > 0 && (
+              <p className="-mt-1 mb-2 text-right text-xs font-semibold text-amber-600 dark:text-amber-400">
+                Incluye recargo por mora: {formatPrice(lateFee)}
+              </p>
+            )}
             {amountPaid > 0 && (
               <>
                 <div className="flex justify-between mb-2"><span className="text-muted-foreground">Ya abonado</span><span className="font-semibold text-emerald-600">− {formatPrice(amountPaid)}</span></div>
