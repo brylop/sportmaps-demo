@@ -173,7 +173,7 @@ test('(a) analizar → lectura sin «p5» → contraataque en 2D → «Ver en 3D
     await expect(viewer).toBeVisible({ timeout: 180_000 });
     await expect(viewer.locator('canvas')).toBeVisible();
     await expect(viewer.getByText('Contraataque del rival')).toBeVisible();
-    await expect(viewer.getByRole('button', { name: 'Tribuna' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(viewer.getByRole('button', { name: 'Transmisión TV' })).toHaveAttribute('aria-pressed', 'true');
     // Al abrir, la capa 2D se apaga (no quedan las dos animaciones a la vez).
     await expect(overlay).toHaveCount(0);
     // Pasado el arranque (2 s de medición de fps) sigue en 3D: no cayó a 2D.

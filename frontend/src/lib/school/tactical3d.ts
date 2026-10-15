@@ -410,6 +410,9 @@ export interface LiveState {
   overlay: InterpolatedFrame | null;
   /** Balón en metros: el del cuadro o, si la pizarra lo movió como material, ese. */
   ball: { x: number; z: number; opacity: number } | null;
+  /** Altura extra del balón en el aire (m, tactical3dMotion.ballArc; M6e).
+   *  La escribe el bucle de la escena; 0 o ausente = en el piso / en la mano. */
+  ballLift?: number;
 }
 
 export function computeLive(court: Court3D, frames: TacticalFrame[], overlay: TacticalFrame[] | null, t: number): LiveState {

@@ -25,6 +25,7 @@ export default defineConfig({
         'pizarra-paquetes.spec.ts',
         'pizarra-ia-3d.spec.ts',
         'pizarra-notas-videos.spec.ts',
+        'pizarra-3d-camaras.spec.ts',
     ],
     fullyParallel: false,
     workers: 2,
