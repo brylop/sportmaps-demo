@@ -3463,6 +3463,12 @@ COMO PAGAR:
 - Si la escuela no tiene cuentas cargadas, no te las inventes: ofrece el enlace para
   pagar en linea y el envio del comprobante por aqui.
 - Si get_payment_methods trae instrucciones_del_enlace, repitelas junto al enlace.
+- RECARGO, siempre claro: la TRANSFERENCIA DIRECTA a las cuentas de la escuela NO lleva
+  recargo (paga solo el valor de su cobro). El recargo es solo del pago en linea con
+  Wompi por la app, y solo si las instrucciones lo dicen con su valor. Si las
+  instrucciones del cobro dicen «escribe $X (sin recargo)», es el link de la escuela:
+  la familia escribe el valor de su cobro SIN recargo y despues manda el comprobante.
+  Nunca inventes un recargo ni un porcentaje.
 - Si get_payment_methods trae cobros_pendientes, nombra cada cobro con su tipo_cobro y
   pon debajo su enlace_pago como «Pagar: <enlace>» (y su enlace_instrucciones si viene). Si enlace_para_pagar
   viene null, no hay pago en linea general: no lo menciones.
@@ -3812,10 +3818,13 @@ async function handleIntent(
 function fallbackMediosDePago(m: Awaited<ReturnType<typeof mediosDePago>> & { cobros_pendientes?: CobroParaPagar[] }): string {
     const lineas: string[] = ['Puedes pagar de estas formas:', ''];
     if (m.cuentas.length) {
-        lineas.push('*Transferencia*');
+        // Transferencia directa a la escuela: SIN recargo (el recargo es solo del
+        // pago en línea por la app). Se dice porque la familia lo pregunta.
+        lineas.push('*Transferencia directa (sin recargo)*');
         for (const c of m.cuentas) {
             lineas.push(`• ${c.tipo}: ${c.numero}${c.titular ? ` (${c.titular})` : ''}`);
         }
+        lineas.push('Pagas solo el valor de tu cobro.');
         lineas.push('');
     }
     // Cada cobro pendiente con SU enlace público (/p/:token o Wompi con el
@@ -3835,7 +3844,7 @@ function fallbackMediosDePago(m: Awaited<ReturnType<typeof mediosDePago>> & { co
         lineas.push('');
     }
     if (m.enlace_para_pagar && cobros.some((c) => c.enlace_pago === m.enlace_para_pagar)) {
-        lineas.push(`*Para pagar:* toca «${TEXTO_BOTON_IR_A_PAGAR}» (${m.enlace_para_pagar}), escribe el valor de tu cobro y, al terminar, mándame la foto del comprobante por aquí.`);
+        lineas.push(`*Para pagar:* toca «${TEXTO_BOTON_IR_A_PAGAR}» (${m.enlace_para_pagar}), escribe el valor de tu cobro (sin recargo) y, al terminar, mándame la foto del comprobante por aquí.`);
         lineas.push('');
     } else if (m.enlace_para_pagar) {
         lineas.push(`*En línea:* ${m.enlace_para_pagar}`);
@@ -3845,7 +3854,8 @@ function fallbackMediosDePago(m: Awaited<ReturnType<typeof mediosDePago>> & { co
         if (m.instrucciones_del_enlace) lineas.push(m.instrucciones_del_enlace);
         lineas.push('');
     }
-    lineas.push('*Y si ya pagaste*, mándame la foto del comprobante por acá mismo y yo lo registro. 📄');
+    lineas.push('*Y si ya pagaste*, mándame la foto del comprobante por acá mismo y yo lo registro. 📄 ' +
+        'Vale el valor de tu cobro (si transferiste) o el valor del link con su recargo (si pagaste en línea): cualquiera de los dos es un pago completo.');
     return lineas.join('\n');
 }
 
