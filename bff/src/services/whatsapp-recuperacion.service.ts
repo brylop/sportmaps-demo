@@ -998,6 +998,10 @@ export function esRecuperable(
     if ((MOTIVOS_RECUPERABLES as readonly string[]).includes(em)) return true;
     if (!reprocesar) return false;
     if ((MOTIVOS_DEL_WORKER_REPROCESABLES as readonly string[]).includes(em)) return true;
+    // El worker cerró «monto_no_cuadra» ANTES de que existiera el recargo por
+    // link (2026-10-13): un 157.500 de un link al 5 % quedó en el buzón. Las
+    // reglas actuales lo leen; si no cuadra de verdad, vuelve al buzón igual.
+    if (em.startsWith('monto_no_cuadra:')) return true;
     return DECISIONES_REPROCESABLES.some((d) => em.startsWith(`${PREFIJO_RECUPERADO} ${d} `));
 }
 
