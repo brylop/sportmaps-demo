@@ -14,7 +14,27 @@ export const VALID_SHAPE_TYPES = [
   'arrow', 'curve', 'zone', 'ball_path',
   'cone', 'marker', 'ball', 'goal', 'mini_goal', 'hurdle', 'ring', 'ladder', 'pole', 'mannequin', 'opponent',
   'freehand', 'text',
+  // M6d (2026-10-14): foco sobre un jugador (halo). Objeto de un punto.
+  'spotlight',
 ] as const;
+/** M6d: estilo de línea con convención de leyenda (pase discontinuo, conducción
+ *  en zigzag, carrera continua, disparo doble). Solo flecha y curva. Ausente =
+ *  la línea de siempre. */
+export const VALID_LINE_STYLES = ['pass', 'dribble', 'run', 'shot'] as const;
+const LINE_STYLE_TYPES = ['arrow', 'curve'];
+/** M6d: forma de una zona. Ausente = el rectángulo redondeado de siempre. */
+export const VALID_ZONE_FORMS = ['rect', 'ellipse', 'polygon'] as const;
+/** Vértices de una zona polígono: 3 mínimo; el tope frena basura, no a un
+ *  coach (una zona real tiene 4-8 vértices). */
+export const POLYGON_MIN_POINTS = 3;
+export const POLYGON_MAX_POINTS = 24;
+/** Numeración de movimientos (1, 2, 3… sobre las flechas). */
+export const SEQ_MIN = 1;
+export const SEQ_MAX = 99;
+const SEQ_TYPES = ['arrow', 'curve', 'ball_path'];
+/** Opacidad del relleno de una zona: translúcida siempre (nunca tapa a los jugadores). */
+export const ZONE_FILL_MIN = 0.05;
+export const ZONE_FILL_MAX = 0.6;
 /** Lápiz libre (2026-09-30): `points` es [x,y,x,y,…] en % de cancha. El
  *  frontend simplifica el trazo antes de guardar; el tope frena un jsonb
  *  gigante (un garabato de 2 minutos sin simplificar), no a un trazo normal. */
@@ -90,8 +110,40 @@ export function validateArrows(arrows: any[]): string[] {
       } else if (pts.some((n: unknown) => typeof n !== 'number' || !Number.isFinite(n) || n < 0 || n > 100)) {
         errors.push('points inválido en un trazo: cada coordenada debe estar entre 0 y 100.');
       }
+    } else if (a.type === 'zone' && a.form === 'polygon') {
+      const pts = a.points;
+      if (!Array.isArray(pts) || pts.length % 2 !== 0 || pts.length / 2 < POLYGON_MIN_POINTS) {
+        errors.push(`points inválido en una zona polígono: debe ser [x,y,x,y,…] con al menos ${POLYGON_MIN_POINTS} vértices.`);
+      } else if (pts.length / 2 > POLYGON_MAX_POINTS) {
+        errors.push(`zona polígono con demasiados vértices: máximo ${POLYGON_MAX_POINTS}.`);
+      } else if (pts.some((n: unknown) => typeof n !== 'number' || !Number.isFinite(n) || n < 0 || n > 100)) {
+        errors.push('points inválido en una zona polígono: cada coordenada debe estar entre 0 y 100.');
+      }
     } else if (a.points !== undefined) {
-      errors.push('points solo aplica a un trazo de lápiz (type freehand).');
+      errors.push('points solo aplica a un trazo de lápiz o a una zona polígono.');
+    }
+    // M6d: estilo de línea, forma de zona, relleno y numeración. Ausentes = válidos.
+    if (a.line !== undefined) {
+      if (!VALID_LINE_STYLES.includes(a.line)) errors.push(`line inválido: ${String(a.line).slice(0, 20)}`);
+      else if (!LINE_STYLE_TYPES.includes(a.type ?? 'arrow')) errors.push('line solo aplica a una flecha o curva.');
+    }
+    if (a.form !== undefined) {
+      if (!VALID_ZONE_FORMS.includes(a.form)) errors.push(`form de zona inválido: ${String(a.form).slice(0, 20)}`);
+      else if (a.type !== 'zone') errors.push('form solo aplica a una zona.');
+    }
+    if (a.fill !== undefined) {
+      if (typeof a.fill !== 'number' || !Number.isFinite(a.fill) || a.fill < ZONE_FILL_MIN || a.fill > ZONE_FILL_MAX) {
+        errors.push(`fill inválido en una zona: debe estar entre ${ZONE_FILL_MIN} y ${ZONE_FILL_MAX}.`);
+      } else if (a.type !== 'zone') {
+        errors.push('fill solo aplica a una zona.');
+      }
+    }
+    if (a.seq !== undefined) {
+      if (!Number.isInteger(a.seq) || a.seq < SEQ_MIN || a.seq > SEQ_MAX) {
+        errors.push(`seq inválido: debe ser un entero entre ${SEQ_MIN} y ${SEQ_MAX}.`);
+      } else if (!SEQ_TYPES.includes(a.type ?? 'arrow')) {
+        errors.push('seq solo aplica a flechas, curvas y recorridos del balón.');
+      }
     }
     if (a.type === 'text') {
       if (typeof a.text !== 'string' || a.text.trim().length === 0) {
@@ -119,6 +171,11 @@ export function sanitizeArrows(arrows: any[]): Record<string, unknown>[] {
     if (a.kind !== undefined) out.kind = a.kind;
     if (a.type === 'freehand') out.points = a.points;
     if (a.type === 'text') out.text = a.text.trim();
+    if (a.line !== undefined) out.line = a.line;
+    if (a.form !== undefined) out.form = a.form;
+    if (a.type === 'zone' && a.form === 'polygon') out.points = a.points;
+    if (a.fill !== undefined) out.fill = a.fill;
+    if (a.seq !== undefined) out.seq = a.seq;
     return out;
   });
 }
