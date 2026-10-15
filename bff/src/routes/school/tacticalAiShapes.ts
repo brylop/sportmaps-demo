@@ -331,7 +331,7 @@ export interface AnonPlay {
 const PROMPT_SHAPE_TYPES = new Set(['arrow', 'curve', 'zone', 'ball_path']);
 
 export function anonymizePlay(
-  input: Pick<AnalyzeInput, 'sport' | 'frames' | 'labels' | 'colors'>,
+  input: Pick<AnalyzeInput, 'sport' | 'frames' | 'labels' | 'colors' | 'intencion'>,
   rosterTokens: Set<string> = new Set(),
 ): { play: AnonPlay; keyMap: Map<string, string> } {
   // Orden determinista de los propios: primer cuadro en que aparecen y, dentro

@@ -22,7 +22,7 @@ vi.mock('@/lib/api/bffClient', () => ({ bffClient: { get: vi.fn(), post: vi.fn()
 
 const ok = (url: string) => {
   const r = parseVideoUrl(url);
-  if (!r.ok) throw new Error(`esperaba válido: ${url} → ${r.error}`);
+  if (!r.ok) throw new Error(`esperaba válido: ${url} → ${'error' in r ? r.error : ''}`);
   return r.video;
 };
 
