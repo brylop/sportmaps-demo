@@ -108,6 +108,7 @@ import schoolFootballRouter from './routes/school/football';
 import schoolExercisesRouter from './routes/school/exercises';
 import schoolExercisePacksRouter from './routes/school/exercisePacks';
 import schoolTacticalAiRouter from './routes/school/tactical-ai';
+import schoolVideosRouter, { videoWebhookRouter } from './routes/school/videos';
 import schoolRoutinesRouter from './routes/school/routines';
 import schoolReportsRouter from './routes/school/reports';
 import schoolCoachActivityRouter from './routes/school/coach-activity';
@@ -341,6 +342,8 @@ app.use('/api/v1/public/booking', publicBookingLimiter, publicBookingRouter);
 app.use('/api/v1/public/cobro', cobroEnlacePublicoRouter);
 
 app.use('/api/v1/webhooks/mercadopago', mpWebhookRouter);
+// Webhook del proveedor de video (M6h). Sin generalLimiter: la firma HMAC es el control.
+app.use('/api/v1/webhooks/video', videoWebhookRouter);
 // /create y /save-card mutan tarjeta/cobro → requireAuth (dentro del router) +
 // CSRF header, mismo patrón que payment-tokens/recurring. /providers es GET
 // público (gate del frontend) y no lo toca requireAuth por diseño.
@@ -429,6 +432,9 @@ app.use('/api/v1/school', generalLimiter, schoolFootballRouter);
 app.use('/api/v1/school', generalLimiter, schoolExercisesRouter);
 app.use('/api/v1/school', generalLimiter, schoolExercisePacksRouter);
 app.use('/api/v1/school', generalLimiter, schoolTacticalAiRouter);
+// Videos subidos (M6h): el archivo va directo del navegador al proveedor; acá solo
+// cupo, autorización de subida, URL firmada y clips. Detrás del flag por escuela.
+app.use('/api/v1/school', generalLimiter, schoolVideosRouter);
 app.use('/api/v1/school', generalLimiter, requireAuth, schoolRoutinesRouter);
 app.use('/api/v1/school', generalLimiter, schoolReportsRouter);
 app.use('/api/v1/school', generalLimiter, schoolCoachActivityRouter);

@@ -9,6 +9,8 @@
 //   · columnas `frames` de match_lineups / team_tactical_presets
 //   · paquetes de la biblioteca (M2): exercise_packs, school_exercise_packs,
 //     training_exercises.pack_id y las RPCs activate_/deactivate_/import_exercise_pack
+//   · videos subidos (M6h): school_video_settings, school_videos,
+//     school_video_clips y sus RPCs (begin_/attach_/settle_/soft_delete_…)
 //
 // ── Por qué existe ──────────────────────────────────────────────────────────
 // Lo que creó la pizarra (migraciones 20261008155454, 20261008183744 y
@@ -78,6 +80,8 @@ const FIX_LECTURA_TACTICA = '20261005173002'; // pizarra_blindaje_datos_y_lectur
 const FIX_PIZARRA = '20261013200604';         // pizarra_rls_biblioteca_y_rpc_ejercicio (H1/H2/H3)
 const MIG_PAQUETES = '20261014121142';        // pizarra_paquetes_biblioteca (M2: exercise_packs + RPCs)
 const PAQ = { requiere: 'public.exercise_packs', tras: MIG_PAQUETES };
+const MIG_VIDEOS = '20261015125439';         // pizarra_videos_subidos (M6h: videos + clips + cupo)
+const VID = { requiere: 'public.school_videos', tras: MIG_VIDEOS };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Casos. Cada `sql` corre como `actor` y devuelve UN entero n:
@@ -106,6 +110,14 @@ const PAYLOAD = (nombre, ejercicios) =>
 const RPC_IMPORT = (school, nombre, ejercicios) =>
     `select ((public.import_exercise_pack('${school}'::uuid, ${PAYLOAD(nombre, ejercicios)})) ->> 'pack_id' is not null)::int`;
 const DOS_EJ = [{ name: 'RLS paq 1', minutes: 10 }, { name: 'RLS paq 2', sport: 'generico' }];
+// M6h: videos subidos.
+const BEGIN_VID = (school, { secs = 600, bytes = 1000000, team = 'null' } = {}) =>
+    `select ((public.begin_school_video_upload('${school}'::uuid, 'bunny', 'RLS video', ${bytes}::bigint, ${secs}, ${team}, 'phone', null)) ->> 'video_id' is not null)::int`;
+const DEL_VID = (id) => `select ((public.soft_delete_school_video('${id}'::uuid)) ->> 'video_id' is not null)::int`;
+const NUEVO_CLIP = (video, autor, extra = '') =>
+    W(`insert into public.school_video_clips (school_id, video_id, start_s, end_s, title, created_by${extra ? ', ' + extra.split('|')[0] : ''}) values ('{sch_a}', '${video}', 10, 20, 'RLS clip', ${autor}${extra ? ', ' + extra.split('|')[1] : ''})`);
+const DEL_CLIP = (id) => W(`delete from public.school_video_clips where id = '${id}'`);
+const UPD_VID = (id, set = `title = 'RLS editado'`) => W(`update public.school_videos set ${set} where id = '${id}'`);
 
 const CASOS = [
     // ── 1. Biblioteca: lectura ───────────────────────────────────────────────
@@ -343,6 +355,113 @@ const CASOS = [
         `select coalesce('security_invoker=true' = any (reloptions), false)::int from pg_class where oid = 'public.v_tactical_board_usage_weekly'::regclass`],
     ['postgres', 'CHECK de forma/tamaño de frames en match_lineups y team_tactical_presets', 'ACEPTAR',
         `select (count(*) = 2)::int from pg_constraint where contype = 'c' and conname in ('match_lineups_frames_shape_check', 'team_tactical_presets_frames_shape_check')`],
+
+// ── 14. Videos subidos (M6h) — todos «esperado tras 20261015125439» ─────
+    // Lectura: staff. Padres, atletas, otra escuela y anon: nada.
+    ['coach', 'coach de A lee un video de su escuela', 'ACEPTAR', LEER('school_videos', `id = '{vid_a}'`), VID],
+    ['owner', 'owner de A lee un video de su escuela', 'ACEPTAR', LEER('school_videos', `id = '{vid_a}'`), VID],
+    ['nontac', 'admin (no táctico) de A lee los videos (leer = staff)', 'ACEPTAR', LEER('school_videos', `school_id = '{sch_a}'`), VID],
+    ['parent', 'padre de A lee los videos de su escuela', 'RECHAZAR', LEER('school_videos', `school_id = '{sch_a}'`), VID],
+    ['athlete', 'atleta de A lee los videos de su escuela', 'RECHAZAR', LEER('school_videos', `school_id = '{sch_a}'`), VID],
+    ['staff_b', 'coach de B lee un video de A', 'RECHAZAR', LEER('school_videos', `id = '{vid_a}'`), VID],
+    ['coach', 'coach de A lee un video de B', 'RECHAZAR', LEER('school_videos', `id = '{vid_b}'`), VID],
+    ['anon', 'anon lee school_videos', 'RECHAZAR', LEER('school_videos', 'true'), VID],
+    ['coach', 'coach de A NO ve un video borrado (soft delete)', 'RECHAZAR', LEER('school_videos', `id = '{vid_a_del}'`), VID],
+    ['coach', 'coach de A lee el cupo de su escuela', 'ACEPTAR', LEER('school_video_settings', `school_id = '{sch_a}'`), VID],
+    ['parent', 'padre de A lee el cupo de su escuela', 'RECHAZAR', LEER('school_video_settings', `school_id = '{sch_a}'`), VID],
+    ['anon', 'anon lee school_video_settings', 'RECHAZAR', LEER('school_video_settings', 'true'), VID],
+    ['coach', 'coach de A lee los clips de su escuela', 'ACEPTAR', LEER('school_video_clips', `id = '{clip_a}'`), VID],
+    ['parent', 'padre de A lee los clips', 'RECHAZAR', LEER('school_video_clips', `school_id = '{sch_a}'`), VID],
+    ['staff_b', 'coach de B lee un clip de A', 'RECHAZAR', LEER('school_video_clips', `id = '{clip_a}'`), VID],
+    ['anon', 'anon lee school_video_clips', 'RECHAZAR', LEER('school_video_clips', 'true'), VID],
+
+    // Escritura directa: solo título/equipo/fecha/origen, y solo tácticos.
+    ['coach', 'coach de A inserta un video DIRECTO (solo por RPC: sin cupo no se crea)', 'RECHAZAR',
+        W(`insert into public.school_videos (school_id, provider, title, created_by) values ('{sch_a}', 'bunny', 'RLS directo', '{coach}')`), VID],
+    ['coach', 'coach de A cambia el título de un video de A', 'ACEPTAR', UPD_VID('{vid_a}'), VID],
+    ['coach', 'coach de A marca un video como listo (columna sin GRANT)', 'RECHAZAR', UPD_VID('{vid_a}', `status = 'ready'`), VID],
+    ['coach', 'coach de A se baja el cupo contado (columna sin GRANT)', 'RECHAZAR', UPD_VID('{vid_a}', 'counted_seconds = 0'), VID],
+    ['coach', 'coach de A abre el video a familias (consent_scope, sin GRANT)', 'RECHAZAR', UPD_VID('{vid_a}', `consent_scope = 'families_with_consent'`), VID],
+    ['coach', 'coach de A muda el video a la escuela B', 'RECHAZAR', UPD_VID('{vid_a}', `school_id = '{sch_b}'`), VID],
+    ['coach', 'coach de A le pone un equipo de B (trigger)', 'RECHAZAR', UPD_VID('{vid_a}', `team_id = '{team_b}'`), VID],
+    ['nontac', 'admin (no táctico) de A edita un video', 'RECHAZAR', UPD_VID('{vid_a}'), VID],
+    ['parent', 'padre de A edita un video de A', 'RECHAZAR', UPD_VID('{vid_a}'), VID],
+    ['staff_b', 'coach de B edita un video de A', 'RECHAZAR', UPD_VID('{vid_a}'), VID],
+    ['coach', 'coach de A borra DIRECTO un video (solo por RPC)', 'RECHAZAR', W(`delete from public.school_videos where id = '{vid_a}'`), VID],
+    ['owner', 'owner de A se sube el cupo DIRECTO', 'RECHAZAR', W(`update public.school_video_settings set quota_seconds = 3600000 where school_id = '{sch_a}'`), VID],
+    ['owner', 'owner de A prende/sube su cupo por RPC (solo SportMaps)', 'RECHAZAR',
+        `select (public.set_school_video_settings('{sch_a}'::uuid, true, 3600000)).enabled::int`, VID],
+
+    // RPC de subida: gate táctico + flag + topes + cupo (FOR UPDATE).
+    ['coach', 'coach de A reserva una subida en A (el cupo sube 600 s)', 'ACEPTAR', BEGIN_VID('{sch_a}'),
+        { ...VID, chk: `select (used_seconds = 1800 and used_bytes = 1002000)::int from public.school_video_settings where school_id = '{sch_a}'` }],
+    ['owner', 'owner de A reserva una subida en A', 'ACEPTAR', BEGIN_VID('{sch_a}'), VID],
+    ['coach', 'coach de A reserva en la escuela B', 'RECHAZAR', BEGIN_VID('{sch_b}'), VID],
+    ['staff_b', 'coach de B reserva en B con el flag APAGADO', 'RECHAZAR', BEGIN_VID('{sch_b}'), VID],
+    ['nontac', 'admin (no táctico) de A reserva una subida', 'RECHAZAR', BEGIN_VID('{sch_a}'), VID],
+    ['parent', 'padre de A reserva una subida', 'RECHAZAR', BEGIN_VID('{sch_a}'), VID],
+    ['athlete', 'atleta de A reserva una subida', 'RECHAZAR', BEGIN_VID('{sch_a}'), VID],
+    ['anon', 'anon ejecuta begin_school_video_upload', 'RECHAZAR', BEGIN_VID('{sch_a}'), VID],
+    ['coach', 'coach de A reserva más de lo que queda de cupo (36000 − 1200 < 36000)', 'RECHAZAR', BEGIN_VID('{sch_a}', { secs: 10800, bytes: 26843545600 }), VID],
+    ['coach', 'coach de A reserva un archivo más grande que el máximo de la escuela', 'RECHAZAR', BEGIN_VID('{sch_a}', { bytes: 4294967297 }), VID],
+    ['coach', 'coach de A reserva con un equipo de B', 'RECHAZAR', BEGIN_VID('{sch_a}', { team: `'{team_b}'::uuid` }), VID],
+    ['coach', 'coach de A cuelga un asset en la subida del owner', 'RECHAZAR', `select public.attach_school_video_asset('{vid_a_up_owner}'::uuid, 'rlsasset0001')::int`, VID],
+    ['coach', 'coach de A asienta un webhook (settle: solo service_role)', 'RECHAZAR', `select ((public.settle_school_video('bunny', 'rlsvidA0001', 'ready', 1, 1)) ->> 'ok')::boolean::int`, VID],
+    ['owner', 'owner de A ejecuta expire_stale_school_video_uploads', 'RECHAZAR', `select public.expire_stale_school_video_uploads()`, VID],
+
+    // Borrado lógico: autor táctico o admin; devuelve el cupo; se lleva los clips.
+    ['coach', 'coach de A borra su propio video (cupo vuelve, clips fuera)', 'ACEPTAR', DEL_VID('{vid_a}'),
+        { ...VID, chk: `select (s.used_seconds = 600 and v.status = 'deleted' and v.counted_seconds = 0 and not exists (select 1 from public.school_video_clips c where c.video_id = v.id))::int from public.school_video_settings s join public.school_videos v on v.school_id = s.school_id where v.id = '{vid_a}'` }],
+    ['coach', 'coach de A borra el video del owner', 'RECHAZAR', DEL_VID('{vid_a_owner}'), VID],
+    ['owner', 'owner (admin) de A borra el video del coach', 'ACEPTAR', DEL_VID('{vid_a}'), VID],
+    ['nontac', 'admin (no táctico) de A borra el video del coach', 'ACEPTAR', DEL_VID('{vid_a}'), VID],
+    ['parent', 'padre de A borra un video', 'RECHAZAR', DEL_VID('{vid_a}'), VID],
+    ['staff_b', 'coach de B borra un video de A', 'RECHAZAR', DEL_VID('{vid_a}'), VID],
+    ['anon', 'anon ejecuta soft_delete_school_video', 'RECHAZAR', DEL_VID('{vid_a}'), VID],
+
+    // Clips: tácticos crean firmando como ellos; la jugada debe ser de la escuela.
+    ['coach', 'coach de A crea un clip en un video de A', 'ACEPTAR', NUEVO_CLIP('{vid_a}', `'{coach}'`), VID],
+    ['coach', 'coach de A crea un clip vinculado a una jugada de A', 'ACEPTAR', NUEVO_CLIP('{vid_a}', `'{coach}'`, `lineup_id|'{ml_a}'`), VID],
+    ['coach', 'coach de A crea un clip vinculado a una plantilla de A', 'ACEPTAR', NUEVO_CLIP('{vid_a}', `'{coach}'`, `preset_id|'{preset_a}'`), VID],
+    ['coach', 'coach de A vincula un clip a una jugada y a una plantilla a la vez', 'RECHAZAR',
+        NUEVO_CLIP('{vid_a}', `'{coach}'`, `lineup_id, preset_id|'{ml_a}', '{preset_a}'`), VID],
+    ['coach', 'coach de A vincula un clip a un ejercicio de B', 'RECHAZAR', NUEVO_CLIP('{vid_a}', `'{coach}'`, `exercise_id|'{ex_b}'`), VID],
+    ['coach', 'coach de A crea un clip en un video de B (school_id lo fija el trigger)', 'RECHAZAR', NUEVO_CLIP('{vid_b}', `'{coach}'`), VID],
+    ['coach', 'coach de A crea un clip firmado como el owner', 'RECHAZAR', NUEVO_CLIP('{vid_a}', `'{owner}'`), VID],
+    ['coach', 'coach de A crea un clip que termina después del video', 'RECHAZAR',
+        W(`insert into public.school_video_clips (school_id, video_id, start_s, end_s, title, created_by) values ('{sch_a}', '{vid_a}', 590, 700, 'RLS largo', '{coach}')`), VID],
+    ['nontac', 'admin (no táctico) de A crea un clip', 'RECHAZAR', NUEVO_CLIP('{vid_a}', `'{nontac}'`), VID],
+    ['parent', 'padre de A crea un clip', 'RECHAZAR', NUEVO_CLIP('{vid_a}', `'{parent}'`), VID],
+    ['coach', 'coach de A borra su clip', 'ACEPTAR', DEL_CLIP('{clip_a}'), VID],
+    ['coach', 'coach de A borra el clip del owner', 'RECHAZAR', DEL_CLIP('{clip_a_owner}'), VID],
+    ['owner', 'owner (admin) de A borra el clip del coach', 'ACEPTAR', DEL_CLIP('{clip_a}'), VID],
+    ['nontac', 'admin (no táctico) de A borra el clip del coach', 'ACEPTAR', DEL_CLIP('{clip_a}'), VID],
+    ['staff_b', 'coach de B borra un clip de A', 'RECHAZAR', DEL_CLIP('{clip_a}'), VID],
+
+    // Invariantes estáticos.
+    ['postgres', 'videos: ninguna policy FOR ALL y toda escritura con WITH CHECK', 'ACEPTAR',
+        `select (not exists (select 1 from pg_policies where schemaname = 'public' and tablename in ('school_video_settings','school_videos','school_video_clips') and (cmd = 'ALL' or (cmd in ('INSERT','UPDATE') and with_check is null))))::int`, VID],
+    ['postgres', 'videos: anon sin ningún privilegio en las tres tablas', 'ACEPTAR',
+        `select (not exists (select 1 from unnest(array['public.school_video_settings','public.school_videos','public.school_video_clips']) t, unnest(array['SELECT','INSERT','UPDATE','DELETE']) p where has_table_privilege('anon', t, p)))::int`, VID],
+    ['postgres', 'videos: authenticated sin INSERT/DELETE en school_videos, sin UPDATE de status/consent_scope ni de settings', 'ACEPTAR',
+        `select (not has_table_privilege('authenticated', 'public.school_videos', 'INSERT') and not has_table_privilege('authenticated', 'public.school_videos', 'DELETE') and not has_column_privilege('authenticated', 'public.school_videos', 'status', 'UPDATE') and not has_column_privilege('authenticated', 'public.school_videos', 'consent_scope', 'UPDATE') and not has_table_privilege('authenticated', 'public.school_video_settings', 'UPDATE'))::int`, VID],
+    ['postgres', 'videos: RLS activa en las tres tablas', 'ACEPTAR',
+        `select (count(*) = 3)::int from pg_class where oid in ('public.school_video_settings'::regclass, 'public.school_videos'::regclass, 'public.school_video_clips'::regclass) and relrowsecurity`, VID],
+    ...[
+        ['begin_school_video_upload', 'public.begin_school_video_upload(uuid,text,text,bigint,integer,uuid,text,date)', true],
+        ['attach_school_video_asset', 'public.attach_school_video_asset(uuid,text)', true],
+        ['soft_delete_school_video', 'public.soft_delete_school_video(uuid)', true],
+        ['set_school_video_settings', 'public.set_school_video_settings(uuid,boolean,integer,bigint,bigint,integer)', true],
+        ['settle_school_video', 'public.settle_school_video(text,text,text,integer,bigint)', false],
+        ['expire_stale_school_video_uploads', 'public.expire_stale_school_video_uploads(interval)', false],
+    ].flatMap(([nombre, firma, auth]) => [
+        ['postgres', `${nombre}: SECURITY DEFINER con search_path fijo (incluye pg_temp)`, 'ACEPTAR',
+            `select (p.prosecdef and exists (select 1 from unnest(p.proconfig) c where c like 'search_path=%pg_temp%'))::int from pg_proc p where p.oid = '${firma}'::regprocedure`, VID],
+        ['postgres', `${nombre}: sin EXECUTE para anon ni PUBLIC`, 'ACEPTAR',
+            `select (not has_function_privilege('anon', '${firma}', 'EXECUTE') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = '${firma}'::regprocedure and a.grantee = 0))::int`, VID],
+        ['postgres', `${nombre}: EXECUTE para authenticated = ${auth ? 'sí' : 'NO (solo service_role)'}`, 'ACEPTAR',
+            `select (has_function_privilege('authenticated', '${firma}', 'EXECUTE') = ${auth})::int`, VID],
+    ]),
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -542,6 +661,47 @@ BEGIN
           USING v_schr, (ids->>'pk_sys')::uuid;
       END IF;
     END IF;
+  END IF;
+
+  -- Videos subidos (M6h): solo si la migración está aplicada (SQL dinámico).
+  -- A: flag prendido, cupo 10 h, 1200 s usados; B: flag APAGADO (gate).
+  -- vid_a (coach, listo, 600 s contados) + vid_a_owner (owner, 600 s) + vid_b (B),
+  -- vid_a_up_owner (owner, subiendo, sin asset), vid_a_del (borrado), 2 clips.
+  IF to_regclass('public.school_videos') IS NOT NULL THEN
+    EXECUTE 'INSERT INTO public.school_video_settings (school_id, enabled, quota_seconds, quota_bytes, used_seconds, used_bytes)
+             VALUES ($1, true, 36000, 26843545600, 1200, 2000), ($2, false, 36000, 26843545600, 600, 1000)
+             ON CONFLICT (school_id) DO UPDATE SET enabled = EXCLUDED.enabled, quota_seconds = EXCLUDED.quota_seconds,
+               quota_bytes = EXCLUDED.quota_bytes, used_seconds = EXCLUDED.used_seconds, used_bytes = EXCLUDED.used_bytes,
+               max_upload_bytes = 4294967296, max_duration_s = 10800'
+      USING v_sch, v_schb;
+    EXECUTE 'INSERT INTO public.school_videos (school_id, provider, provider_asset_id, status, duration_s, title, counted_seconds, counted_bytes, created_by)
+             VALUES ($1, ''bunny'', ''rlsvidA0001'', ''ready'', 600, ''RLS video del coach'', 600, 1000, $2) RETURNING id'
+      INTO v_id USING v_sch, v_coach;
+    ids := ids || jsonb_build_object('vid_a', v_id);
+    EXECUTE 'INSERT INTO public.school_videos (school_id, provider, provider_asset_id, status, duration_s, title, counted_seconds, counted_bytes, created_by)
+             VALUES ($1, ''bunny'', ''rlsvidA0002'', ''ready'', 600, ''RLS video del owner'', 600, 1000, $2) RETURNING id'
+      INTO v_id USING v_sch, v_owner;
+    ids := ids || jsonb_build_object('vid_a_owner', v_id);
+    EXECUTE 'INSERT INTO public.school_videos (school_id, provider, status, title, counted_seconds, counted_bytes, created_by)
+             VALUES ($1, ''bunny'', ''uploading'', ''RLS subiendo del owner'', 0, 0, $2) RETURNING id'
+      INTO v_id USING v_sch, v_owner;
+    ids := ids || jsonb_build_object('vid_a_up_owner', v_id);
+    EXECUTE 'INSERT INTO public.school_videos (school_id, provider, status, title, created_by, deleted_at)
+             VALUES ($1, ''bunny'', ''deleted'', ''RLS borrado'', $2, now()) RETURNING id'
+      INTO v_id USING v_sch, v_coach;
+    ids := ids || jsonb_build_object('vid_a_del', v_id);
+    EXECUTE 'INSERT INTO public.school_videos (school_id, provider, provider_asset_id, status, duration_s, title, counted_seconds, counted_bytes, created_by)
+             VALUES ($1, ''bunny'', ''rlsvidB0001'', ''ready'', 600, ''RLS video de B'', 600, 1000, $2) RETURNING id'
+      INTO v_id USING v_schb, v_staffb;
+    ids := ids || jsonb_build_object('vid_b', v_id);
+    EXECUTE 'INSERT INTO public.school_video_clips (school_id, video_id, start_s, end_s, title, created_by)
+             VALUES ($1, $2, 1, 5, ''RLS clip del coach'', $3) RETURNING id'
+      INTO v_id USING v_sch, (ids->>'vid_a')::uuid, v_coach;
+    ids := ids || jsonb_build_object('clip_a', v_id);
+    EXECUTE 'INSERT INTO public.school_video_clips (school_id, video_id, start_s, end_s, title, created_by)
+             VALUES ($1, $2, 1, 5, ''RLS clip del owner'', $3) RETURNING id'
+      INTO v_id USING v_sch, (ids->>'vid_a')::uuid, v_owner;
+    ids := ids || jsonb_build_object('clip_a_owner', v_id);
   END IF;
 
   -- ── Casos: cada uno en su subbloque, que SIEMPRE termina en excepción ─────

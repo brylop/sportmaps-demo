@@ -40,7 +40,7 @@ import {
   DropdownMenuSeparator, DropdownMenuCheckboxItem, DropdownMenuSub, DropdownMenuSubTrigger,
   DropdownMenuSubContent, DropdownMenuRadioGroup, DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
-import { Loader2, Square, X, Bookmark, Redo2, Trash2, ChevronDown, PenLine, Undo2, Eraser, Ruler, Sparkles, Plus, Play, Copy, RotateCw, Pencil, Type, Users, MoreHorizontal, Package, LayoutGrid } from 'lucide-react';
+import { Loader2, Square, X, Bookmark, Redo2, Trash2, ChevronDown, PenLine, Undo2, Eraser, Ruler, Sparkles, Plus, Play, Copy, RotateCw, Pencil, Type, Users, MoreHorizontal, Package, LayoutGrid, Film } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { startHintFormationLabel } from '@/lib/school/tacticalStartHint';
 import { useTeamPerformanceRoster } from '@/hooks/usePerformanceData';
@@ -101,6 +101,7 @@ import {
 import { TacticalTimeline, TacticalFramePlayback, type PlayState, type PlaybackSpeed } from './TacticalTimeline';
 import { TacticalAiOverlay, TacticalAiPanel, type AiPreview } from './TacticalAiPanel';
 import { buildAnalyzeRequest, hasAiAnalysis } from '@/lib/school/tacticalAi';
+import { SchoolVideosDialog } from './schoolVideos/SchoolVideosDialog';
 
 const SITUATION_LABEL: Record<TacticalSituation, string> = {
   ataque: 'Ataque',
@@ -1288,6 +1289,10 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   const [aiOpen, setAiOpen] = useState(false);
   const [aiPreview, setAiPreview] = useState<AiPreview | null>(null);
   useEffect(() => { if (!open) { setAiOpen(false); setAiPreview(null); } }, [open]);
+  // M6h «Videos subidos»: solo el botón y el diálogo (detrás del flag por escuela;
+  // apagado muestra «Disponible pronto»). La lógica vive en schoolVideos/.
+  const [videosOpen, setVideosOpen] = useState(false);
+  useEffect(() => { if (!open) setVideosOpen(false); }, [open]);
   const { data: roster, isLoading: loadingRoster } = useTeamPerformanceRoster({ team_id: teamId });
   const { data: existingList, isLoading: loadingList } = useFootballLineups({ source_type: sourceType, source_id: sourceId });
   const existingLineupId = existingList?.[0]?.id;
@@ -2916,6 +2921,20 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
           <div className="ml-auto flex items-center gap-1.5 pr-8">
             {/* «Exportar ▾» (T2) en ver y en editar; cada exportación es un
                 evento de la métrica (T0). */}
+            {!loading && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className={`${TB_BTN} ${videosOpen ? TB_ON : TB_IDLE}`}
+                onClick={() => setVideosOpen(true)}
+                aria-label="Videos"
+                disabled={playingSequence}
+                title="Sube videos del celular o de Veo y recorta clips de la jugada"
+              >
+                <Film className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Videos</span>
+              </Button>
+            )}
             {!loading && roleCanEdit && hasAiAnalysis(sport) && (
               <Button
                 size="sm"
@@ -3658,6 +3677,13 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
               )}
               {/* Panel IA dentro de la fila de la cancha (no de todo el diálogo):
                   así no tapa el toolbar (Exportar, Ver en 3D, Guardar, la X). */}
+              <SchoolVideosDialog
+                open={videosOpen}
+                onOpenChange={setVideosOpen}
+                teamId={teamId}
+                lineupId={existingLineupId ?? null}
+                canEdit={roleCanEdit}
+              />
               <TacticalAiPanel
                 open={aiOpen && !loading}
                 onClose={() => { setAiOpen(false); setAiPreview(null); }}

@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 751,
-  "head": "20261014125632",
+  "count": 752,
+  "head": "20261015125439",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -754,6 +754,7 @@
     {"v":"20261013200604","file":"20261013200604_pizarra_rls_biblioteca_y_rpc_ejercicio.sql","sha256":"bc523dbd622f86a87c321b7f928d7dc56fc5cdc3f43865fa3122300c659cb6ab","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261014111442","file":"20261014111442_pizarra_ia_cupo_y_cache.sql","sha256":"93013542a34d63bb6c7ed8a29ae1d4428cdb5b9311ed3d111c7392dc55183935","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261014121142","file":"20261014121142_pizarra_paquetes_biblioteca.sql","sha256":"413f73a59f8b4d68a93f8d28cf53218d0f12410dcc597f91afd87787ed7665d6","added":"2026-10-14","by":"Brayan Steven Lopez"},
-    {"v":"20261014125632","file":"20261014125632_pizarra_eventos_ia_3d_paquetes.sql","sha256":"d9557306b1869862dc498af8d0cce5b081f98da500ac540cbf0246f1bbfb06d9","added":"2026-10-14","by":"Brayan Steven Lopez"}
+    {"v":"20261014125632","file":"20261014125632_pizarra_eventos_ia_3d_paquetes.sql","sha256":"d9557306b1869862dc498af8d0cce5b081f98da500ac540cbf0246f1bbfb06d9","added":"2026-10-14","by":"Brayan Steven Lopez"},
+    {"v":"20261015125439","file":"20261015125439_pizarra_videos_subidos.sql","sha256":"54ad995cb9eefa205183d270e8079fe39e4b0a1a5473a6d676c84f4efc05fdcb","added":"2026-10-15","by":"Brayan Steven Lopez"}
   ]
 }
