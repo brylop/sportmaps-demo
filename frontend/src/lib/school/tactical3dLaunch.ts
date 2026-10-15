@@ -7,6 +7,7 @@
 import type { TacticalArrow } from './footballQueries';
 import type { TacticalFrame } from './tacticalFrames';
 import type { TacticalSport } from './tacticalSports';
+import type { AnimationCurve } from './tacticalBoardSettings';
 
 /** WebGL2 disponible. `create` se inyecta en las pruebas. */
 export function detectWebGL2(create: () => { getContext: (id: string) => unknown } | null = defaultCanvas): boolean {
@@ -51,6 +52,8 @@ export interface Viewer3DSource {
   /** Tarjeta de la IA tal cual: el visor la convierte en jugada + superposición
    *  al abrir (tactical3dSuggestion.ts, en el chunk del 3D, no en la pizarra). */
   aiSuggestion?: { kind: 'contraataque' | 'variante'; titulo: string; frames: TacticalFrame[] } | null;
+  /** Ajustes de la pizarra del coach (M6g). El 3D usa la curva de velocidad. */
+  playback?: { curve?: AnimationCurve } | null;
 }
 
 /** Piso de fps forzado desde afuera (solo lo usan los e2e con WebGL por

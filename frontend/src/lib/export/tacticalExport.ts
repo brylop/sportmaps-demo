@@ -13,6 +13,7 @@
 import type { TacticalArrow } from '@/lib/school/footballQueries';
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
 import type { TacticalSport } from '@/lib/school/tacticalSports';
+import type { TacticalPlaybackOptions } from '@/lib/school/tacticalBoardSettings';
 import type { TacticalStaticPlayer } from '@/components/school/TacticalStaticSvg';
 import { renderTacticalPng } from './tacticalImage';
 import { canvasToBlob, loadImage } from './tacticalExportUtils';
@@ -62,6 +63,9 @@ export interface TacticalExportInput {
   description?: string | null;
   /** Deporte de la cancha (T4). Sin él, fútbol 11. */
   sport?: TacticalSport | null;
+  /** Ajustes de la pizarra del coach (M6g): curva de velocidad y rastros
+   *  para el GIF/video y el visor 3D. */
+  playback?: TacticalPlaybackOptions;
 }
 
 export interface ExportPngInput {

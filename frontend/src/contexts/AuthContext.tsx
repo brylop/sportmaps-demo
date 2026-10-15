@@ -8,6 +8,7 @@ import { bffClient } from '@/lib/api/bffClient';
 import { Database } from '@/integrations/supabase/types';
 import { getUserFriendlyError } from '@/lib/error-translator';
 import { clearPwaTenant } from '@/pwa/tenant';
+import { clearBoardSettings } from '@/lib/school/tacticalBoardSettings';
 
 interface UserProfile {
   id: string;
@@ -428,6 +429,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // debe quedar prendida para el siguiente que use este dispositivo.
       localStorage.removeItem('tactical_board_pin_photos');
       localStorage.removeItem('tactical_board_pin_style');
+      // Ajustes de la pizarra (M6g): claves por usuario con prefijo común;
+      // se borran TODAS por prefijo, no una lista que se desactualiza.
+      clearBoardSettings();
 
       // Marca de la escuela (PWA). Critico: localStorage es del NAVEGADOR, no
       // del usuario. Sin esto el logo, el nombre y el manifest de una escuela
@@ -546,6 +550,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }), [user, profile, session, loading, isPersonalTrainer, trainerSchoolId, trainerOnboardingStatus]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+/** Como useAuth, pero devuelve null fuera del AuthProvider en vez de
+ *  reventar: para piezas que también se montan sueltas (p. ej. la pizarra en
+ *  pruebas) y que sin sesión simplemente no persisten nada. */
+export function useOptionalAuth() {
+  return useContext(AuthContext) ?? null;
 }
 
 export function useAuth() {

@@ -21,6 +21,7 @@ import {
   createPlaybackClock, frameStartMs, PLAYBACK_SPEEDS, totalDurationMs, type PlaybackSpeed,
 } from '@/lib/school/tacticalAnimation';
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
+import type { AnimationCurve } from '@/lib/school/tacticalBoardSettings';
 import { sportDef, type TacticalSport } from '@/lib/school/tacticalSports';
 import {
   CAMERA_MODES, cameraLabel, collectPlayerKeys, court3D, MIN_FPS, OVERLAY_COLOR, playerVisual,
@@ -63,13 +64,15 @@ export interface Tactical3DViewerProps {
   initialCamera?: CameraMode;
   initialTimeMs?: number;
   autoPlay?: boolean;
+  /** Curva de velocidad de los Ajustes de la pizarra (M6g). */
+  curve?: AnimationCurve;
 }
 
 export default function Tactical3DViewer({
   sport, frames, playerLabels, playerJerseys, teamColor = TEAM_COLOR,
   overlayFrames = null, overlayColor = OVERLAY_COLOR, overlayLabels, overlayJerseys,
   overlayName = 'Contraataque del rival', title, onClose, onFallback, minFps = MIN_FPS, onStats,
-  initialCamera = 'tribuna', initialTimeMs = 0, autoPlay = false,
+  initialCamera = 'tribuna', initialTimeMs = 0, autoPlay = false, curve,
 }: Tactical3DViewerProps) {
   const court = useMemo(() => court3D(sport), [sport]);
   const def = sportDef(court.sport);
@@ -144,6 +147,7 @@ export default function Tactical3DViewer({
           <Scene3D
             court={court}
             frames={frames}
+            curve={curve}
             overlayFrames={overlay}
             overlayColor={overlayColor}
             keys={keys}

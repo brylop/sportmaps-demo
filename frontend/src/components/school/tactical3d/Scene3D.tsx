@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { advancePlayback, type PlaybackClock, type PlaybackSpeed } from '@/lib/school/tacticalAnimation';
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
+import type { AnimationCurve } from '@/lib/school/tacticalBoardSettings';
 import {
   computeLive, createFpsMeter, fixedCameraPose, playerCameraPose, toMeters,
   type CameraMode, type LiveState, type Court3D as Court3DModel, type PlayerVisual,
@@ -37,10 +38,12 @@ export interface Scene3DProps {
   reducedMotion: boolean;
   minFps: number;
   onFpsVerdict: (verdict: 'ok' | 'slow', fps: number, info: { geometries: number; textures: number; programs: number }) => void;
+  /** Curva de velocidad de los Ajustes de la pizarra (M6g). */
+  curve?: AnimationCurve;
 }
 
 export function Scene3D(p: Scene3DProps) {
-  const live = useRef<LiveState>(computeLive(p.court, p.frames, p.overlayFrames, p.clock.get())) as LiveRef;
+  const live = useRef<LiveState>(computeLive(p.court, p.frames, p.overlayFrames, p.clock.get(), p.curve)) as LiveRef;
   const playingRef = useRef(p.playing);
   playingRef.current = p.playing;
   const lastT = useRef<number>(-1);
@@ -57,7 +60,7 @@ export function Scene3D(p: Scene3DProps) {
     }
     if (t !== lastT.current) {
       lastT.current = t;
-      live.current = computeLive(p.court, p.frames, p.overlayFrames, t);
+      live.current = computeLive(p.court, p.frames, p.overlayFrames, t, p.curve);
     }
   }, -2);
 

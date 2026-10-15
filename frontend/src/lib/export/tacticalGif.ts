@@ -21,9 +21,12 @@ import {
 } from './tacticalVideo';
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
 import type { TacticalSport } from '@/lib/school/tacticalSports';
+import type { TacticalPlaybackOptions } from '@/lib/school/tacticalBoardSettings';
 
 export interface ExportGifOptions {
   frames: TacticalFrame[];
+  /** Ajustes de la pizarra (M6g): curva de velocidad y rastros. */
+  playback?: TacticalPlaybackOptions;
   playerLabels?: Record<string, string>;
   playerJerseys?: Record<string, number | null>;
   /** Cancha de fondo (T4). */
@@ -73,6 +76,7 @@ export async function exportGif(opts: ExportGifOptions): Promise<ExportGifResult
     playerLabels: opts.playerLabels,
     playerJerseys: opts.playerJerseys,
     sport: opts.sport,
+    playback: opts.playback,
     width: Math.min(720, Math.max(160, opts.width ?? 360)),
     holdStartMs: opts.holdStartMs ?? 600,
     holdEndMs: opts.holdEndMs ?? 1200,

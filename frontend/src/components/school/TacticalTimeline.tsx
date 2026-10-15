@@ -20,6 +20,8 @@ import {
 } from '@/lib/school/tacticalAnimation';
 import { isPointShape, viewBoxOf, yToView, type PitchView } from '@/lib/school/tacticalGeometry';
 import { BallGlyph } from './tacticalGlyphs';
+import type { TacticalPlaybackOptions } from '@/lib/school/tacticalBoardSettings';
+import { TacticalPlaybackTrails } from './TacticalPlaybackTrails';
 
 export type { PlayState, PlaybackSpeed };
 
@@ -147,7 +149,7 @@ export function TacticalTimeline(props: TacticalTimelineProps) {
   if (mode === 'view') {
     if (n < 2) return null;
     return (
-      <div className="shrink-0 border-t border-white/10 bg-black/30 px-3 py-1.5 flex items-center gap-2" aria-label="Línea de tiempo">
+      <div data-board-chrome="" className="shrink-0 border-t border-white/10 bg-black/30 px-3 py-1.5 flex items-center gap-2" aria-label="Línea de tiempo">
         {playBtn}
         <div className="flex-1 min-w-0"><ProgressBar clock={clock} frames={frames} totalMs={totalMs} onSeek={onSeek} /></div>
         <span className="text-[11px] tabular-nums text-white/70 shrink-0">{n} cuadros</span>
@@ -179,7 +181,7 @@ export function TacticalTimeline(props: TacticalTimelineProps) {
   };
 
   return (
-    <div className="shrink-0 border-t border-white/10 bg-black/30 px-2 sm:px-3 pt-1.5 pb-1.5 space-y-1.5" aria-label="Línea de tiempo">
+    <div data-board-chrome="" className="shrink-0 border-t border-white/10 bg-black/30 px-2 sm:px-3 pt-1.5 pb-1.5 space-y-1.5" aria-label="Línea de tiempo">
       {n > 1 && !compact && <ProgressBar clock={clock} frames={frames} totalMs={totalMs} onSeek={onSeek} />}
       <div className="flex items-center gap-1.5 overflow-x-auto overscroll-x-contain [scrollbar-width:thin]">
         {playBtn}
@@ -291,13 +293,16 @@ export interface TacticalFramePlaybackProps {
   renderPlayer: (p: InterpolatedPlayer, topPct: number) => ReactNode;
   /** Capa de figuras (solo lectura) con una opacidad común. */
   renderShapes: (shapes: TacticalArrow[], opacity: number, layerKey: string) => ReactNode;
+  /** Ajustes de la pizarra (M6g): curva de velocidad y rastros. */
+  playback?: TacticalPlaybackOptions;
 }
 
 /** Dibuja la jugada interpolada en el instante del reloj. Reemplaza a los
  *  pines y a la capa de dibujo mientras se reproduce o está en pausa. */
-export function TacticalFramePlayback({ frames, clock, view, renderPlayer, renderShapes }: TacticalFramePlaybackProps) {
+export function TacticalFramePlayback({ frames, clock, view, renderPlayer, renderShapes, playback }: TacticalFramePlaybackProps) {
   const t = useClockTime(clock);
-  const state = useMemo(() => interpolateFrames(frames, t), [frames, t]);
+  const curve = playback?.curve;
+  const state = useMemo(() => interpolateFrames(frames, t, { curve }), [frames, t, curve]);
   const groups = groupArrowsByOpacity(state.arrows);
   return (
     <div className="absolute inset-0 z-[35] pointer-events-none" aria-hidden="true">
@@ -306,6 +311,7 @@ export function TacticalFramePlayback({ frames, clock, view, renderPlayer, rende
           {renderShapes(g.shapes, g.opacity, `g${g.opacity}`)}
         </div>
       ))}
+      <TacticalPlaybackTrails frames={frames} t={t} view={view} options={playback} />
       {state.players.map((p) => {
         const top = yToView(p.y, view);
         if (top < -1 || top > 101) return null;

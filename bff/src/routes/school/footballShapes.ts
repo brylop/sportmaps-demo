@@ -222,6 +222,13 @@ export function validateFrames(frames: unknown): string[] {
         errors.push(`cuadro ${n}: ball debe ser null o {x, y} entre 0 y 100.`);
       }
     }
+    // M6g: posesión del balón (opcional). Clave del jugador que lo lleva en
+    // este cuadro; null/ausente = balón suelto (comportamiento de siempre).
+    if (f.ball_owner !== null && f.ball_owner !== undefined) {
+      if (typeof f.ball_owner !== 'string' || !f.ball_owner || f.ball_owner.length > MAX_FRAME_KEY) {
+        errors.push(`cuadro ${n}: ball_owner debe ser null o la key de un jugador.`);
+      }
+    }
     if (!Array.isArray(f.arrows)) {
       errors.push(`cuadro ${n}: arrows debe ser una lista.`);
     } else {
@@ -244,6 +251,7 @@ export function sanitizeFrames(frames: any[]): Record<string, unknown>[] {
     duration_ms: Math.round(f.duration_ms),
     players: f.players.map((p: any) => ({ key: p.key, x: p.x, y: p.y })),
     ball: f.ball ? { x: f.ball.x, y: f.ball.y } : null,
+    ...(typeof f.ball_owner === 'string' && f.ball_owner ? { ball_owner: f.ball_owner } : {}),
     arrows: sanitizeArrows(f.arrows),
   }));
 }

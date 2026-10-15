@@ -100,6 +100,11 @@ import {
 } from '@/lib/school/tacticalAnimation';
 import { TacticalTimeline, TacticalFramePlayback, type PlayState, type PlaybackSpeed } from './TacticalTimeline';
 import { TacticalAiOverlay, TacticalAiPanel, type AiPreview } from './TacticalAiPanel';
+// M6g «Ajustes de la pizarra»: la lógica vive en módulos propios; acá solo los enganches.
+import { PinNameTag, TacticalBoardPrefsProvider, useTacticalBoardPrefs } from './tacticalBoardPrefs';
+import { TacticalBoardSettingsButton } from './TacticalBoardSettingsDialog';
+import { TacticalPossessionBar } from './TacticalPossessionBar';
+import { ballAtFeet, placeBallShape, remapBallOwner, setBallOwner } from '@/lib/school/tacticalPossession';
 import { buildAnalyzeRequest, hasAiAnalysis } from '@/lib/school/tacticalAi';
 
 const SITUATION_LABEL: Record<TacticalSituation, string> = {
@@ -1145,6 +1150,7 @@ function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events, 
             {slot.slot_label}
           </span>
         )}
+        <PinNameTag name={subject.full_name} />
       </div>
     </div>
   );
@@ -1190,7 +1196,7 @@ function mapPresetFrames(
   const mapped = new Set(slotToKey.values());
   const extras = Object.entries(after).filter(([k]) => !mapped.has(k)).map(([key, s]) => ({ key, x: s.x, y: s.y }));
   return presetFrames.map((f) => ({
-    ...f,
+    ...remapBallOwner(f, (k) => { const i = presetSlotIndex(k); return i === null ? undefined : slotToKey.get(i); }),
     players: [
       ...f.players.flatMap((p) => {
         const idx = presetSlotIndex(p.key);
@@ -1248,6 +1254,7 @@ function PlaybackPin({ subject, meta, x, top, opacity, pinStyle, showPhotos }: {
           {label}
         </span>
       )}
+      <PinNameTag name={subject.full_name} />
     </div>
   );
 }
@@ -1354,6 +1361,8 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   // la cancha, no al costado (un panel de 220-260px al lado de una cancha en
   // 390px de ancho no cabe). Solo una hoja abierta a la vez.
   const isMobile = useIsMobile();
+  // M6g: Ajustes de la pizarra del coach (curva, rastros, posesión, nombres, tema, pantalla completa).
+  const prefs = useTacticalBoardPrefs(open);
   function toggleTactics() {
     setTacticsOpen((v) => !v);
     if (isMobile) setRosterOpen(false);
@@ -1391,6 +1400,15 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     };
     return frames.map((f, i) => (i === frameIndex ? live : f));
   }, [frames, frameIndex, placed, arrows]);
+  // M6g: con dueño del balón en el cuadro abierto, la figura balón va pegada
+  // a sus pies (al elegirlo y al arrastrarlo), igual que en la reproducción.
+  const openBallOwner = frames[frameIndex]?.ball_owner ?? null;
+  const openOwnerSlot = openBallOwner ? placed[openBallOwner] : undefined;
+  useEffect(() => {
+    if (!openOwnerSlot) return;
+    const at = ballAtFeet(openOwnerSlot);
+    setArrows((list) => placeBallShape(list, at));
+  }, [openOwnerSlot]);
 
   // Reproducción por cuadros: el tiempo vive en un reloj observable (solo se
   // re-renderizan la capa de reproducción y la barra, no el tablero) y los
@@ -2465,6 +2483,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       playerLabels,
       playerJerseys,
       sport,
+      playback: prefs.playback,
     };
   }
 
@@ -2494,7 +2513,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     if (list.length <= 1) return { slots, arrows: first.arrows, frames: null };
     const slotKeyOf = new Map(Object.keys(firstPlaced).map((k, i) => [k, presetSlotKey(i)]));
     const frames = serializeFrames(list.map((f) => ({
-      ...f,
+      ...remapBallOwner(f, (k) => slotKeyOf.get(k)),
       players: f.players.flatMap((p) => {
         const key = slotKeyOf.get(p.key);
         return key ? [{ key, x: p.x, y: p.y }] : [];
@@ -2643,6 +2662,23 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       onEraseShapes={noop}
     />
   );
+  // M6g: posesión del balón del cuadro abierto. Elegir dueño pega la figura
+  // balón a sus pies (el cuadro quieto la muestra donde la llevará la
+  // reproducción); «Suelto» la deja donde está.
+  const changeBallOwner = (key: string | null) => {
+    setFrames((list) => setBallOwner(list, frameIndex, key));
+  };
+  const possessionBar = !loading && canEdit && prefs.settings.possession && !framePlaybackActive ? (
+    <TacticalPossessionBar
+      frameNumber={frameIndex + 1}
+      value={liveFrames[frameIndex]?.ball_owner ?? null}
+      onChange={changeBallOwner}
+      candidates={Object.entries(placed).flatMap(([key, slot]) => {
+        const subject = subjectByKey.get(key);
+        return subject ? [{ key, name: subject.full_name, hint: slot.jersey_number !== '' ? String(slot.jersey_number) : slot.slot_label }] : [];
+      })}
+    />
+  ) : null;
   const timeline = !loading && (canEdit || liveFrames.length > 1) ? (
     <TacticalTimeline
       mode={canEdit ? 'edit' : 'view'}
@@ -2669,6 +2705,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
 
   return (
     <>
+    <TacticalBoardPrefsProvider value={prefs}>
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       {/* rounded-none Y sm:rounded-none a propósito: la base de DialogContent
           trae "sm:rounded-lg" -- sin el mismo prefijo, el merge de clases no
@@ -2690,7 +2727,8 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
           aprisionado" en un dispositivo real. vh es la unidad más probada. */}
       <DialogContent
         className="w-screen max-w-none max-h-none rounded-none sm:rounded-none border-0 flex flex-col p-0 bg-gradient-to-b from-zinc-950 via-zinc-900 to-zinc-950 text-white shadow-2xl"
-        style={{ height: '100vh', maxHeight: '100vh', overflow: 'hidden' }}
+        style={{ height: '100vh', maxHeight: '100vh', overflow: 'hidden', ...prefs.contentStyle }}
+        data-board-theme={prefs.settings.theme}
       >
         {/* DialogTitle/Description quedan para accesibilidad (Radix los exige)
             pero visualmente ocultos -- el título completo y las instrucciones
@@ -2712,6 +2750,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
             pr-12 en celular: la X del Dialog (absolute, también bajo
             safe-area) cae sobre la primera fila. */}
         <div
+          data-board-chrome=""
           className="pl-3 pr-12 md:px-4 pb-1.5 flex flex-wrap items-center gap-1.5 border-b border-white/10 bg-black/30 shrink-0"
           style={{ paddingTop: 'max(0.375rem, env(safe-area-inset-top))' }}
         >
@@ -2932,6 +2971,9 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
               </Button>
             )}
             {!loading && (
+              <TacticalBoardSettingsButton prefs={prefs} className={`${TB_BTN} ${TB_IDLE}`} />
+            )}
+            {!loading && (
               <TacticalExportMenu
                 getInput={buildExportInput}
                 frameCount={liveFrames.length}
@@ -3111,6 +3153,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                       view={view}
                       renderPlayer={renderPlaybackPlayer}
                       renderShapes={renderPlaybackShapes}
+                      playback={prefs.playback}
                     />
                   ) : (
                   <ArrowLayer
@@ -3203,6 +3246,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                 </div>
               </div>
               {timeline}
+              {possessionBar}
               </div>
 
               {/* Panel de pizarra táctica -- a la izquierda, en el margen que
@@ -3211,6 +3255,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                   vistas aparte. */}
               {tacticsOpen && !viewing && (
                 <div
+                  data-board-chrome=""
                   className="w-full md:w-[252px] shrink-0 border-t md:border-t-0 md:border-r border-white/10 bg-black/30 backdrop-blur-sm overflow-y-auto overscroll-contain px-3 py-3 space-y-3 order-last md:order-first"
                   style={isMobile ? { height: `${SHEET_VH}vh`, paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' } : undefined}
                 >
@@ -3681,6 +3726,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
         )}
       </DialogContent>
     </Dialog>
+    </TacticalBoardPrefsProvider>
     {cardSubject && roster && (
       <PlayerCard
         open={!!cardSubject}

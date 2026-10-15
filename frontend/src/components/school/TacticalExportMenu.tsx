@@ -135,6 +135,7 @@ export function TacticalExportMenu({ getInput, frameCount, onEvent, disabled, cl
         playerLabels: data.playerLabels,
         playerJerseys: data.playerJerseys,
         sport: data.sport,
+        playback: data.playback,
         onProgress: (p) => {
           const pct = Math.round(p * 10) * 10;
           if (pct !== last) {

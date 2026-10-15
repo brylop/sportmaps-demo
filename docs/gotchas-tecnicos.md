@@ -295,6 +295,9 @@ Salieron de la auditoría del editor (`docs/specs/pizarra-tactica-material-y-3d.
   `tactical_board_pin_photos`) y se borran al cerrar sesión (`AuthContext.tsx`). La de las fotos
   **tiene que** borrarse: la foto de un menor no puede quedar prendida para el siguiente que use
   el dispositivo. Una clave nueva de la pizarra se agrega a esa misma lista.
+  Excepción ya resuelta por prefijo: los «Ajustes de la pizarra» (M6g) van en
+  `tactical_board_settings:<user_id>` (una clave por usuario) y el signOut borra todo lo que
+  empiece con `tactical_board_settings:` (`clearBoardSettings`), sin enumerar.
 
 ---
 

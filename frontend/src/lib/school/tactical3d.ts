@@ -25,6 +25,7 @@ import { isGoalkeeperLabel } from './tacticalPalette';
 import { DEFAULT_FRAME_MS, type TacticalFrame } from './tacticalFrames';
 import type { Viewer3DSource } from './tactical3dLaunch';
 import { interpolateFrames, type InterpolatedFrame } from './tacticalAnimation';
+import type { AnimationCurve } from './tacticalBoardSettings';
 import { ballPathPoint, curveControlPoint, isLoftedPath, pairsOf } from './tacticalGeometry';
 import type { TacticalArrow } from './footballQueries';
 
@@ -412,13 +413,16 @@ export interface LiveState {
   ball: { x: number; z: number; opacity: number } | null;
 }
 
-export function computeLive(court: Court3D, frames: TacticalFrame[], overlay: TacticalFrame[] | null, t: number): LiveState {
-  const main = interpolateFrames(frames, t);
+export function computeLive(
+  court: Court3D, frames: TacticalFrame[], overlay: TacticalFrame[] | null, t: number, curve?: AnimationCurve,
+): LiveState {
+  // Misma interpolación y misma curva (Ajustes, M6g) que el 2D y el export.
+  const main = interpolateFrames(frames, t, { curve });
   let ball: LiveState['ball'] = null;
   if (main.ball) ball = { ...toMeters(court, main.ball.x, main.ball.y), opacity: main.ball.opacity };
   else {
     const obj = main.arrows.find((a) => a.shape.type === 'ball');
     if (obj) ball = { ...toMeters(court, obj.shape.x1, obj.shape.y1), opacity: obj.opacity };
   }
-  return { t, main, overlay: overlay && overlay.length > 0 ? interpolateFrames(overlay, t) : null, ball };
+  return { t, main, overlay: overlay && overlay.length > 0 ? interpolateFrames(overlay, t, { curve }) : null, ball };
 }

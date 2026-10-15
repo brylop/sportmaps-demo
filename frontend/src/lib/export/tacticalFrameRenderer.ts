@@ -16,8 +16,11 @@ import type { TacticalFrame } from '@/lib/school/tacticalFrames';
 import { isGoalkeeperLabel } from '@/lib/school/tacticalPalette';
 import type { TacticalSport } from '@/lib/school/tacticalSports';
 import { tacticalSvgMarkup } from './tacticalImage';
-import { framesDuration, interpolateFrames } from './tacticalInterpolation';
+import { frameDuration, framesDuration, interpolateFrames } from './tacticalInterpolation';
 import { svgMarkupToImage } from './tacticalExportUtils';
+import type { TacticalPlaybackOptions } from '@/lib/school/tacticalBoardSettings';
+import { hasPossession } from '@/lib/school/tacticalPossession';
+import { drawPlaybackTrails } from './tacticalTrailsCanvas';
 
 // ─── Dibujo de jugadores y balón (copia de TacticalStaticSvg) ──────────────
 
@@ -107,6 +110,9 @@ export interface TacticalRendererOptions {
   width: number;
   /** Cancha de fondo (T4). Sin deporte = fútbol 11. Mismo viewBox 300×340 en todas. */
   sport?: TacticalSport | null;
+  /** Ajustes de la pizarra (M6g): curva de velocidad y rastros. Sin ellos,
+   *  la curva «suave» de siempre y sin rastros. */
+  playback?: TacticalPlaybackOptions;
   /** Pausa en el primer cuadro antes de arrancar y en el último al terminar. */
   holdStartMs: number;
   holdEndMs: number;
@@ -143,13 +149,17 @@ export async function createTacticalFrameRenderer(opts: TacticalRendererOptions)
 
   // Fondos cacheados ANTES de pintar, así el bucle no espera decodificaciones.
   // Cuadros con las mismas figuras comparten fondo.
+  // Con posesión (M6g) el balón se dibuja en cada paso (sigue al dueño): la
+  // figura balón sale del fondo para que no quede repetida y quieta.
+  const possession = hasPossession(frames);
   const layerByKey = new Map<string, HTMLImageElement>();
   const layerOfFrame: HTMLImageElement[] = [];
   for (const f of frames) {
-    const key = JSON.stringify(f.arrows || []);
+    const shapes = possession ? (f.arrows || []).filter((a) => a.type !== 'ball') : (f.arrows || []);
+    const key = JSON.stringify(shapes);
     let img = layerByKey.get(key);
     if (!img) {
-      img = await svgMarkupToImage(tacticalSvgMarkup([], f.arrows || [], width, opts.sport));
+      img = await svgMarkupToImage(tacticalSvgMarkup([], shapes, width, opts.sport));
       layerByKey.set(key, img);
     }
     layerOfFrame.push(img);
@@ -161,13 +171,17 @@ export async function createTacticalFrameRenderer(opts: TacticalRendererOptions)
   const length = opts.holdStartMs + total + opts.holdEndMs;
 
   const draw = (elapsed: number) => {
-    const st = interpolateFrames(frames, elapsed - opts.holdStartMs);
+    const tMs = elapsed - opts.holdStartMs;
+    const st = interpolateFrames(frames, tMs, opts.playback?.curve);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1;
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, width, height);
     ctx.drawImage(layerOfFrame[st.arrowsFrameIndex], 0, 0, width, height);
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    // Rastros y pases debajo de las fichas (M6g).
+    drawPlaybackTrails(ctx, frames, tMs, opts.playback, frameDuration);
+    ctx.globalAlpha = 1;
     for (const p of st.players) {
       if (p.opacity <= 0.01) continue;
       ctx.globalAlpha = p.opacity;

@@ -24,6 +24,9 @@ export interface TacticalFrame {
   players: TacticalFramePlayer[];
   ball: { x: number; y: number } | null;
   arrows: TacticalArrow[];
+  /** M6g: clave del jugador que tiene el balón en este cuadro (opcional; sin
+   *  él el balón es suelto, como siempre). Ver tacticalPossession.ts. */
+  ball_owner?: TacticalPlayerKey | null;
 }
 
 export const MAX_FRAMES = 30;
