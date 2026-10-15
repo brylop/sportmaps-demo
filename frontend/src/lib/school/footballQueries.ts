@@ -8,6 +8,8 @@
 import { bffClient } from '@/lib/api/bffClient';
 import type { RosterSubject } from './performanceQueries';
 import type { TacticalFrame } from './tacticalFrames';
+import type { PlayNotes, PlayVideo } from './tacticalMedia';
+import type { TacticalTeamsConfig } from '@/lib/school/tacticalTeams';
 
 // Separados (P0, tablero táctico): un entrenamiento tiene alineación pero
 // nunca eventos de partido (goles/tarjetas), así que solo el primero acepta
@@ -52,6 +54,11 @@ export interface Lineup {
    *  un solo cuadro armado con players + arrows. Con cuadros, el cuadro 1 se
    *  replica igual en players/arrows. */
   frames?: TacticalFrame[] | null;
+  /** M6c: notas y videos de la jugada (migración 20261014163705). null/ausente = sin notas. */
+  notes?: PlayNotes | null;
+  videos?: PlayVideo[] | null;
+  /** M6b: configuración de los equipos (null = aspecto de siempre). */
+  teams?: TacticalTeamsConfig | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -87,6 +94,11 @@ export async function saveFootballLineup(payload: {
   /** null = la jugada es un solo cuadro (borra la animación guardada);
    *  ausente = no toca la columna (LineupModal clásico). */
   frames?: TacticalFrame[] | null;
+  /** ausente = no toca la columna; null = la borra. */
+  notes?: PlayNotes | null;
+  videos?: PlayVideo[] | null;
+  /** M6b: configuración de los equipos (null = aspecto de siempre). */
+  teams?: TacticalTeamsConfig | null;
 }): Promise<LineupDetail> {
   return bffClient.post<LineupDetail>('/api/v1/school/football/lineups', payload);
 }
@@ -218,7 +230,11 @@ export type TacticalShapeType =
   | 'ring' | 'ladder' | 'pole' | 'mannequin' | 'opponent'
   /** Lápiz libre y texto (2026-09-30): escribir sobre la cancha como en una
    *  tablet. freehand guarda el trazo en `points`; text, la nota en `text`. */
-  | 'freehand' | 'text';
+  | 'freehand' | 'text'
+  /** M6d (2026-10-14): foco/halo para resaltar a un jugador (objeto de un
+   *  punto) y la pseudo-figura `court` con la presentación de la cancha del
+   *  diálogo «Campo» (una por jugada; no se dibuja como figura). */
+  | 'spotlight' | 'court';
 
 /** Recorrido del balón (ball_path): pase raso, remate o penal. Cambia el
  *  dibujo (recta vs. comba) y la animación (remate/penal lo elevan). */
@@ -243,6 +259,29 @@ export interface TacticalArrow {
   points?: number[];
   /** Solo text: la nota. x1/y1 (= x2/y2) es su centro; size la agranda. */
   text?: string;
+  /** M6d. Flecha/curva: estilo con convención de leyenda (ausente = la línea de siempre). */
+  line?: 'pass' | 'dribble' | 'run' | 'shot';
+  /** M6d. Zona: forma (ausente = rectángulo redondeado). El polígono guarda sus
+   *  vértices en `points` y su caja en x1..y2; rect/elipse giran con `rot`. */
+  form?: 'rect' | 'ellipse' | 'polygon';
+  /** M6d. Zona: opacidad del relleno (0.05-0.6; ausente = 0.14). */
+  fill?: number;
+  /** M6d. Orden del movimiento (1, 2, 3…) en flechas, curvas y recorridos. */
+  seq?: number;
+  /** M6d. Solo type court: presentación de la cancha (ver tacticalCourt.ts). */
+  court?: TacticalCourtConfig;
+}
+
+/** Diálogo «Campo» (M6d): todo opcional; ausente = la cancha de siempre. */
+export interface TacticalCourtConfig {
+  tpl?: string;
+  goals?: boolean;
+  cam?: 'full' | 'half_bottom' | 'half_top' | 'three_quarters' | 'area';
+  orient?: 'v' | 'h';
+  surface?: 'grass_stripes' | 'grass' | 'synthetic' | 'wood' | 'blue' | 'whiteboard';
+  grass?: string;
+  lines?: string;
+  outline?: string;
 }
 
 export interface TacticalPreset {
@@ -255,6 +294,11 @@ export interface TacticalPreset {
   /** Mis jugadas animadas: mismo formato que Lineup.frames, con key =
    *  presetSlotKey(i) (índice del slot en `slots`), no un jugador. */
   frames?: TacticalFrame[] | null;
+  /** M6c: notas y videos de la jugada (migración 20261014163705). null/ausente = sin notas. */
+  notes?: PlayNotes | null;
+  videos?: PlayVideo[] | null;
+  /** M6b: configuración de los equipos (null = aspecto de siempre). */
+  teams?: TacticalTeamsConfig | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -274,6 +318,10 @@ export async function createTacticalPreset(payload: {
   slots: TacticalPresetSlot[];
   arrows?: TacticalArrow[];
   frames?: TacticalFrame[] | null;
+  notes?: PlayNotes | null;
+  videos?: PlayVideo[] | null;
+  /** M6b: configuración de los equipos (null = aspecto de siempre). */
+  teams?: TacticalTeamsConfig | null;
 }): Promise<TacticalPreset> {
   return bffClient.post<TacticalPreset>('/api/v1/school/football/tactical-presets', payload);
 }
@@ -288,7 +336,7 @@ export async function deleteTacticalPreset(id: string): Promise<void> {
  *  cambios sobre la misma. */
 export async function updateTacticalPreset(
   id: string,
-  payload: { name?: string; situation?: TacticalSituation; slots?: TacticalPresetSlot[]; arrows?: TacticalArrow[]; frames?: TacticalFrame[] | null },
+  payload: { name?: string; situation?: TacticalSituation; slots?: TacticalPresetSlot[]; arrows?: TacticalArrow[]; frames?: TacticalFrame[] | null; notes?: PlayNotes | null; videos?: PlayVideo[] | null; teams?: TacticalTeamsConfig | null },
 ): Promise<TacticalPreset> {
   return bffClient.put<TacticalPreset>(`/api/v1/school/football/tactical-presets/${id}`, payload);
 }

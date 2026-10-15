@@ -37,6 +37,8 @@ export interface SaveToLibraryDialogProps {
   defaultSport?: ExerciseSport;
   defaultObjective?: string;
   defaultMinutes?: number | null;
+  /** M6c: etiquetas de la nota de la jugada (fase de juego, objetivo). */
+  defaultTags?: string[];
   onSaved?: (exercise: TrainingExercise) => void;
 }
 
@@ -59,6 +61,7 @@ export function SaveToLibraryDialog({
   defaultSport = 'futbol',
   defaultObjective = '',
   defaultMinutes = null,
+  defaultTags,
   onSaved,
 }: SaveToLibraryDialogProps) {
   const { toast } = useToast();
@@ -68,7 +71,8 @@ export function SaveToLibraryDialog({
   const [minutes, setMinutes] = useState(defaultMinutes != null ? String(defaultMinutes) : '');
   const [ageGroup, setAgeGroup] = useState('');
   const [materials, setMaterials] = useState('');
-  const [tags, setTags] = useState('');
+  const defaultTagsText = (defaultTags ?? []).join(', ');
+  const [tags, setTags] = useState(defaultTagsText);
   const [description, setDescription] = useState('');
   const [sport, setSport] = useState<ExerciseSport>(defaultSport);
 
@@ -79,10 +83,10 @@ export function SaveToLibraryDialog({
     setMinutes(defaultMinutes != null ? String(defaultMinutes) : '');
     setAgeGroup('');
     setMaterials('');
-    setTags('');
+    setTags(defaultTagsText);
     setDescription('');
     setSport(defaultSport);
-  }, [open, defaultName, defaultObjective, defaultMinutes, defaultSport]);
+  }, [open, defaultName, defaultObjective, defaultMinutes, defaultSport, defaultTagsText]);
 
   const minutesNum = minutes.trim() === '' ? null : Number(minutes);
   const minutesInvalid = minutesNum !== null && (!Number.isInteger(minutesNum) || minutesNum < 1 || minutesNum > 240);
@@ -137,7 +141,7 @@ export function SaveToLibraryDialog({
         >
           <div className="grid grid-cols-[96px_1fr] gap-3 items-start">
             <div className="rounded-lg overflow-hidden bg-emerald-800">
-              <TacticalStaticSvg players={thumb.players} arrows={thumb.arrows} width={96} className="w-full h-auto" />
+              <TacticalStaticSvg players={thumb.players} arrows={thumb.arrows} width={96} className="w-full h-auto" sport={sport} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="ex-name">Nombre *</Label>

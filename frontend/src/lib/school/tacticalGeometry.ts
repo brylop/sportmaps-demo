@@ -64,6 +64,12 @@ export function hydrateShape(a: TacticalArrow): TacticalArrow {
   if (a.kind) out.kind = a.kind;
   if (Array.isArray(a.points)) out.points = a.points.map(Number);
   if (typeof a.text === 'string') out.text = a.text;
+  // M6d: estilos de línea, forma/relleno de zona, numeración y cancha.
+  if (a.line) out.line = a.line;
+  if (a.form) out.form = a.form;
+  if (a.fill != null) out.fill = Number(a.fill);
+  if (a.seq != null) out.seq = Number(a.seq);
+  if (a.court && typeof a.court === 'object') out.court = { ...a.court };
   return out;
 }
 
@@ -201,6 +207,14 @@ export const pairsOf = (flat: number[] | undefined): ArrowPoint[] => {
  *  Flechas/curvas/recorridos: el segmento entre extremos. Zona: dentro del
  *  rectángulo. Aproximado a propósito: es un borrador, no una selección fina. */
 export function eraserHits(s: TacticalArrow, p: ArrowPoint, r: number): boolean {
+  // La configuración de cancha (M6d) no es un dibujo: el borrador no la toca.
+  if (s.type === 'court') return false;
+  if (s.type === 'zone' && s.form === 'polygon') {
+    const pts = pairsOf(s.points);
+    for (let i = 0; i < pts.length; i++) if (distToSegment(p, pts[i], pts[(i + 1) % pts.length]) <= r) return true;
+    return false;
+  }
+  if (s.type === 'spotlight') return Math.hypot(p.x - s.x1, p.y - s.y1) <= r + 4 * (s.size ?? 1);
   if (s.type === 'freehand') {
     const pts = pairsOf(s.points);
     if (pts.length === 1) return Math.hypot(p.x - pts[0].x, p.y - pts[0].y) <= r;

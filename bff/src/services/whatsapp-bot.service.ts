@@ -73,6 +73,7 @@ import { registrarLeadDeProspecto } from './whatsapp-prospecto-lead.service';
 import { conversacionTomada } from './whatsapp-tomada.service';
 import { invitacionPendienteVigente } from './whatsapp-invitacion-vigente.service';
 import { conMarca, sufijoMarcaEscuela } from '../utils/tenantLink';
+import { desgloseMora, textoDesgloseMora } from '../utils/desglose-mora';
 import { atenderTurnoFactura, enlaceFormularioFactura } from './whatsapp-factura.service';
 import { celular10, type DuenoFactura } from './factura-pagador.service';
 import {
@@ -5141,7 +5142,11 @@ export function fallbackPaymentText(payments: any): string {
         const tipo = typeof p.tipo_cobro === 'string' && p.tipo_cobro.trim() ? p.tipo_cobro.trim() : null;
         const concepto = String(p.concept ?? '').trim();
         const detalle = tipo && concepto && concepto !== tipo ? `\n   ${concepto.slice(0, 80)}` : '';
-        return `• ${tipo ?? (concepto || 'Cobro')}: $${monto} — vence ${p.due_date}${venc}${detalle}${pagar ? `\n${pagar}` : ''}`;
+        // Mora (2026-10-14): ya va dentro del saldo; si la consulta trae
+        // late_fee_amount, se explica: «Mensualidad $X · Recargo por mora $Y · Total $Z».
+        const d = desgloseMora(Number(p.saldo || 0), p.late_fee_amount);
+        const mora = d ? `\n   ${textoDesgloseMora(d, pesosCop)}` : '';
+        return `• ${tipo ?? (concepto || 'Cobro')}: $${monto} — vence ${p.due_date}${venc}${mora}${detalle}${pagar ? `\n${pagar}` : ''}`;
     });
     const { total } = resumenDeDeuda(pendientes);
     const totalLinea = pendientes.length > 1 ? `\n\n*Total pendiente: ${pesosCop(total)}*` : '';

@@ -1,0 +1,198 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`posesión del balón > SIN posesión en ningún cuadro: exactamente el comportamiento de antes 1`] = `
+[
+  {
+    "arrows": [
+      {
+        "opacity": 1,
+        "shape": {
+          "type": "ball",
+          "x1": 5,
+          "x2": 5,
+          "y1": 5,
+          "y2": 5,
+        },
+      },
+    ],
+    "ball": null,
+    "fromIndex": 0,
+    "players": [
+      {
+        "key": "athlete:a",
+        "opacity": 1,
+        "x": 20,
+        "y": 20,
+      },
+      {
+        "key": "athlete:b",
+        "opacity": 1,
+        "x": 60,
+        "y": 20,
+      },
+    ],
+    "progress": 1,
+    "toIndex": 0,
+  },
+  {
+    "arrows": [
+      {
+        "opacity": 1,
+        "shape": {
+          "type": "ball",
+          "x1": 5,
+          "x2": 5,
+          "y1": 5,
+          "y2": 5,
+        },
+      },
+    ],
+    "ball": null,
+    "fromIndex": 0,
+    "players": [
+      {
+        "key": "athlete:a",
+        "opacity": 1,
+        "x": 21.25,
+        "y": 21.875,
+      },
+      {
+        "key": "athlete:b",
+        "opacity": 1,
+        "x": 60,
+        "y": 22.5,
+      },
+    ],
+    "progress": 0.25,
+    "toIndex": 1,
+  },
+  {
+    "arrows": [
+      {
+        "opacity": 1,
+        "shape": {
+          "type": "ball",
+          "x1": 5,
+          "x2": 5,
+          "y1": 5,
+          "y2": 5,
+        },
+      },
+    ],
+    "ball": null,
+    "fromIndex": 0,
+    "players": [
+      {
+        "key": "athlete:a",
+        "opacity": 1,
+        "x": 30,
+        "y": 35,
+      },
+      {
+        "key": "athlete:b",
+        "opacity": 1,
+        "x": 60,
+        "y": 40,
+      },
+    ],
+    "progress": 0.5,
+    "toIndex": 1,
+  },
+  {
+    "arrows": [
+      {
+        "opacity": 1,
+        "shape": {
+          "type": "ball",
+          "x1": 5,
+          "x2": 5,
+          "y1": 5,
+          "y2": 5,
+        },
+      },
+    ],
+    "ball": null,
+    "fromIndex": 1,
+    "players": [
+      {
+        "key": "athlete:a",
+        "opacity": 1,
+        "x": 40,
+        "y": 50,
+      },
+      {
+        "key": "athlete:b",
+        "opacity": 1,
+        "x": 60,
+        "y": 60,
+      },
+    ],
+    "progress": 0,
+    "toIndex": 2,
+  },
+  {
+    "arrows": [
+      {
+        "opacity": 1,
+        "shape": {
+          "type": "ball",
+          "x1": 5,
+          "x2": 5,
+          "y1": 5,
+          "y2": 5,
+        },
+      },
+    ],
+    "ball": null,
+    "fromIndex": 1,
+    "players": [
+      {
+        "key": "athlete:a",
+        "opacity": 1,
+        "x": 40,
+        "y": 50,
+      },
+      {
+        "key": "athlete:b",
+        "opacity": 1,
+        "x": 70,
+        "y": 65,
+      },
+    ],
+    "progress": 0.5,
+    "toIndex": 2,
+  },
+  {
+    "arrows": [
+      {
+        "opacity": 1,
+        "shape": {
+          "type": "ball",
+          "x1": 5,
+          "x2": 5,
+          "y1": 5,
+          "y2": 5,
+        },
+      },
+    ],
+    "ball": null,
+    "fromIndex": 2,
+    "players": [
+      {
+        "key": "athlete:a",
+        "opacity": 1,
+        "x": 40,
+        "y": 50,
+      },
+      {
+        "key": "athlete:b",
+        "opacity": 1,
+        "x": 80,
+        "y": 70,
+      },
+    ],
+    "progress": 1,
+    "toIndex": 2,
+  },
+]
+`;

@@ -33,7 +33,8 @@ import { useFootballLineups, useFootballLineup, useSaveFootballLineup } from '@/
 import { POSITION_LABEL, suggestLabel, legacyFallbackPosition, LEGACY_BAND_Y } from '@/lib/school/footballDisplay';
 import type { FootballSourceType, LineupPlayer, LineupRole, PositionCode } from '@/lib/school/footballQueries';
 import type { RosterSubject } from '@/lib/school/performanceQueries';
-import { FootballPitchBackground } from './FootballPitchBackground';
+import { CourtBackground } from './courts/CourtBackground';
+import { useTeamTacticalSport } from '@/hooks/useTeamTacticalSport';
 
 interface LineupModalProps {
   open: boolean;
@@ -472,6 +473,8 @@ function DragOverlayPreview({ subject }: { subject: RosterSubject }) {
 
 export function LineupModal({ open, onClose, teamId, teamName, sourceType, sourceId, matchLabel }: LineupModalProps) {
   const { toast } = useToast();
+  // T4: la cancha del deporte del equipo (sin deporte reconocible → fútbol 11).
+  const { sport } = useTeamTacticalSport(teamId, { enabled: open });
   const { data: roster, isLoading: loadingRoster } = useTeamPerformanceRoster({ team_id: teamId });
   const { data: existingList } = useFootballLineups({ source_type: sourceType, source_id: sourceId });
   const existingLineupId = existingList?.[0]?.id;
@@ -1012,7 +1015,7 @@ export function LineupModal({ open, onClose, teamId, teamName, sourceType, sourc
                       className="relative rounded-xl overflow-hidden h-full max-w-full border border-white/20 shadow-md bg-green-950"
                       style={{ aspectRatio: '300 / 340' }}
                     >
-                      <FootballPitchBackground />
+                      <CourtBackground sport={sport} />
                       {emptySlots.map((slot) => (
                         <EmptySlotMarker key={slot.id} x={slot.x} y={slot.y} label={slot.label} />
                       ))}

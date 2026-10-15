@@ -75,6 +75,7 @@ import { BrandedEmailTemplates } from '../utils/emailTemplates';
 import { appPublica, enlaceDeCobro } from '../utils/url-publica-familias';
 import { findDuplicatePaymentIds } from './duplicatePayerGuard.service';
 import { esMensualidad } from './tipo-de-cobro';
+import { desgloseMora, montoConMora } from '../utils/desglose-mora';
 import { COLUMNAS_CONTACTO_FICHA, COLUMNAS_CONTACTO_HIJO } from './contacto-acudiente';
 import {
     agruparPorFamilia, contactosConEstadoDeCuentaHoy, esDiaHabil, escuelasConEstadoPendiente,
@@ -170,6 +171,13 @@ export interface ContactoPlaneado {
     concepto: ConceptoRecordatorio;
     /** Cobros que menciona el mensaje; el primero es el "líder" (el más viejo): botón y candado. */
     paymentIds: string[];
+    /**
+     * Total del mensaje (suma de saldos, mora incluida) y la parte que es
+     * recargo por mora (suma de late_fee_amount). `datos.monto` ya lo dice para
+     * WhatsApp; el correo lo muestra desglosado.
+     */
+    total?: number;
+    mora?: number;
     datos: DatosCobro;
 }
 
@@ -215,7 +223,7 @@ export function planificar(e: EntradaPlan): Plan {
     };
     const limitePrevio = `${sumarDias(e.hoy, -DIAS_SIN_REPETIR_PREVIO)}T05:00:00Z`; // 00:00 COT
 
-    type Cand = { paymentId: string; escalon: Escalon; delta: number; atleta: string; saldo: number; vence: string };
+    type Cand = { paymentId: string; escalon: Escalon; delta: number; atleta: string; saldo: number; mora: number; vence: string };
     // Clave del destinatario: 'wa:<id>' (WhatsApp) o el correo (correo).
     const porDestino = new Map<string, { canal: CanalRecordatorio; familias: Familia[]; cands: Cand[] }>();
 
@@ -235,7 +243,7 @@ export function planificar(e: EntradaPlan): Plan {
             if (esc.concepto === 'pendiente_suave' && p?.overdue_notice_sent_at) {
                 descartes.vencido_ya_avisado++; continue;
             }
-            cands.push({ paymentId: r.paymentId, escalon: esc, delta, atleta: r.atleta, saldo: r.saldo, vence: r.vence });
+            cands.push({ paymentId: r.paymentId, escalon: esc, delta, atleta: r.atleta, saldo: r.saldo, mora: r.mora ?? 0, vence: r.vence });
         }
         if (cands.length === 0) continue;
         if (f.avisadaHoy || e.contactadosHoy.has(f.clave) || (f.waId && e.contactadosHoy.has(`wa:${f.waId}`))) {
@@ -270,6 +278,8 @@ export function planificar(e: EntradaPlan): Plan {
             .sort((a, b) => a.vence.localeCompare(b.vence));
         const lider = grupo[0];
         const fam = g.familias[0];
+        const total = grupo.reduce((s, c) => s + c.saldo, 0);
+        const mora = grupo.reduce((s, c) => s + c.mora, 0);
         contactos.push({
             canal: g.canal,
             familyKey: destino,
@@ -280,13 +290,17 @@ export function planificar(e: EntradaPlan): Plan {
             avisoPolitica: e.avisoPolitica ?? null,
             concepto: lider.escalon.concepto,
             paymentIds: grupo.map((c) => c.paymentId),
+            total,
+            mora,
             datos: {
                 nombreContacto: fam.nombre.split(' ')[0] || fam.nombre,
                 nombreAtleta: unirNombres(grupo.map((c) => c.atleta)),
                 nombreEscuela: e.escuela,
                 periodo: periodoDe(e.pagos.get(lider.paymentId)),
                 fechaVencimiento: fechaLarga(lider.vence),
-                monto: fmtCop(grupo.reduce((s, c) => s + c.saldo, 0)),
+                // Con mora: «$165.000, que incluye $15.000 de recargo por mora»
+                // (la plantilla de Meta es fija; solo cambia la variable).
+                monto: montoConMora(total, mora, fmtCop),
                 diasVencido: lider.delta > 0 ? lider.delta : null,
             },
         });
@@ -464,7 +478,7 @@ export async function planDeEscuela(
     // Solo mensualidades (las plantillas dicen "la mensualidad de …"), con saldo
     // y sin comprobante en revisión: a quien ya pagó y espera aprobación no se le cobra.
     const { data: crudos, error } = await supabase.from('payments')
-        .select('id, school_id, parent_id, user_id, child_id, unregistered_athlete_id, concept, amount, amount_paid, status, due_date, payment_type, payment_category, period_year, period_month, charge_notice_sent_at, overdue_notice_sent_at, requires_review')
+        .select('id, school_id, parent_id, user_id, child_id, unregistered_athlete_id, concept, amount, amount_paid, early_payment_discount_applied, late_fee_amount, status, due_date, payment_type, payment_category, period_year, period_month, charge_notice_sent_at, overdue_notice_sent_at, requires_review')
         .eq('school_id', schoolId)
         .eq('payment_type', 'subscription')
         .in('status', ['pending', 'overdue', 'partial'])
@@ -553,6 +567,15 @@ export type ResultadoContacto = 'enviado' | 'ya_reclamado' | `no_enviado:${strin
 
 type EnvioCanal = { enviado: true; waMessageId?: string | null; plantilla?: string | null } | { enviado: false; motivo: string };
 
+/**
+ * Desglose de mora del correo («Mensualidad $X · Recargo por mora $Y · Total
+ * $Z»), o null si el mensaje no lleva mora. El total ya la incluye.
+ */
+export function moraParaCorreo(c: Pick<ContactoPlaneado, 'total' | 'mora'>): { base: string; fee: string } | null {
+    const d = desgloseMora(c.total ?? 0, c.mora ?? 0);
+    return d ? { base: fmtCop(d.mensualidad), fee: fmtCop(d.recargo) } : null;
+}
+
 /** El escalón por correo. El botón abre /p/:token del cobro líder (paga sin iniciar sesión). */
 async function enviarPorCorreo(schoolId: string, c: ContactoPlaneado, lider: string): Promise<EnvioCanal> {
     if (!c.email) return { enviado: false, motivo: 'sin_correo' };
@@ -563,7 +586,9 @@ async function enviarPorCorreo(schoolId: string, c: ContactoPlaneado, lider: str
         concepto: c.concepto,
         parentName: c.datos.nombreContacto,
         athletes: c.datos.nombreAtleta,
-        amount: c.datos.monto,
+        // El total solo («$165.000»): `datos.monto` trae la frase de mora de la
+        // plantilla de WhatsApp; el correo la muestra desglosada (lateFee).
+        amount: c.total != null ? fmtCop(c.total) : c.datos.monto,
         period: c.datos.periodo ?? null,
         dueDate: c.datos.fechaVencimiento ?? '',
         daysOverdue: c.datos.diasVencido ?? null,
@@ -571,6 +596,7 @@ async function enviarPorCorreo(schoolId: string, c: ContactoPlaneado, lider: str
         schoolId,
         cutoffDay: c.diaCorte ?? null,
         policyNotice: c.avisoPolitica ?? null,
+        lateFee: moraParaCorreo(c),
     });
     const r = await emailClient.send({ to: c.email, subject: tpl.subject, html: tpl.html });
     if (!r?.success) return { enviado: false, motivo: 'correo_fallo' };

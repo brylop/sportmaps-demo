@@ -9,6 +9,8 @@
 import type { ReactNode } from 'react';
 import { BOARD_H, BOARD_W, type CourtFrame, type TacticalSport } from '@/lib/school/tacticalSports';
 import type { CourtBackgroundProps, Meters } from './courtGeometry';
+import { useCourtConfig } from './courtLook';
+import { resolveCourtLook } from '@/lib/school/tacticalCourt';
 
 interface ShellProps extends CourtBackgroundProps {
   sport: TacticalSport;
@@ -16,17 +18,29 @@ interface ShellProps extends CourtBackgroundProps {
   court: string;
   surround: string;
   /** Franjas de pasto (canchas de grama) o tablas de madera. */
-  texture?: 'grass' | 'wood' | 'none';
+  texture?: 'grass' | 'wood' | 'turf' | 'none';
   children: ReactNode;
 }
 
-export function CourtShell({ sport, frame: f, court, surround, texture = 'none', viewBox = `0 0 ${BOARD_W} ${BOARD_H}`, children }: ShellProps) {
+export function CourtShell({ sport, frame: f, court: baseCourt, surround: baseSurround, texture: baseTexture = 'none', viewBox = `0 0 ${BOARD_W} ${BOARD_H}`, children }: ShellProps) {
+  // M6d: piso/colores del diálogo «Campo» (sin elegir nada = lo de siempre).
+  const cfg = useCourtConfig();
+  const look = cfg ? resolveCourtLook({ court: baseCourt, surround: baseSurround, line: '#ffffff' }, cfg) : null;
+  const court = look?.court ?? baseCourt;
+  const surround = look?.surround ?? baseSurround;
+  const texture = look?.texture ?? baseTexture;
+  const vignette = look ? look.vignette : true;
   const stripes: ReactNode[] = [];
   if (texture === 'grass') {
     const n = 10;
     const h = f.h / n;
     for (let i = 0; i < n; i += 2) {
       stripes.push(<rect key={i} x={f.ox} y={f.oy + i * h} width={f.w} height={h} fill="#ffffff" opacity={0.05} />);
+    }
+  } else if (texture === 'turf') {
+    // Sintética: trama fina de fibras, más regular que el césped natural.
+    for (let x = f.ox + 4; x < f.ox + f.w; x += 4) {
+      stripes.push(<line key={`t${x}`} x1={x} y1={f.oy} x2={x} y2={f.oy + f.h} stroke="#ffffff" strokeOpacity={0.05} strokeWidth={0.5} />);
     }
   } else if (texture === 'wood') {
     const step = 7;
@@ -46,9 +60,11 @@ export function CourtShell({ sport, frame: f, court, surround, texture = 'none',
         <rect x={f.ox} y={f.oy} width={f.w} height={f.h} fill={court} />
         <g>{stripes}</g>
         {/* Viñeta suave en los fondos, como la de la cancha de fútbol. */}
-        <rect x={0} y={0} width={BOARD_W} height={24} fill="#000000" opacity={0.12} />
-        <rect x={0} y={BOARD_H - 24} width={BOARD_W} height={24} fill="#000000" opacity={0.12} />
-        {children}
+        {vignette && <rect x={0} y={0} width={BOARD_W} height={24} fill="#000000" opacity={0.12} />}
+        {vignette && <rect x={0} y={BOARD_H - 24} width={BOARD_W} height={24} fill="#000000" opacity={0.12} />}
+        {/* Plantilla de ejercicio («Sin líneas», cuadrículas, rondos): sin líneas reglamentarias. */}
+        {look?.hideLines ? null : children}
+        {look?.outline && <rect x={f.ox} y={f.oy} width={f.w} height={f.h} fill="none" stroke={look.outline} strokeWidth={2.6} />}
       </g>
     </svg>
   );

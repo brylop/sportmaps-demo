@@ -8,7 +8,7 @@
  * de progreso y la capa de reproducción, no el tablero entero 60 veces por
  * segundo.
  */
-import { memo, useMemo, useSyncExternalStore, type ReactNode, type DragEvent } from 'react';
+import { memo, useMemo, useState, useSyncExternalStore, type ReactNode, type DragEvent } from 'react';
 import { ChevronLeft, ChevronRight, Pause, Play, Plus, Repeat, Trash2 } from 'lucide-react';
 import type { TacticalArrow } from '@/lib/school/footballQueries';
 import {
@@ -20,6 +20,8 @@ import {
 } from '@/lib/school/tacticalAnimation';
 import { isPointShape, viewBoxOf, yToView, type PitchView } from '@/lib/school/tacticalGeometry';
 import { BallGlyph } from './tacticalGlyphs';
+import type { TacticalPlaybackOptions } from '@/lib/school/tacticalBoardSettings';
+import { TacticalPlaybackTrails } from './TacticalPlaybackTrails';
 
 export type { PlayState, PlaybackSpeed };
 
@@ -44,7 +46,7 @@ const FrameThumb = memo(function FrameThumb({ frame }: { frame: TacticalFrame })
         if (isPointShape(a.type) || a.type === 'text') {
           return <circle key={i} cx={a.x1 * 0.3} cy={a.y1 * 0.34} r={0.9} fill={a.type === 'ball' ? '#ffffff' : '#fbbf24'} />;
         }
-        if (a.type === 'zone' || a.type === 'freehand') return null;
+        if (a.type === 'zone' || a.type === 'freehand' || a.type === 'court' || a.type === 'spotlight') return null;
         return <line key={i} x1={a.x1 * 0.3} y1={a.y1 * 0.34} x2={a.x2 * 0.3} y2={a.y2 * 0.34} stroke="#ffffff" strokeOpacity={0.7} strokeWidth={0.5} />;
       })}
       {frame.players.map((p) => (
@@ -108,6 +110,10 @@ export interface TacticalTimelineProps {
   onDelete?: (index: number) => void;
   onMove?: (from: number, to: number) => void;
   onDurationChange?: (index: number, ms: number) => void;
+  /** Celular con una hoja abierta: solo la tira de cuadros (sin el texto de
+   *  ayuda ni la fila de mover/tiempo/velocidad), para que la cancha no quede
+   *  angosta. Al cerrar la hoja vuelve todo. */
+  compact?: boolean;
 }
 
 const BTN = 'h-11 min-w-11 shrink-0 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1 px-2 transition-colors disabled:opacity-30 disabled:pointer-events-none';
@@ -118,10 +124,15 @@ export function TacticalTimeline(props: TacticalTimelineProps) {
   const {
     mode, frames, currentIndex, playState, clock, totalMs, speed, loop,
     onPlayPause, onSeek, onSpeedChange, onLoopChange,
-    onSelect, onAdd, onDelete, onMove, onDurationChange,
+    onSelect, onAdd, onDelete, onMove, onDurationChange, compact = false,
   } = props;
   const n = frames.length;
   const playing = playState === 'playing';
+  // Reordenar arrastrando (escritorio): de dónde sale el cuadro y sobre cuál
+  // va a caer, para marcar el destino. En celular el drag de HTML5 no anda:
+  // ahí están ◀ ▶ (44 px) que mueven el cuadro abierto.
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dropAt, setDropAt] = useState<number | null>(null);
   const playBtn = (
     <button
       type="button"
@@ -138,7 +149,7 @@ export function TacticalTimeline(props: TacticalTimelineProps) {
   if (mode === 'view') {
     if (n < 2) return null;
     return (
-      <div className="shrink-0 border-t border-white/10 bg-black/30 px-3 py-1.5 flex items-center gap-2" aria-label="Línea de tiempo">
+      <div data-board-chrome="" className="shrink-0 border-t border-white/10 bg-black/30 px-3 py-1.5 flex items-center gap-2" aria-label="Línea de tiempo">
         {playBtn}
         <div className="flex-1 min-w-0"><ProgressBar clock={clock} frames={frames} totalMs={totalMs} onSeek={onSeek} /></div>
         <span className="text-[11px] tabular-nums text-white/70 shrink-0">{n} cuadros</span>
@@ -147,19 +158,31 @@ export function TacticalTimeline(props: TacticalTimelineProps) {
   }
 
   const locked = playState !== 'stopped';
+  const resetDrag = () => { setDragFrom(null); setDropAt(null); };
   const handleDragStart = (i: number) => (e: DragEvent) => {
     e.dataTransfer.setData('text/x-frame-index', String(i));
     e.dataTransfer.effectAllowed = 'move';
+    setDragFrom(i);
+  };
+  // Solo se acepta como destino un cuadro de esta línea de tiempo (no texto
+  // ni archivos arrastrados desde afuera).
+  const handleDragOver = (i: number) => (e: DragEvent) => {
+    if (dragFrom === null || locked) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dropAt !== i) setDropAt(i);
   };
   const handleDrop = (i: number) => (e: DragEvent) => {
     e.preventDefault();
-    const from = Number(e.dataTransfer.getData('text/x-frame-index'));
-    if (Number.isInteger(from) && from !== i) onMove?.(from, i);
+    const raw = e.dataTransfer.getData('text/x-frame-index');
+    const from = dragFrom ?? (raw === '' ? NaN : Number(raw));
+    resetDrag();
+    if (!locked && Number.isInteger(from) && from >= 0 && from < n && from !== i) onMove?.(from, i);
   };
 
   return (
-    <div className="shrink-0 border-t border-white/10 bg-black/30 px-2 sm:px-3 pt-1.5 pb-1.5 space-y-1.5" aria-label="Línea de tiempo">
-      {n > 1 && <ProgressBar clock={clock} frames={frames} totalMs={totalMs} onSeek={onSeek} />}
+    <div data-board-chrome="" className="shrink-0 border-t border-white/10 bg-black/30 px-2 sm:px-3 pt-1.5 pb-1.5 space-y-1.5" aria-label="Línea de tiempo">
+      {n > 1 && !compact && <ProgressBar clock={clock} frames={frames} totalMs={totalMs} onSeek={onSeek} />}
       <div className="flex items-center gap-1.5 overflow-x-auto overscroll-x-contain [scrollbar-width:thin]">
         {playBtn}
         <div className="flex items-center gap-1.5" role="list" aria-label="Cuadros">
@@ -170,15 +193,19 @@ export function TacticalTimeline(props: TacticalTimelineProps) {
               role="listitem"
               draggable={!locked}
               onDragStart={handleDragStart(i)}
-              onDragOver={(e) => e.preventDefault()}
+              onDragOver={handleDragOver(i)}
               onDrop={handleDrop(i)}
+              onDragEnd={resetDrag}
               onClick={() => onSelect?.(i)}
               aria-label={`Cuadro ${i + 1}`}
               aria-current={i === currentIndex ? 'true' : undefined}
-              title={i === 0 ? 'Cuadro 1: posición inicial' : `Cuadro ${i + 1} (${secondsLabel(f.duration_ms)} para llegar)`}
+              data-drop-target={dropAt === i && dragFrom !== null && dragFrom !== i ? 'true' : undefined}
+              title={`${i === 0 ? 'Cuadro 1: posición inicial' : `Cuadro ${i + 1} (${secondsLabel(f.duration_ms)} para llegar)`}${n > 1 && !locked ? ' · arrastra para reordenar' : ''}`}
               className={`relative h-12 w-11 shrink-0 rounded-md p-0.5 ring-2 transition ${
-                i === currentIndex && !locked ? 'ring-emerald-400 bg-emerald-500/20' : 'ring-white/10 bg-white/5 hover:ring-white/30'
-              }`}
+                dropAt === i && dragFrom !== null && dragFrom !== i
+                  ? 'ring-amber-400 bg-amber-500/20'
+                  : i === currentIndex && !locked ? 'ring-emerald-400 bg-emerald-500/20' : 'ring-white/10 bg-white/5 hover:ring-white/30'
+              } ${dragFrom === i ? 'opacity-50' : ''}`}
             >
               <FrameThumb frame={f} />
               <span className="absolute -top-1 -left-1 h-4 min-w-4 px-0.5 rounded-full bg-zinc-950 ring-1 ring-white/40 text-[9px] font-black leading-4 text-white">
@@ -196,14 +223,14 @@ export function TacticalTimeline(props: TacticalTimelineProps) {
         >
           <Plus className="h-4 w-4" /> Cuadro
         </button>
-        {n < 2 && (
+        {n < 2 && !compact && (
           <span className="text-[11px] text-white/60 leading-tight min-w-40">
             Agrega cuadros y mueve a los jugadores en cada uno para animar la jugada.
           </span>
         )}
       </div>
 
-      {n > 1 && (
+      {n > 1 && !compact && (
         <div className="flex items-center gap-1.5 overflow-x-auto overscroll-x-contain [scrollbar-width:thin]">
           <span className="text-[11px] font-semibold text-white/80 whitespace-nowrap px-1">
             Cuadro {currentIndex + 1} de {n}
@@ -266,13 +293,16 @@ export interface TacticalFramePlaybackProps {
   renderPlayer: (p: InterpolatedPlayer, topPct: number) => ReactNode;
   /** Capa de figuras (solo lectura) con una opacidad común. */
   renderShapes: (shapes: TacticalArrow[], opacity: number, layerKey: string) => ReactNode;
+  /** Ajustes de la pizarra (M6g): curva de velocidad y rastros. */
+  playback?: TacticalPlaybackOptions;
 }
 
 /** Dibuja la jugada interpolada en el instante del reloj. Reemplaza a los
  *  pines y a la capa de dibujo mientras se reproduce o está en pausa. */
-export function TacticalFramePlayback({ frames, clock, view, renderPlayer, renderShapes }: TacticalFramePlaybackProps) {
+export function TacticalFramePlayback({ frames, clock, view, renderPlayer, renderShapes, playback }: TacticalFramePlaybackProps) {
   const t = useClockTime(clock);
-  const state = useMemo(() => interpolateFrames(frames, t), [frames, t]);
+  const curve = playback?.curve;
+  const state = useMemo(() => interpolateFrames(frames, t, { curve }), [frames, t, curve]);
   const groups = groupArrowsByOpacity(state.arrows);
   return (
     <div className="absolute inset-0 z-[35] pointer-events-none" aria-hidden="true">
@@ -281,6 +311,7 @@ export function TacticalFramePlayback({ frames, clock, view, renderPlayer, rende
           {renderShapes(g.shapes, g.opacity, `g${g.opacity}`)}
         </div>
       ))}
+      <TacticalPlaybackTrails frames={frames} t={t} view={view} options={playback} />
       {state.players.map((p) => {
         const top = yToView(p.y, view);
         if (top < -1 || top > 101) return null;

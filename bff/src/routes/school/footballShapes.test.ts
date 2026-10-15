@@ -60,7 +60,7 @@ describe('validateArrows — compat con figuras viejas', () => {
 describe('validateArrows — type', () => {
   /** Lápiz y texto traen su campo obligatorio (points / text); el resto, nada extra. */
   const extraFor = (type: string) =>
-    type === 'freehand' ? { points: [10, 20, 20, 30, 30, 40] } : type === 'text' ? { text: 'Presión alta' } : {};
+    type === 'freehand' ? { points: [10, 20, 20, 30, 30, 40] } : type === 'text' ? { text: 'Presión alta' } : type === 'court' ? { court: {} } : {};
 
   it.each([...VALID_SHAPE_TYPES])("acepta type '%s'", (type) => {
     expect(validateArrows([{ ...base, type, ...extraFor(type) }])).toEqual([]);
@@ -491,5 +491,21 @@ describe('isMissingFramesColumn (migración sin aplicar)', () => {
     expect(isMissingFramesColumn({ code: '23505', message: 'frames' })).toBe(false);
     expect(isMissingFramesColumn(null)).toBe(false);
     expect(isMissingFramesColumn('frames')).toBe(false);
+  });
+});
+
+describe('frames — posesión del balón (M6g, ball_owner opcional)', () => {
+  it('acepta ball_owner con la key de un jugador, null o ausente', () => {
+    expect(validateFrames([frame({ ball_owner: 'athlete:abc' }), frame({ id: 'f2', ball_owner: null }), frame({ id: 'f3' })])).toEqual([]);
+  });
+
+  it.each([5, '', 'k'.repeat(MAX_FRAME_KEY + 1), {}])('rechaza ball_owner inválido %j', (ball_owner) => {
+    expect(validateFrames([frame({ ball_owner })]).join(' ')).toMatch(/ball_owner/);
+  });
+
+  it('sanitizeFrames conserva ball_owner y no lo agrega cuando no hay', () => {
+    const [a, b] = sanitizeFrames([frame({ ball_owner: 'slot#1' }), frame({ id: 'f2', ball_owner: null })]);
+    expect(a.ball_owner).toBe('slot#1');
+    expect('ball_owner' in b).toBe(false);
   });
 });

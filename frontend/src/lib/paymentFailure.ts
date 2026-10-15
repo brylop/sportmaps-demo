@@ -49,6 +49,19 @@ export function parsePaymentFailure(reason: string | null | undefined): PaymentF
   // `wompi_rejected` → rejected; `mp_failed` → failed.
   const estado = codigo.replace(/^(wompi|mp)_/, '');
 
+  // `pago_parcial` NO es un intento fallido: el pago en línea entró, pero por
+  // menos de lo que pide el cobro (el enlace se generó antes de que se sumara
+  // la mora). El webhook lo deja como rastro sin bloqueo para que la familia
+  // pueda pagar el saldo; acá se rotula como lo que es, no como «rechazada».
+  if (estado === 'pago_parcial') {
+    const detalle = partes.slice(1).find(p => /^Pag[óo]\s/i.test(p)) ?? null;
+    return {
+      label: 'Falta saldo',
+      bankMessage: detalle ? detalle.replace(/\s*\(tx=[^)]*\)\s*$/, '').trim() : null,
+      ambiguous: false,
+    };
+  }
+
   const medioRaw = (partes[1] || '').replace(/\s*\(.*$/, '').trim().toUpperCase();
   const medio = MEDIOS[medioRaw] ?? null;
 

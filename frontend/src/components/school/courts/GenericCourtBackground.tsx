@@ -6,12 +6,13 @@
 import { SPORTS } from '@/lib/school/tacticalSports';
 import { CourtShell, Spot } from './CourtShell';
 import { lineProps, meters, type CourtBackgroundProps } from './courtGeometry';
+import { useCourtLook } from './courtLook';
 
 export function GenericCourtBackground({ viewBox }: CourtBackgroundProps = {}) {
   const def = SPORTS.generico;
   const f = def.frame!;
   const m = meters(f);
-  const { line } = def.colors;
+  const { line } = useCourtLook(def.colors);
   const L = lineProps(line, 1.75, 0.6);
   const W = f.widthM;
   const mid = f.lengthM / 2;

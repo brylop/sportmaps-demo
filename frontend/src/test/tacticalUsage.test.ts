@@ -9,7 +9,36 @@ vi.mock('@/integrations/supabase/client', () => ({
     supabase: { rpc: (...a: unknown[]) => rpc(...a) },
 }));
 
-import { logTacticalEvent } from '../lib/school/tacticalUsage';
+import { readFileSync, readdirSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { logTacticalEvent, TACTICAL_BOARD_EVENTS } from '../lib/school/tacticalUsage';
+
+/** Lista de eventos de la ÚLTIMA migración que toca el CHECK (y la RPC). */
+function lastMigrationEvents(): { check: string[]; rpc: string[]; file: string } {
+    const dir = resolve(__dirname, '../../../supabase/migrations');
+    const file = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()
+        .filter((f) => readFileSync(resolve(dir, f), 'utf8').includes('tactical_board_events_event_check')).pop()!;
+    const sql = readFileSync(resolve(dir, file), 'utf8');
+    const words = (s: string) => [...s.matchAll(/'([a-z0-9_]+)'/g)].map((m) => m[1]);
+    const check = words(sql.split(/tactical_board_events_event_check CHECK \(event IN \(/)[1].split('))')[0]);
+    const rpc = words(sql.split(/IF p_event NOT IN \(/)[1].split(') THEN')[0]);
+    return { check, rpc, file };
+}
+
+describe('TACTICAL_BOARD_EVENTS', () => {
+    it('es la misma lista que el CHECK y la RPC de la última migración', () => {
+        const { check, rpc: rpcList, file } = lastMigrationEvents();
+        expect(file).toMatch(/pizarra_eventos_ia_3d_paquetes/);
+        expect([...check].sort()).toEqual([...TACTICAL_BOARD_EVENTS].sort());
+        expect([...rpcList].sort()).toEqual([...TACTICAL_BOARD_EVENTS].sort());
+    });
+
+    it('incluye IA, 3D y paquetes', () => {
+        for (const e of ['ai_analyze', 'ai_view_counter', 'ai_save_variant', 'view_3d', 'pack_activate', 'pack_import', 'pack_export']) {
+            expect(TACTICAL_BOARD_EVENTS).toContain(e);
+        }
+    });
+});
 
 describe('logTacticalEvent', () => {
     beforeEach(() => {
