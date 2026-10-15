@@ -7,10 +7,11 @@
  * «Videos guardados» de la escuela para reusarlos en otras jugadas.
  * Cero almacenamiento: solo enlaces.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { BookmarkPlus, Link2, Loader2, Plus, Trash2, Video } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -28,6 +29,8 @@ export interface PlayVideosDialogProps {
   readOnly: boolean;
   videos: PlayVideo[];
   onSave: (videos: PlayVideo[]) => void;
+  /** M6h: pestaña «Subir» (videos subidos de la escuela). Sin ella, solo enlaces. */
+  uploadPanel?: ReactNode;
 }
 
 /** Arma el video del formulario o explica qué falta. */
@@ -47,7 +50,8 @@ export function buildDraftVideo(form: { url: string; title: string; start: strin
 
 const EMPTY_FORM = { url: '', title: '', start: '', end: '', isPrivate: false };
 
-export function PlayVideosDialog({ open, onOpenChange, readOnly, videos, onSave }: PlayVideosDialogProps) {
+export function PlayVideosDialog({ open, onOpenChange, readOnly, videos, onSave, uploadPanel }: PlayVideosDialogProps) {
+  const [tab, setTab] = useState<'links' | 'upload'>('links');
   const { toast } = useToast();
   const [list, setList] = useState<PlayVideo[]>([]);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -125,140 +129,157 @@ export function PlayVideosDialog({ open, onOpenChange, readOnly, videos, onSave 
   const inputCls = 'h-9 bg-white/5 border-white/15 text-white placeholder:text-white/40';
   const savedList = saved.data?.videos ?? [];
 
+  const linksBody = (
+    <>
+      <div className="grid gap-4 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+        {/* Columna derecha en desktop (primera en celular): la jugada */}
+        <section className="space-y-3 md:order-2">
+          {previewVideo ? <VideoPreview video={previewVideo} /> : (
+            <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-white/15 bg-white/5 text-white/50 text-sm" style={{ aspectRatio: '16 / 9' }}>
+              <Video className="h-7 w-7" />
+              {readOnly ? 'Esta jugada no tiene videos.' : 'Pega un enlace para ver la vista previa.'}
+            </div>
+          )}
+
+          {!readOnly && (
+            <div className="space-y-2 rounded-lg border border-white/10 bg-white/5 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch checked={form.isPrivate} onCheckedChange={(v) => setForm((f) => ({ ...f, isPrivate: v }))} aria-label="Enlace privado" />
+                  Enlace privado
+                </label>
+                <span className="text-[11px] text-white/50 text-right">No sale en el PDF ni en los paquetes</span>
+              </div>
+              <div className="flex gap-1.5">
+                <div className="relative flex-1">
+                  <Link2 className="absolute left-2.5 top-2.5 h-4 w-4 text-white/40" />
+                  <Input value={form.url} onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
+                    placeholder="Pegar enlace del video…" aria-label="Enlace del video" inputMode="url" autoComplete="off"
+                    className={`${inputCls} pl-8`} />
+                </div>
+              </div>
+              {draft && 'error' in draft && <p role="alert" className="text-xs text-red-300" data-testid="video-url-error">{draft.error}</p>}
+              <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                placeholder="Título (p. ej. «Salida vs. presión alta»)" aria-label="Título del video" maxLength={VIDEO_TITLE_MAX} className={inputCls} />
+              <div className="grid grid-cols-2 gap-1.5">
+                <Input value={form.start} onChange={(e) => { setStartTouched(true); setForm((f) => ({ ...f, start: e.target.value })); }}
+                  placeholder="Inicio (min:seg)" aria-label="Minuto de inicio" inputMode="numeric" className={inputCls} />
+                <Input value={form.end} onChange={(e) => setForm((f) => ({ ...f, end: e.target.value }))}
+                  placeholder="Fin (opcional)" aria-label="Minuto de fin" inputMode="numeric" className={inputCls} />
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="flex items-center gap-2 text-xs text-white/75">
+                  <Checkbox checked={saveToLibrary} onCheckedChange={(v) => setSaveToLibrary(v === true)} aria-label="Guardar también en Videos guardados"
+                    className="border-white/40" />
+                  Guardar también en Videos guardados
+                </label>
+                <Button type="button" size="sm" onClick={addDraft} disabled={!draft?.ok || full}
+                  className="gap-1 bg-emerald-600 hover:bg-emerald-500 text-white">
+                  <Plus className="h-4 w-4" /> Agregar a la jugada
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <p className="text-sm font-semibold mb-1.5">En esta jugada ({list.length}/{PLAY_VIDEOS_MAX})</p>
+            {list.length === 0 ? <p className="text-xs text-white/50">Ninguno todavía.</p> : (
+              <ul className="space-y-1">
+                {list.map((v) => {
+                  const k = videoKey(v);
+                  return (
+                    <li key={k} className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm ${k === selected && !draft?.ok ? 'border-emerald-400/60 bg-emerald-500/10' : 'border-white/10 bg-white/5'}`}>
+                      <button type="button" className="min-w-0 flex-1 text-left" onClick={() => { setSelected(k); setForm(EMPTY_FORM); }}>
+                        <span className="block truncate font-medium">{v.title}</span>
+                        <span className="block text-[11px] text-white/55">
+                          {PROVIDER_LABEL[v.provider]} · desde {formatClock(v.start_s)}{v.end_s ? ` hasta ${formatClock(v.end_s)}` : ''}{v.is_private ? ' · privado' : ''}
+                        </span>
+                      </button>
+                      {!readOnly && (
+                        <Button type="button" size="sm" variant="ghost" aria-label={`Quitar ${v.title}`}
+                          className="h-8 w-8 p-0 text-white/60 hover:bg-white/10 hover:text-red-300"
+                          onClick={() => setList((prev) => prev.filter((x) => videoKey(x) !== k))}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </section>
+
+        {/* Videos guardados de la escuela */}
+        <section className="space-y-2 md:order-1 md:border-r md:border-white/10 md:pr-4">
+          <p className="text-sm font-semibold">Videos guardados</p>
+          {saved.isLoading ? <Loader2 className="h-5 w-5 animate-spin text-white/50" /> : saved.data?.available === false ? (
+            <p className="text-xs text-white/50">Los videos guardados se activan con la próxima actualización de la base.</p>
+          ) : savedList.length === 0 ? (
+            <p className="text-xs text-white/50">Todavía no hay videos guardados en la escuela. Los que agregues con «Guardar también» quedan acá para otras jugadas.</p>
+          ) : (
+            <ul className="space-y-1 max-h-[46vh] overflow-y-auto pr-1">
+              {savedList.map((v) => (
+                <li key={v.id} className="flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-sm">
+                  <div className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{v.title}</span>
+                    <span className="block text-[11px] text-white/55">{PROVIDER_LABEL[v.provider]} · desde {formatClock(v.start_s)}{v.is_private ? ' · privado' : ''}</span>
+                  </div>
+                  {!readOnly && (
+                    <>
+                      <Button type="button" size="sm" variant="outline" aria-label={`Usar ${v.title}`} disabled={full}
+                        className="h-8 gap-1 px-2 bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
+                        onClick={() => {
+                          const { id: _i, created_by: _c, created_at: _a, ...video } = v;
+                          if (addToPlay(video)) setForm(EMPTY_FORM);
+                        }}>
+                        <BookmarkPlus className="h-4 w-4" /> Usar
+                      </Button>
+                      <Button type="button" size="sm" variant="ghost" aria-label={`Borrar ${v.title} de Videos guardados`}
+                        className="h-8 w-8 p-0 text-white/50 hover:bg-white/10 hover:text-red-300"
+                        onClick={() => deleteSaved.mutate(v.id, {
+                          onError: (err: unknown) => toast({ title: 'No se pudo borrar', description: err instanceof Error ? err.message : undefined, variant: 'destructive' }),
+                        })}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+
+      <div className="flex justify-end gap-2 border-t border-white/10 pt-3">
+        {!readOnly && <Button type="button" variant="ghost" className="text-white/70 hover:bg-white/10 hover:text-white" onClick={() => onOpenChange(false)}>Cancelar</Button>}
+        <Button type="button" className="bg-emerald-600 hover:bg-emerald-500 text-white" onClick={done}>{readOnly ? 'Cerrar' : 'Listo'}</Button>
+      </div>
+    </>
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[calc(100vw-1rem)] max-w-4xl max-h-[92vh] overflow-y-auto bg-zinc-900 text-white border-white/10 p-4 sm:p-6 gap-3">
         <DialogHeader className="space-y-0.5 pr-8 text-left">
           <DialogTitle className="text-xl">Videos</DialogTitle>
           <DialogDescription className="text-white/60 text-xs">
-            Enlaces de YouTube, Vimeo, cámaras deportivas (Veo, Hudl, Trace, Pixellot, Spiideo, XbotGo, Reeplayer), Google Drive o Dropbox. No se sube ningún archivo.
+            Enlaces de YouTube, Vimeo, cámaras deportivas (Veo, Hudl, Trace, Pixellot, Spiideo, XbotGo, Reeplayer), Google Drive o Dropbox.{uploadPanel ? ' En «Subir», los videos del celular o descargados de Veo y Hudl.' : ' No se sube ningún archivo.'}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-          {/* Columna derecha en desktop (primera en celular): la jugada */}
-          <section className="space-y-3 md:order-2">
-            {previewVideo ? <VideoPreview video={previewVideo} /> : (
-              <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-white/15 bg-white/5 text-white/50 text-sm" style={{ aspectRatio: '16 / 9' }}>
-                <Video className="h-7 w-7" />
-                {readOnly ? 'Esta jugada no tiene videos.' : 'Pega un enlace para ver la vista previa.'}
-              </div>
-            )}
-
-            {!readOnly && (
-              <div className="space-y-2 rounded-lg border border-white/10 bg-white/5 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <label className="flex items-center gap-2 text-sm">
-                    <Switch checked={form.isPrivate} onCheckedChange={(v) => setForm((f) => ({ ...f, isPrivate: v }))} aria-label="Enlace privado" />
-                    Enlace privado
-                  </label>
-                  <span className="text-[11px] text-white/50 text-right">No sale en el PDF ni en los paquetes</span>
-                </div>
-                <div className="flex gap-1.5">
-                  <div className="relative flex-1">
-                    <Link2 className="absolute left-2.5 top-2.5 h-4 w-4 text-white/40" />
-                    <Input value={form.url} onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
-                      placeholder="Pegar enlace del video…" aria-label="Enlace del video" inputMode="url" autoComplete="off"
-                      className={`${inputCls} pl-8`} />
-                  </div>
-                </div>
-                {draft && 'error' in draft && <p role="alert" className="text-xs text-red-300" data-testid="video-url-error">{draft.error}</p>}
-                <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-                  placeholder="Título (p. ej. «Salida vs. presión alta»)" aria-label="Título del video" maxLength={VIDEO_TITLE_MAX} className={inputCls} />
-                <div className="grid grid-cols-2 gap-1.5">
-                  <Input value={form.start} onChange={(e) => { setStartTouched(true); setForm((f) => ({ ...f, start: e.target.value })); }}
-                    placeholder="Inicio (min:seg)" aria-label="Minuto de inicio" inputMode="numeric" className={inputCls} />
-                  <Input value={form.end} onChange={(e) => setForm((f) => ({ ...f, end: e.target.value }))}
-                    placeholder="Fin (opcional)" aria-label="Minuto de fin" inputMode="numeric" className={inputCls} />
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <label className="flex items-center gap-2 text-xs text-white/75">
-                    <Checkbox checked={saveToLibrary} onCheckedChange={(v) => setSaveToLibrary(v === true)} aria-label="Guardar también en Videos guardados"
-                      className="border-white/40" />
-                    Guardar también en Videos guardados
-                  </label>
-                  <Button type="button" size="sm" onClick={addDraft} disabled={!draft?.ok || full}
-                    className="gap-1 bg-emerald-600 hover:bg-emerald-500 text-white">
-                    <Plus className="h-4 w-4" /> Agregar a la jugada
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            <div>
-              <p className="text-sm font-semibold mb-1.5">En esta jugada ({list.length}/{PLAY_VIDEOS_MAX})</p>
-              {list.length === 0 ? <p className="text-xs text-white/50">Ninguno todavía.</p> : (
-                <ul className="space-y-1">
-                  {list.map((v) => {
-                    const k = videoKey(v);
-                    return (
-                      <li key={k} className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm ${k === selected && !draft?.ok ? 'border-emerald-400/60 bg-emerald-500/10' : 'border-white/10 bg-white/5'}`}>
-                        <button type="button" className="min-w-0 flex-1 text-left" onClick={() => { setSelected(k); setForm(EMPTY_FORM); }}>
-                          <span className="block truncate font-medium">{v.title}</span>
-                          <span className="block text-[11px] text-white/55">
-                            {PROVIDER_LABEL[v.provider]} · desde {formatClock(v.start_s)}{v.end_s ? ` hasta ${formatClock(v.end_s)}` : ''}{v.is_private ? ' · privado' : ''}
-                          </span>
-                        </button>
-                        {!readOnly && (
-                          <Button type="button" size="sm" variant="ghost" aria-label={`Quitar ${v.title}`}
-                            className="h-8 w-8 p-0 text-white/60 hover:bg-white/10 hover:text-red-300"
-                            onClick={() => setList((prev) => prev.filter((x) => videoKey(x) !== k))}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-          </section>
-
-          {/* Videos guardados de la escuela */}
-          <section className="space-y-2 md:order-1 md:border-r md:border-white/10 md:pr-4">
-            <p className="text-sm font-semibold">Videos guardados</p>
-            {saved.isLoading ? <Loader2 className="h-5 w-5 animate-spin text-white/50" /> : saved.data?.available === false ? (
-              <p className="text-xs text-white/50">Los videos guardados se activan con la próxima actualización de la base.</p>
-            ) : savedList.length === 0 ? (
-              <p className="text-xs text-white/50">Todavía no hay videos guardados en la escuela. Los que agregues con «Guardar también» quedan acá para otras jugadas.</p>
-            ) : (
-              <ul className="space-y-1 max-h-[46vh] overflow-y-auto pr-1">
-                {savedList.map((v) => (
-                  <li key={v.id} className="flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-sm">
-                    <div className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">{v.title}</span>
-                      <span className="block text-[11px] text-white/55">{PROVIDER_LABEL[v.provider]} · desde {formatClock(v.start_s)}{v.is_private ? ' · privado' : ''}</span>
-                    </div>
-                    {!readOnly && (
-                      <>
-                        <Button type="button" size="sm" variant="outline" aria-label={`Usar ${v.title}`} disabled={full}
-                          className="h-8 gap-1 px-2 bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
-                          onClick={() => {
-                            const { id: _i, created_by: _c, created_at: _a, ...video } = v;
-                            if (addToPlay(video)) setForm(EMPTY_FORM);
-                          }}>
-                          <BookmarkPlus className="h-4 w-4" /> Usar
-                        </Button>
-                        <Button type="button" size="sm" variant="ghost" aria-label={`Borrar ${v.title} de Videos guardados`}
-                          className="h-8 w-8 p-0 text-white/50 hover:bg-white/10 hover:text-red-300"
-                          onClick={() => deleteSaved.mutate(v.id, {
-                            onError: (err: unknown) => toast({ title: 'No se pudo borrar', description: err instanceof Error ? err.message : undefined, variant: 'destructive' }),
-                          })}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </div>
-
-        <div className="flex justify-end gap-2 border-t border-white/10 pt-3">
-          {!readOnly && <Button type="button" variant="ghost" className="text-white/70 hover:bg-white/10 hover:text-white" onClick={() => onOpenChange(false)}>Cancelar</Button>}
-          <Button type="button" className="bg-emerald-600 hover:bg-emerald-500 text-white" onClick={done}>{readOnly ? 'Cerrar' : 'Listo'}</Button>
-        </div>
+        {uploadPanel ? (
+          <Tabs value={tab} onValueChange={(v) => setTab(v as 'links' | 'upload')} className="w-full">
+            <TabsList className="grid h-auto w-full grid-cols-2 bg-white/10">
+              <TabsTrigger value="links" className="text-white/70 data-[state=active]:bg-white data-[state=active]:text-zinc-900">Enlaces</TabsTrigger>
+              <TabsTrigger value="upload" className="text-white/70 data-[state=active]:bg-white data-[state=active]:text-zinc-900">Subir</TabsTrigger>
+            </TabsList>
+            <TabsContent value="links" className="mt-3 space-y-3">{linksBody}</TabsContent>
+            <TabsContent value="upload" className="mt-3">
+              <div className="rounded-lg bg-background p-3 text-foreground">{uploadPanel}</div>
+            </TabsContent>
+          </Tabs>
+        ) : linksBody}
       </DialogContent>
     </Dialog>
   );

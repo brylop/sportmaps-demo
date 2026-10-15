@@ -127,6 +127,8 @@ import { sportDef } from '@/lib/school/tacticalSports';
 import { TacticalTeamsDialog } from './TacticalTeamsDialog';
 import { TeamPinVisual } from './TacticalTeamPin';
 import { RivalChip } from './tacticalTeamGlyphs';
+// M6h «Videos subidos»: el panel va como pestaña «Subir» del diálogo «Videos» de M6c.
+import { LazySchoolVideosPanel } from './schoolVideos/LazySchoolVideosPanel';
 
 const SITUATION_LABEL: Record<TacticalSituation, string> = {
   ataque: 'Ataque',
@@ -3965,6 +3967,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       frameCount={liveFrames.length}
       frameNote={liveFrames[frameIndex]?.note ?? ''}
       onFrameNoteSave={(note) => setFrames((prev) => prev.map((f, i) => (i === frameIndex ? { ...f, note: note || undefined } : f)))}
+      uploadPanel={<LazySchoolVideosPanel teamId={teamId} lineupId={existingLineupId ?? null} canEdit={roleCanEdit} />}
     />
     {/* Montado solo al abrirlo: la pizarra no consulta «Equipos almacenados» si nadie los pide. */}
     {teamsCtl.dialogOpen && <TacticalTeamsDialog

@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 754,
-  "head": "20261015142003",
+  "count": 755,
+  "head": "20261015145434",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -757,6 +757,7 @@
     {"v":"20261014125632","file":"20261014125632_pizarra_eventos_ia_3d_paquetes.sql","sha256":"d9557306b1869862dc498af8d0cce5b081f98da500ac540cbf0246f1bbfb06d9","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261014155445","file":"20261014155445_pizarra_ia_cupo_por_entrenador_tokens.sql","sha256":"2c7c5ac00030dbddcce826f98fc2cd71bb1ef1d04492266c1fc8d218ca803fc5","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261014163705","file":"20261014163705_pizarra_notas_y_videos.sql","sha256":"9575e51abc1626c18e7fff47f3e6e16783c7c5db10cb77dc4c4744b2fce26cda","added":"2026-10-15","by":"Brayan Steven Lopez"},
-    {"v":"20261015142003","file":"20261015142003_pizarra_equipos_rivales.sql","sha256":"65ed94e0ff685ef0d54523004a53c3360ce14abf0ab7ef5060a23715efeb75ce","added":"2026-10-15","by":"Brayan Steven Lopez"}
+    {"v":"20261015142003","file":"20261015142003_pizarra_equipos_rivales.sql","sha256":"65ed94e0ff685ef0d54523004a53c3360ce14abf0ab7ef5060a23715efeb75ce","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261015145434","file":"20261015145434_pizarra_videos_subidos.sql","sha256":"49da3d7dacb49ac1d77ff1c4503858f55487207e1c42e93de576722d8a83deea","added":"2026-10-15","by":"Brayan Steven Lopez"}
   ]
 }

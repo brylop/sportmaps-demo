@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import type { PlayMedia } from './usePlayMedia';
 import { PlayNotesDialog } from './PlayNotesDialog';
+import type { ReactNode } from 'react';
 import { PlayVideosDialog } from './PlayVideosDialog';
 
 export type MediaDialog = 'notes' | 'videos' | null;
@@ -54,7 +55,7 @@ export function PlayMediaMenuItems({ media, onOpen }: { media: PlayMedia; onOpen
   );
 }
 
-export function PlayMediaDialogs({ media, open, onOpenChange, readOnly, frameIndex, frameCount, frameNote, onFrameNoteSave }: {
+export function PlayMediaDialogs({ media, open, onOpenChange, readOnly, frameIndex, frameCount, frameNote, onFrameNoteSave, uploadPanel }: {
   media: PlayMedia;
   open: MediaDialog;
   onOpenChange: (d: MediaDialog) => void;
@@ -63,6 +64,8 @@ export function PlayMediaDialogs({ media, open, onOpenChange, readOnly, frameInd
   frameCount: number;
   frameNote: string;
   onFrameNoteSave: (text: string) => void;
+  /** M6h: «Subir» (videos subidos de la escuela) como pestaña del mismo diálogo. */
+  uploadPanel?: ReactNode;
 }) {
   return (
     <>
@@ -88,6 +91,7 @@ export function PlayMediaDialogs({ media, open, onOpenChange, readOnly, frameInd
           readOnly={readOnly}
           videos={media.videos}
           onSave={media.setVideos}
+          uploadPanel={uploadPanel}
         />
       )}
     </>

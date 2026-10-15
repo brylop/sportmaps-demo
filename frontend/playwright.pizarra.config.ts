@@ -30,6 +30,7 @@ export default defineConfig({
         'pizarra-equipos.spec.ts',
         'pizarra-herramientas.spec.ts',
         'pizarra-ajustes.spec.ts',
+        'pizarra-videos-subidos.spec.ts',
     ],
     fullyParallel: false,
     workers: 2,
