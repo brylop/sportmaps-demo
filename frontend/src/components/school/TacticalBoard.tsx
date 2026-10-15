@@ -72,7 +72,7 @@ import { Tactical3DLauncher } from './tactical3d/Tactical3DLauncher';
 import { SaveToLibraryDialog } from './SaveToLibraryDialog';
 import type { TacticalExportInput } from '@/lib/export/tacticalExport';
 import type { TacticalStaticPlayer } from './TacticalStaticSvg';
-import { boardFromPitch, type ExerciseBoard } from '@/lib/school/exerciseLibrary';
+import { boardFromPitch, isExerciseSport, type ExerciseBoard } from '@/lib/school/exerciseLibrary';
 import { useTeamTacticalSport } from '@/hooks/useTeamTacticalSport';
 import type { TacticalSport } from '@/lib/school/tacticalSports';
 import { boardMetersFor, boardSportConfig, defaultBoardFormation, type BoardFormation } from '@/lib/school/tacticalBoardSport';
@@ -3046,10 +3046,13 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                   <DropdownMenuItem onSelect={() => setSavingName('')}>
                     <Plus className="h-4 w-4 mr-2" /> {loadedPresetId ? 'Guardar como jugada nueva…' : 'Guardar en Mis jugadas…'}
                   </DropdownMenuItem>
-                  {/* T3: la jugada a la biblioteca de la escuela (sin atletas). */}
-                  <DropdownMenuItem onSelect={openLibrarySave}>
-                    <Bookmark className="h-4 w-4 mr-2" /> Guardar en biblioteca…
-                  </DropdownMenuItem>
+                  {/* T3: la jugada a la biblioteca de la escuela (sin atletas).
+                      M6f: los deportes de nivel «cancha» (rugby, tenis…) no tienen biblioteca. */}
+                  {isExerciseSport(sport) && (
+                    <DropdownMenuItem onSelect={openLibrarySave}>
+                      <Bookmark className="h-4 w-4 mr-2" /> Guardar en biblioteca…
+                    </DropdownMenuItem>
+                  )}
 
                   <DropdownMenuSeparator />
                   <DropdownMenuLabel>Vista</DropdownMenuLabel>
@@ -3948,7 +3951,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       onChange={setCourtConfig}
       allowArea={sportCfg.allowGkZoom}
     />
-    {libraryBoard && (
+    {libraryBoard && isExerciseSport(sport) && (
       <SaveToLibraryDialog
         open={!!libraryBoard}
         onOpenChange={(v) => { if (!v) setLibraryBoard(null); }}

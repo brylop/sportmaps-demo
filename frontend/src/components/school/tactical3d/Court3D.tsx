@@ -1,14 +1,17 @@
 /**
  * Cancha 3D: el piso lleva como textura el MISMO fondo SVG de la pizarra
  * (líneas idénticas al 2D) a escala real, y encima los elementos con volumen
- * del deporte: arcos, red de vóley o canastas. Medidas de courtGeometry.ts.
+ * del deporte: arcos, redes (vóley, tenis, pádel, bádminton, vóley playa),
+ * canastas, palos en H (rugby, americano) y postes de netball. Medidas de
+ * courtGeometry.ts / tactical3d.ts. Las paredes del pádel y las corcheras
+ * del waterpolo NO tienen volumen: se ven en la textura del piso (M6f).
  */
 import { useEffect, useState } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { BASKET_M, VOLLEY_POST_OUTSIDE_M } from '@/components/school/courts/courtGeometry';
+import { BASKET_M } from '@/components/school/courts/courtGeometry';
 import { sportDef } from '@/lib/school/tacticalSports';
-import { BASKET_HEIGHTS_M, fixtureFor, VOLLEY_NET_M, type Court3D as Court3DModel } from '@/lib/school/tactical3d';
+import { BASKET_HEIGHTS_M, fixtureFor, VOLLEY_NET_M, type Court3D as Court3DModel, type NetSpec } from '@/lib/school/tactical3d';
 import { loadCourtTexture } from './textures';
 import { release, track, useResources } from './resources';
 
@@ -53,14 +56,32 @@ export function Court3D({ court, onReady }: { court: Court3DModel; onReady?: () 
 function Fixtures({ court }: { court: Court3DModel }) {
   const fx = fixtureFor(court.sport);
   if (fx.kind === 'goals') {
+    const z = court.lengthM / 2 - (fx.lineFromEnd ?? 0);
     return (
       <>
-        <Goal width={fx.width} height={fx.height} z={-court.lengthM / 2} dir={-1} />
-        <Goal width={fx.width} height={fx.height} z={court.lengthM / 2} dir={1} />
+        <Goal width={fx.width} height={fx.height} z={-z} dir={-1} />
+        <Goal width={fx.width} height={fx.height} z={z} dir={1} />
       </>
     );
   }
-  if (fx.kind === 'net') return <VolleyNet widthM={court.widthM} />;
+  if (fx.kind === 'net') return <CourtNet widthM={court.widthM} net={fx.net} />;
+  if (fx.kind === 'hposts') {
+    const z = court.lengthM / 2 - fx.lineFromEnd;
+    return (
+      <>
+        <HPosts width={fx.width} crossbar={fx.crossbar} height={fx.height} z={-z} />
+        <HPosts width={fx.width} crossbar={fx.crossbar} height={fx.height} z={z} />
+      </>
+    );
+  }
+  if (fx.kind === 'rings') {
+    return (
+      <>
+        <NetballPost height={fx.height} ringRadius={fx.ringRadius} ringZ={-court.lengthM / 2 + fx.ringFromGoalLine} postZ={-court.lengthM / 2 - 0.05} />
+        <NetballPost height={fx.height} ringRadius={fx.ringRadius} ringZ={court.lengthM / 2 - fx.ringFromGoalLine} postZ={court.lengthM / 2 + 0.05} />
+      </>
+    );
+  }
   if (fx.kind === 'hoops') {
     return (
       <>
@@ -99,9 +120,11 @@ export function Goal({ width, height, z, dir, x = 0, rotY = 0 }: { width: number
   );
 }
 
-function VolleyNet({ widthM }: { widthM: number }) {
-  const postOutside = VOLLEY_POST_OUTSIDE_M;
-  const { height, meshHeight, antennaAbove } = VOLLEY_NET_M;
+/** Red al medio (vóley, vóley playa, tenis, pádel, bádminton): postes por
+ *  fuera de la banda, malla, fajas y antenas si las lleva. */
+function CourtNet({ widthM, net }: { widthM: number; net: NetSpec }) {
+  const { height, meshHeight, postOutside } = net;
+  const antennaAbove = VOLLEY_NET_M.antennaAbove;
   const span = widthM + 2 * postOutside;
   const r = useResources(() => ({
     post: track(new THREE.CylinderGeometry(0.05, 0.05, height + 0.1, 12)),
@@ -114,14 +137,14 @@ function VolleyNet({ widthM }: { widthM: number }) {
     antennaMat: track(new THREE.MeshStandardMaterial({ color: '#ef4444' })),
   }), [span, height, meshHeight, antennaAbove]);
   return (
-    <group name="volley-net">
+    <group name="court-net">
       {[-span / 2, span / 2].map((x) => (
         <mesh key={x} geometry={r.post} material={r.postMat} position={[x, (height + 0.1) / 2, 0]} />
       ))}
       <mesh geometry={r.mesh} material={r.meshMat} position={[0, height - meshHeight / 2, 0]} />
       <mesh geometry={r.band} material={r.bandMat} position={[0, height - 0.035, 0]} />
       <mesh geometry={r.band} material={r.bandMat} position={[0, height - meshHeight, 0]} />
-      {[-widthM / 2, widthM / 2].map((x) => (
+      {net.antennas && [-widthM / 2, widthM / 2].map((x) => (
         <mesh key={x} geometry={r.antenna} material={r.antennaMat} position={[x, height - meshHeight + (meshHeight + antennaAbove) / 2, 0]} />
       ))}
     </group>
@@ -155,6 +178,45 @@ function Hoop({ baselineZ, dir }: { baselineZ: number; dir: 1 | -1 }) {
       <mesh geometry={r.board} material={r.boardMat} position={[0, boardBottom + boardHeight / 2, boardZ]} />
       <lineSegments geometry={r.square} material={r.lineMat} position={[0, rimHeight + 0.225, boardZ - dir * 0.03]} />
       <mesh geometry={r.rim} material={r.rimMat} position={[0, rimHeight, rimZ]} rotation-x={Math.PI / 2} />
+    </group>
+  );
+}
+
+/** Palos en H (rugby, fútbol americano) sobre la línea `z`: dos postes de
+ *  `height`, travesaño a `crossbar`. */
+function HPosts({ width, crossbar, height, z }: { width: number; crossbar: number; height: number; z: number }) {
+  const r = useResources(() => ({
+    post: track(new THREE.CylinderGeometry(0.07, 0.08, height, 10)),
+    bar: track(new THREE.CylinderGeometry(0.07, 0.07, width, 10)),
+    pad: track(new THREE.CylinderGeometry(0.22, 0.22, 1.6, 12)),
+    postMat: track(new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.4 })),
+    padMat: track(new THREE.MeshStandardMaterial({ color: '#1d4ed8', roughness: 0.8 })),
+  }), [width, height]);
+  return (
+    <group name="h-posts" position={[0, 0, z]}>
+      {[-width / 2, width / 2].map((x) => (
+        <group key={x}>
+          <mesh geometry={r.post} material={r.postMat} position={[x, height / 2, 0]} />
+          <mesh geometry={r.pad} material={r.padMat} position={[x, 0.8, 0]} />
+        </group>
+      ))}
+      <mesh geometry={r.bar} material={r.postMat} position={[0, crossbar, 0]} rotation-z={Math.PI / 2} />
+    </group>
+  );
+}
+
+/** Poste de netball: poste en la línea de fondo y aro hacia la cancha. */
+function NetballPost({ height, ringRadius, ringZ, postZ }: { height: number; ringRadius: number; ringZ: number; postZ: number }) {
+  const r = useResources(() => ({
+    pole: track(new THREE.CylinderGeometry(0.05, 0.05, height, 12)),
+    ring: track(new THREE.TorusGeometry(ringRadius, 0.012, 8, 28)),
+    poleMat: track(new THREE.MeshStandardMaterial({ color: '#cbd5e1', metalness: 0.4, roughness: 0.4 })),
+    ringMat: track(new THREE.MeshStandardMaterial({ color: '#f97316', metalness: 0.3, roughness: 0.4 })),
+  }), [height, ringRadius]);
+  return (
+    <group name="netball-post">
+      <mesh geometry={r.pole} material={r.poleMat} position={[0, height / 2, postZ]} />
+      <mesh geometry={r.ring} material={r.ringMat} position={[0, height, ringZ]} rotation-x={Math.PI / 2} />
     </group>
   );
 }

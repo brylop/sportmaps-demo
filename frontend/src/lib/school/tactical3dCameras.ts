@@ -32,14 +32,15 @@ export type PlayerView = 'pov' | 'tercera';
 /** Rótulo por deporte: arco (fútbol, futsal, balonmano), aro (básquet), fondo (vóley y genérico). */
 export function cameraKindLabel(kind: CameraKind, sport: TacticalSport): string {
   const fx = fixtureFor(sport).kind;
-  const end = fx === 'goals' ? 'arco' : fx === 'hoops' ? 'aro' : null;
+  // M6f: el poste de netball se trata como el aro de básquet; rugby y americano, palos en H.
+  const end = fx === 'goals' ? 'arco' : fx === 'hoops' || fx === 'rings' ? 'aro' : fx === 'hposts' ? 'palos' : null;
   switch (kind) {
     case 'tv': return 'Transmisión TV';
     case 'tactica': return 'Táctica alta';
     case 'cenital': return 'Cenital';
     case 'iso': return 'Isométrica';
-    case 'detras': return end ? `Detrás del ${end}` : 'Fondo propio';
-    case 'rival': return end ? `${end === 'arco' ? 'Arco' : 'Aro'} rival` : 'Fondo rival';
+    case 'detras': return end === 'palos' ? 'Detrás de los palos' : end ? `Detrás del ${end}` : 'Fondo propio';
+    case 'rival': return end === 'palos' ? 'Palos rivales' : end ? `${end === 'arco' ? 'Arco' : 'Aro'} rival` : 'Fondo rival';
     case 'balon': return 'Seguir balón';
     case 'jugador': return 'Seguir jugador';
     case 'spider': return 'Spider-cam';
@@ -291,7 +292,9 @@ export function directorShot(court: Court3D, frames: TacticalFrame[], tMs: numbe
   const mb = toMeters(court, b.x, b.y);
   const dz = mb.z - ma.z;
   const d = Math.hypot(mb.x - ma.x, dz);
-  const hasEnds = fixtureFor(court.sport).kind === 'goals' || fixtureFor(court.sport).kind === 'hoops';
+  // M6f: netball (aros) y rugby/americano (palos) también tienen fondos a los que se ataca.
+  const endKind = fixtureFor(court.sport).kind;
+  const hasEnds = endKind === 'goals' || endKind === 'hoops' || endKind === 'rings' || endKind === 'hposts';
   if (hasEnds && d > 2) {
     const zone = finishZoneM(court);
     if (mb.z < -court.lengthM / 2 + zone && dz < 0) return 'rival';

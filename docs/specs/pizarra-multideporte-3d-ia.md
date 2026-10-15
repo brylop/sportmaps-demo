@@ -27,6 +27,11 @@ Hoy la pizarra solo se abre si `teams.sport` es literalmente `futbol`/`fútbol` 
   «Cheerleading all-star», «Basket» → baloncesto):
   - **Pizarra completa:** fútbol 11, fútbol 7, fútbol 5, futsal, voleibol, baloncesto, balonmano.
   - **Pizarra de cancha (fase M5, sin formaciones):** waterpolo, tenis, pádel, vóley playa.
+    **M6f (2026-10-15):** el nivel «cancha» crece a rugby, fútbol americano, tenis, pádel, bádminton, vóley playa,
+    hockey césped, hockey sobre patines/sala, netball, waterpolo y ultimate, cada uno con SU cancha (medidas
+    oficiales) y 1-2 posiciones de arranque. **Abren la pizarra (`hasTacticalBoard`) pero NO la biblioteca**
+    (`hasExerciseLibrary` / `LIBRARY_BOARD_SPORTS`): ni «Desde la biblioteca», ni «Guardar en biblioteca», ni
+    paquetes, porque `EXERCISE_SPORTS` del BFF y la base no los aceptan y no se tocan. Los de «completa» no cambian.
   - **Sin pizarra:** natación, gimnasia, karate, MMA, boxeo, golf, patinaje, atletismo, cheerleading, crossfit,
     piragüismo… Para ellos el botón «Pizarra» no aparece; usan sesiones, asistencia y métricas como hoy.
   - Deporte desconocido → sin pizarra y queda en un reporte para mapearlo (no adivinar).
@@ -68,7 +73,7 @@ Hoy la pizarra solo se abre si `teams.sport` es literalmente `futbol`/`fútbol` 
 | **M2** | Paquetes de biblioteca: `exercise_packs` (sistema/escuela, deporte, versión), `training_exercises.pack_id`, `school_exercise_packs` (activados); paquetes del sistema por deporte; importar/exportar archivo; la biblioteca de la escuela = sus deportes ∩ paquetes activos + propios | nueva | M1 |
 | **M3** | IA de jugadas: endpoint `POST /api/v1/school/tactical/analyze`, prompt por deporte, salida estructurada, superposición del rival animada, guardar variante; cupo y caché (`tactical_ai_analyses`) | nueva | M1 |
 | **M4** | Visor 3D por deporte (fútbol 11/7/5, futsal, vóley, básquet, balonmano), cámaras, caída a 2D | — | M1 (M3 para ver contraataques en 3D) |
-| M5 | Pizarra de cancha para waterpolo, tenis, pádel, vóley playa | — | M1 |
+| M5 | Pizarra de cancha para waterpolo, tenis, pádel, vóley playa (+ rugby, americano, bádminton, hockey, netball, ultimate en M6f: hecho) | — | M1 |
 
 M2, M3 y M4 son independientes entre sí después de M1 y pueden ir en paralelo con agentes.
 

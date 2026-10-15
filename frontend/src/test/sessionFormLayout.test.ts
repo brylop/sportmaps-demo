@@ -26,6 +26,7 @@ const FOOTBALL_BEFORE = {
   form: {
     editor: 'blocks',
     showBoardButtons: true,
+    showLibraryButton: true,
     showGamePrinciples: true,
     showWarmup: false,
     showEvaluation: true,
@@ -39,6 +40,7 @@ const OTHER_BEFORE = {
   form: {
     editor: 'drills',
     showBoardButtons: false,
+    showLibraryButton: false,
     showGamePrinciples: false,
     showWarmup: true,
     showEvaluation: false,
@@ -67,6 +69,7 @@ describe('deportes de pizarra que no son fútbol', () => {
     expect(g.form).toEqual({
       editor: 'blocks',
       showBoardButtons: true,
+      showLibraryButton: true,
       showGamePrinciples: false,
       showWarmup: true,
       showEvaluation: false,
@@ -90,7 +93,39 @@ describe('deportes de pizarra que no son fútbol', () => {
 });
 
 describe('deportes sin pizarra: exactamente lo de antes', () => {
-  it.each(['Natación', 'Karate', 'Porrismo', 'Tenis', 'Waterpolo', 'Pádel', 'Patinaje', 'Deporte inventado'])('%s', (sport) => {
+  it.each(['Natación', 'Karate', 'Porrismo', 'Patinaje', 'Hockey sobre hielo', 'Deporte inventado'])('%s', (sport) => {
     expect(gate({ sport })).toEqual(OTHER_BEFORE);
+  });
+});
+
+describe('M6f: deportes de nivel «cancha» → pizarra SIN biblioteca', () => {
+  it.each([
+    'Tenis', 'Waterpolo', 'Pádel', 'Rugby', 'Fútbol americano', 'Bádminton', 'Vóley playa',
+    'Hockey sobre césped', 'Hockey patines', 'Netball', 'Ultimate',
+  ])('%s: «Tablero táctico» sí, «Desde la biblioteca» no', (sport) => {
+    const a = teamBoardAccess({ sport });
+    expect(a).toMatchObject({ hasTacticalBoard: true, hasExerciseLibrary: false, isFootball: false });
+    const g = gate({ sport });
+    expect(g.page).toEqual({ blockBoardButton: true, footballPanorama: false });
+    expect(g.form.editor).toBe('blocks');
+    expect(g.form.showBoardButtons).toBe(true);
+    expect(g.form.showLibraryButton).toBe(false);
+    expect(g.form.showEvaluation).toBe(false);
+  });
+
+  it('hockey y waterpolo (con portero) ofrecen «Arqueros»; tenis no', () => {
+    expect(gate({ sport: 'Waterpolo' }).form.showGoalkeeperComponent).toBe(true);
+    expect(gate({ sport: 'Hockey sobre césped' }).form.showGoalkeeperComponent).toBe(true);
+    expect(gate({ sport: 'Tenis' }).form.showGoalkeeperComponent).toBe(false);
+  });
+
+  it.each(['Fútbol', 'Fútbol 7', 'Futsal', 'Voleibol', 'Baloncesto', 'Balonmano'])('%s (completa): biblioteca igual que antes', (sport) => {
+    expect(teamBoardAccess({ sport }).hasExerciseLibrary).toBe(true);
+    expect(gate({ sport }).form.showLibraryButton).toBe(true);
+  });
+
+  it('llamador viejo sin teamSport: la biblioteca va con el tablero (sin cambio)', () => {
+    expect(sessionFormLayout({ isFootball: false, hasTacticalBoard: true }).showLibraryButton).toBe(true);
+    expect(sessionFormLayout({ isFootball: false, hasTacticalBoard: true, teamSport: 'tenis' }).showLibraryButton).toBe(false);
   });
 });

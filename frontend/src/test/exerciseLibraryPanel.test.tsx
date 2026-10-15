@@ -7,7 +7,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { TACTICAL_SPORTS } from '@/lib/school/tacticalSports';
+// Canchas CON biblioteca (M6f: rugby, tenis… abren la pizarra pero no la biblioteca).
+import { LIBRARY_BOARD_SPORTS } from '@/lib/sports/sportCatalog';
 import { TEMPLATES } from './fixtures/plantillasEjercicios';
 
 const listExercises = vi.fn();
@@ -52,7 +53,7 @@ const sportChip = (s: keyof typeof EXERCISE_SPORT_LABEL) => screen.queryByRole('
 beforeEach(() => {
   listLibrarySports.mockReset();
   // Por defecto, escuela multideporte con todas las canchas.
-  listLibrarySports.mockResolvedValue([...TACTICAL_SPORTS]);
+  listLibrarySports.mockResolvedValue([...LIBRARY_BOARD_SPORTS]);
   listExercises.mockReset();
   listExercises.mockImplementation(async (p: { sport?: string; includeGeneric?: boolean }) => {
     if (p.sport === 'futsal') return p.includeGeneric ? [...futsal, ...generic] : futsal;
@@ -63,7 +64,7 @@ beforeEach(() => {
 describe('ExerciseLibraryPanel', () => {
   it('escuela con todas las canchas: un chip por deporte, lo genérico como «Preparación física»', async () => {
     setup();
-    for (const s of TACTICAL_SPORTS) expect(await screen.findByRole('button', { name: EXERCISE_SPORT_LABEL[s] })).toBeTruthy();
+    for (const s of LIBRARY_BOARD_SPORTS) expect(await screen.findByRole('button', { name: EXERCISE_SPORT_LABEL[s] })).toBeTruthy();
     expect(EXERCISE_SPORT_LABEL.generico).toBe('Preparación física');
     expect(screen.queryByRole('button', { name: 'Genérico' })).toBeNull();
   });

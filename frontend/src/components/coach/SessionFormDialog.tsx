@@ -16,7 +16,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { TacticalBoard } from '@/components/school/TacticalBoard';
 import { ExerciseLibraryPanel } from '@/components/school/ExerciseLibraryPanel';
-import { insertExerciseIntoSession, type TrainingExercise } from '@/lib/school/exerciseLibrary';
+import { insertExerciseIntoSession, isExerciseSport, type TrainingExercise } from '@/lib/school/exerciseLibrary';
 import { logTacticalEvent } from '@/lib/school/tacticalUsage';
 import { useTeamTacticalSport } from '@/hooks/useTeamTacticalSport';
 import { useToast } from '@/hooks/use-toast';
@@ -545,7 +545,7 @@ export function SessionFormDialog({
                         </SelectContent>
                       </Select>
                     </div>
-                    {layout.showBoardButtons && (
+                    {layout.showLibraryButton && (
                     <div className="flex flex-wrap items-center gap-2">
                       <Button
                         type="button"
@@ -757,13 +757,13 @@ export function SessionFormDialog({
 
     {/* Biblioteca de ejercicios (pizarra T3): mismo patrón que el tablero --
         el Dialog de la sesión se oculta mientras el panel está abierto. */}
-    {libraryBlockIndex !== null && blocks[libraryBlockIndex]?.id && (
+    {libraryBlockIndex !== null && blocks[libraryBlockIndex]?.id && layout.showLibraryButton && (
       <ExerciseLibraryPanel
         open
         onOpenChange={(o) => { if (!o) setLibraryBlockIndex(null); }}
         onPick={applyExercise}
         pickLabel="Usar en esta sesión"
-        defaultSport={teamSport}
+        defaultSport={isExerciseSport(teamSport) ? teamSport : undefined}
         picking={applyingExercise}
         onPackEvent={(event) => logTacticalEvent({ schoolId: teamSchoolId, event, teamId, sourceType: 'library_packs' })}
       />

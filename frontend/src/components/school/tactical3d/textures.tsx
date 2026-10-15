@@ -107,12 +107,23 @@ function roundRect(c: CanvasRenderingContext2D, x: number, y: number, w: number,
   c.closePath();
 }
 
+/** Color de fondo y de costura de los balones lisos (M6f). */
+const PLAIN_BALLS: Partial<Record<BallStyle, [string, string]>> = {
+  oval: ['#8b4513', '#f8fafc'],
+  tennis: ['#d9f99d', '#f8fafc'],
+  hockey: ['#f8fafc', '#94a3b8'],
+  waterpolo: ['#facc15', '#1d4ed8'],
+  shuttlecock: ['#f8fafc', '#cbd5e1'],
+  disc: ['#f8fafc', '#2563eb'],
+};
+
 /** Balón por deporte (mapa equirectangular sobre una esfera). */
 export function ballTexture(style: BallStyle): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 256;
   canvas.height = 128;
   const c = canvas.getContext('2d')!;
+  const plain = PLAIN_BALLS[style];
   if (style === 'basketball') {
     c.fillStyle = '#ea580c';
     c.fillRect(0, 0, 256, 128);
@@ -126,6 +137,14 @@ export function ballTexture(style: BallStyle): THREE.CanvasTexture {
     c.strokeStyle = '#334155';
     c.lineWidth = 2;
     for (let i = 1; i < 6; i++) { c.beginPath(); c.moveTo(0, (i * 128) / 6); c.lineTo(256, (i * 128) / 6); c.stroke(); }
+  } else if (plain) {
+    // M6f: balones lisos con una costura (ovalado, tenis, hockey, waterpolo, volante, disco).
+    const [fill, seam] = plain;
+    c.fillStyle = fill;
+    c.fillRect(0, 0, 256, 128);
+    c.strokeStyle = seam;
+    c.lineWidth = 4;
+    c.beginPath(); c.moveTo(0, 64); c.bezierCurveTo(64, 30, 192, 98, 256, 64); c.stroke();
   } else {
     c.fillStyle = style === 'handball' ? '#f8fafc' : '#fafafa';
     c.fillRect(0, 0, 256, 128);

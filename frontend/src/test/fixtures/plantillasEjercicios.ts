@@ -21,6 +21,7 @@
  * con players/arrows = el primer cuadro.
  */
 import { SPORTS, type TacticalSport } from '@/lib/school/tacticalSports';
+import type { LibraryBoardSport } from '@/lib/sports/sportCatalog';
 import type { TacticalArrow, TacticalArrowColor } from '@/lib/school/footballQueries';
 import type { TacticalFrame } from '@/lib/school/tacticalFrames';
 import type { ExerciseBoard, ExerciseBoardPlayer } from '@/lib/school/exerciseLibrary';
@@ -62,7 +63,7 @@ interface FrameSpec {
 
 interface TemplateSpec {
   n: number;
-  sport: Exclude<TacticalSport, 'futbol' | 'futbol7'>;
+  sport: Exclude<LibraryBoardSport, 'futbol' | 'futbol7'>;
   name: string;
   objective: string;
   minutes: number;
@@ -84,7 +85,7 @@ export interface ExerciseTemplate {
   age_group: string;
   materials: string;
   tags: string[];
-  sport: TacticalSport;
+  sport: LibraryBoardSport;
   description: string;
   board: ExerciseBoard;
 }

@@ -7,9 +7,13 @@
  * "Voleibol — Metodólogo"…), no un slug. Este archivo es el único lugar que
  * convierte ese texto en un deporte con su nivel de pizarra:
  *
- *   completa → fútbol 11/7/5, futsal, voleibol, baloncesto, balonmano
- *   cancha   → waterpolo, tenis, pádel, vóley playa (pizarra de cancha en M5;
- *              mientras tanto NO se muestra nada)
+ *   completa → fútbol 11/7/5, futsal, voleibol, baloncesto, balonmano:
+ *              pizarra + biblioteca de ejercicios y paquetes.
+ *   cancha   → rugby, fútbol americano, tenis, pádel, bádminton, vóley playa,
+ *              hockey césped, hockey sobre patines, netball, waterpolo y
+ *              ultimate (M5/M6f): pizarra con SU cancha y jugadores libres,
+ *              SIN biblioteca ni paquetes (EXERCISE_SPORTS del BFF y el CHECK
+ *              de la base no los conocen; ver hasExerciseLibrary).
  *   ninguna  → el resto (natación, karate, porrismo…) y lo desconocido
  *
  * Lo desconocido NO se adivina: queda en `ninguna` con match 'ninguno' y sale
@@ -35,9 +39,41 @@ export const BOARD_SPORTS = [
   'voleibol',
   'baloncesto',
   'balonmano',
+  // Nivel «cancha» (M6f): solo pizarra, sin biblioteca.
+  'rugby',
+  'futbol_americano',
+  'tenis',
+  'padel',
+  'badminton',
+  'voley_playa',
+  'hockey_cesped',
+  'hockey_patines',
+  'netball',
+  'waterpolo',
+  'ultimate',
   'generico',
 ] as const;
 export type BoardSport = (typeof BOARD_SPORTS)[number];
+
+/** Canchas con biblioteca de ejercicios y paquetes: las de nivel «completa»
+ *  + 'generico' («Preparación física»). Es EXACTAMENTE EXERCISE_SPORTS del
+ *  BFF (bff/src/routes/school/exerciseShapes.ts) y lo que acepta la base para
+ *  un ejercicio: un deporte de nivel «cancha» abre la pizarra pero no guarda
+ *  ni busca ejercicios. */
+export const LIBRARY_BOARD_SPORTS = [
+  'futbol',
+  'futbol7',
+  'futbol5',
+  'futsal',
+  'voleibol',
+  'baloncesto',
+  'balonmano',
+  'generico',
+] as const;
+export type LibraryBoardSport = Extract<BoardSport, (typeof LIBRARY_BOARD_SPORTS)[number]>;
+
+export const isLibraryBoardSport = (s: unknown): s is LibraryBoardSport =>
+  typeof s === 'string' && (LIBRARY_BOARD_SPORTS as readonly string[]).includes(s);
 
 export const FOOTBALL_BOARD_SPORTS: readonly BoardSport[] = ['futbol', 'futbol7', 'futbol5'];
 
@@ -46,8 +82,8 @@ export interface SportEntry {
   /** Nombre visible en español de Colombia. */
   label: string;
   boardLevel: BoardLevel;
-  /** Cancha de la pizarra que le corresponde (si tiene). En 'cancha' es la
-   *  más parecida, para M5; hoy no abre nada. */
+  /** Cancha de la pizarra que le corresponde (si tiene). En 'cancha' es su
+   *  propia cancha (M6f): abre la pizarra sin biblioteca. */
   tacticalSport?: BoardSport;
   /** Sinónimos y variantes (se comparan normalizados: sin tildes, minúsculas,
    *  sin guiones ni plurales). */
@@ -82,12 +118,26 @@ export const SPORT_CATALOG: readonly SportEntry[] = [
   { key: 'balonmano', label: 'Balonmano', boardLevel: 'completa', tacticalSport: 'balonmano',
     aliases: ['balonmano', 'handball', 'hand ball', 'handbol'] },
 
-  // ── Pizarra de cancha (M5; hoy sin pizarra) ───────────────────────────────
-  { key: 'waterpolo', label: 'Waterpolo', boardLevel: 'cancha', aliases: ['waterpolo', 'water polo', 'polo acuatico'] },
-  { key: 'tenis', label: 'Tenis', boardLevel: 'cancha', aliases: ['tenis', 'tenis de campo', 'tennis'] },
-  { key: 'padel', label: 'Pádel', boardLevel: 'cancha', aliases: ['padel', 'paddle', 'padel tenis', 'paddle tenis'] },
-  { key: 'voley_playa', label: 'Vóley playa', boardLevel: 'cancha', tacticalSport: 'voleibol',
-    aliases: ['voley playa', 'voleibol playa', 'voleibol de playa', 'volley playa', 'beach volley', 'beach volleyball', 'voley arena', 'voleibol de arena'] },
+  // ── Pizarra de cancha (M5/M6f: cancha + jugadores libres, sin biblioteca) ──
+  { key: 'rugby', label: 'Rugby', boardLevel: 'cancha', tacticalSport: 'rugby',
+    aliases: ['rugby', 'rugby union', 'rugby 7', 'rugby 7s', 'rugby seven', 'rugby sevens', 'rugby xv', 'rugby 15', 'rugby de playa', 'rugby touch', 'touch rugby', 'tag rugby'] },
+  { key: 'futbol_americano', label: 'Fútbol americano', boardLevel: 'cancha', tacticalSport: 'futbol_americano',
+    aliases: ['futbol americano', 'american football', 'football americano', 'futbol bandera', 'flag football', 'tochito'] },
+  { key: 'tenis', label: 'Tenis', boardLevel: 'cancha', tacticalSport: 'tenis', aliases: ['tenis', 'tenis de campo', 'tennis'] },
+  { key: 'padel', label: 'Pádel', boardLevel: 'cancha', tacticalSport: 'padel', aliases: ['padel', 'paddle', 'padel tenis', 'paddle tenis'] },
+  { key: 'badminton', label: 'Bádminton', boardLevel: 'cancha', tacticalSport: 'badminton', aliases: ['badminton', 'badmington'] },
+  { key: 'voley_playa', label: 'Vóley playa', boardLevel: 'cancha', tacticalSport: 'voley_playa',
+    aliases: ['voley playa', 'voleibol playa', 'voleibol de playa', 'volley playa', 'beach volley', 'beach volleyball', 'voley arena', 'voleibol de arena', 'voley de playa', 'volei playa', 'beach voley'] },
+  { key: 'hockey_cesped', label: 'Hockey sobre césped', boardLevel: 'cancha', tacticalSport: 'hockey_cesped',
+    aliases: ['hockey sobre cesped', 'hockey cesped', 'hockey en cesped', 'hockey hierba', 'hockey sobre hierba', 'hockey de campo', 'field hockey'] },
+  // Hockey en línea y hockey sala (FIH indoor, 36-44 × 18-22 m) se juegan en
+  // pistas de tamaño parecido a la de patines (40 × 20 m): se dibujan en esa.
+  { key: 'hockey_patines', label: 'Hockey sobre patines', boardLevel: 'cancha', tacticalSport: 'hockey_patines',
+    aliases: ['hockey sobre patines', 'hockey patines', 'hockey en patines', 'hockey patin', 'rink hockey', 'roller hockey', 'hockey en linea', 'hockey linea', 'inline hockey', 'hockey sala', 'hockey de sala'] },
+  { key: 'netball', label: 'Netball', boardLevel: 'cancha', tacticalSport: 'netball', aliases: ['netball', 'net ball'] },
+  { key: 'waterpolo', label: 'Waterpolo', boardLevel: 'cancha', tacticalSport: 'waterpolo', aliases: ['waterpolo', 'water polo', 'polo acuatico'] },
+  { key: 'ultimate', label: 'Ultimate (disco volador)', boardLevel: 'cancha', tacticalSport: 'ultimate',
+    aliases: ['ultimate', 'ultimate frisbee', 'disco volador', 'frisbee'] },
 
   // ── Sin pizarra ───────────────────────────────────────────────────────────
   { key: 'natacion', label: 'Natación', boardLevel: 'ninguna', aliases: ['natacion', 'paranatacion', 'natacion carreras'] },
@@ -135,11 +185,11 @@ export const SPORT_CATALOG: readonly SportEntry[] = [
   { key: 'tenis_mesa', label: 'Tenis de mesa', boardLevel: 'ninguna', aliases: ['tenis de mesa', 'ping pong'] },
   { key: 'squash', label: 'Squash', boardLevel: 'ninguna', aliases: ['squash'] },
   { key: 'racquetball', label: 'Ráquetbol', boardLevel: 'ninguna', aliases: ['racquetball', 'raquetbol'] },
-  { key: 'badminton', label: 'Bádminton', boardLevel: 'ninguna', aliases: ['badminton'] },
-  { key: 'rugby', label: 'Rugby', boardLevel: 'ninguna', aliases: ['rugby', 'rugby en silla de ruedas'] },
+  // Se juega en cancha de baloncesto, no de rugby: sin pizarra propia.
+  { key: 'rugby_silla', label: 'Rugby en silla de ruedas', boardLevel: 'ninguna', aliases: ['rugby en silla de ruedas', 'quad rugby', 'murderball'] },
   { key: 'beisbol', label: 'Béisbol', boardLevel: 'ninguna', aliases: ['beisbol', 'baseball'] },
   { key: 'softbol', label: 'Sóftbol', boardLevel: 'ninguna', aliases: ['softbol', 'softball'] },
-  { key: 'hockey', label: 'Hockey', boardLevel: 'ninguna', aliases: ['hockey', 'hockey sobre cesped', 'hockey sobre hielo', 'hockey en linea'] },
+  { key: 'hockey', label: 'Hockey', boardLevel: 'ninguna', aliases: ['hockey', 'hockey sobre hielo'] },
   { key: 'escalada', label: 'Escalada', boardLevel: 'ninguna', aliases: ['escalada', 'escalada deportiva'] },
   { key: 'skateboarding', label: 'Skateboarding', boardLevel: 'ninguna', aliases: ['skateboarding', 'skate'] },
   { key: 'danza', label: 'Danza y baile deportivo', boardLevel: 'ninguna', aliases: ['danza', 'baile deportivo', 'danza y baile deportivo'] },
@@ -156,7 +206,6 @@ export const SPORT_CATALOG: readonly SportEntry[] = [
   { key: 'automovilismo', label: 'Automovilismo', boardLevel: 'ninguna', aliases: ['automovilismo', 'automovilismo deportivo', 'karts', 'karting'] },
   { key: 'motonautica', label: 'Motonáutica', boardLevel: 'ninguna', aliases: ['motonautica'] },
   { key: 'paintball', label: 'Paintball', boardLevel: 'ninguna', aliases: ['paintball', 'paint ball'] },
-  { key: 'ultimate', label: 'Ultimate (disco volador)', boardLevel: 'ninguna', aliases: ['ultimate', 'disco volador', 'frisbee'] },
   { key: 'bridge', label: 'Bridge', boardLevel: 'ninguna', aliases: ['bridge'] },
   { key: 'multideporte', label: 'Multideporte', boardLevel: 'ninguna', aliases: ['multideporte', 'polideportivo', 'varios deportes'] },
 ];
@@ -211,6 +260,7 @@ const ALIASES_BY_LENGTH: [string, SportEntry][] = [...ALIAS_INDEX.entries()].sor
  *  Futsal ANTES que fútbol: "fútbol sala" contiene "fútbol". */
 function boardFamilyByKeyword(text: string): BoardSport | null {
   if (!text) return null;
+  if (/futbol\s*americano|american\s*football/.test(text)) return 'futbol_americano';
   if (/\bfutsal\b|futbol\s*(de\s*)?sala|futbol\s*de\s*salon|micro\s*futbol|\bmicro\b/.test(text)) return 'futsal';
   if (/volei|voley|volley/.test(text)) return 'voleibol';
   if (/balonce|basket|basquet/.test(text)) return 'baloncesto';
@@ -273,9 +323,22 @@ function asResolved(s: string | ResolvedSport | null | undefined): ResolvedSport
   return resolveSport(typeof s === 'string' ? s : null);
 }
 
-/** D2/D3: ¿abre la pizarra táctica y su biblioteca? Solo nivel «completa». */
-export const hasTacticalBoard = (s: string | ResolvedSport | null | undefined): boolean =>
-  asResolved(s).boardLevel === 'completa';
+/** D2/D3 + M6f: ¿abre la pizarra táctica? Nivel «completa» y también
+ *  «cancha» con cancha propia (rugby, tenis, waterpolo…): pizarra para dibujar
+ *  y jugadores libres. La biblioteca la decide hasExerciseLibrary. */
+export const hasTacticalBoard = (s: string | ResolvedSport | null | undefined): boolean => {
+  const r = asResolved(s);
+  return !!r.tacticalSport && (r.boardLevel === 'completa' || r.boardLevel === 'cancha');
+};
+
+/** ¿Biblioteca de ejercicios («Desde la biblioteca», «Guardar en biblioteca»,
+ *  paquetes)? Solo nivel «completa» (= LIBRARY_BOARD_SPORTS = EXERCISE_SPORTS
+ *  del BFF). Un deporte de nivel «cancha» abre la pizarra pero no la
+ *  biblioteca: el BFF y la base rechazarían sus ejercicios. */
+export const hasExerciseLibrary = (s: string | ResolvedSport | null | undefined): boolean => {
+  const r = asResolved(s);
+  return r.boardLevel === 'completa' && isLibraryBoardSport(r.tacticalSport);
+};
 
 /** D3: lo futbolero de verdad (principios de juego, evaluación de la sesión,
  *  bloques de fútbol, panorama «Fútbol»). Fútbol 11/7/5; futsal NO. */
@@ -343,8 +406,10 @@ export function boardSportFromTeam(team: TeamSportInput | null | undefined): Boa
 export interface TeamBoardAccess {
   /** Cancha con la que abre la pizarra. */
   sport: BoardSport;
-  /** Abre «Tablero táctico», jugadas guardadas y biblioteca. */
+  /** Abre «Tablero táctico» y jugadas guardadas (nivel completa o cancha). */
   hasTacticalBoard: boolean;
+  /** «Desde la biblioteca», «Guardar en biblioteca» y paquetes (solo completa). */
+  hasExerciseLibrary: boolean;
   /** Lo futbolero: principios de juego, evaluación, bloques y panorama «Fútbol». */
   isFootball: boolean;
 }
@@ -354,6 +419,7 @@ export function teamBoardAccess(team: TeamSportInput | null | undefined): TeamBo
   return {
     sport: boardSportFromTeam(team),
     hasTacticalBoard: hasTacticalBoard(r),
+    hasExerciseLibrary: hasExerciseLibrary(r),
     isFootball: isFootballSport(r),
   };
 }
@@ -376,7 +442,7 @@ export function schoolBoardSports(input: {
 }): BoardSport[] {
   const set = new Set<BoardSport>(['generico']);
   for (const t of input.teams ?? []) {
-    if (!t || !hasTacticalBoard(t.sport)) continue;
+    if (!t || !hasExerciseLibrary(t.sport)) continue;
     set.add(boardSportFromTeam(t));
   }
   for (const s of input.schoolSports ?? []) {

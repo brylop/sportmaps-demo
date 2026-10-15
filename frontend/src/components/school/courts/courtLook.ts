@@ -20,3 +20,10 @@ export function useCourtLook(base: CourtColors): { line: string; accent?: string
 }
 
 export const useCourtConfig = () => useContext(CourtConfigContext);
+
+/** Tinta de las líneas (y el acento) de una cancha con el «Campo» aplicado:
+ *  lo que usan los fondos de M6f para respetar los colores elegidos. */
+export function useCourtInk(base: CourtColors): { line: string; accent: string | undefined } {
+  const { line, accent } = useCourtLook(base);
+  return { line, accent: accent ?? base.accent };
+}

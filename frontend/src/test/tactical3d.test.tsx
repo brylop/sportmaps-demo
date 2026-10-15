@@ -196,8 +196,8 @@ describe('cámaras', () => {
     const halfH = Math.tan((22.5 * Math.PI) / 180) * (16 / 9);
     expect(dist * halfH).toBeGreaterThanOrEqual(c.lengthM / 2);
     const d = fixedCameraPose(c, 'detras');
-    if (sport === 'baloncesto') {
-      // Encima del tablero propio y por arriba del aro: el poste queda atrás.
+    if (sport === 'baloncesto' || sport === 'netball') {
+      // Encima del tablero (o poste de netball) propio y por arriba del aro: el poste queda atrás.
       expect(d.position.z).toBeGreaterThan(c.lengthM / 2 - BASKET_M.boardFromBaseline);
       expect(d.position.y).toBeGreaterThan(BASKET_HEIGHTS_M.rimHeight + 1);
     } else {

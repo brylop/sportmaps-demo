@@ -22,5 +22,8 @@ describe('catálogo de deportes: espejo frontend ↔ BFF', () => {
     expect(resolveSport('Fútbol Sala').key).toBe('futsal');
     expect(resolveSport('Cheerleading All-Star').key).toBe('cheerleading');
     expect(schoolBoardSports({ teams: [{ sport: 'Voleibol' }], schoolSports: ['Fútbol'] })).toEqual(['futbol', 'futbol7', 'futbol5', 'voleibol', 'generico']);
+    // M6f: tenis abre su cancha, pero no entra a la biblioteca (EXERCISE_SPORTS no cambia).
+    expect(resolveSport('Tenis')).toMatchObject({ key: 'tenis', boardLevel: 'cancha', tacticalSport: 'tenis' });
+    expect(schoolBoardSports({ teams: [{ sport: 'Tenis' }, { sport: 'Waterpolo' }] })).toEqual(['generico']);
   });
 });
