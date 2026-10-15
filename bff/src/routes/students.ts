@@ -4,6 +4,7 @@ import { supabase } from '../config/supabase';
 import { todayInZone } from '../utils/businessDate';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { normalizeSchoolName } from '../utils/brandingUtils';
+import { prepareZkPinForSignup, assignZkPin, ZkPinError, type ZkSubject } from '../services/zkPinAssignment';
 import { esMenorDeEdad } from '../services/contacto-acudiente';
 import {
     createPendingPayment as createPendingPaymentShared,
@@ -742,6 +743,26 @@ router.put(
         return res.status(400).json({ error: 'athlete_type inválido.' });
       }
 
+      // ── PASO 1.a: ID del torniquete (solo escuelas con registration_zk_pin_enabled) ──
+      // Poner o cambiar el ID del lector de este deportista. Es configuración de
+      // control de acceso: solo administración (igual que POST /access/assign-user).
+      // Se valida y se asocia ANTES de tocar el perfil; es idempotente. Para quitarlo
+      // se usa Control de acceso (aquí un valor vacío significa «no tocar»).
+      const rawZkPin = req.body.zk_pin;
+      if (rawZkPin !== undefined && rawZkPin !== null && rawZkPin !== '') {
+        if (!['owner', 'admin', 'school_admin'].includes(req.role as string)) {
+          return res.status(403).json({
+            error: 'El ID del torniquete lo asigna la administración de la escuela.',
+            code: 'ZK_PIN_FORBIDDEN',
+          });
+        }
+        const zkSubject: ZkSubject = athlete_type === 'child' ? { child_id: id }
+          : athlete_type === 'adult' ? { user_id: id }
+          : { unregistered_athlete_id: id };
+        const zkPin = await prepareZkPinForSignup(schoolId, rawZkPin, zkSubject);
+        if (zkPin !== null) await assignZkPin(schoolId, zkPin, zkSubject);
+      }
+
       // ── PASO 1.b: Atleta inactivo → no se le asigna equipo ni plan ────────
       // El plan es lo que genera los cobros: asignárselo a un inactivo lo mete
       // de vuelta a la facturación (open_month solo mira enrollments.status).
@@ -1382,6 +1403,9 @@ router.put(
       return res.json({ success: true, warnings });
 
     } catch (err: any) {
+      if (err instanceof ZkPinError) {
+        return res.status(err.status).json({ error: err.message, code: err.code });
+      }
       req.log?.error?.({ err: err.message }, 'Error en PUT /students/:id');
       return res.status(500).json({ error: err.message || 'Error interno.' });
     }

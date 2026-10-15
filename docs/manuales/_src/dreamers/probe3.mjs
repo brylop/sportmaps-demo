@@ -1,0 +1,14 @@
+import { chromium, newSession, BASE_URL, ACC, sleep } from './lib.mjs';
+const browser = await chromium.launch();
+const { page } = await newSession(browser, ACC.parent, { dpr: 1 });
+page.on('response', async r => { if (r.status() >= 400) console.log('[resp]', r.status(), r.url().slice(0, 160)); });
+await page.goto(BASE_URL + '/enrollments'); await sleep(7000);
+await page.screenshot({ path: 'discover/p-enr-full.png', fullPage: true });
+await page.getByText('Mis Clases').first().click(); await sleep(3000);
+await page.screenshot({ path: 'discover/p-enr-clases.png', fullPage: true });
+await page.getByText('Mis Reservas').first().click(); await sleep(3000);
+await page.screenshot({ path: 'discover/p-enr-reservas.png', fullPage: true });
+await page.getByText('Mis Grupos').first().click(); await sleep(1500);
+await page.getByText('TOCA PARA GESTIONAR CLASES', { exact: false }).first().click(); await sleep(4000);
+await page.screenshot({ path: 'discover/p-enr-plan.png', fullPage: true });
+await browser.close();

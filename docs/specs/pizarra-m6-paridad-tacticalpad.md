@@ -1,0 +1,61 @@
+# Pizarra M6 — todo lo de TacticalPad y más
+
+> 2026-10-14. Continúa `pizarra-multideporte-3d-ia.md` (M0-M4 en `pizarra-tp/integracion`).
+> Pedido del usuario, con capturas de TacticalPad (galería de formaciones, configuración del equipo, videos,
+> notas): «añadamos todo lo que más podamos, que tengamos de más y no de menos; la IA es un plus».
+> Estado: **EN CONSTRUCCIÓN** (aprobado por el usuario en ese mensaje).
+
+## 1. Lo que falta hoy (auditado en el código)
+
+- **Formaciones:** fútbol 11 solo tiene 4-3-3, 4-4-2, 3-5-2 (+ 2-3-1 de F7). TacticalPad trae ~16 con miniatura.
+- **Equipos:** el rival son figuras sueltas `opponent`; no hay nombre, escudo, colores, estilo de ficha, qué mostrar
+  (número / iniciales / nombre), portero con apariencia distinta, tamaño global, ni equipos rivales guardados.
+- **Videos y notas:** no existen por jugada ni por cuadro.
+- **Herramientas:** sin estilos de línea (pase, conducción, carrera, disparo), sin zonas rectangulares/elípticas/
+  polígonos, sin vista de media cancha / 3/4 / orientación, sin estilos de césped.
+
+## 2. Bloques (un agente por bloque, una rama por bloque, se integran en `pizarra-tp/integracion`)
+
+| Bloque | Qué | Migración |
+|---|---|---|
+| **M6a Formaciones** | Catálogo completo por deporte con galería de miniaturas; se aplica al equipo propio y al rival (espejado); deporte del equipo manda | — |
+| **M6b Equipos** | Configuración de los dos equipos (nombre, escudo, 3 colores, estilo de ficha: disco con número / camiseta lisa / rayas / silueta; mostrar número, iniciales o nombre; portero distinto; tamaño global de jugadores y material); rivales guardados por escuela («Equipos almacenados»); plantilla del rival (solo número y alias, nunca datos de menores de otra escuela) | tabla `tactical_rival_teams` |
+| **M6c Videos y notas** | Notas por jugada y por cuadro (texto con formato básico + etiquetas); videos de YouTube/Vimeo por enlace (sin subir archivos: cero almacenamiento), con minuto de inicio y vista previa `youtube-nocookie`; videos guardados por escuela; notas y videos viajan en la ficha PDF, en los paquetes exportados y como intención en el análisis de IA | columnas/tabla de medios |
+| **M6d Herramientas** | Estilos de línea (pase discontinuo, conducción en zigzag, carrera continua, disparo doble), zonas (rectángulo, elipse, polígono) con relleno translúcido, resaltar jugador (foco), vistas de cancha (completa, media, 3/4, área) y orientación, estilos de césped/piso; más todo lo de la lista pública de funciones de TacticalPad que falte (auditoría web) | — |
+
+## 3. Reglas
+
+- `TacticalBoard.tsx` lo tocan los cuatro: cada bloque mete su lógica en componentes/hooks nuevos y deja en la
+  pizarra solo el punto de enganche. Formato de jugada retrocompatible (campos opcionales en el jsonb).
+- Fútbol 11 sin regresión; deportes por catálogo (M1). Siluetas genéricas, nunca fotos de menores.
+- Disk IO (CLAUDE.md): nada de DDL contra la base desde los agentes, lecturas puntuales, `gen types` al final del
+  lote, pruebas de permisos contra la base una sola vez al aplicar.
+- Pruebas: unitarias, e2e en `playwright.pizarra.config.ts`, capturas revisadas a ojo, batería completa.
+
+## 4. Agregado 2026-10-14 (2.ª tanda de capturas de TacticalPad: «Campo» y «Ajustes»)
+
+**Diálogo «Campo»** (M6d):
+- **Plantillas de líneas** en galería con miniatura isométrica, con scroll horizontal, «Incluyendo porterías» (on/off):
+  cancha completa; con **5 carriles verticales** (discontinuos); **3 tercios**; **carriles + tercios**; **media
+  cancha**; **cuadrícula** (zonas de juego de posición, 18-20 zonas); **half-spaces**; cancha **sin líneas** (solo
+  césped); **área grande + líneas**; **rondo / formas** (círculo, triángulo, hexágono, cuadrado) para ejercicios;
+  rejillas de 2x2, 3x3, 4x3; diagonales; y **foto/imagen propia de fondo** (en SportMaps: NO subir archivos de
+  usuarios por almacenamiento → reemplazar por más plantillas dibujadas).
+- **Más deportes de fondo** (solo dibujo de cancha, sin formaciones todavía → nivel «cancha» de M5): rugby, fútbol
+  americano, tenis, pádel, bádminton, vóley playa, hockey sobre césped, hockey en patines/sala, netball, waterpolo,
+  ultimate. Los que ya son «completa» (fútbol 11/7/5, futsal, vóley, básquet, balonmano) con sus variantes.
+- **Cámara**: cancha completa / media cancha (arco abajo) / media cancha (arco arriba) + **orientación** horizontal o
+  vertical (toggle).
+- **Colores**: color del césped/piso, de las líneas y del contorno (con paleta).
+
+**Diálogo «Ajustes»** (M6d; preferencias por coach, se guardan en su perfil o localStorage si es solo de dispositivo):
+- **Curva de velocidad de animación**: suave (ease-in-out, la de hoy), lineal, rápida al inicio, rápida al final.
+- **Mostrar siempre la ruta del jugador** — equipo local / equipo visitante (rastro de su recorrido en la animación).
+- **Mostrar siempre la trayectoria del balón**, y **trayectoria del balón como línea discontinua**.
+- **Definir la posesión del balón** (el balón se «pega» al jugador que lo tiene y se mueve con él entre cuadros).
+- **Etiqueta de nombre del jugador siempre visible**.
+- **Tema** claro/oscuro de la pizarra y **pantalla completa** / ventana.
+- (La «marca de agua» de TacticalPad NO aplica: nuestras exportaciones llevan «Powered by SportMaps» salvo marca
+  blanca, ver memoria de marca.)
+
+**3D (M6e)**: animación de la jugada en 3D con todos los tipos de cámara (ver bloque M6e).

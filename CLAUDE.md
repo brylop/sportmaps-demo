@@ -86,7 +86,7 @@ select public.user_school_ids(), public.user_staff_school_ids(), public.user_adm
 
 ## Disk IO de la base — OBLIGATORIO (caída de ~14 h el 2026-10-14)
 
-Supabase es plan Free y **una sola base** para dev, stg y prod: si se agota el presupuesto de Disk IO, se cae TODO (login incluido; el navegador lo muestra como error de CORS, pero es un 504). Lo que más quema IO no son las consultas de la app sino **leer el catálogo** (814 funciones): cada lectura escribe archivos temporales.
+**Desde el 2026-10-14 Supabase es plan Pro** (se compró para trabajar con más holgura), pero **el plan de optimización sigue vigente**: Pro sube el techo, no lo quita, y la base sigue siendo **una sola** para dev, stg y prod. Si se agota el presupuesto de Disk IO, se cae TODO (login incluido; el navegador lo muestra como error de CORS, pero es un 504). Las reglas de abajo NO se relajan por el cambio de plan. Lo que más quema IO no son las consultas de la app sino **leer el catálogo** (814 funciones): cada lectura escribe archivos temporales.
 
 - **Una sola sesión a la vez aplica migraciones.** Nunca aplicar migraciones (`apply_migration`, `db push`, SQL con DDL) desde agentes o sesiones en paralelo: cada DDL obliga a PostgREST a recargar todo el esquema.
 - **Regenerar `types.ts` (`gen types` / `generate_typescript_types`) solo una vez, al final del lote de migraciones**, no después de cada una.

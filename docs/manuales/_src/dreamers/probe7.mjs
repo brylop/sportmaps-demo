@@ -1,0 +1,16 @@
+import { chromium, newSession, BASE_URL, ACC, sleep } from './lib.mjs';
+const browser = await chromium.launch();
+const { page } = await newSession(browser, ACC.parent, { dpr: 1, viewport: { width: 1600, height: 2000 } });
+page.on('response', async r => { if (r.status() >= 400) console.log('[resp]', r.status(), r.url().slice(0, 160), (await r.text().catch(()=>'')).slice(0, 200)); });
+await page.goto(BASE_URL + '/schools/57ba9352-2c11-4b5b-aa5b-e5ec6f526cbe'); await sleep(8000);
+const card = page.locator('div', { hasText: 'Plan Gimnasia Recreativa' }).filter({ has: page.getByRole('button', { name: 'Inscribirme' }) }).last();
+await card.getByRole('button', { name: 'Inscribirme' }).click(); await sleep(6000);
+const d = page.locator('[role=dialog]').last();
+await d.getByText('Martina Gómez').click(); await sleep(500);
+await d.getByRole('button', { name: /Continuar inscripción/ }).click(); await sleep(6000);
+const d2 = page.locator('[role=dialog]').last();
+const [fc] = await Promise.all([page.waitForEvent('filechooser'), d2.getByRole('button', { name: /Seleccionar Archivo/ }).click()]); await fc.setFiles('comprobante-ejemplo.png'); await sleep(2000);
+await d2.getByRole('button', { name: /Enviar Comprobante/ }).click(); await sleep(7000);
+await page.screenshot({ path: 'discover/s6.png' });
+console.log(await page.locator('body').innerText().then(t => t.slice(0, 600)));
+await browser.close();
