@@ -18,7 +18,7 @@ interface InvoiceRow {
   plan_code: string;
   amount_cents: number;
   // Desde la migración 20260929183752; vacío en facturas anteriores.
-  line_items?: { kind: 'plan' | 'addon'; code: string; amount_cents: number }[] | null;
+  line_items?: { kind: 'plan' | 'addon' | 'one_time'; code: string; label?: string; amount_cents: number }[] | null;
   period_start: string;
   period_end: string;
   due_date: string;
@@ -120,7 +120,9 @@ export default function SaasInvoiceReceiptPage() {
     ? [{ label: 'Plan', value: planName, amount: null as number | null }]
     : items.map((it) => it.kind === 'plan'
       ? { label: 'Plan', value: PLAN_NAMES[it.code] ?? it.code, amount: it.amount_cents }
-      : { label: 'Adicional', value: ADDON_NAMES[it.code] ?? it.code, amount: it.amount_cents });
+      : it.kind === 'one_time'
+        ? { label: 'Cobro', value: it.label || (it.code === 'certificado_digital' ? 'Certificado digital (anual)' : it.code), amount: it.amount_cents }
+        : { label: 'Adicional', value: ADDON_NAMES[it.code] ?? it.code, amount: it.amount_cents });
   const statusVariant =
     invoice.status === 'paid' ? 'border-emerald-500 text-emerald-600'
     : invoice.status === 'overdue' ? 'border-red-500 text-red-600'
