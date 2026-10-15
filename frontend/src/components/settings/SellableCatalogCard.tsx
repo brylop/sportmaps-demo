@@ -225,7 +225,7 @@ export function SellableCatalogCard({
     setSaving(false);
     if (error) { toast({ title: 'No se pudo cambiar', description: error.message, variant: 'destructive' }); return; }
     setWaSales(value);
-    toast({ title: value ? 'El asistente de WhatsApp ya vende estos servicios' : 'Ventas por WhatsApp apagadas' });
+    toast({ title: value ? 'Mapi ya vende estos servicios por WhatsApp' : 'Ventas por WhatsApp apagadas' });
   };
 
   return (
@@ -253,7 +253,7 @@ export function SellableCatalogCard({
                   <div>
                     <p className="text-sm font-medium">Vender por WhatsApp</p>
                     <p className="text-xs text-muted-foreground">
-                      El asistente responde precio, fecha y cupos de estos servicios y, a las familias identificadas, les manda el link de pago con 1 hora para pagar.
+                      Mapi responde precio, fecha y cupos de estos servicios y, a las familias identificadas, les manda el link de pago con 1 hora para pagar.
                     </p>
                   </div>
                 </div>

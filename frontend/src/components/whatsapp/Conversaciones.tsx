@@ -305,7 +305,7 @@ function quien(m: Mensaje, tipo?: TipoDeContacto | null): { texto: string; icono
         return { texto: familia ? 'Familia' : 'Contacto', icono: <User className="h-3 w-3" /> };
     }
     return m.ai_generated
-        ? { texto: 'Asistente', icono: <Bot className="h-3 w-3" /> }
+        ? { texto: 'Mapi', icono: <Bot className="h-3 w-3" /> }
         : { texto: 'Escuela', icono: <User className="h-3 w-3" /> };
 }
 
@@ -323,7 +323,7 @@ function resumenUltimo(c: Conversacion): string {
     if (!u) return '(sin mensajes)';
     const cuerpo = u.text_body ?? tipoLegible(u.type);
     if (u.direction !== 'outbound') return cuerpo;
-    return `${u.ai_generated ? 'Asistente' : 'Escuela'}: ${cuerpo}`;
+    return `${u.ai_generated ? 'Mapi' : 'Escuela'}: ${cuerpo}`;
 }
 
 
@@ -665,8 +665,8 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
             toast({
                 title: tomar ? 'Tomaste la conversación' : 'Soltaste la conversación',
                 description: tomar
-                    ? 'El asistente no le va a escribir nada automático hasta que la sueltes o pasen 12 horas.'
-                    : 'El asistente vuelve a atenderla.',
+                    ? 'Mapi no le va a escribir nada automático hasta que la sueltes o pasen 12 horas.'
+                    : 'Mapi vuelve a atenderla.',
             });
             parchar(c.id, {
                 toma: tomar && r?.tomada_hasta
@@ -698,7 +698,7 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
 
     const vacio: Record<Bandeja, string> = {
         responder: 'Nada por responder: estás al día.',
-        aprobar: 'No hay respuestas del asistente esperando tu aprobación.',
+        aprobar: 'No hay respuestas de Mapi esperando tu aprobación.',
         prospectos: 'No hay números nuevos pidiendo información.',
         familias: 'No hay conversaciones con familias.',
         otros: 'No hay conversaciones personales ni de otros números.',
@@ -896,7 +896,7 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                 ) : bandeja === 'otros' ? (
                     <p className="hidden md:block text-xs text-muted-foreground px-1">
                         Personas del equipo, lo que marcaste como personal y números sin clasificar. El
-                        asistente no les responde.
+                        Mapi no les responde.
                     </p>
                 ) : null}
             </div>
@@ -1051,7 +1051,7 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                                 </Button>
                             ) : (
                                 <Button variant="outline" size="sm" disabled={accionando || !tomaDisponible}
-                                        title={tomaDisponible ? 'El asistente deja de responder en esta conversación'
+                                        title={tomaDisponible ? 'Mapi deja de responder en esta conversación'
                                             : 'Todavía no disponible'}
                                         onClick={() => void cambiarToma(abierta, true)}>
                                     <Hand className="h-3.5 w-3.5 mr-1" /> Tomar
@@ -1075,18 +1075,18 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                 {esPersonal && (
                     <p className="text-xs text-muted-foreground">
                         Contacto marcado como {ETIQUETA_TIPO[abierta.contact_kind as TipoDeContacto]?.texto.toLowerCase() ?? 'personal'}:
-                        el asistente no le responde. Contéstala desde tu celular.
+                        Mapi no le responde. Contéstala desde tu celular.
                     </p>
                 )}
                 {esMarcaNoFamilia(abierta.contact_kind) && abierta.tambien_familia && (
                     <p className="text-xs text-muted-foreground">
-                        También es familia: sus comprobantes de pago se aplican sin escribirle; el asistente no le contesta.
+                        También es familia: sus comprobantes de pago se aplican sin escribirle; Mapi no le contesta.
                     </p>
                 )}
                 {abierta.toma && (
                     <p className="text-xs text-blue-700 dark:text-blue-400 flex items-center gap-1">
                         <Hand className="h-3 w-3 shrink-0" />
-                        {textoDeToma(abierta.toma)}. El asistente no le escribe nada automático
+                        {textoDeToma(abierta.toma)}. Mapi no le escribe nada automático
                         (los comprobantes se aplican igual, sin avisarle).
                     </p>
                 )}
@@ -1141,7 +1141,7 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                     {borradores.map((b) => (
                         <div key={b.id} className="bg-muted/30 px-gutter py-3 md:p-3 space-y-2 border-b last:border-b-0">
                             <p className="text-xs font-medium text-foreground flex items-center gap-1">
-                                <Sparkles className="h-3 w-3" /> El asistente propone responder
+                                <Sparkles className="h-3 w-3" /> Mapi propone responder
                                 {b.llm_provider && <span className="text-muted-foreground">· {b.llm_provider}</span>}
                             </p>
                             <Textarea

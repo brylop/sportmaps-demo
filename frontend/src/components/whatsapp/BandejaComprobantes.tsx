@@ -90,7 +90,7 @@ export interface CierresRecientes { escuela: number; automaticas: number; total:
 
 const SECCIONES: { grupo: Grupo; titulo: string; ayuda: string }[] = [
     { grupo: 'accion', titulo: 'Requiere tu acción',
-      ayuda: 'Hay plata de por medio y el asistente no supo a qué cobro va. Aplícalo en Pagos y márcalo resuelto.' },
+      ayuda: 'Hay plata de por medio y Mapi no supo a qué cobro va. Aplícalo en Pagos y márcalo resuelto.' },
     { grupo: 'revisar', titulo: 'Para revisar',
       ayuda: 'Puede ser un pago, pero lo normal es que no: números que no son familias, familias sin cobros pendientes.' },
     { grupo: 'informativo', titulo: 'Informativo (no requiere nada)',
@@ -344,7 +344,7 @@ export function BandejaComprobantes({ schoolId, onVerChat, onCambio }: {
                     </Button>
                 </div>
                 <CardDescription>
-                    Lo que llegó por el chat y el asistente no pudo aplicar solo. Marcar resuelto o descartar no
+                    Lo que llegó por el chat y Mapi no pudo aplicar solo. Marcar resuelto o descartar no
                     cambia ningún pago: si hay que registrarlo, hazlo en Pagos. Lo que se aprueba o rechaza en Pagos
                     sale de aquí solo.
                 </CardDescription>
