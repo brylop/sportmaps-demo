@@ -40,7 +40,7 @@ import {
   DropdownMenuSeparator, DropdownMenuCheckboxItem, DropdownMenuSub, DropdownMenuSubTrigger,
   DropdownMenuSubContent, DropdownMenuRadioGroup, DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
-import { Loader2, Square, X, Bookmark, Redo2, Trash2, ChevronDown, PenLine, Undo2, Eraser, Ruler, Sparkles, Plus, Play, Copy, RotateCw, Pencil, Type, Users, MoreHorizontal, Package, LayoutGrid } from 'lucide-react';
+import { Loader2, Square, X, Bookmark, Redo2, Trash2, PenLine, Undo2, Eraser, Ruler, Sparkles, Plus, Play, Copy, RotateCw, Pencil, Type, Users, MoreHorizontal, Package, LayoutGrid } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { startHintFormationLabel } from '@/lib/school/tacticalStartHint';
 import { useTeamPerformanceRoster } from '@/hooks/usePerformanceData';
@@ -100,6 +100,8 @@ import {
 } from '@/lib/school/tacticalAnimation';
 import { TacticalTimeline, TacticalFramePlayback, type PlayState, type PlaybackSpeed } from './TacticalTimeline';
 import { TacticalAiOverlay, TacticalAiPanel, type AiPreview } from './TacticalAiPanel';
+import { FormationGallery } from './FormationGallery';
+import { countRivals, removeRivalShapes, replaceRivalShapes } from '@/lib/school/tacticalFormationGallery';
 import { buildAnalyzeRequest, hasAiAnalysis } from '@/lib/school/tacticalAi';
 
 const SITUATION_LABEL: Record<TacticalSituation, string> = {
@@ -1979,6 +1981,22 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
     setTimeout(() => setAnimatingMove(false), ANIMATE_MS);
   }
 
+  /** M6a: el rival en una formación, en espejo en la mitad de arriba (figuras
+   *  `opponent`, lógica en tacticalFormationGallery.ts). */
+  function applyRivalFormation(formation: BoardFormation) {
+    if (!canEdit) return;
+    if (playingSequence) stopPlayback();
+    exitFramePlayback();
+    setArrows((prev) => replaceRivalShapes(prev, formation));
+    setSelectedShape(null);
+    toast({ title: `Rival en ${formation.label}`, description: 'Fichas rojas en espejo: arrástralas para ajustar.' });
+  }
+  function clearRival() {
+    if (!canEdit) return;
+    setArrows((prev) => removeRivalShapes(prev));
+    setSelectedShape(null);
+  }
+
   /** "Dibujar" abre/cierra el panel de dibujo; "Material" lo abre directo en
    *  la sección de material (pestaña en celular; en pantalla ancha se lleva
    *  la sección a la vista). */
@@ -2736,28 +2754,17 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
 
           {!loading && !viewing && (
             <>
-              <DropdownMenu modal={false}>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="ghost" className={`${TB_BTN} ${TB_IDLE}`} title="Poner o reacomodar a los jugadores en una formación">
-                    <LayoutGrid className="h-3.5 w-3.5" />
-                    {(formationKey ? sportCfg.formations.find((f) => f.key === formationKey)?.label : null) ?? 'Formación'}
-                    <ChevronDown className="h-3 w-3 opacity-70" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-60">
-                  <DropdownMenuLabel>Formación</DropdownMenuLabel>
-                  {sportCfg.formations.map((f) => (
-                    <DropdownMenuItem key={f.key} onSelect={() => applyFormation(f)}>
-                      <span className="font-semibold">{f.label}</span>
-                      <span className="ml-auto text-xs text-muted-foreground">{f.players} jugadores</span>
-                    </DropdownMenuItem>
-                  ))}
-                  <DropdownMenuSeparator />
-                  <p className="px-2 py-1 text-[11px] leading-snug text-muted-foreground">
-                    Con la cancha vacía pone a los jugadores; si ya hay jugadores, los reacomoda en la formación.
-                  </p>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {/* M6a: galería de formaciones (equipo propio y rival en espejo). */}
+              <FormationGallery
+                sport={sport}
+                formations={sportCfg.formations}
+                currentKey={formationKey}
+                rivalCount={countRivals(arrows)}
+                onApplyOwn={applyFormation}
+                onApplyRival={applyRivalFormation}
+                onClearRival={clearRival}
+                triggerClassName={`${TB_BTN} ${TB_IDLE}`}
+              />
 
               <Button
                 size="sm"

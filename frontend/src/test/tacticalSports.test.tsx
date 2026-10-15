@@ -73,7 +73,11 @@ describe('catálogo de deportes', () => {
       }
       // Arquero solo donde hay arquero, y entonces exactamente uno, en la mitad propia.
       const gks = f.slots.filter((x) => isGoalkeeperLabel(x.label));
-      if (d.hasGoalkeeper) {
+      if (f.flyingKeeper) {
+        // M6a: portero/arquero-jugador (5x4, 7 contra 6): sale a jugar o no hay.
+        expect(d.hasGoalkeeper, `${s}/${f.key}: portero-jugador sin arco`).toBe(true);
+        expect(gks.length).toBeLessThanOrEqual(1);
+      } else if (d.hasGoalkeeper) {
         expect(gks, `${s}/${f.key} sin arquero`).toHaveLength(1);
         expect(gks[0].y).toBeGreaterThan(50);
       } else {
