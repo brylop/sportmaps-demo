@@ -8,7 +8,7 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { TacticalArrow } from '@/lib/school/footballQueries';
-import { TacticalStaticSvg, type TacticalStaticPlayer } from '@/components/school/TacticalStaticSvg';
+import { staticSvgHeight, TacticalStaticSvg, type TacticalStaticPlayer } from '@/components/school/TacticalStaticSvg';
 import type { TacticalSport } from '@/lib/school/tacticalSports';
 import { chipCaption, chipInnerText, chipLook, type TacticalTeamsConfig } from '@/lib/school/tacticalTeams';
 import { isGoalkeeperLabel } from '@/lib/school/tacticalPalette';
@@ -35,7 +35,8 @@ export async function renderTacticalPng(
   sport?: TacticalSport | null,
   teams?: TacticalTeamsConfig | null,
 ): Promise<{ dataUrl: string; aspect: number }> {
-  const heightPx = Math.round((widthPx * 340) / 300);
+  // M6d: la cámara/orientación del «Campo» cambian la proporción (sin «Campo», 340/300 como siempre).
+  const heightPx = staticSvgHeight(arrows, widthPx);
   const markup = tacticalSvgMarkup(players, arrows, widthPx, sport, teams);
   const blob = new Blob([markup], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(blob);

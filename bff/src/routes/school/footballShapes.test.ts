@@ -60,7 +60,7 @@ describe('validateArrows — compat con figuras viejas', () => {
 describe('validateArrows — type', () => {
   /** Lápiz y texto traen su campo obligatorio (points / text); el resto, nada extra. */
   const extraFor = (type: string) =>
-    type === 'freehand' ? { points: [10, 20, 20, 30, 30, 40] } : type === 'text' ? { text: 'Presión alta' } : {};
+    type === 'freehand' ? { points: [10, 20, 20, 30, 30, 40] } : type === 'text' ? { text: 'Presión alta' } : type === 'court' ? { court: {} } : {};
 
   it.each([...VALID_SHAPE_TYPES])("acepta type '%s'", (type) => {
     expect(validateArrows([{ ...base, type, ...extraFor(type) }])).toEqual([]);

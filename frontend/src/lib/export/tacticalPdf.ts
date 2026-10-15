@@ -138,7 +138,8 @@ export async function exportExercisePdf(input: ExercisePdfInput): Promise<Blob> 
     y += 2.5;
     const gap = 3;
     const slotW = (contentW - gap * (PDF_MAX_STRIP - 1)) / PDF_MAX_STRIP;
-    const slotH = slotW * PITCH_ASPECT;
+    // M6d: misma proporción que la jugada grande (cámara/orientación del «Campo»).
+    const slotH = slotW * (main.aspect || PITCH_ASPECT);
     thumbImgs.forEach((img, i) => {
       const x = MARGIN + i * (slotW + gap);
       doc.addImage(img, 'PNG', x, y, slotW, slotH);

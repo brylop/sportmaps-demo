@@ -230,7 +230,11 @@ export type TacticalShapeType =
   | 'ring' | 'ladder' | 'pole' | 'mannequin' | 'opponent'
   /** Lápiz libre y texto (2026-09-30): escribir sobre la cancha como en una
    *  tablet. freehand guarda el trazo en `points`; text, la nota en `text`. */
-  | 'freehand' | 'text';
+  | 'freehand' | 'text'
+  /** M6d (2026-10-14): foco/halo para resaltar a un jugador (objeto de un
+   *  punto) y la pseudo-figura `court` con la presentación de la cancha del
+   *  diálogo «Campo» (una por jugada; no se dibuja como figura). */
+  | 'spotlight' | 'court';
 
 /** Recorrido del balón (ball_path): pase raso, remate o penal. Cambia el
  *  dibujo (recta vs. comba) y la animación (remate/penal lo elevan). */
@@ -255,6 +259,29 @@ export interface TacticalArrow {
   points?: number[];
   /** Solo text: la nota. x1/y1 (= x2/y2) es su centro; size la agranda. */
   text?: string;
+  /** M6d. Flecha/curva: estilo con convención de leyenda (ausente = la línea de siempre). */
+  line?: 'pass' | 'dribble' | 'run' | 'shot';
+  /** M6d. Zona: forma (ausente = rectángulo redondeado). El polígono guarda sus
+   *  vértices en `points` y su caja en x1..y2; rect/elipse giran con `rot`. */
+  form?: 'rect' | 'ellipse' | 'polygon';
+  /** M6d. Zona: opacidad del relleno (0.05-0.6; ausente = 0.14). */
+  fill?: number;
+  /** M6d. Orden del movimiento (1, 2, 3…) en flechas, curvas y recorridos. */
+  seq?: number;
+  /** M6d. Solo type court: presentación de la cancha (ver tacticalCourt.ts). */
+  court?: TacticalCourtConfig;
+}
+
+/** Diálogo «Campo» (M6d): todo opcional; ausente = la cancha de siempre. */
+export interface TacticalCourtConfig {
+  tpl?: string;
+  goals?: boolean;
+  cam?: 'full' | 'half_bottom' | 'half_top' | 'three_quarters' | 'area';
+  orient?: 'v' | 'h';
+  surface?: 'grass_stripes' | 'grass' | 'synthetic' | 'wood' | 'blue' | 'whiteboard';
+  grass?: string;
+  lines?: string;
+  outline?: string;
 }
 
 export interface TacticalPreset {

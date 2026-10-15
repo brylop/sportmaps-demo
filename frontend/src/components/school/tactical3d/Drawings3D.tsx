@@ -11,7 +11,11 @@ import { memo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { TacticalArrow } from '@/lib/school/footballQueries';
-import { isPointShape, OBJECT_BOX, type ObjectType } from '@/lib/school/tacticalGeometry';
+import { isPointShape, OBJECT_BOX, pairsOf, type ObjectType } from '@/lib/school/tacticalGeometry';
+import {
+  isLineStyle, offsetPolyline, polylineLength, pointAtLength, SPOTLIGHT_R, styledLineCenterPct, zoneCenter, zoneFormOf,
+  type LineStyle,
+} from '@/lib/school/tacticalDrawing';
 import { ARROW_COLOR_HEX, objectColor } from '@/lib/school/tacticalPalette';
 import { figureScale, strokePath, toMeters, type Court3D, type PlayerVisual, type Vec3 } from '@/lib/school/tactical3d';
 import { chipLook, pointScale, rivalSlots, type TacticalTeamsConfig } from '@/lib/school/tacticalTeams';
@@ -25,7 +29,7 @@ import { track, useResources } from './resources';
 
 const round = (n: number) => Math.round(n * 20) / 20;
 const signature = (arrows: InterpolatedArrow[]) =>
-  arrows.map((a) => `${a.shape.type ?? 'arrow'}:${round(a.shape.x1)},${round(a.shape.y1)},${round(a.shape.x2)},${round(a.shape.y2)}:${a.shape.rot ?? 0}:${a.shape.size ?? 1}:${Math.round(a.opacity * 20)}`).join('|');
+  arrows.map((a) => `${a.shape.type ?? 'arrow'}:${round(a.shape.x1)},${round(a.shape.y1)},${round(a.shape.x2)},${round(a.shape.y2)}:${a.shape.rot ?? 0}:${a.shape.size ?? 1}:${Math.round(a.opacity * 20)}:${a.shape.line ?? ''}${a.shape.form ?? ''}${a.shape.fill ?? ''}${(a.shape.points ?? []).map(round).join(',')}`).join('|');
 
 export function Drawings3D({ court, live, layer = 'main', tint, teams }: {
   court: Court3D; live: LiveRef; layer?: 'main' | 'overlay'; tint?: string;
@@ -46,6 +50,15 @@ export function Drawings3D({ court, live, layer = 'main', tint, teams }: {
     <group name={`drawings-${layer}`}>
       {arrows.map((a, i) => {
         const t = a.shape.type ?? 'arrow';
+        // M6d: la configuración de cancha no es un dibujo; foco, zonas y líneas con estilo.
+        if (t === 'court') return null;
+        if (t === 'spotlight') return <SpotlightRing key={`${i}:spot`} court={court} shape={a.shape} opacity={a.opacity} tint={tint} />;
+        if (t === 'zone' && (a.shape.form === 'ellipse' || a.shape.form === 'polygon' || a.shape.rot)) {
+          return <ShapedZone key={`${i}:zone`} court={court} shape={a.shape} opacity={a.opacity} tint={tint} />;
+        }
+        if ((t === 'arrow' || t === 'curve') && isLineStyle(a.shape.line)) {
+          return <StyledStroke key={`${i}:${t}:${a.shape.line}`} court={court} shape={a.shape} style={a.shape.line} opacity={a.opacity} tint={tint} />;
+        }
         if (isPointShape(t)) {
           // El balón de la jugada lo dibuja Ball3D (sigue al balón del cuadro).
           if (t === 'ball' && layer === 'main') return null;
@@ -290,3 +303,118 @@ function buildObject(type: ObjectType, hex: (fallback: string) => string) {
   }
   return { root, materials, dispose: () => { for (const d of disposables) d.dispose(); } };
 }
+
+// ─── M6d: líneas con estilo, zonas con forma y foco ─────────────────────────
+
+/** Pase = cinta discontinua; conducción = la misma onda del 2D; carrera =
+ *  continua; disparo = dos cintas paralelas. Todas con punta. */
+const StyledStroke = memo(function StyledStroke({ court, shape, style, opacity, tint }: {
+  court: Court3D; shape: TacticalArrow; style: LineStyle; opacity: number; tint?: string;
+}) {
+  const s = figureScale(court);
+  const r = useResources(() => {
+    const at = (p: { x: number; y: number }): Vec3 => { const m = toMeters(court, p.x, p.y); return { x: m.x, y: 0, z: m.z }; };
+    const pts = styledLineCenterPct(shape, style).map(at);
+    const width = (style === 'shot' ? 0.12 : 0.16) * s;
+    const headSize = (style === 'shot' ? 1.2 : 0.9) * s;
+    const out: Record<string, { dispose: () => void }> = {
+      mat: track(new THREE.MeshBasicMaterial({ color: shapeColor(shape, tint), transparent: true, side: THREE.DoubleSide, depthWrite: false })),
+    };
+    if (pts.length >= 2) {
+      const body = trimEnd(pts, headSize * 0.8);
+      const bodies: Vec3[][] = style === 'shot'
+        ? [offset3(body, 0.22 * s), offset3(body, -0.22 * s)]
+        : style === 'pass' ? dashes(body, 1.4 * s, 0.9 * s) : [body];
+      bodies.forEach((b, k) => { if (b.length >= 2) out[`b${k}`] = track(ribbonGeometry(b, width)); });
+      out.head = track(headGeometry(pts[pts.length - 1], pts[pts.length - 2], headSize));
+    }
+    return out;
+  }, [court, shape, style, tint, s]);
+  const mat = r.mat as THREE.MeshBasicMaterial;
+  mat.opacity = 0.92 * opacity;
+  return (
+    <group>
+      {Object.entries(r).filter(([k]) => k !== 'mat').map(([k, g]) => (
+        <mesh key={k} geometry={g as THREE.BufferGeometry} material={mat} renderOrder={3} />
+      ))}
+    </group>
+  );
+});
+
+/** Polilínea en el piso desplazada a lo normal (en metros, plano xz). */
+function offset3(pts: Vec3[], d: number): Vec3[] {
+  return offsetPolyline(pts.map((p) => ({ x: p.x, y: p.z })), d).map((p) => ({ x: p.x, y: 0, z: p.y }));
+}
+
+/** Corta la polilínea en tramos de `on` metros separados por `off`. */
+function dashes(pts: Vec3[], on: number, off: number): Vec3[][] {
+  const flat = pts.map((p) => ({ x: p.x, y: p.z }));
+  const total = polylineLength(flat);
+  const out: Vec3[][] = [];
+  for (let d = 0; d < total; d += on + off) {
+    const seg: Vec3[] = [];
+    const end = Math.min(total, d + on);
+    for (let t = d; t < end; t += Math.max(0.2, on / 4)) { const q = pointAtLength(flat, t).p; seg.push({ x: q.x, y: 0, z: q.y }); }
+    const q = pointAtLength(flat, end).p;
+    seg.push({ x: q.x, y: 0, z: q.y });
+    if (seg.length >= 2) out.push(seg);
+  }
+  return out;
+}
+
+/** Zona elíptica, poligonal o girada: forma plana translúcida sobre el piso. */
+const ShapedZone = memo(function ShapedZone({ court, shape, opacity, tint }: { court: Court3D; shape: TacticalArrow; opacity: number; tint?: string }) {
+  const r = useResources(() => {
+    const form = zoneFormOf(shape);
+    const sh = new THREE.Shape();
+    if (form === 'polygon') {
+      pairsOf(shape.points).forEach((p, i) => { const m = toMeters(court, p.x, p.y); if (i === 0) sh.moveTo(m.x, m.z); else sh.lineTo(m.x, m.z); });
+      sh.closePath();
+    } else {
+      const c = zoneCenter(shape);
+      const m = toMeters(court, c.x, c.y);
+      const hw = ((Math.abs(shape.x2 - shape.x1) / 100) * 300) / court.sx / 2;
+      const hh = ((Math.abs(shape.y2 - shape.y1) / 100) * 340) / court.sy / 2;
+      // El giro de la pizarra (y hacia abajo, horario) es el mismo en el plano xz.
+      const rot = ((shape.rot ?? 0) * Math.PI) / 180;
+      const pt = (x: number, z: number) => ({ x: m.x + x * Math.cos(rot) - z * Math.sin(rot), z: m.z + x * Math.sin(rot) + z * Math.cos(rot) });
+      const n = form === 'ellipse' ? 40 : 4;
+      for (let i = 0; i < n; i++) {
+        const p = form === 'ellipse'
+          ? pt(hw * Math.cos((i / n) * Math.PI * 2), hh * Math.sin((i / n) * Math.PI * 2))
+          : pt([-hw, hw, hw, -hw][i], [-hh, -hh, hh, hh][i]);
+        if (i === 0) sh.moveTo(p.x, p.z); else sh.lineTo(p.x, p.z);
+      }
+      sh.closePath();
+    }
+    const geo = new THREE.ShapeGeometry(sh);
+    // ShapeGeometry vive en el plano xy: se acuesta sobre el piso (y → z).
+    geo.rotateX(Math.PI / 2);
+    return {
+      geo: track(geo),
+      mat: track(new THREE.MeshBasicMaterial({ color: shapeColor(shape, tint), transparent: true, depthWrite: false, side: THREE.DoubleSide })),
+    };
+  }, [court, shape, tint]);
+  r.mat.opacity = Math.min(0.6, (shape.fill ?? 0.14) * 2) * opacity;
+  return <mesh geometry={r.geo} material={r.mat} position={[0, 0.025, 0]} renderOrder={2} />;
+});
+
+/** Foco: anillo luminoso en el piso alrededor del jugador. */
+const SpotlightRing = memo(function SpotlightRing({ court, shape, opacity, tint }: { court: Court3D; shape: TacticalArrow; opacity: number; tint?: string }) {
+  const m = toMeters(court, shape.x1, shape.y1);
+  const radius = (SPOTLIGHT_R * (shape.size ?? 1)) / court.sx;
+  const r = useResources(() => ({
+    geo: track(new THREE.RingGeometry(radius * 0.85, radius, 40)),
+    glow: track(new THREE.CircleGeometry(radius * 0.85, 40)),
+    mat: track(new THREE.MeshBasicMaterial({ color: tint ?? (shape.color && shape.color !== 'white' ? ARROW_COLOR_HEX[shape.color] : '#fde047'), transparent: true, depthWrite: false, side: THREE.DoubleSide })),
+    glowMat: track(new THREE.MeshBasicMaterial({ color: '#fef9c3', transparent: true, depthWrite: false, side: THREE.DoubleSide })),
+  }), [radius, shape.color, tint]);
+  r.mat.opacity = 0.95 * opacity;
+  r.glowMat.opacity = 0.25 * opacity;
+  return (
+    <group position={[m.x, 0.03, m.z]} rotation-x={-Math.PI / 2}>
+      <mesh geometry={r.glow} material={r.glowMat} renderOrder={2} />
+      <mesh geometry={r.geo} material={r.mat} renderOrder={3} />
+    </group>
+  );
+});

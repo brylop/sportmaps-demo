@@ -19,6 +19,7 @@ import type { TacticalTeamsConfig } from '@/lib/school/tacticalTeams';
 import { tacticalSvgMarkup, teamPlayerBox, teamPlayerMarkup } from './tacticalImage';
 import { framesDuration, interpolateFrames } from './tacticalInterpolation';
 import { svgMarkupToImage } from './tacticalExportUtils';
+import { courtShapeOf, mapBoardPoint, staticViewBox } from '@/lib/school/tacticalCourt';
 
 // ─── Dibujo de jugadores y balón (copia de TacticalStaticSvg) ──────────────
 
@@ -139,7 +140,11 @@ export const abortError = () => new DOMException('Exportación cancelada', 'Abor
 export async function createTacticalFrameRenderer(opts: TacticalRendererOptions): Promise<TacticalFrameRenderer> {
   const { frames, playerLabels, playerJerseys, signal, teams } = opts;
   const width = even(opts.width);
-  const height = even((width * VIEW_H) / VIEW_W);
+  // M6d: el «Campo» (cámara/orientación) del cuadro 1 manda la proporción y
+  // dónde caen los jugadores; las coordenadas guardadas no cambian.
+  const court = courtShapeOf(frames[0]?.arrows)?.court ?? {};
+  const vb = staticViewBox(court);
+  const height = even((width * vb.h) / vb.w);
 
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -162,7 +167,11 @@ export async function createTacticalFrameRenderer(opts: TacticalRendererOptions)
     if (signal?.aborted) throw abortError();
   }
 
-  const scale = width / VIEW_W;
+  const scale = width / vb.w;
+  const place = (xPct: number, yPct: number) => {
+    const m = mapBoardPoint(court, xPct * 3, yPct * 3.4);
+    return { x: m.x - vb.x, y: m.y - vb.y };
+  };
   const labelOf = (key: string) => (playerLabels?.[key] ?? (key.startsWith('slot:') ? key.slice(5) : '')).trim();
 
   // M6b: una imagen por jugador con la configuración de equipos.
@@ -190,16 +199,18 @@ export async function createTacticalFrameRenderer(opts: TacticalRendererOptions)
     for (const p of st.players) {
       if (p.opacity <= 0.01) continue;
       ctx.globalAlpha = p.opacity;
+      const at = place(p.x, p.y);
       const chip = chipOf.get(p.key);
       if (chip && chipBox) {
-        ctx.drawImage(chip, p.x * 3 + chipBox.x, p.y * 3.4 + chipBox.y, chipBox.w, chipBox.h);
+        ctx.drawImage(chip, at.x + chipBox.x, at.y + chipBox.y, chipBox.w, chipBox.h);
         continue;
       }
-      drawPlayer(ctx, p.x * 3, p.y * 3.4, labelOf(p.key), playerJerseys?.[p.key]);
+      drawPlayer(ctx, at.x, at.y, labelOf(p.key), playerJerseys?.[p.key]);
     }
     if (st.ball && st.ball.opacity > 0.01) {
       ctx.globalAlpha = st.ball.opacity;
-      drawBall(ctx, st.ball.x * 3, st.ball.y * 3.4);
+      const at = place(st.ball.x, st.ball.y);
+      drawBall(ctx, at.x, at.y);
     }
     ctx.globalAlpha = 1;
     ctx.setTransform(1, 0, 0, 1, 0, 0);

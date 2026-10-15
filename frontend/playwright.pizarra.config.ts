@@ -28,6 +28,7 @@ export default defineConfig({
         'pizarra-3d-camaras.spec.ts',
         'pizarra-formaciones.spec.ts',
         'pizarra-equipos.spec.ts',
+        'pizarra-herramientas.spec.ts',
     ],
     fullyParallel: false,
     workers: 2,

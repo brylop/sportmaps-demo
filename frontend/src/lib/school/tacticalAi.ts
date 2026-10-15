@@ -110,7 +110,8 @@ export function buildAnalyzeRequest(args: {
     players: f.players.map((p) => ({ key: p.key, x: round2(p.x), y: round2(p.y) })),
     ball: f.ball ? { x: round2(f.ball.x), y: round2(f.ball.y) } : null,
     // El texto y el lápiz no le sirven al análisis (y el texto puede tener nombres).
-    arrows: f.arrows.filter((a) => a.type !== 'text' && a.type !== 'freehand'),
+    // M6d: la configuración de cancha y el foco no son jugada para la IA.
+    arrows: f.arrows.filter((a) => a.type !== 'text' && a.type !== 'freehand' && a.type !== 'court' && a.type !== 'spotlight'),
     // Nota del cuadro (M6c): el BFF la filtra igual que la intención.
     ...(f.note ? { note: f.note.slice(0, 280) } : {}),
   }));

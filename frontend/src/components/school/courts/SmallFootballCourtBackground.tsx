@@ -10,6 +10,7 @@
 import { SPORTS, type TacticalSport } from '@/lib/school/tacticalSports';
 import { CourtShell, GoalTop, Spot } from './CourtShell';
 import { GOAL_WIDTH_M, MIRROR, lineProps, meters, type CourtBackgroundProps } from './courtGeometry';
+import { useCourtLook } from './courtLook';
 
 interface Spec {
   area: { w: number; d: number };
@@ -32,7 +33,7 @@ function SmallFootballCourt({ sport, viewBox }: CourtBackgroundProps & { sport: 
   const spec = SPECS[sport];
   const f = def.frame!;
   const m = meters(f);
-  const { line } = def.colors;
+  const { line } = useCourtLook(def.colors);
   const L = lineProps(line, 1.75, 0.7);
   const W = f.widthM;
   const cx = W / 2;
