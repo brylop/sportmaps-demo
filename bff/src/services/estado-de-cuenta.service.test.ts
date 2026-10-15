@@ -608,3 +608,56 @@ describe('atleta dado de baja', () => {
         expect(r.por_correo).toBe(1);
     });
 });
+
+// ─── Mora (2026-10-14): apply_late_fees la suma DENTRO de amount ─────────────
+
+describe('estado de cuenta con mora', () => {
+    const datos = () => ({
+        perfiles: new Map<string, any>([['p1', { id: 'p1', full_name: 'Carolina', email: 'caro@x.co', phone: null }]]),
+        hijos: new Map<string, any>([['c1', { full_name: 'Samuel' }], ['c2', { full_name: 'Sara' }]]),
+        noRegistrados: new Map<string, any>(),
+    });
+
+    it('la fila lleva su mora; WhatsApp dice el total con mora y el correo el desglose', () => {
+        const { familias } = agruparPorFamilia([
+            pago('mens', { amount: 165000, late_fee_amount: 15000, status: 'overdue', due_date: '2026-11-01' }),
+            pago('mens2', { child_id: 'c2', amount: 150000 }),
+        ], datos(), MAR_3_NOV_0800, '2026-11');
+        const f = familias[0];
+        expect(f.filas.find((r) => r.paymentId === 'mens')!.mora).toBe(15000);
+        expect(f.filas.find((r) => r.paymentId === 'mens2')!.mora).toBe(0);
+
+        const wa = datosWhatsAppDeFamilia(f, 'Escuela', '2026-11');
+        expect(wa.monto).toBe('$315.000, que incluye $15.000 de recargo por mora');
+
+        const html = cuerpoCorreoEstado({ escuela: 'E', familia: f, appBase: 'https://app.sportmaps.co', bffBase: 'https://bffprod.sportmaps.co', medios: [], qrEscuelaUrl: null, whatsappComprobante: null });
+        expect(html).toContain('Mensualidad $150.000 · Recargo por mora $15.000 · Total $165.000');
+        // Una sola vez: el cobro sin mora no lleva desglose.
+        expect(html.match(/Recargo por mora/g)).toHaveLength(1);
+    });
+
+    it('sin mora: el monto de WhatsApp como siempre', () => {
+        const { familias } = agruparPorFamilia([pago('mens', { late_fee_amount: null })], datos(), MAR_3_NOV_0800, '2026-11');
+        expect(datosWhatsAppDeFamilia(familias[0], 'Escuela', '2026-11').monto).toBe('$150.000');
+    });
+});
+
+describe('saldo del estado de cuenta = saldo del enlace /p/:token', () => {
+    const datos = () => ({
+        perfiles: new Map<string, any>([['p1', { id: 'p1', full_name: 'Carolina', email: 'caro@x.co', phone: null }]]),
+        hijos: new Map<string, any>([['c1', { full_name: 'Samuel' }], ['c2', { full_name: 'Sara' }]]),
+        noRegistrados: new Map<string, any>(),
+    });
+
+    it('resta lo abonado y el pronto pago en cualquier estado; sin saldo no sale la fila', () => {
+        const { familias } = agruparPorFamilia([
+            pago('abono', { status: 'partial', amount: 150000, amount_paid: 50000 }),
+            pago('pronto', { child_id: 'c2', amount: 150000, early_payment_discount_applied: 15000 }),
+            pago('cubierto', { amount: 150000, amount_paid: 140000, early_payment_discount_applied: 10000 }),
+        ], datos(), MAR_3_NOV_0800, '2026-11');
+        const saldo = (id: string) => familias[0].filas.find((r) => r.paymentId === id)?.saldo;
+        expect(saldo('abono')).toBe(100000);
+        expect(saldo('pronto')).toBe(135000);
+        expect(saldo('cubierto')).toBeUndefined();
+    });
+});

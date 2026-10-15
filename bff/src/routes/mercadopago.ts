@@ -44,7 +44,7 @@ import {
 } from '../services/mercadopago.service';
 import { loadProviderConfig } from '../services/payment-provider.resolver';
 // Mismo formato de motivo que Wompi para que el frontend lo parsee una sola vez.
-import { buildFailureReason, bankMessageFrom } from './wompi';
+import { buildFailureReason, bankMessageFrom, conciliarMontoRecibido, motivoPagoParcial } from './wompi';
 import { sendPaymentAttemptFailedEmails } from '../services/paymentFailureEmail.service';
 import {
     recordWebhookEvent,
@@ -438,10 +438,23 @@ async function handleSchoolPayment(args: HandlerArgs): Promise<HandlerResult> {
 
         const today = todayInZone();
 
-        await supabase
+        // Faltante / sobrepago: mismo criterio que wompi.ts (§3.c y §3.d de
+        // handleSchoolPayment). El enlace congeló `base_amount`; si entre la firma
+        // y el pago `apply_late_fees` sumó la mora, lo recibido no salda el cobro
+        // y NO puede quedar 'paid' (la mora se condonaba en silencio): queda
+        // 'partial' con lo recibido en amount_paid y el faltante como rastro visible.
+        const { data: actual } = await supabase
+            .from('payments')
+            .select('status, amount, amount_paid, early_payment_discount_applied, late_fee_amount')
+            .eq('id', link.payment_id)
+            .maybeSingle();
+        const conc = conciliarMontoRecibido(actual as any, link.base_amount);
+        const { sobrepago, faltante } = conc;
+
+        const { error: payUpdErr } = await supabase
             .from('payments')
             .update({
-                status: 'paid',
+                status: faltante > 0 ? 'partial' : 'paid',
                 payment_channel: 'online',
                 payment_method: 'mercadopago',
                 payment_provider: 'mercadopago',
@@ -451,9 +464,37 @@ async function handleSchoolPayment(args: HandlerArgs): Promise<HandlerResult> {
                 approved_at: new Date().toISOString(),
                 gross_amount: amount,
                 sportmaps_fee: link.sportmaps_fee,
+                ...(conc.amountPaidNuevo !== null ? { amount_paid: conc.amountPaidNuevo } : {}),
                 updated_at: new Date().toISOString(),
             })
             .eq('id', link.payment_id);
+
+        // Antes este error no se leía. Se registra sin cambiar el flujo (no se
+        // devuelve 500 aquí: eso cambiaría los reintentos de MP y es otro alcance).
+        if (payUpdErr) {
+            req.log?.error({ err: payUpdErr, paymentId: link.payment_id, externalRef }, 'MP school payment: FALLÓ actualizar el payment');
+        }
+
+        // Faltante: rastro SIN bloqueo (record_payment_failure). Ver wompi.ts §3.d:
+        // flag_payment_for_review frenaría todo checkout nuevo del pagador y la
+        // familia no podría pagar el saldo en línea.
+        // Sobrepago: a revisión como en Wompi. La marca va DESPUÉS del UPDATE: el
+        // trigger trg_clear_payment_review_on_settle baja requires_review al entrar a 'paid'.
+        if (!payUpdErr && (faltante > 0 || sobrepago > 0)) {
+            const base = buildFailureReason('mp', faltante > 0 ? 'pago_parcial' : 'sobrepago', paymentTypeId, null, paymentId);
+            const cop = (n: number) => `$${Math.round(n).toLocaleString('es-CO')}`;
+            const { error: flagErr } = await supabase.rpc(faltante > 0 ? 'record_payment_failure' : 'flag_payment_for_review', {
+                p_kind: 'payment',
+                p_id: link.payment_id,
+                p_reason: faltante > 0
+                    ? motivoPagoParcial(base, conc, (actual as any)?.late_fee_amount)
+                    : `${base} · pagó de más ${cop(sobrepago)} (cobro ${cop(conc.montoVigente)}, recibido ${cop(conc.recibidoBase)})`,
+            });
+            if (flagErr) {
+                req.log?.error({ err: flagErr, paymentId: link.payment_id }, 'No se pudo dejar el rastro de la diferencia de monto');
+            }
+            req.log?.warn({ paymentId: link.payment_id, externalRef, faltante, sobrepago }, 'MP school payment: lo recibido no coincide con el cobro vigente');
+        }
 
         await supabase
             .from('payment_links')
@@ -503,7 +544,14 @@ async function handleSchoolPayment(args: HandlerArgs): Promise<HandlerResult> {
         }
 
         req.log?.info({ paymentId: link.payment_id, externalRef }, 'MP school payment confirmed');
-        return { status: 200, body: { status: 'ok', kind: 'school_payment' } };
+        return {
+            status: 200,
+            body: {
+                status: 'ok', kind: 'school_payment',
+                ...(sobrepago > 0 ? { overpayment: sobrepago } : {}),
+                ...(faltante > 0 ? { underpayment: faltante, partial: true } : {}),
+            },
+        };
     }
 
     // Mismo tratamiento que Wompi (ver wompi.ts): el error del UPDATE se lee —

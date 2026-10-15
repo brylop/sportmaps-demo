@@ -9,7 +9,8 @@
  */
 import { SPORTS, type TacticalSport } from '@/lib/school/tacticalSports';
 import { CourtShell, GoalTop, Spot } from './CourtShell';
-import { MIRROR, lineProps, meters, type CourtBackgroundProps } from './courtGeometry';
+import { GOAL_WIDTH_M, MIRROR, lineProps, meters, type CourtBackgroundProps } from './courtGeometry';
+import { useCourtLook } from './courtLook';
 
 interface Spec {
   area: { w: number; d: number };
@@ -23,8 +24,8 @@ interface Spec {
 }
 
 const SPECS: Record<'futbol7' | 'futbol5', Spec> = {
-  futbol7: { area: { w: 26, d: 12 }, small: { w: 12, d: 5 }, penalty: 9, arc: 6, center: 6, goal: 6, corner: 1 },
-  futbol5: { area: { w: 15, d: 7 }, small: null, penalty: 6, arc: null, center: 3, goal: 3, corner: 0.5 },
+  futbol7: { area: { w: 26, d: 12 }, small: { w: 12, d: 5 }, penalty: 9, arc: 6, center: 6, goal: GOAL_WIDTH_M.futbol7, corner: 1 },
+  futbol5: { area: { w: 15, d: 7 }, small: null, penalty: 6, arc: null, center: 3, goal: GOAL_WIDTH_M.futbol5, corner: 0.5 },
 };
 
 function SmallFootballCourt({ sport, viewBox }: CourtBackgroundProps & { sport: 'futbol7' | 'futbol5' }) {
@@ -32,7 +33,7 @@ function SmallFootballCourt({ sport, viewBox }: CourtBackgroundProps & { sport: 
   const spec = SPECS[sport];
   const f = def.frame!;
   const m = meters(f);
-  const { line } = def.colors;
+  const { line } = useCourtLook(def.colors);
   const L = lineProps(line, 1.75, 0.7);
   const W = f.widthM;
   const cx = W / 2;

@@ -225,6 +225,19 @@ describe('crearLinkWompiConMonto', () => {
         expect(params(r.url)['amount-in-cents']).toBe('15750000');
     });
 
+    it('carrera (23505) con una pending de ANTES de la mora (base vieja): no se reusa', async () => {
+        estado.competidor = {
+            id: 'link-otro', payment_id: COBRO, payment_provider: 'wompi', status: 'pending',
+            provider_reference: 'SCH-OTRO-VIEJO', wompi_reference: 'SCH-OTRO-VIEJO',
+            gross_amount: 147000, base_amount: 140000, fee_pct: 5,
+            expires_at: new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
+        };
+        const r = await crearLinkWompiConMonto(COBRO);
+        expect(r.ok).toBe(false);
+        if (r.ok) return;
+        expect(r.code).toBe('monto_cambio');
+    });
+
     it('una pending que vence antes del plazo del link no se reusa: se expira y se crea otra', async () => {
         estado.tablas.payment_links.push({
             id: 'link-viejo', payment_id: COBRO, payment_provider: 'wompi', status: 'pending',
@@ -248,6 +261,22 @@ describe('crearLinkWompiConMonto', () => {
         expect(b.reference).not.toBe(a.reference);
         expect(b.total).toBe(189000);
         expect(params(b.url)['amount-in-cents']).toBe('18900000');
+    });
+
+    it('el descuento por pronto pago se descuenta del saldo; un link con la base total no se reusa', async () => {
+        const a = await crearLinkWompiConMonto(COBRO); // base 150.000
+        estado.tablas.payments[0].early_payment_discount_applied = 15000;
+        const b = await crearLinkWompiConMonto(COBRO);
+        expect(a.ok && b.ok).toBe(true);
+        if (!a.ok || !b.ok) return;
+        expect(b.base).toBe(135000);
+        expect(b.reference).not.toBe(a.reference);
+    });
+
+    it('sin saldo por pagar no abre checkout', async () => {
+        Object.assign(estado.tablas.payments[0], { amount_paid: 150000, status: 'partial' });
+        const r = await crearLinkWompiConMonto(COBRO);
+        expect(r.ok).toBe(false);
     });
 
     it('vigencia configurable', async () => {

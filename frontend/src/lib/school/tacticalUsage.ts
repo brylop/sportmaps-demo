@@ -19,9 +19,20 @@ export const TACTICAL_BOARD_EVENTS = [
     'library_save',
     'library_insert',
     'frame_add',
+    // IA, 3D y paquetes (mig 20261014125632; docs/specs/pizarra-multideporte-3d-ia.md).
+    'ai_analyze',
+    'ai_view_counter',
+    'ai_save_variant',
+    'view_3d',
+    'pack_activate',
+    'pack_import',
+    'pack_export',
 ] as const;
 
 export type TacticalBoardEvent = (typeof TACTICAL_BOARD_EVENTS)[number];
+
+/** Eventos de la pestaña «Paquetes» de la biblioteca (M2). */
+export type TacticalPackEvent = Extract<TacticalBoardEvent, 'pack_activate' | 'pack_import' | 'pack_export'>;
 
 export interface TacticalEventInput {
     schoolId: string | null | undefined;

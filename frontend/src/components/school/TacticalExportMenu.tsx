@@ -1,11 +1,17 @@
 /**
  * «Exportar ▾» de la pizarra táctica (spec docs/specs/pizarra-nivel-tacticalpad.md, T2 y §5):
- * Imagen (PNG) · Ficha del ejercicio (PDF) · Video de la jugada · Compartir por WhatsApp.
+ * Imagen (PNG) · Ficha del ejercicio (PDF) · Video (o Animación GIF) de la jugada · Compartir por WhatsApp.
+ *
+ * La animación sale en video si el navegador graba (MediaRecorder + captureStream
+ * + algún codec); si no (Safari viejo, WebView de iOS, Capacitor) sale GIF, y el
+ * ítem lo dice con palabras. En el celular, al terminar, el toast ofrece
+ * «Compartir por WhatsApp» con el archivo (Web Share API necesita un toque
+ * fresco: el de «Exportar» ya se venció mientras se armaba).
  *
  * El trabajo pesado (jsPDF, react-dom/server, MediaRecorder) se carga recién
  * al exportar con import(): la pizarra no paga ese peso al abrir.
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { saveAs } from 'file-saver';
 import { ChevronDown, Download, FileText, Film, Image as ImageIcon, Loader2, Share2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -20,18 +26,24 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { ToastAction } from '@/components/ui/toast';
 import { toast } from '@/hooks/use-toast';
 import type { TacticalExportInput } from '@/lib/export/tacticalExport';
+// Liviano (sin React ni jsPDF): solo decide si sale video o GIF para rotular el ítem.
+import { animationLabel, pickAnimationKind, type TacticalAnimationKind } from '@/lib/export/tacticalAnimationFormat';
 
 export type TacticalExportEvent = 'export_png' | 'export_pdf' | 'export_video' | 'share';
 
 export interface TacticalExportMenuProps {
   /** Se llama al elegir una opción: devuelve el estado actual de la pizarra. */
   getInput: () => TacticalExportInput | Promise<TacticalExportInput>;
-  /** Cuántos cuadros tiene la jugada (habilita el video con 2 o más). */
+  /** Cuántos cuadros tiene la jugada (habilita el video/GIF con 2 o más). */
   frameCount: number;
+  /** Forzar video o GIF (pruebas). Por defecto lo decide el navegador. */
+  animationKind?: TacticalAnimationKind;
   /** Métrica de uso (T0): log_tactical_board_event. */
   onEvent?: (event: TacticalExportEvent) => void;
   disabled?: boolean;
   className?: string;
+  /** En el toolbar de la pizarra: mismo alto que los demás botones (h-8). */
+  compact?: boolean;
 }
 
 type Busy = null | 'png' | 'pdf' | 'video' | 'share';
@@ -42,14 +54,17 @@ function errorMessage(e: unknown): string {
   return e instanceof Error && e.message ? e.message : 'Inténtalo de nuevo.';
 }
 
-export function TacticalExportMenu({ getInput, frameCount, onEvent, disabled, className }: TacticalExportMenuProps) {
+export function TacticalExportMenu({ getInput, frameCount, onEvent, disabled, className, animationKind, compact }: TacticalExportMenuProps) {
   const [busy, setBusy] = useState<Busy>(null);
   const videoReady = frameCount >= 2;
+  const kind = useMemo<TacticalAnimationKind>(() => animationKind ?? pickAnimationKind(), [animationKind]);
+  const animLabel = animationLabel(kind);
+  const animNoun = kind === 'video' ? 'el video' : 'la animación';
 
   const downloadPng = async (input?: TacticalExportInput) => {
     const mod = await loadExport();
     const data = input ?? (await getInput());
-    const blob = await mod.exportPng({ players: data.players, arrows: data.arrows, title: data.title, teamName: data.teamName });
+    const blob = await mod.exportPng({ players: data.players, arrows: data.arrows, title: data.title, teamName: data.teamName, sport: data.sport, teams: data.teams });
     saveAs(blob, mod.exportFileName(data.title, 'png'));
   };
 
@@ -68,7 +83,7 @@ export function TacticalExportMenu({ getInput, frameCount, onEvent, disabled, cl
         t.update({
           id: t.id,
           duration: 10_000,
-          title: 'No se pudo hacer el video',
+          title: `No se pudo hacer ${animNoun}`,
           description: e instanceof Error ? e.message : undefined,
           action: (
             <ToastAction altText="Descargar imagen" onClick={() => void downloadPng().catch(() => undefined)}>
@@ -107,23 +122,62 @@ export function TacticalExportMenu({ getInput, frameCount, onEvent, disabled, cl
     run('video', async (t) => {
       const mod = await loadExport();
       const data = await getInput();
-      t.update({ id: t.id, title: 'Grabando el video…', description: 'Se reproduce la jugada mientras se graba.' });
+      const working = kind === 'video' ? 'Grabando el video…' : 'Armando la animación GIF…';
+      t.update({
+        id: t.id,
+        title: working,
+        description: kind === 'video' ? 'Se reproduce la jugada mientras se graba.' : 'Esto toma unos segundos.',
+      });
       let last = -1;
-      const res = await mod.exportVideo({
+      const res = await mod.exportAnimation({
+        kind,
         frames: data.frames ?? [],
         playerLabels: data.playerLabels,
         playerJerseys: data.playerJerseys,
+        teams: data.teams,
+        playerNames: data.playerNames,
+        sport: data.sport,
+        playback: data.playback,
         onProgress: (p) => {
           const pct = Math.round(p * 10) * 10;
           if (pct !== last) {
             last = pct;
-            t.update({ id: t.id, title: `Grabando el video… ${pct} %` });
+            t.update({ id: t.id, title: `${working} ${pct} %` });
           }
         },
       });
-      saveAs(res.blob, mod.exportFileName(data.title, res.ext));
+      // 'export_video' cubre video y GIF: es el evento que acepta log_tactical_board_event.
       onEvent?.('export_video');
-      return 'Video descargado';
+      const filename = mod.exportFileName(data.title, res.ext);
+      const what = res.kind === 'video' ? 'Video' : 'Animación GIF';
+      const text = data.title ? `Jugada: ${data.title}` : 'Te comparto la jugada';
+      if (mod.canShareFiles(res.blob, filename)) {
+        // En el celular: el archivo va directo a la hoja de compartir (WhatsApp, Guardar…).
+        t.update({
+          id: t.id,
+          duration: 60_000,
+          title: res.kind === 'video' ? 'Video listo' : 'Animación GIF lista',
+          description: 'Toca «Compartir» para enviar el archivo por WhatsApp o guardarlo.',
+          action: (
+            <ToastAction
+              altText="Compartir por WhatsApp"
+              onClick={() => {
+                void mod
+                  .shareFile(res.blob, filename, text)
+                  .then((r) => {
+                    if (r.method !== 'cancelled') onEvent?.('share');
+                  })
+                  .catch(() => saveAs(res.blob, filename));
+              }}
+            >
+              Compartir
+            </ToastAction>
+          ),
+        });
+        return null;
+      }
+      saveAs(res.blob, filename);
+      return `${what} descargad${res.kind === 'video' ? 'o' : 'a'}`;
     });
 
   const onShare = () =>
@@ -131,7 +185,7 @@ export function TacticalExportMenu({ getInput, frameCount, onEvent, disabled, cl
       t.update({ id: t.id, title: 'Preparando para compartir…' });
       const mod = await loadExport();
       const data = await getInput();
-      const blob = await mod.exportPng({ players: data.players, arrows: data.arrows, title: data.title, teamName: data.teamName });
+      const blob = await mod.exportPng({ players: data.players, arrows: data.arrows, title: data.title, teamName: data.teamName, sport: data.sport, teams: data.teams });
       const text = data.title ? `Jugada: ${data.title}` : 'Te comparto la jugada';
       const res = await mod.shareFile(blob, mod.exportFileName(data.title, 'png'), text);
       if (res.method === 'cancelled') return 'Compartir cancelado';
@@ -161,7 +215,7 @@ export function TacticalExportMenu({ getInput, frameCount, onEvent, disabled, cl
         <Button
           type="button"
           variant="outline"
-          className={`min-h-touch gap-2 ${className ?? ''}`}
+          className={`${compact ? 'h-8 gap-1' : 'min-h-touch gap-2'} ${className ?? ''}`}
           disabled={disabled || !!busy}
           aria-label="Exportar la jugada"
         >
@@ -179,7 +233,7 @@ export function TacticalExportMenu({ getInput, frameCount, onEvent, disabled, cl
         </DropdownMenuItem>
         {videoReady ? (
           <DropdownMenuItem className={itemClass} onSelect={() => void onVideo()}>
-            <Film className="h-4 w-4" /> Video de la jugada
+            <Film className="h-4 w-4" /> {animLabel}
           </DropdownMenuItem>
         ) : (
           <Tooltip>
@@ -189,7 +243,7 @@ export function TacticalExportMenu({ getInput, frameCount, onEvent, disabled, cl
                 <DropdownMenuItem className={itemClass} disabled>
                   <Film className="h-4 w-4" />
                   <span className="flex flex-col">
-                    <span>Video de la jugada</span>
+                    <span>{animLabel}</span>
                     <span className="text-xs text-muted-foreground">Necesita 2 cuadros o más</span>
                   </span>
                 </DropdownMenuItem>

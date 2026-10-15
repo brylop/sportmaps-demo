@@ -11,6 +11,7 @@
  * que poder guardarse en la biblioteca y al revés.
  */
 import { validateArrows, sanitizeArrows, MAX_SLOT_LABEL } from './footballShapes';
+import { validateFrameNote, validatePlayNotes, validatePlayVideos, type PlayNotes, type PlayVideo } from './tacticalMediaShapes';
 
 export const EXERCISE_SPORTS = [
   'futbol', 'futbol7', 'futbol5', 'futsal', 'voleibol', 'baloncesto', 'balonmano', 'generico',
@@ -48,8 +49,17 @@ export interface BoardFrame {
   players: { key: string; x: number; y: number }[];
   ball: { x: number; y: number } | null;
   arrows: Record<string, unknown>[];
+  /** M6c: nota del cuadro. */
+  note?: string;
 }
-export interface ExerciseBoard { players: BoardPlayer[]; arrows: Record<string, unknown>[]; frames: BoardFrame[] }
+/** M6c: notas y videos viajan DENTRO de board (sin columna nueva). */
+export interface ExerciseBoard {
+  players: BoardPlayer[];
+  arrows: Record<string, unknown>[];
+  frames: BoardFrame[];
+  notes?: PlayNotes | null;
+  videos?: PlayVideo[] | null;
+}
 
 /** Valida y limpia la jugada. `board` ausente/null = jugada vacía (un
  *  ejercicio puede ser solo texto: un circuito físico no necesita cancha). */
@@ -132,8 +142,16 @@ export function validateBoard(board: unknown): { errors: string[]; board: Exerci
       } else {
         for (const e of validateArrows(frameArrows)) errors.push(`cuadro ${n}: ${e}`);
       }
+      const note = validateFrameNote(f.note, n);
+      if (note.error) errors.push(note.error);
     });
   }
+
+  // M6c: notas y videos de la jugada (mismos topes que las columnas de las alineaciones).
+  const notesRes = board.notes === undefined ? null : validatePlayNotes(board.notes);
+  if (notesRes) errors.push(...notesRes.errors);
+  const videosRes = board.videos === undefined ? null : validatePlayVideos(board.videos);
+  if (videosRes) errors.push(...videosRes.errors);
 
   if (errors.length) return { errors, board: null };
 
@@ -154,7 +172,10 @@ export function validateBoard(board: unknown): { errors: string[]; board: Exerci
         players: f.players.map((p: any) => ({ key: p.key.trim(), x: p.x, y: p.y })),
         ball: f.ball ? { x: f.ball.x, y: f.ball.y } : null,
         arrows: sanitizeArrows(f.arrows ?? []),
+        ...(validateFrameNote(f.note, 0).value ? { note: validateFrameNote(f.note, 0).value } : {}),
       })),
+      ...(notesRes?.value ? { notes: notesRes.value } : {}),
+      ...(videosRes?.value ? { videos: videosRes.value } : {}),
     },
   };
 }

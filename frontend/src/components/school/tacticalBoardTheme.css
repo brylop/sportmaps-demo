@@ -1,0 +1,53 @@
+/*
+ * Tema CLARO de la pizarra (M6g, «Ajustes de la pizarra»). El oscuro es el de
+ * siempre y no lleva reglas. Alcance: el fondo alrededor de la cancha y la
+ * «cromática» del tablero (toolbar, línea de tiempo, barra de posesión, panel
+ * de herramientas), marcados con [data-board-chrome]. La cancha, las fichas
+ * y los dibujos no cambian: se ven igual en los dos temas (y en el export).
+ *
+ * Reglas con [data-board-theme='claro'] para no pisar nada fuera de la
+ * pizarra. Los botones con fondo de color (verde activo, rojo) conservan su
+ * texto blanco.
+ */
+[data-board-theme='claro'] {
+  background-image: linear-gradient(to bottom, #f8fafc, #e2e8f0 50%, #f1f5f9) !important;
+  color: #0f172a !important;
+}
+
+[data-board-theme='claro'] [data-board-chrome] {
+  background-color: rgba(255, 255, 255, 0.88) !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a;
+}
+
+[data-board-theme='claro'] [data-board-chrome] :is(.text-white, [class^='text-white/'], [class*=' text-white/']):not([class*='bg-emerald']):not([class*='bg-red']):not([class*='bg-sky']):not([class*='bg-amber']):not([class*='bg-zinc-9']):not([class*='bg-black ']) {
+  color: #1e293b !important;
+}
+
+[data-board-theme='claro'] [data-board-chrome] :is([class^='border-white/'], [class*=' border-white/']) {
+  border-color: #cbd5e1 !important;
+}
+
+[data-board-theme='claro'] [data-board-chrome] :is([class^='bg-white/'], [class*=' bg-white/'], [class^='bg-black/'], [class*=' bg-black/']):not([class*='bg-emerald']) {
+  background-color: #f1f5f9 !important;
+}
+
+[data-board-theme='claro'] [data-board-chrome] :is(button, a):not([class*='bg-emerald']):not([class*='bg-red']):hover {
+  background-color: #e2e8f0 !important;
+}
+
+[data-board-theme='claro'] [data-board-chrome] select {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* La barra de progreso de la línea de tiempo: el riel blanco translúcido no se ve en claro. */
+[data-board-theme='claro'] [data-board-chrome] [role='progressbar'] {
+  background-color: #cbd5e1 !important;
+}
+
+/* La X de cerrar del diálogo (absolute, fuera del toolbar). */
+[data-board-theme='claro'] > button.absolute {
+  color: #0f172a !important;
+}

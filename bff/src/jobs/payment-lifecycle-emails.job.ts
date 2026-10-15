@@ -54,6 +54,7 @@ import { emitirTokenCobro } from '../services/cobro-enlace-publico.service';
 import { contactosConEstadoDeCuentaHoy, escuelasConEstadoPendiente } from '../services/estado-de-cuenta.service';
 import { contactosConRecordatorioHoy } from '../services/recordatorios-cobro.service';
 import { esCobroUnico, etiquetaDeCobro } from '../services/payment-accounts';
+import { desgloseMora, montoConMora } from '../utils/desglose-mora';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://app.sportmaps.co';
 
@@ -77,6 +78,17 @@ interface PaymentRow {
     period_month: number | null;
     payment_category?: string | null;
     payment_type?: string | null;
+    /** Recargo por mora que apply_late_fees ya sumó DENTRO de `amount` (0 si no hay). */
+    late_fee_amount?: number | string | null;
+}
+
+/**
+ * Desglose para el correo de un cobro con mora («Mensualidad $X · Recargo por
+ * mora $Y · Total $Z»), o null si no tiene. `amount` ya trae la mora.
+ */
+export function moraParaCorreo(p: Pick<PaymentRow, 'amount' | 'late_fee_amount'>): { base: string; fee: string } | null {
+    const d = desgloseMora(Number(p.amount), p.late_fee_amount);
+    return d ? { base: fmtCop(d.mensualidad), fee: fmtCop(d.recargo) } : null;
 }
 
 /**
@@ -163,7 +175,8 @@ async function tryWhatsApp(
             nombreEscuela: schoolName || '',
             periodo: periodoDe(p),
             fechaVencimiento: fechaCorta(p.due_date),
-            monto: fmtCop(p.amount),
+            // Con mora: «$165.000, que incluye $15.000 de recargo por mora».
+            monto: montoConMora(Number(p.amount), p.late_fee_amount, fmtCop),
         },
     });
     return r.enviado ? { sent: true } : { sent: false, motivo: r.motivo };
@@ -363,7 +376,7 @@ export async function sendChargeCreatedEmails(ahora: Date = new Date()): Promise
 
         const { data: candidates, error } = await supabase
             .from('payments')
-            .select('id, school_id, amount, due_date, concept, parent_id, child_id, user_id, unregistered_athlete_id, period_year, period_month')
+            .select('id, school_id, amount, late_fee_amount, due_date, concept, parent_id, child_id, user_id, unregistered_athlete_id, period_year, period_month')
             .eq('payment_type', 'subscription')
             .eq('status', 'pending')
             .is('charge_notice_sent_at', null)
@@ -437,7 +450,7 @@ export async function sendOverdueNoticeEmails(ahora: Date = new Date()): Promise
 
         const { data: candidates, error } = await supabase
             .from('payments')
-            .select('id, school_id, amount, due_date, concept, parent_id, child_id, user_id, unregistered_athlete_id, period_year, period_month, payment_category, payment_type')
+            .select('id, school_id, amount, late_fee_amount, due_date, concept, parent_id, child_id, user_id, unregistered_athlete_id, period_year, period_month, payment_category, payment_type')
             .eq('status', 'overdue')
             .is('overdue_notice_sent_at', null)
             .in('school_id', schoolIds);
@@ -484,6 +497,7 @@ export async function sendOverdueNoticeEmails(ahora: Date = new Date()): Promise
                         dueDate: fmtDate(p.due_date),
                         paymentLink: `${FRONTEND_URL}/my-payments`,
                         schoolId: p.school_id,
+                        lateFee: moraParaCorreo(p),
                     });
                     await emailClient.send({ to: contact.contactEmail, subject: tpl.subject, html: tpl.html });
                     sent++;

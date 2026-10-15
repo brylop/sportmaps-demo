@@ -40,6 +40,7 @@ import paymentsRouter from './routes/payments.routes';
 import glosasRouter from './routes/glosas.routes';
 import adminPaymentsRouter from './routes/admin-payments.routes';
 import adminSupportRouter from './routes/admin-support.routes';
+import adminTacticalAiRouter from './routes/admin-tactical-ai.routes';
 import supportRouter from './routes/support.routes';
 import platformInvoicingRouter from './routes/platform-invoicing.routes';
 import paymentTokensRouter from './routes/payment-tokens.routes';
@@ -108,6 +109,11 @@ import schoolPerformanceRouter from './routes/school/performance';
 import schoolCompetitionResultsRouter from './routes/school/competition-results';
 import schoolFootballRouter from './routes/school/football';
 import schoolExercisesRouter from './routes/school/exercises';
+import schoolExercisePacksRouter from './routes/school/exercisePacks';
+import schoolTacticalAiRouter from './routes/school/tactical-ai';
+import schoolTacticalVideosRouter from './routes/school/tacticalVideos';
+import schoolTacticalRivalTeamsRouter from './routes/school/tacticalRivalTeams';
+import schoolVideosRouter, { videoWebhookRouter } from './routes/school/videos';
 import schoolRoutinesRouter from './routes/school/routines';
 import schoolReportsRouter from './routes/school/reports';
 import schoolCoachActivityRouter from './routes/school/coach-activity';
@@ -345,6 +351,8 @@ app.use('/api/v1/public/cobro', cobroEnlacePublicoRouter);
 app.use('/api/v1/public/tienda', storeGuestRouter);
 
 app.use('/api/v1/webhooks/mercadopago', mpWebhookRouter);
+// Webhook del proveedor de video (M6h). Sin generalLimiter: la firma HMAC es el control.
+app.use('/api/v1/webhooks/video', videoWebhookRouter);
 // /create y /save-card mutan tarjeta/cobro → requireAuth (dentro del router) +
 // CSRF header, mismo patrón que payment-tokens/recurring. /providers es GET
 // público (gate del frontend) y no lo toca requireAuth por diseño.
@@ -431,6 +439,13 @@ app.use('/api/v1/school', generalLimiter, schoolPerformanceRouter);
 app.use('/api/v1/school', generalLimiter, schoolCompetitionResultsRouter);
 app.use('/api/v1/school', generalLimiter, schoolFootballRouter);
 app.use('/api/v1/school', generalLimiter, schoolExercisesRouter);
+app.use('/api/v1/school', generalLimiter, schoolExercisePacksRouter);
+app.use('/api/v1/school', generalLimiter, schoolTacticalAiRouter);
+app.use('/api/v1/school', generalLimiter, schoolTacticalVideosRouter);
+app.use('/api/v1/school', generalLimiter, schoolTacticalRivalTeamsRouter);
+// Videos subidos (M6h): el archivo va directo del navegador al proveedor; acá solo
+// cupo, autorización de subida, URL firmada y clips. Detrás del flag por escuela.
+app.use('/api/v1/school', generalLimiter, schoolVideosRouter);
 app.use('/api/v1/school', generalLimiter, requireAuth, schoolRoutinesRouter);
 app.use('/api/v1/school', generalLimiter, schoolReportsRouter);
 app.use('/api/v1/school', generalLimiter, schoolCoachActivityRouter);
@@ -464,6 +479,8 @@ app.use('/bridge', generalLimiter, bridgeRouter);
 app.use('/api/v1/admin/access-logs', generalLimiter, accessAdminRouter);
 // Consola de soporte (super_admin) — F0 solo lectura.
 app.use('/api/v1/admin/support', generalLimiter, adminSupportRouter);
+// Uso de IA de la pizarra (super_admin): consumo por escuela/coach y «Dar más cupo».
+app.use('/api/v1/admin/tactical-ai', generalLimiter, adminTacticalAiRouter);
 app.use('/api/v1/support', generalLimiter, supportRouter);
 // Facturación SaaS SportMaps → escuelas (super_admin).
 app.use('/api/v1/platform/invoices', generalLimiter, platformInvoicingRouter);

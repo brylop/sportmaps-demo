@@ -9,12 +9,47 @@
  * de entorno). Lógica pura: sin Express, sin base.
  */
 
+import { validateFrameNote } from './tacticalMediaShapes';
+
 export const VALID_ARROW_COLORS = ['white', 'yellow', 'red', 'blue', 'green', 'orange', 'purple', 'pink', 'black'] as const;
 export const VALID_SHAPE_TYPES = [
   'arrow', 'curve', 'zone', 'ball_path',
   'cone', 'marker', 'ball', 'goal', 'mini_goal', 'hurdle', 'ring', 'ladder', 'pole', 'mannequin', 'opponent',
   'freehand', 'text',
+  // M6d (2026-10-14): foco sobre un jugador (halo). Objeto de un punto.
+  'spotlight',
+  // M6d «Campo»: pseudo-figura (UNA por lista) con la presentación de la cancha
+  // (plantilla de líneas, cámara, orientación, piso y colores). No se dibuja
+  // como figura; viaja en el jsonb `arrows` para no necesitar columna nueva.
+  'court',
 ] as const;
+export const VALID_COURT_TEMPLATES = [
+  'lanes5', 'thirds', 'lanes_thirds', 'half_spaces', 'positional', 'big_area', 'diagonals',
+  'grid2x2', 'grid3x3', 'grid4x3', 'no_lines', 'rondo_circle', 'rondo_triangle', 'rondo_hexagon', 'rondo_square',
+] as const;
+export const VALID_COURT_CAMERAS = ['full', 'half_bottom', 'half_top', 'three_quarters', 'area'] as const;
+export const VALID_COURT_ORIENTATIONS = ['v', 'h'] as const;
+export const VALID_COURT_SURFACES = ['grass_stripes', 'grass', 'synthetic', 'wood', 'blue', 'whiteboard'] as const;
+const COURT_KEYS = ['tpl', 'goals', 'cam', 'orient', 'surface', 'grass', 'lines', 'outline'] as const;
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+/** M6d: estilo de línea con convención de leyenda (pase discontinuo, conducción
+ *  en zigzag, carrera continua, disparo doble). Solo flecha y curva. Ausente =
+ *  la línea de siempre. */
+export const VALID_LINE_STYLES = ['pass', 'dribble', 'run', 'shot'] as const;
+const LINE_STYLE_TYPES = ['arrow', 'curve'];
+/** M6d: forma de una zona. Ausente = el rectángulo redondeado de siempre. */
+export const VALID_ZONE_FORMS = ['rect', 'ellipse', 'polygon'] as const;
+/** Vértices de una zona polígono: 3 mínimo; el tope frena basura, no a un
+ *  coach (una zona real tiene 4-8 vértices). */
+export const POLYGON_MIN_POINTS = 3;
+export const POLYGON_MAX_POINTS = 24;
+/** Numeración de movimientos (1, 2, 3… sobre las flechas). */
+export const SEQ_MIN = 1;
+export const SEQ_MAX = 99;
+const SEQ_TYPES = ['arrow', 'curve', 'ball_path'];
+/** Opacidad del relleno de una zona: translúcida siempre (nunca tapa a los jugadores). */
+export const ZONE_FILL_MIN = 0.05;
+export const ZONE_FILL_MAX = 0.6;
 /** Lápiz libre (2026-09-30): `points` es [x,y,x,y,…] en % de cancha. El
  *  frontend simplifica el trazo antes de guardar; el tope frena un jsonb
  *  gigante (un garabato de 2 minutos sin simplificar), no a un trazo normal. */
@@ -41,6 +76,24 @@ export const SHAPE_ROT_ABS_MAX = 360;
 const isPlainObject = (v: unknown): v is Record<string, any> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
+/** Errores de la configuración de cancha (`court` de la pseudo-figura). */
+function validateCourtConfig(c: unknown): string[] {
+  if (!isPlainObject(c)) return ['court inválido: debe ser un objeto.'];
+  const errors: string[] = [];
+  for (const k of Object.keys(c)) {
+    if (!(COURT_KEYS as readonly string[]).includes(k)) errors.push(`court: campo desconocido ${k.slice(0, 20)}.`);
+  }
+  if (c.tpl !== undefined && !VALID_COURT_TEMPLATES.includes(c.tpl)) errors.push('court: plantilla de líneas inválida.');
+  if (c.goals !== undefined && typeof c.goals !== 'boolean') errors.push('court: goals debe ser true o false.');
+  if (c.cam !== undefined && !VALID_COURT_CAMERAS.includes(c.cam)) errors.push('court: cámara inválida.');
+  if (c.orient !== undefined && !VALID_COURT_ORIENTATIONS.includes(c.orient)) errors.push('court: orientación inválida.');
+  if (c.surface !== undefined && !VALID_COURT_SURFACES.includes(c.surface)) errors.push('court: piso inválido.');
+  for (const k of ['grass', 'lines', 'outline'] as const) {
+    if (c[k] !== undefined && (typeof c[k] !== 'string' || !HEX_COLOR.test(c[k]))) errors.push(`court: ${k} debe ser un color #rrggbb.`);
+  }
+  return errors;
+}
+
 /** Figuras del modo pizarra (P2d) -- coordenadas en el mismo espacio 0-100
  *  que slots/x/y, para que el frontend no tenga que manejar dos sistemas.
  *  "type" es opcional (compat con flechas guardadas antes de curva/zona). */
@@ -49,6 +102,9 @@ export function validateArrows(arrows: any[]): string[] {
   if (arrows.length > MAX_SHAPES) {
     errors.push(`demasiadas figuras: máximo ${MAX_SHAPES}.`);
     return errors;
+  }
+  if (arrows.filter((a) => isPlainObject(a) && a.type === 'court').length > 1) {
+    errors.push('solo puede haber una configuración de cancha (type court) por jugada.');
   }
   for (const a of arrows) {
     // Un null/número/arreglo en la lista reventaba con TypeError (500) en vez
@@ -90,8 +146,45 @@ export function validateArrows(arrows: any[]): string[] {
       } else if (pts.some((n: unknown) => typeof n !== 'number' || !Number.isFinite(n) || n < 0 || n > 100)) {
         errors.push('points inválido en un trazo: cada coordenada debe estar entre 0 y 100.');
       }
+    } else if (a.type === 'zone' && a.form === 'polygon') {
+      const pts = a.points;
+      if (!Array.isArray(pts) || pts.length % 2 !== 0 || pts.length / 2 < POLYGON_MIN_POINTS) {
+        errors.push(`points inválido en una zona polígono: debe ser [x,y,x,y,…] con al menos ${POLYGON_MIN_POINTS} vértices.`);
+      } else if (pts.length / 2 > POLYGON_MAX_POINTS) {
+        errors.push(`zona polígono con demasiados vértices: máximo ${POLYGON_MAX_POINTS}.`);
+      } else if (pts.some((n: unknown) => typeof n !== 'number' || !Number.isFinite(n) || n < 0 || n > 100)) {
+        errors.push('points inválido en una zona polígono: cada coordenada debe estar entre 0 y 100.');
+      }
     } else if (a.points !== undefined) {
-      errors.push('points solo aplica a un trazo de lápiz (type freehand).');
+      errors.push('points solo aplica a un trazo de lápiz o a una zona polígono.');
+    }
+    // M6d: estilo de línea, forma de zona, relleno y numeración. Ausentes = válidos.
+    if (a.line !== undefined) {
+      if (!VALID_LINE_STYLES.includes(a.line)) errors.push(`line inválido: ${String(a.line).slice(0, 20)}`);
+      else if (!LINE_STYLE_TYPES.includes(a.type ?? 'arrow')) errors.push('line solo aplica a una flecha o curva.');
+    }
+    if (a.form !== undefined) {
+      if (!VALID_ZONE_FORMS.includes(a.form)) errors.push(`form de zona inválido: ${String(a.form).slice(0, 20)}`);
+      else if (a.type !== 'zone') errors.push('form solo aplica a una zona.');
+    }
+    if (a.fill !== undefined) {
+      if (typeof a.fill !== 'number' || !Number.isFinite(a.fill) || a.fill < ZONE_FILL_MIN || a.fill > ZONE_FILL_MAX) {
+        errors.push(`fill inválido en una zona: debe estar entre ${ZONE_FILL_MIN} y ${ZONE_FILL_MAX}.`);
+      } else if (a.type !== 'zone') {
+        errors.push('fill solo aplica a una zona.');
+      }
+    }
+    if (a.type === 'court') {
+      errors.push(...validateCourtConfig(a.court));
+    } else if (a.court !== undefined) {
+      errors.push('court solo aplica a la configuración de cancha (type court).');
+    }
+    if (a.seq !== undefined) {
+      if (!Number.isInteger(a.seq) || a.seq < SEQ_MIN || a.seq > SEQ_MAX) {
+        errors.push(`seq inválido: debe ser un entero entre ${SEQ_MIN} y ${SEQ_MAX}.`);
+      } else if (!SEQ_TYPES.includes(a.type ?? 'arrow')) {
+        errors.push('seq solo aplica a flechas, curvas y recorridos del balón.');
+      }
     }
     if (a.type === 'text') {
       if (typeof a.text !== 'string' || a.text.trim().length === 0) {
@@ -119,6 +212,16 @@ export function sanitizeArrows(arrows: any[]): Record<string, unknown>[] {
     if (a.kind !== undefined) out.kind = a.kind;
     if (a.type === 'freehand') out.points = a.points;
     if (a.type === 'text') out.text = a.text.trim();
+    if (a.line !== undefined) out.line = a.line;
+    if (a.form !== undefined) out.form = a.form;
+    if (a.type === 'zone' && a.form === 'polygon') out.points = a.points;
+    if (a.fill !== undefined) out.fill = a.fill;
+    if (a.seq !== undefined) out.seq = a.seq;
+    if (a.type === 'court') {
+      const c: Record<string, unknown> = {};
+      for (const k of COURT_KEYS) if (a.court[k] !== undefined) c[k] = a.court[k];
+      out.court = c;
+    }
     return out;
   });
 }
@@ -222,11 +325,21 @@ export function validateFrames(frames: unknown): string[] {
         errors.push(`cuadro ${n}: ball debe ser null o {x, y} entre 0 y 100.`);
       }
     }
+    // M6g: posesión del balón (opcional). Clave del jugador que lo lleva en
+    // este cuadro; null/ausente = balón suelto (comportamiento de siempre).
+    if (f.ball_owner !== null && f.ball_owner !== undefined) {
+      if (typeof f.ball_owner !== 'string' || !f.ball_owner || f.ball_owner.length > MAX_FRAME_KEY) {
+        errors.push(`cuadro ${n}: ball_owner debe ser null o la key de un jugador.`);
+      }
+    }
     if (!Array.isArray(f.arrows)) {
       errors.push(`cuadro ${n}: arrows debe ser una lista.`);
     } else {
       for (const e of validateArrows(f.arrows)) errors.push(`cuadro ${n}: ${e}`);
     }
+    // M6c: nota del cuadro (subtítulo al reproducir), opcional.
+    const note = validateFrameNote(f.note, n);
+    if (note.error) errors.push(note.error);
   });
   if (errors.length > 0) return errors;
   const bytes = Buffer.byteLength(JSON.stringify(sanitizeFrames(frames)), 'utf8');
@@ -244,7 +357,9 @@ export function sanitizeFrames(frames: any[]): Record<string, unknown>[] {
     duration_ms: Math.round(f.duration_ms),
     players: f.players.map((p: any) => ({ key: p.key, x: p.x, y: p.y })),
     ball: f.ball ? { x: f.ball.x, y: f.ball.y } : null,
+    ...(typeof f.ball_owner === 'string' && f.ball_owner ? { ball_owner: f.ball_owner } : {}),
     arrows: sanitizeArrows(f.arrows),
+    ...(validateFrameNote(f.note, 0).value ? { note: validateFrameNote(f.note, 0).value } : {}),
   }));
 }
 
