@@ -65,6 +65,11 @@ describe('enlace corto del bot', () => {
 
     it('con recargo de la escuela, lo dice; con aviso registrado, promete avisar', () => {
         expect(instruccionesDeLaPaginaDeCobro(true, { total: 157500, recargo: 7500 }))
-            .toBe('El pago en línea es de $157.500 (incluye $7.500 de recargo). Ahí puedes pagar en línea o ver los datos para transferir; si pagas en línea, el pago queda aplicado solo y te aviso por aquí.');
+            .toBe('El pago en línea es de $157.500 (incluye $7.500 de recargo de la app). Si transfieres directo a la escuela no pagas recargo: son $150.000. Ahí puedes pagar en línea o ver los datos para transferir; si pagas en línea, el pago queda aplicado solo y te aviso por aquí.');
+    });
+
+    it('sin recargo (escuela con 0 %) no menciona recargo ni inventa un valor aparte', () => {
+        const t = instruccionesDeLaPaginaDeCobro(false, { total: 150000, recargo: 0 });
+        expect(t).not.toMatch(/recargo/i);
     });
 });
