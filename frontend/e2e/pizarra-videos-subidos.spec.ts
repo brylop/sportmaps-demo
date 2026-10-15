@@ -184,7 +184,9 @@ async function injectSavedLineup(page: Page) {
  *  En el celular editando, «Videos» vive en «Más opciones». */
 async function openVideos(page: Page) {
     const direct = page.getByRole('button', { name: /^Videos/ });
-    if (await direct.count()) await direct.first().click();
+    const more = page.getByRole('button', { name: 'Más opciones' });
+    await expect(direct.first().or(more).first()).toBeVisible({ timeout: 30_000 });
+    if (await direct.first().isVisible()) await direct.first().click();
     else {
         await page.getByRole('button', { name: 'Más opciones' }).click();
         await page.getByRole('menuitem', { name: /^Videos/ }).click();

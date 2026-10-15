@@ -199,6 +199,11 @@ test.describe('celular', () => {
     await openBoardFromMatch(page);
     await openGallery(page);
     const cards = gallery(page).locator('[data-formation-key]');
+    // El diálogo entra con zoom (95 % → 100 %): medir cuando terminó de abrir.
+    await expect.poll(async () => {
+      const [p, q] = [await cards.nth(0).boundingBox(), await cards.nth(1).boundingBox()];
+      return p && q ? Math.abs(p.y - q.y) : 99;
+    }, { timeout: 10_000 }).toBeLessThan(2);
     const b0 = (await cards.nth(0).boundingBox())!;
     const b1 = (await cards.nth(1).boundingBox())!;
     const b2 = (await cards.nth(2).boundingBox())!;
