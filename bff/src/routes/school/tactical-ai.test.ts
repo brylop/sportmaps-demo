@@ -14,11 +14,14 @@ type Fila = Record<string, any>;
 const st = vi.hoisted(() => ({
   tablas: {} as Record<string, Fila[]>,
   rpcs: [] as { name: string; args: any }[],
-  balance: { used: 0, free_quota: 15, purchased: 0 },
   inserts: [] as { tabla: string; fila: Fila }[],
+  ledger: null as any,
 }));
 
-vi.mock('../../config/supabase', () => {
+// supabase.rpc → el libro en memoria (fiel a las RPC de 20261014155445).
+vi.mock('../../config/supabase', async () => {
+  const { FakeTacticalAiLedger } = await import('../../services/__fixtures__/fakeTacticalAiLedger');
+  st.ledger = new FakeTacticalAiLedger();
   function builder(tabla: string) {
     let filas: Fila[] = [...(st.tablas[tabla] ?? [])];
     const api: any = {
@@ -30,27 +33,25 @@ vi.mock('../../config/supabase', () => {
     };
     return api;
   }
-  const json = (ok: boolean) => {
-    const b = st.balance;
-    const free = Math.max(b.free_quota - b.used, 0);
-    const paid = Math.max(b.purchased - Math.max(b.used - b.free_quota, 0), 0);
-    return { ok, remaining: free + paid, free_remaining: free, paid_remaining: paid, used: b.used, free_quota: b.free_quota, period: '2026-10', needs_purchase: free + paid === 0 };
+  const L = () => st.ledger;
+  const handlers: Record<string, (a: any) => Promise<any>> = {
+    tactical_ai_reserve: (a) => L().reserve({ schoolId: a.p_school_id, userId: a.p_user_id, sport: a.p_sport, estimateMicro: a.p_estimate_micro_usd }),
+    tactical_ai_settle: (a) => L().settle({
+      reservationId: a.p_reservation_id, costMicro: a.p_cost_micro_usd, provider: a.p_provider, model: a.p_model,
+      tokens: { input: a.p_input_tokens, output: a.p_output_tokens, cacheRead: a.p_cache_read_tokens, cacheWrite: a.p_cache_write_tokens },
+    }),
+    tactical_ai_release: (a) => L().release(a.p_reservation_id),
+    tactical_ai_record_cache_hit: (a) => L().cacheHit({ schoolId: a.p_school_id, userId: a.p_user_id, sport: a.p_sport }),
+    tactical_ai_user_balance: (a) => L().balance(a.p_school_id, a.p_user_id),
   };
   return {
     supabase: {
       from: (t: string) => builder(t),
       rpc: async (name: string, args: any) => {
         st.rpcs.push({ name, args });
-        const b = st.balance;
-        if (name === 'consume_tactical_ai_credit') {
-          const free = b.free_quota - b.used;
-          const paid = b.purchased - Math.max(b.used - b.free_quota, 0);
-          if (free > 0 || paid > 0) { b.used += 1; return { data: json(true), error: null }; }
-          return { data: json(false), error: null };
-        }
-        if (name === 'refund_tactical_ai_credit') { b.used = Math.max(0, b.used - 1); return { data: json(true), error: null }; }
-        if (name === 'tactical_ai_balance') return { data: json(true), error: null };
-        return { data: null, error: { code: 'PGRST202', message: 'Could not find the function' } };
+        const h = handlers[name];
+        if (!h) return { data: null, error: { code: 'PGRST202', message: 'Could not find the function' } };
+        try { return { data: await h(args), error: null }; } catch (e: any) { return { data: null, error: e }; }
       },
     },
   };
@@ -79,6 +80,7 @@ const { default: router } = await import('./tactical-ai');
 const { samplePlay, FAKE_ROSTER_NAMES, fakeKey } = await import('./__fixtures__/tacticalAiPlays');
 const { anonymizePlay, boardHash, parseAnalyzeInput, validateAiResult } = await import('./tacticalAiShapes');
 
+const ledgerMod = await import('../../services/__fixtures__/fakeTacticalAiLedger');
 const recorded = JSON.parse(readFileSync(join(__dirname, '__fixtures__', 'tacticalAi.recorded.json'), 'utf8'));
 const TEAM = '11111111-2222-4333-8444-555555555555';
 
@@ -100,9 +102,12 @@ beforeEach(() => {
     school_athletes: FAKE_ROSTER_NAMES.map((full_name) => ({ school_id: 'esc-1', enrolled_team_id: TEAM, full_name })),
     tactical_ai_analyses: [],
   };
+  st.tablas.schools = [{ id: 'esc-1', name: 'Club Demo' }];
+  st.tablas.profiles = [{ id: 'coach-x', full_name: 'Profe Andrés' }];
   st.rpcs = [];
   st.inserts = [];
-  st.balance = { used: 0, free_quota: 15, purchased: 0 };
+  const { FakeTacticalAiLedger } = ledgerMod;
+  st.ledger = new FakeTacticalAiLedger();
   llm.calls = [];
   llm.impl = async () => ({ texto: recorded.futbol.texto, provider: 'claude', model: 'claude-sonnet-5-5', tokens: { input: 1400, output: 5900, cacheRead: 0, cacheWrite: 3600 } });
 });
@@ -146,11 +151,18 @@ describe('análisis', () => {
     const r = await post(samplePlay('futbol'));
     expect(r.status).toBe(200);
     expect(r.body.cached).toBe(false);
-    expect(r.body.balance.remaining).toBe(14);
+    // Costo REAL: 1400×$2 + 5900×$10 + 3600×$2,5 por millón (Sonnet 5.5) = US$ 0,0708.
+    expect(r.body.balance.used_usd).toBeCloseTo(0.0708, 6);
+    expect(r.body.balance.budget_usd).toBe(1);
+    expect(r.body.balance.remaining_pct).toBe(92);
+    expect(r.body.balance.approx_remaining.futbol).toBe(14);
+    expect(r.body.balance.exhausted).toBe(false);
     // Mapa p1..pN → clave real: el cliente traduce cualquier «p5» de los textos.
     expect(r.body.keys.p1).toBe(fakeKey(0)); // el arquero (más cerca del arco propio)
     expect(Object.keys(r.body.keys)).toHaveLength(11);
-    expect(st.rpcs.map((x) => x.name)).toEqual(['consume_tactical_ai_credit']);
+    expect(st.rpcs.map((x) => x.name)).toEqual(['tactical_ai_reserve', 'tactical_ai_settle']);
+    expect(st.rpcs[0].args.p_estimate_micro_usd).toBe(80_000);
+    expect(st.rpcs[1].args).toMatchObject({ p_cost_micro_usd: 70_800, p_input_tokens: 1400, p_output_tokens: 5900, p_cache_read_tokens: 0, p_cache_write_tokens: 3600, p_model: 'claude-sonnet-5-5' });
     expect(llm.calls).toHaveLength(1);
     expect(llm.calls[0].uso).toEqual({ schoolId: 'esc-1', feature: 'pizarra_ia' });
     // Nada de atletas en lo que se mandó al modelo.
@@ -180,8 +192,10 @@ describe('análisis', () => {
     expect(r.body.cached).toBe(true);
     expect(r.body.keys.p1).toBe(fakeKey(0));
     expect(llm.calls).toHaveLength(0);
-    expect(st.rpcs.map((x) => x.name)).toEqual(['tactical_ai_balance']);
-    expect(st.balance.used).toBe(0);
+    // Caché = US$ 0: solo se cuenta el acierto, sin reservar ni cobrar.
+    expect(st.rpcs.map((x) => x.name)).toEqual(['tactical_ai_record_cache_hit']);
+    expect(r.body.balance.used_usd).toBe(0);
+    expect(r.body.balance.cache_hits).toBe(1);
   });
 
   it('la caché es por escuela: el mismo hash de otra escuela no sirve', async () => {
@@ -193,20 +207,41 @@ describe('análisis', () => {
     expect(llm.calls).toHaveLength(1);
   });
 
-  it('cupo agotado → 402 needs_purchase SIN llamar al modelo', async () => {
-    st.balance = { used: 15, free_quota: 15, purchased: 0 };
+  it('cupo del usuario agotado → 402 needs_more SIN llamar al modelo, con el mensaje de WhatsApp', async () => {
+    st.ledger.user('esc-1', 'coach-x').used = 950_000; // le quedan US$ 0,05 < reserva de 0,08
+    const r = await post(samplePlay('futbol'), { 'x-user': 'coach-x' });
+    expect(r.status).toBe(402);
+    expect(r.body.needs_more).toBe(true);
+    expect(r.body.limited_by).toBe('user');
+    expect(r.body.error).toBe('Usaste tu IA de este mes.');
+    expect(r.body.balance.exhausted).toBe(true);
+    expect(r.body.balance.approx_remaining.futbol).toBe(0);
+    expect(llm.calls).toHaveLength(0);
+    expect(st.rpcs.map((x) => x.name)).toEqual(['tactical_ai_reserve']);
+    const msg: string = r.body.request_more_message;
+    expect(msg).toContain('Profe Andrés');
+    expect(msg).toContain('Club Demo');
+    expect(msg).toContain('fútbol 11');
+    expect(msg).toContain('US$ 0,95 de US$ 1,00');
+    for (const n of FAKE_ROSTER_NAMES) expect(msg).not.toContain(n);
+    expect(msg).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+  });
+
+  it('techo de la ESCUELA agotado (10 × US$ 1) → 402 limited_by school aunque el coach tenga saldo', async () => {
+    st.ledger.school('esc-1').used = 9_950_000;
     const r = await post(samplePlay('futbol'));
     expect(r.status).toBe(402);
-    expect(r.body.needs_purchase).toBe(true);
-    expect(r.body.balance.remaining).toBe(0);
+    expect(r.body.limited_by).toBe('school');
+    expect(r.body.error).toMatch(/escuela/);
     expect(llm.calls).toHaveLength(0);
   });
 
-  it('con paquete comprado sigue después del cupo gratis', async () => {
-    st.balance = { used: 15, free_quota: 15, purchased: 50 };
-    const r = await post(samplePlay('futbol'));
+  it('con cupo extra (grant) sigue después del presupuesto', async () => {
+    const u = st.ledger.user('esc-1', 'coach-x');
+    u.used = 1_000_000; u.extra = 500_000;
+    const r = await post(samplePlay('futbol'), { 'x-user': 'coach-x' });
     expect(r.status).toBe(200);
-    expect(r.body.balance.paid_remaining).toBe(49);
+    expect(r.body.balance.budget_usd).toBe(1.5);
   });
 
   it('el modelo falla → 502, se devuelve el análisis (refund)', async () => {
@@ -214,8 +249,8 @@ describe('análisis', () => {
     const r = await post(samplePlay('futbol'));
     expect(r.status).toBe(502);
     expect(r.body.error).toMatch(/No se descontó/);
-    expect(st.rpcs.map((x) => x.name)).toEqual(['consume_tactical_ai_credit', 'refund_tactical_ai_credit']);
-    expect(st.balance.used).toBe(0);
+    expect(st.rpcs.map((x) => x.name)).toEqual(['tactical_ai_reserve', 'tactical_ai_release']);
+    expect(r.body.error).toMatch(/No se descontó/);
   });
 
   it('timeout de todos los proveedores → 504', async () => {
@@ -223,7 +258,7 @@ describe('análisis', () => {
     const r = await post(samplePlay('futbol'));
     expect(r.status).toBe(504);
     expect(r.body.error).toMatch(/tardó demasiado/);
-    expect(st.balance.used).toBe(0);
+    expect([...st.ledger.users.values()].every((u: any) => u.used === 0 && u.reserved === 0)).toBe(true);
   });
 
   it('salida inválida del modelo → 502 con refund y sin caché', async () => {
@@ -231,19 +266,43 @@ describe('análisis', () => {
     const r = await post(samplePlay('futbol'));
     expect(r.status).toBe(502);
     expect(r.body.detalle).toBe('json_invalido');
-    expect(st.balance.used).toBe(0);
+    expect([...st.ledger.users.values()].every((u: any) => u.used === 0 && u.reserved === 0)).toBe(true);
     expect(st.inserts).toHaveLength(0);
   });
 
   it('migración sin aplicar (RPC inexistente) → 503 claro', async () => {
     const real = (await import('../../config/supabase')).supabase as any;
     const orig = real.rpc;
-    real.rpc = async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.consume_tactical_ai_credit' } });
+    real.rpc = async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.tactical_ai_reserve' } });
     try {
       const r = await post(samplePlay('futbol'));
       expect(r.status).toBe(503);
       expect(llm.calls).toHaveLength(0);
     } finally { real.rpc = orig; }
+  });
+});
+
+describe('GET ai-balance', () => {
+  async function get(path: string, headers: Record<string, string> = {}) {
+    const res = await fetch(`${base}/api/v1/school/tactical/ai-balance${path}`, { headers: { 'x-user': 'coach-x', ...headers } });
+    return { status: res.status, body: await res.json() as any };
+  }
+  it('mes nuevo: 100 % y unos 15 análisis de fútbol 11, sin mensaje de venta', async () => {
+    const r = await get('?sport=futbol');
+    expect(r.status).toBe(200);
+    expect(r.body.remaining_pct).toBe(100);
+    expect(r.body.approx_remaining.futbol).toBe(15);
+    expect(r.body.approx_remaining.voleibol).toBe(22);
+    expect(r.body.request_more_message).toBeUndefined();
+  });
+  it('agotado: trae el mensaje con el deporte pedido', async () => {
+    st.ledger.user('esc-1', 'coach-x').used = 1_000_000;
+    const r = await get('?sport=voleibol');
+    expect(r.body.exhausted).toBe(true);
+    expect(r.body.request_more_message).toContain('voleibol');
+  });
+  it('padre → 403', async () => {
+    expect((await get('', { 'x-role': 'parent' })).status).toBe(403);
   });
 });
 

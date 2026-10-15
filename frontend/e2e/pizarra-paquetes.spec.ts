@@ -101,7 +101,9 @@ async function mockPackReads(page: Page, s: State) {
 async function openLibrary(page: Page) {
   await loginAs(page, COACH);
   await page.goto('/training-plans');
-  await page.getByRole('combobox').first().click({ timeout: 30_000 });
+  // Mismo arranque en frío que helpers/pizarra.ts openTrainingPlans: esperar a que la app cargue.
+  await expect(page.getByText('Cargando...', { exact: true })).toHaveCount(0, { timeout: 90_000 });
+  await page.getByRole('combobox').first().click({ timeout: 60_000 });
   await page.getByRole('option', { name: /THUNDER/i }).first().click();
   await page.getByRole('button', { name: /^Crear (Primera )?Sesión$/ }).first().click();
   const session = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Crear Sesión' }) });
@@ -117,7 +119,7 @@ const cardNames = (lib: ReturnType<Page['getByRole']>) =>
   lib.getByRole('button', { name: /^Ver / }).evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')!.slice(4)));
 
 test('(a) activar un paquete: la biblioteca pasa a mostrar solo ese paquete', async ({ page, guard }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   const s: State = { activated: new Set() };
   await mockPackReads(page, s);
   let activatedUrl = '';
@@ -169,7 +171,7 @@ test('(a) activar un paquete: la biblioteca pasa a mostrar solo ese paquete', as
 });
 
 test('(b) exportar un paquete: descarga un sportmaps-ejercicios v1 sin ids ni datos de la escuela', async ({ page, guard }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   void guard;
   const s: State = { activated: new Set() };
   await mockPackReads(page, s);
@@ -213,7 +215,7 @@ test('(b) exportar un paquete: descarga un sportmaps-ejercicios v1 sin ids ni da
 });
 
 test('(c) importar: elegir archivo → vista previa → confirmar → resultado', async ({ page, guard }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   const s: State = { activated: new Set() };
   await mockPackReads(page, s);
   const FILE = {
@@ -258,7 +260,7 @@ test('(c) importar: elegir archivo → vista previa → confirmar → resultado'
 });
 
 test('(c2) importar un archivo inválido: lista de errores y nada que confirmar', async ({ page, guard }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   const s: State = { activated: new Set() };
   await mockPackReads(page, s);
   await mockWrite(page, guard, IMPORT, () => ({
@@ -317,7 +319,9 @@ async function voleibolBoard(page: Page) {
   });
   await loginAs(page, COACH);
   await page.goto('/training-plans');
-  await page.getByRole('combobox').first().click({ timeout: 30_000 });
+  // Mismo arranque en frío que helpers/pizarra.ts openTrainingPlans: esperar a que la app cargue.
+  await expect(page.getByText('Cargando...', { exact: true })).toHaveCount(0, { timeout: 90_000 });
+  await page.getByRole('combobox').first().click({ timeout: 60_000 });
   await page.getByRole('option', { name: /THUNDER/i }).first().click();
   await expect(page.getByText('Bloque e2e')).toBeVisible({ timeout: 30_000 });
   await page.getByRole('button', { name: /Tablero táctico/ }).first().click();
@@ -326,7 +330,7 @@ async function voleibolBoard(page: Page) {
 
 for (const vp of [{ name: 'escritorio', width: 1440, height: 900 }, { name: 'celular', width: 390, height: 844 }]) {
   test(`(d) «Empieza aquí» en vóley (${vp.name}): «Poner jugadores» + «Rotación zonas 1-6», sin desbordar`, async ({ page, guard }) => {
-    test.setTimeout(180_000);
+    test.setTimeout(300_000);
     void guard;
     await page.setViewportSize({ width: vp.width, height: vp.height });
     await voleibolBoard(page);

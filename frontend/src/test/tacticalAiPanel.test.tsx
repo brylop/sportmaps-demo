@@ -19,7 +19,7 @@ vi.mock('@/lib/api/bffClient', () => {
 import { BFFError } from '@/lib/api/bffClient';
 import { TacticalAiOverlay, TacticalAiPanel, type AiPreview } from '@/components/school/TacticalAiPanel';
 import {
-  balanceLabel, buildAnalyzeRequest, humanizeResult, humanizeText, suggestionToBoardFrames,
+  quotaLabel, fallbackMoreMessage, requestMoreHref, buildAnalyzeRequest, humanizeResult, humanizeText, suggestionToBoardFrames,
   type AiResult, type AiSuggestion,
 } from '@/lib/school/tacticalAi';
 import { resolveViewerSource, suggestionViewer3D } from '@/lib/school/tactical3dSuggestion';
@@ -44,8 +44,11 @@ const result: AiResult = {
   contraataques: [counter, { ...counter, titulo: 'Pase largo al centro' }],
   variantes: [{ ...counter, titulo: 'Lateral con cobertura', frames: counter.frames.map((f) => ({ ...f, players: f.players.filter((p) => !p.key.startsWith('rival:')) })) }],
 };
-const balance = (remaining: number, extra: Record<string, unknown> = {}) => ({
-  ok: true, remaining, free_remaining: remaining, paid_remaining: 0, used: 15 - remaining, free_quota: 15, period: '2026-10', needs_purchase: remaining === 0, ...extra,
+/** Saldo del BFF (cupo por costo real): `pctLeft` % que queda, `futbol` análisis aprox. */
+const balance = (pctLeft: number, futbol = 9, extra: Record<string, unknown> = {}) => ({
+  period: '2026-10', used_usd: (100 - pctLeft) / 100, budget_usd: 1, remaining_usd: pctLeft / 100,
+  pct: 100 - pctLeft, remaining_pct: pctLeft, exhausted: pctLeft < 8, limited_by: pctLeft < 8 ? 'user' : null,
+  approx_remaining: { futbol, voleibol: futbol + 3 }, analyses: 6, cache_hits: 1, ...extra,
 });
 
 const playFrames: TacticalFrame[] = [{
@@ -69,7 +72,7 @@ function setup(over: Partial<React.ComponentProps<typeof TacticalAiPanel>> = {})
   const onApply = vi.fn();
   const getRequest = vi.fn(() => buildAnalyzeRequest({ teamId: 't-1', sport: 'futbol', frames: playFrames, labelOf: () => 'Central' }));
   const props = {
-    open: true, onClose: vi.fn(), getRequest, sport: 'futbol' as const, canApply: true, canBuy: true,
+    open: true, onClose: vi.fn(), getRequest, sport: 'futbol' as const, canApply: true,
     preview: null as AiPreview | null, onPreview, onApply, ...over,
   };
   const utils = render(
@@ -85,20 +88,22 @@ function setup(over: Partial<React.ComponentProps<typeof TacticalAiPanel>> = {})
 beforeEach(() => {
   api.post.mockReset();
   api.get.mockReset();
-  api.get.mockResolvedValue(balance(12));
-  api.post.mockResolvedValue({ result, cached: false, balance: balance(11) });
+  api.get.mockResolvedValue(balance(60));
+  api.post.mockResolvedValue({ result, cached: false, balance: balance(54, 8) });
 });
 
 describe('TacticalAiPanel', () => {
   it('muestra el saldo y, al analizar, la lectura, los riesgos y las tarjetas «Sugerencia IA»', async () => {
     setup();
-    expect(await screen.findByText('Te quedan 12 análisis este mes')).toBeInTheDocument();
+    expect(await screen.findByText('Te queda el 60 % de tu IA este mes · unos 9 análisis de fútbol 11')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: 'IA que te queda este mes' })).toHaveAttribute('aria-valuenow', '60');
+    expect(api.get).toHaveBeenCalledWith('/api/v1/school/tactical/ai-balance?sport=futbol');
     fireEvent.click(screen.getByRole('button', { name: /Analizar jugada/ }));
     expect(await screen.findByText(result.lectura)).toBeInTheDocument();
     expect(screen.getByText(/Espalda del lateral/)).toBeInTheDocument();
     expect(screen.getAllByText('Sugerencia IA').length).toBeGreaterThanOrEqual(4); // lectura + 3 tarjetas
     expect(screen.getByText('Salida rápida por la banda derecha')).toBeInTheDocument();
-    expect(screen.getByText('Te quedan 11 análisis este mes')).toBeInTheDocument();
+    expect(screen.getByText('Te queda el 54 % de tu IA este mes · unos 8 análisis de fútbol 11')).toBeInTheDocument();
     // Lo que se mandó: sin texto libre ni lápiz, rival en su color.
     const sent = api.post.mock.calls[0][1];
     expect(api.post.mock.calls[0][0]).toBe('/api/v1/school/tactical/analyze');
@@ -150,23 +155,46 @@ describe('TacticalAiPanel', () => {
     expect(screen.queryByRole('button', { name: /Guardar como nueva jugada/ })).toBeNull();
   });
 
-  it('saldo agotado: el BFF responde 402 y aparece «Comprar 50 análisis», que lleva a los adicionales', async () => {
-    api.get.mockResolvedValue(balance(0));
-    api.post.mockRejectedValue(new BFFError(402, 'needs', { error: 'Se acabaron los análisis con IA de este mes.', needs_purchase: true, balance: balance(0) }));
+  it('tras analizar, la barra se actualiza con el saldo que devuelve el BFF', async () => {
     setup();
-    expect(await screen.findByText('No te quedan análisis este mes')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Analizar jugada/ }));
-    await waitFor(() => expect(api.post).toHaveBeenCalled());
-    const buy = await screen.findByRole('button', { name: /Comprar 50 análisis/ });
-    fireEvent.click(buy);
-    expect(screen.getByTestId('loc').textContent).toBe('/mi-plan?upsell=pizarra_ia');
+    fireEvent.click(await screen.findByRole('button', { name: /Analizar jugada/ }));
+    expect(await screen.findByText('Te queda el 54 % de tu IA este mes · unos 8 análisis de fútbol 11')).toBeInTheDocument();
   });
 
-  it('un coach sin permiso de compra ve a quién pedirle el paquete', async () => {
-    api.get.mockResolvedValue(balance(0));
-    setup({ canBuy: false });
-    expect(await screen.findByText(/Pídele al administrador/)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Comprar/ })).toBeNull();
+  it('agotado (402): «Usaste tu IA de este mes» y «Quiero más» abre el WhatsApp de ventas con el mensaje del BFF', async () => {
+    const msg = 'Hola, soy Profe Andrés de Club Demo. Usé mi IA de la pizarra de octubre 2026: 15 análisis, US$ 0,98 de US$ 1,00. Quiero más cupo de IA.';
+    api.post.mockRejectedValue(new BFFError(402, 'needs', {
+      error: 'Usaste tu IA de este mes.', needs_more: true, limited_by: 'user', balance: balance(2, 0), request_more_message: msg,
+    }));
+    setup();
+    fireEvent.click(await screen.findByRole('button', { name: /Analizar jugada/ }));
+    await waitFor(() => expect(api.post).toHaveBeenCalled());
+    expect(await screen.findByText('Usaste tu IA de este mes.')).toBeInTheDocument();
+    const more = screen.getByRole('link', { name: /Quiero más/ });
+    expect(more).toHaveAttribute('href', `https://wa.me/573202683539?text=${encodeURIComponent(msg)}`);
+    expect(more).toHaveAttribute('target', '_blank');
+    // El flujo de compra en la app (no construido) ya no aparece.
+    expect(screen.queryByText(/Comprar/)).toBeNull();
+    expect(screen.getByTestId('loc').textContent).toBe('/pizarra');
+  });
+
+  it('agotado desde que abre (coach): barra en «Usaste tu IA de este mes» y «Quiero más» con mensaje de respaldo sin atletas', async () => {
+    api.get.mockResolvedValue(balance(0, 0));
+    setup();
+    expect(await screen.findByTestId('ai-exhausted')).toBeInTheDocument();
+    expect(screen.getByTestId('ai-balance')).toHaveTextContent('Usaste tu IA de este mes');
+    const href = screen.getByRole('link', { name: /Quiero más/ }).getAttribute('href')!;
+    expect(href.startsWith('https://wa.me/573202683539?text=')).toBe(true);
+    const text = decodeURIComponent(href.split('?text=')[1]);
+    expect(text).toContain('fútbol 11');
+    expect(text).toContain('US$ 1,00 de US$ 1,00');
+    expect(text).not.toMatch(/athlete:|child:|1111-4111/);
+  });
+
+  it('techo de la escuela: lo dice', async () => {
+    api.get.mockResolvedValue(balance(0, 0, { limited_by: 'school' }));
+    setup();
+    expect(await screen.findByText('Tu escuela usó toda la IA de este mes.')).toBeInTheDocument();
   });
 
   it('error del modelo: mensaje claro, sin romper el panel', async () => {
@@ -228,11 +256,17 @@ describe('ningún pN / rN llega a la pantalla', () => {
 });
 
 describe('tacticalAi (lógica)', () => {
-  it('balanceLabel', () => {
-    expect(balanceLabel(balance(12) as any)).toBe('Te quedan 12 análisis este mes');
-    expect(balanceLabel(balance(3, { paid_remaining: 40, remaining: 43 }) as any)).toBe('Te quedan 3 análisis gratis este mes y 40 comprados');
-    expect(balanceLabel(balance(0, { paid_remaining: 7, remaining: 7 }) as any)).toBe('Te quedan 7 análisis comprados');
-    expect(balanceLabel(null)).toBeNull();
+  it('quotaLabel', () => {
+    expect(quotaLabel(balance(60) as any, 'futbol')).toBe('Te queda el 60 % de tu IA este mes · unos 9 análisis de fútbol 11');
+    expect(quotaLabel(balance(60) as any, 'voleibol')).toBe('Te queda el 60 % de tu IA este mes · unos 12 análisis de voleibol');
+    expect(quotaLabel(balance(10, 1) as any, 'futbol')).toBe('Te queda el 10 % de tu IA este mes · un análisis de fútbol 11');
+    expect(quotaLabel(balance(60) as any, 'baloncesto')).toBe('Te queda el 60 % de tu IA este mes');
+    expect(quotaLabel(balance(0) as any, 'futbol')).toBe('Usaste tu IA de este mes');
+    expect(quotaLabel(null, 'futbol')).toBeNull();
+  });
+  it('requestMoreHref: wa.me del comercial; usa el mensaje del BFF y si no, uno sin atletas', () => {
+    expect(requestMoreHref(null, 'futbol', 'hola')).toBe('https://wa.me/573202683539?text=hola');
+    expect(fallbackMoreMessage(balance(0) as any, 'futsal')).toBe('Hola, uso la pizarra de SportMaps con futsal y se me acabó la IA del mes. Este mes: 6 análisis, US$ 1,00 de US$ 1,00. Quiero más cupo de IA.');
   });
   it('«Ver en 3D» en cada tarjeta: abre el visor (sin WebGL2 cae a 2D) y registra ver/guardar/analizar', async () => {
     const onEvent = vi.fn();

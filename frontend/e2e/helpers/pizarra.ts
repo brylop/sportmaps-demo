@@ -111,6 +111,8 @@ export const test = base.extend<Fixtures>({
     guard: async ({ page }, use) => {
         const guard = await installWriteGuard(page);
         await mockBackgroundWrites(page, guard);
+        // `use` es el callback de fixtures de Playwright, no el hook de React.
+        // eslint-disable-next-line react-hooks/rules-of-hooks
         await use(guard);
         expect(guard.escaped, `Escrituras sin mock (se abortaron): ${guard.escaped.join(', ')}`).toEqual([]);
     },
@@ -134,7 +136,11 @@ export async function injectFakeMatch(page: Page): Promise<void> {
 export async function openTrainingPlans(page: Page): Promise<void> {
     await loginAs(page, COACH);
     await page.goto('/training-plans');
-    await page.getByRole('combobox').first().click({ timeout: 30_000 });
+    // Con dos workers y el dev server compilando en frío, el primer «Cargando...»
+    // de la app pasó de 30 s (falla del 2026-10-14, sin relación con la prueba):
+    // se espera a que la app termine de cargar con un tope holgado, sin reintentar.
+    await expect(page.getByText('Cargando...', { exact: true })).toHaveCount(0, { timeout: 90_000 });
+    await page.getByRole('combobox').first().click({ timeout: 60_000 });
     await page.getByRole('option', { name: /THUNDER/i }).first().click();
     await page.getByRole('button', { name: 'Fútbol', exact: true }).click();
 }

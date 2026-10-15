@@ -2,7 +2,12 @@
  * IA de jugadas — M3 de docs/specs/pizarra-multideporte-3d-ia.md (D6, §6).
  *
  *   POST /api/v1/school/tactical/analyze      analiza la jugada (cupo + caché)
- *   GET  /api/v1/school/tactical/ai-balance   «Te quedan N análisis este mes»
+ *   GET  /api/v1/school/tactical/ai-balance   «Te queda el 60 % de tu IA este mes»
+ *                                             (?sport= para el «Quiero más»)
+ *
+ * Cupo por costo real por usuario y techo por escuela (§6, decisión
+ * 2026-10-14, migración 20261014155445). Agotado → 402 needs_more con el
+ * mensaje de WhatsApp para el comercial (request_more_message).
  *
  * Mismo gate que editar el tablero (football.ts / exercises.ts):
  * TACTICAL_EDIT_ROLES y el equipo debe ser de la escuela activa. Padres,
@@ -14,8 +19,8 @@ import { Router, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { supabase } from '../../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../../middlewares/authMiddleware';
-import { parseAnalyzeInput } from './tacticalAiShapes';
-import { analyzeTacticalPlay, getAiBalance } from '../../services/tactical-ai.service';
+import { isAiSport, parseAnalyzeInput } from './tacticalAiShapes';
+import { analyzeTacticalPlay, getAiBalance, requestMoreMessage } from '../../services/tactical-ai.service';
 
 const router = Router();
 
@@ -59,6 +64,12 @@ router.post(
         return res.status(403).json({ error: 'Ese equipo no es de tu escuela.' });
       }
       const out = await analyzeTacticalPlay({ schoolId: req.schoolId, userId: req.user.id, input, log: req.log as any });
+      if (out.status === 402) {
+        const request_more_message = await requestMoreMessage({
+          schoolId: req.schoolId, userId: req.user.id, sport: input.sport, balance: out.body.balance,
+        });
+        return res.status(402).json({ ...out.body, request_more_message });
+      }
       return res.status(out.status).json(out.body);
     } catch (err: any) {
       req.log?.error({ err }, 'school/tactical/analyze unhandled error');
@@ -74,9 +85,12 @@ router.get(
   requireRole(...TACTICAL_EDIT_ROLES),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const balance = await getAiBalance(req.schoolId);
+      const balance = await getAiBalance(req.schoolId, req.user.id);
       if (!balance) return res.status(503).json({ error: 'El análisis con IA todavía no está habilitado en esta cuenta.' });
-      return res.json(balance);
+      if (!balance.exhausted) return res.json(balance);
+      const sport = isAiSport(req.query.sport) ? req.query.sport : null;
+      const request_more_message = await requestMoreMessage({ schoolId: req.schoolId, userId: req.user.id, sport, balance });
+      return res.json({ ...balance, request_more_message });
     } catch (err: any) {
       req.log?.error({ err }, 'school/tactical/ai-balance unhandled error');
       return res.status(500).json({ error: 'Error interno del servidor.' });

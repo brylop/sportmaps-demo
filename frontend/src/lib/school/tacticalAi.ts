@@ -12,6 +12,7 @@
  * material, ver hydrateFrames({ ballAsObject })).
  */
 import { bffClient, BFFError } from '@/lib/api/bffClient';
+import { salesWhatsappLink } from '@/lib/salesContact';
 import type { TacticalArrow, TacticalArrowColor } from './footballQueries';
 import { newFrameId } from './tacticalAnimation';
 import { DEFAULT_FRAME_MS, MAX_FRAMES, type TacticalFrame } from './tacticalFrames';
@@ -23,21 +24,35 @@ export const hasAiAnalysis = (sport: TacticalSport | null | undefined): boolean 
 export const RIVAL_KEY_PREFIX = 'rival:';
 export const isRivalKey = (k: string) => k.startsWith(RIVAL_KEY_PREFIX);
 
-/** Paquete que se ofrece cuando se acaba el cupo (spec §6). */
-export const AI_PACK_SIZE = 50;
-/** Pantalla de adicionales de la escuela (MiPlanPage). */
-export const AI_PURCHASE_HREF = '/mi-plan?upsell=pizarra_ia';
-
+/**
+ * Cupo de IA por COSTO REAL (spec §6, decisión 2026-10-14; BFF
+ * services/tactical-ai-budget.ts). El coach ve «Te queda el 60 % de tu IA este
+ * mes · unos 9 análisis de fútbol 11»; agotado, «Quiero más» abre WhatsApp con
+ * el comercial (no hay compra en la app todavía: el precio se fija midiendo).
+ */
 export interface AiBalance {
-  ok?: boolean;
-  remaining: number;
-  free_remaining: number;
-  paid_remaining: number;
-  used: number;
-  free_quota: number;
   period: string;
-  needs_purchase: boolean;
+  used_usd: number;
+  budget_usd: number;
+  remaining_usd: number;
+  /** % usado (0–100). */
+  pct: number;
+  /** % que queda (0–100). */
+  remaining_pct: number;
+  exhausted: boolean;
+  limited_by: 'user' | 'school' | null;
+  approx_remaining: Partial<Record<TacticalSport, number>>;
+  analyses: number;
+  cache_hits: number;
+  /** Solo cuando está agotado: mensaje pre-llenado para el comercial. */
+  request_more_message?: string;
 }
+
+/** Nombre del deporte en la barra y en el mensaje («unos 9 análisis de fútbol 11»). */
+export const AI_SPORT_LABEL: Partial<Record<TacticalSport, string>> = {
+  futbol: 'fútbol 11', futbol7: 'fútbol 7', futbol5: 'fútbol 5', futsal: 'futsal',
+  voleibol: 'voleibol', baloncesto: 'baloncesto', balonmano: 'balonmano',
+};
 
 export interface AiRisk { titulo: string; detalle: string; zona?: string }
 export interface AiSuggestion { titulo: string; explicacion: string; frames: TacticalFrame[] }
@@ -65,7 +80,7 @@ export interface AnalyzeRequest {
 
 export type AnalyzeOutcome =
   | { kind: 'ok'; data: AiAnalysisResponse }
-  | { kind: 'needs_purchase'; balance: AiBalance | null; message: string }
+  | { kind: 'needs_more'; balance: AiBalance | null; message: string; requestMoreMessage: string | null }
   | { kind: 'error'; message: string };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -117,16 +132,22 @@ export async function analyzePlay(req: AnalyzeRequest): Promise<AnalyzeOutcome> 
     return { kind: 'ok', data: { ...data, result: normalizeResult(data.result) } };
   } catch (err) {
     if (err instanceof BFFError && err.status === 402) {
-      const body = err.body as { error?: string; balance?: AiBalance } | undefined;
-      return { kind: 'needs_purchase', balance: body?.balance ?? null, message: body?.error ?? 'Se acabaron los análisis con IA de este mes.' };
+      const body = err.body as { error?: string; balance?: AiBalance; request_more_message?: string } | undefined;
+      return {
+        kind: 'needs_more',
+        balance: body?.balance ?? null,
+        message: body?.error ?? 'Usaste tu IA de este mes.',
+        requestMoreMessage: body?.request_more_message ?? null,
+      };
     }
     return { kind: 'error', message: messageOf(err) };
   }
 }
 
-export async function fetchAiBalance(): Promise<AiBalance | null> {
+export async function fetchAiBalance(sport?: TacticalSport): Promise<AiBalance | null> {
   try {
-    return await bffClient.get<AiBalance>('/api/v1/school/tactical/ai-balance');
+    const q = sport ? `?sport=${encodeURIComponent(sport)}` : '';
+    return await bffClient.get<AiBalance>(`/api/v1/school/tactical/ai-balance${q}`);
   } catch {
     return null;
   }
@@ -188,16 +209,27 @@ export function humanizeResult(
   };
 }
 
-/** «Te quedan 12 análisis este mes». */
-export function balanceLabel(b: AiBalance | null): string | null {
+/** «Te queda el 60 % de tu IA este mes · unos 9 análisis de fútbol 11». */
+export function quotaLabel(b: AiBalance | null, sport: TacticalSport): string | null {
   if (!b) return null;
-  if (b.remaining <= 0) return 'No te quedan análisis este mes';
-  const word = (n: number) => (n === 1 ? 'análisis' : 'análisis');
-  if (b.paid_remaining > 0 && b.free_remaining > 0) {
-    return `Te quedan ${b.free_remaining} ${word(b.free_remaining)} gratis este mes y ${b.paid_remaining} comprados`;
-  }
-  if (b.paid_remaining > 0) return `Te quedan ${b.paid_remaining} ${word(b.paid_remaining)} comprados`;
-  return `Te quedan ${b.free_remaining} ${word(b.free_remaining)} este mes`;
+  if (b.exhausted) return 'Usaste tu IA de este mes';
+  const head = `Te queda el ${b.remaining_pct} % de tu IA este mes`;
+  const n = b.approx_remaining?.[sport];
+  const label = AI_SPORT_LABEL[sport];
+  if (n == null || !label) return head;
+  return `${head} · ${n === 1 ? 'un análisis' : `unos ${n} análisis`} de ${label}`;
+}
+
+const usdText = (n: number) => `US$ ${(Number.isFinite(n) ? n : 0).toFixed(2).replace('.', ',')}`;
+
+/**
+ * Mensaje de «Quiero más» si el BFF no lo mandó: deporte y consumo del mes,
+ * nada de atletas (la función no recibe nada de ellos).
+ */
+export function fallbackMoreMessage(b: AiBalance | null, sport: TacticalSport): string {
+  const label = AI_SPORT_LABEL[sport];
+  const consumo = b ? ` Este mes: ${b.analyses} análisis, ${usdText(b.used_usd)} de ${usdText(b.budget_usd)}.` : '';
+  return `Hola, uso la pizarra de SportMaps${label ? ` con ${label}` : ''} y se me acabó la IA del mes.${consumo} Quiero más cupo de IA.`;
 }
 
 const rivalIndex = (k: string) => Number(k.slice(RIVAL_KEY_PREFIX.length)) || 0;
@@ -232,4 +264,9 @@ export function suggestionToBoardFrames(s: AiSuggestion, rivalColor: TacticalArr
       arrows: [...ball, ...opponents, ...f.arrows.map((a) => ({ ...a }))],
     };
   });
+}
+
+/** wa.me del comercial (lib/salesContact: VITE_SALES_WHATSAPP o +57 320 268 3539) con el mensaje. */
+export function requestMoreHref(b: AiBalance | null, sport: TacticalSport, fromServer?: string | null): string {
+  return salesWhatsappLink(fromServer || b?.request_more_message || fallbackMoreMessage(b, sport));
 }

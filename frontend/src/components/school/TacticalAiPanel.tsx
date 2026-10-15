@@ -13,11 +13,10 @@
  * lib/school/tacticalAi.ts.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Loader2, Play, Save, Sparkles, Square, X, ShoppingCart } from 'lucide-react';
+import { AlertTriangle, Loader2, MessageCircle, Play, Save, Sparkles, Square, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
-  AI_PACK_SIZE, AI_PURCHASE_HREF, analyzePlay, balanceLabel, fetchAiBalance, humanizeResult, isRivalKey, rivalColorOf,
+  analyzePlay, fetchAiBalance, humanizeResult, isRivalKey, quotaLabel, requestMoreHref, rivalColorOf,
   suggestionToBoardFrames, type AiBalance, type AiResult, type AiSuggestion, type AnalyzeRequest,
 } from '@/lib/school/tacticalAi';
 import type { Viewer3DSource } from '@/lib/school/tactical3dLaunch';
@@ -135,8 +134,6 @@ export interface TacticalAiPanelProps {
   sport: TacticalSport;
   /** Puede pasar la sugerencia a la cancha (rol con permiso táctico). */
   canApply: boolean;
-  /** Puede comprar adicionales (admin de la escuela). */
-  canBuy: boolean;
   preview: AiPreview | null;
   onPreview: (p: AiPreview | null) => void;
   /** Reemplaza los cuadros de la pizarra (con deshacer). */
@@ -217,19 +214,64 @@ function SuggestionCard({
   );
 }
 
+// ─── Cupo de IA del mes ─────────────────────────────────────────────────────
+
+/** «Te queda el 60 % de tu IA este mes · unos 9 análisis de fútbol 11». */
+export function AiQuotaBar({ balance, sport }: { balance: AiBalance | null; sport: TacticalSport }) {
+  const label = quotaLabel(balance, sport);
+  if (!balance || !label) return null;
+  const pct = Math.max(0, Math.min(100, balance.remaining_pct));
+  const tone = balance.exhausted ? 'bg-amber-400' : pct <= 20 ? 'bg-amber-400' : 'bg-violet-400';
+  return (
+    <div className="px-4 py-2 border-b border-white/10 space-y-1.5" data-testid="ai-quota">
+      <p className="text-[11px] leading-snug text-white/80" data-testid="ai-balance">{label}</p>
+      <div
+        className="h-1.5 w-full overflow-hidden rounded-full bg-white/10"
+        role="progressbar"
+        aria-label="IA que te queda este mes"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct}
+      >
+        <div className={`h-full rounded-full ${tone} transition-[width]`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+/** Agotado: «Usaste tu IA de este mes» + «Quiero más» (WhatsApp del comercial). */
+export function AiQuotaExhausted({
+  balance, sport, message, requestMoreMessage,
+}: { balance: AiBalance | null; sport: TacticalSport; message?: string | null; requestMoreMessage?: string | null }) {
+  const school = balance?.limited_by === 'school';
+  return (
+    <div className="rounded-xl border border-amber-400/40 bg-amber-500/10 p-3 space-y-2" role="status" data-testid="ai-exhausted">
+      <p className="text-sm font-semibold text-amber-200">{message || (school ? 'Tu escuela usó toda la IA de este mes.' : 'Usaste tu IA de este mes')}</p>
+      <p className="text-xs text-white/75">
+        Se renueva el 1.º de cada mes. Si necesitas más ahora, escríbenos y te habilitamos más cupo.
+        Una jugada que ya analizaste se puede volver a ver sin gastar.
+      </p>
+      <Button asChild size="sm" className="h-9 gap-1.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold">
+        <a href={requestMoreHref(balance, sport, requestMoreMessage)} target="_blank" rel="noopener noreferrer" data-testid="ai-more">
+          <MessageCircle className="h-4 w-4" /> Quiero más
+        </a>
+      </Button>
+    </div>
+  );
+}
+
 /** Cerrado no monta nada (ni hooks de router): la pizarra lo monta siempre. */
 export function TacticalAiPanel(props: TacticalAiPanelProps) {
   return props.open ? <TacticalAiPanelBody {...props} /> : null;
 }
 
 function TacticalAiPanelBody({
-  open, onClose, getRequest, sport, canApply, canBuy, preview, onPreview, onApply, isMobile, get3DSource, onEvent,
+  open, onClose, getRequest, sport, canApply, preview, onPreview, onApply, isMobile, get3DSource, onEvent,
 }: TacticalAiPanelProps) {
-  const navigate = useNavigate();
   const [balance, setBalance] = useState<AiBalance | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [needsPurchase, setNeedsPurchase] = useState<string | null>(null);
+  const [needsMore, setNeedsMore] = useState<{ message: string; requestMoreMessage: string | null } | null>(null);
   const [result, setResult] = useState<AiResult | null>(null);
   const [cached, setCached] = useState(false);
   const [rivalColor, setRivalColor] = useState<TacticalArrowColor>('red');
@@ -239,9 +281,9 @@ function TacticalAiPanelBody({
   useEffect(() => {
     if (!open) return;
     let alive = true;
-    fetchAiBalance().then((b) => { if (alive) setBalance(b); });
+    fetchAiBalance(sport).then((b) => { if (alive) setBalance(b); });
     return () => { alive = false; };
-  }, [open]);
+  }, [open, sport]);
 
   // Al dejar de ver una sugerencia, el panel vuelve a abrirse en el celular.
   useEffect(() => { if (!preview) setMinimized(false); }, [preview]);
@@ -256,7 +298,7 @@ function TacticalAiPanelBody({
     const seq = ++reqSeq.current;
     setLoading(true);
     setError(null);
-    setNeedsPurchase(null);
+    setNeedsMore(null);
     onPreview(null);
     setRivalColor(rivalColorOf(req.frames));
     const out = await analyzePlay(req);
@@ -268,8 +310,8 @@ function TacticalAiPanelBody({
       setResult(humanizeResult(out.data.result, out.data.keys, (k) => req.labels[k]));
       setCached(out.data.cached);
       if (out.data.balance) setBalance(out.data.balance);
-    } else if (out.kind === 'needs_purchase') {
-      setNeedsPurchase(out.message);
+    } else if (out.kind === 'needs_more') {
+      setNeedsMore({ message: out.message, requestMoreMessage: out.requestMoreMessage });
       if (out.balance) setBalance(out.balance);
     } else {
       setError(out.message);
@@ -281,8 +323,7 @@ function TacticalAiPanelBody({
     if (p && isMobile) setMinimized(true);
   };
 
-  const exhausted = !!needsPurchase || (balance?.remaining === 0 && !result);
-  const label = balanceLabel(balance);
+  const exhausted = !!needsMore || (!!balance?.exhausted && !result);
 
   const shell = isMobile
     ? 'absolute inset-x-0 bottom-0 z-[70] max-h-[62vh] rounded-t-2xl border-t'
@@ -309,12 +350,12 @@ function TacticalAiPanelBody({
         <Sparkles className="h-4 w-4 text-violet-300" />
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-bold">Analizar jugada</h3>
-          {label && <p className="text-[11px] text-white/65" data-testid="ai-balance">{label}</p>}
         </div>
         <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-white/70 hover:text-white hover:bg-white/10" onClick={onClose} aria-label="Cerrar el análisis">
           <X className="h-4 w-4" />
         </Button>
       </header>
+      <AiQuotaBar balance={balance} sport={sport} />
 
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
         {!result && !loading && !exhausted && (
@@ -325,17 +366,7 @@ function TacticalAiPanelBody({
         )}
 
         {exhausted && (
-          <div className="rounded-xl border border-amber-400/40 bg-amber-500/10 p-3 space-y-2" role="status">
-            <p className="text-sm font-semibold text-amber-200">{needsPurchase ?? 'Se acabaron los análisis con IA de este mes.'}</p>
-            <p className="text-xs text-white/75">El cupo gratis se renueva el 1.º de cada mes. También puedes comprar un paquete.</p>
-            {canBuy ? (
-              <Button size="sm" className="h-9 gap-1.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold" onClick={() => navigate(AI_PURCHASE_HREF)}>
-                <ShoppingCart className="h-4 w-4" /> Comprar {AI_PACK_SIZE} análisis
-              </Button>
-            ) : (
-              <p className="text-xs text-white/75">Pídele al administrador de la escuela que compre {AI_PACK_SIZE} análisis más.</p>
-            )}
-          </div>
+          <AiQuotaExhausted balance={balance} sport={sport} message={needsMore?.message} requestMoreMessage={needsMore?.requestMoreMessage} />
         )}
 
         {error && (
@@ -402,7 +433,7 @@ function TacticalAiPanelBody({
       </div>
 
       {/* Sin saldo el botón sigue: una jugada ya analizada sale de la caché
-          sin descontar; si no, el BFF responde needs_purchase sin llamar a la IA. */}
+          sin gastar; si no, el BFF responde needs_more sin llamar a la IA. */}
       <footer className="border-t border-white/10 px-4 py-3">
         <Button className="w-full h-10 gap-2 bg-violet-600 hover:bg-violet-500 text-white font-bold" onClick={run} disabled={loading}>
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}

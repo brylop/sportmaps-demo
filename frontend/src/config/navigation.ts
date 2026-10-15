@@ -2,6 +2,7 @@ import {
   Home,
   Calendar,
   Landmark,
+  Sparkles,
   PieChart,
   Users,
   Trophy,
@@ -664,6 +665,7 @@ export function getNavigationByRole(
           { title: 'Integridad de inscripciones', href: '/admin/enrollment-integrity', icon: ShieldAlert },
           { title: 'Suscripciones', href: '/admin/subscriptions', icon: DollarSign },
           { title: 'Usuarios', href: '/admin/users', icon: Users },
+          { title: 'Uso de IA de pizarra', href: '/admin/ia-pizarra', icon: Sparkles },
           { title: 'Reportes', href: '/admin/reports', icon: FileText }
         ]
       },

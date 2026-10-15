@@ -3668,7 +3668,6 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                 }}
                 sport={sport}
                 canApply={roleCanEdit}
-                canBuy={['owner', 'super_admin', 'admin', 'school_admin'].includes(currentUserRole || '')}
                 preview={aiPreview}
                 onPreview={setAiPreview}
                 onApply={applyAiFrames}

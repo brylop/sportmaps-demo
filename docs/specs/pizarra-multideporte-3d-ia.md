@@ -56,7 +56,7 @@ Hoy la pizarra solo se abre si `teams.sport` es literalmente `futbol`/`fútbol` 
   5. Botón «Guardar como nueva jugada / en la biblioteca».
   - Motor: `bff/src/services/llm.service.ts` (Claude con salida JSON estructurada y los proveedores de respaldo que
     ya existen). Toda salida pasa por `validateFrames` + recorte a la cancha; si no valida, se descarta esa parte.
-  - Costo controlado: cupo mensual por escuela, caché por hash de la jugada, `llm-usage` registra cada llamada.
+  - Costo controlado: cupo mensual por usuario en costo real (USD 1) con techo por escuela (ver §6), caché por hash de la jugada, `llm-usage` registra cada llamada.
   - La IA sugiere, el coach decide: todo sale marcado «Sugerencia IA», nunca se guarda solo.
 
 ## 3. Fases (una rama y una revisión por fase)
@@ -91,16 +91,44 @@ M2, M3 y M4 son independientes entre sí después de M1 y pueden ir en paralelo 
 - M4: render en Chromium (WebGL por software), fps mínimo, caída a 2D sin WebGL; captura revisada a ojo.
 - Todas: Android gama media + iPhone reales (sigue pendiente desde F1).
 
-## 6. Cobro (decidido 2026-10-14: gratis hasta un punto, después por uso)
+## 6. Cobro (decisión del usuario 2026-10-14, reemplaza la anterior: IA para el coach, limitada por costo real)
 
 - **3D: gratis para toda escuela con pizarra.** Corre en el celular del coach: a SportMaps no le cuesta nada por uso.
-- **IA: cupo gratis mensual por escuela, después paquetes de análisis.** Se vende en *análisis* («50 análisis»),
-  no en tokens: un coach no sabe qué es un token. Cada análisis registra sus tokens reales en `llm-usage`; el precio
-  del paquete se fija con el costo medido de las primeras corridas reales + margen, no con una estimación.
-  - Cupo gratis inicial: 15 análisis/mes por escuela (se reinicia el 1.º del mes, hora Bogotá). Número configurable.
-  - Al agotarse: el botón sigue visible y ofrece «Comprar 50 análisis» (adicional de la escuela, mismo flujo de
-    pago de adicionales que ya existe). Sin cupo ni paquete no se llama al modelo.
-  - Un análisis en caché (misma jugada) no descuenta cupo.
-  - Saldo y consumo visibles para el admin de la escuela.
-- Tabla `tactical_ai_credits` (escuela, periodo, usados, comprados) mutada solo por RPC `SECURITY DEFINER` con
-  `FOR UPDATE` (regla de contadores del repo).
+- **IA: mejora PARA EL ROL COACH, limitada por TOKENS (costo real), sin precio todavía.** Se mide el uso y después se
+  fija el precio; quien quiera más, compra más. Migración `20261014155445_pizarra_ia_cupo_por_entrenador_tokens`
+  (encima de `20261014111442`, sin editarla).
+  - **Cupo por USUARIO** (coach/staff que analiza) **y por mes** (hora Bogotá, se reinicia el 1.º): **USD 1,00**
+    (`tactical_ai_user_budget_micro_usd()`). Un coach de dos escuelas tiene un cupo en cada una.
+  - **Techo por ESCUELA y mes: 10 × el del usuario** (`tactical_ai_school_ceiling_factor()`). Medido el 2026-10-14:
+    41 escuelas con staff activo, p90 = 4 personas, máximo 13: el techo casi nunca muerde; es el tope de exposición.
+  - Todo en **microdólares de costo real**. El BFF calcula el costo de cada llamada con los tokens de entrada,
+    escritura de caché, lectura de caché y salida y la tabla de precios del modelo usado (`PRECIOS_POR_MILLON` en
+    `bff/src/services/llm-usage.service.ts`, la única tabla de precios del BFF). Se guardan también los tokens crudos.
+    Modelo sin precio o sin tokens → se cobra el estimado (nunca gratis por no saber).
+  - Costo medido por análisis (Sonnet 5.5, esfuerzo low): fútbol 11 USD 0,064 · f7 0,052 · f5 0,050 · futsal 0,056 ·
+    voleibol 0,043 · baloncesto 0,046 · balonmano 0,061. Con USD 1 son ~15 análisis de fútbol 11 o ~22 de voleibol.
+  - **Flujo:** antes de llamar al modelo se **reserva** un estimado (USD 0,08, por encima del máximo medido) con
+    `FOR UPDATE` sobre la fila de la escuela y después la del usuario (siempre en ese orden); al llegar la respuesta
+    se **cobra** el costo real; si falla, se **libera**. Una reserva sin cerrar vence a los 15 min. Caché (misma
+    jugada) = USD 0. Cupo agotado (usuario o escuela) → `needs_more` sin llamar al modelo. La suma reservada nunca
+    pasa el presupuesto (20 análisis en paralelo → 12 reservas de 0,08 con USD 1).
+  - **Lo que ve el coach:** barra «Te queda el 60 % de tu IA este mes · unos 9 análisis de fútbol 11» (deporte del
+    equipo; «unos N» = lo que queda / costo medio de ese deporte). Agotado: «Usaste tu IA de este mes» + **«Quiero
+    más»**, que abre WhatsApp al comercial (`lib/salesContact.ts`, +57 320 268 3539) con un mensaje pre-llenado:
+    escuela, quien pide, deporte y consumo del mes; **nada de atletas**. Se quitó «Comprar 50 análisis»
+    (`/mi-plan?upsell=pizarra_ia` nunca se construyó). Visible para todo rol que usa la pizarra (coach incluido).
+  - **Más cupo:** el super admin da USD con `grant_tactical_ai_credits(escuela, usd, usuario?, nota?)`: a un coach
+    (sube su cupo y, por el mismo monto, el techo de la escuela, para que el techo no frene lo regalado) o a la
+    escuela (sube solo el techo). Vale para el mes en curso; queda en `tactical_ai_grants` con quién lo dio. La firma
+    vieja `grant_tactical_ai_credits(escuela, N análisis)` sigue y da N × USD 0,08 de techo de escuela.
+  - **Panel del super admin** «Uso de IA de pizarra» (`/admin/ia-pizarra`, Gestión Global): por mes, por escuela y
+    por coach (análisis, aciertos de caché, tokens entrada/salida, costo real, % del cupo, quién topó), totales y
+    costo medio por deporte, y «Dar más cupo». Es el dato para fijar el precio.
+- **Tablas** (mutadas solo por RPC `SECURITY DEFINER` con `FOR UPDATE`; EXECUTE solo `service_role` salvo el grant):
+  `tactical_ai_user_usage` (usuario × escuela × mes), `tactical_ai_school_usage` (escuela × mes),
+  `tactical_ai_runs` (cada intento: reserva / cobro / liberación / vencida / caché / sin saldo, con costo y tokens),
+  `tactical_ai_grants`. **RLS:** el usuario lee lo suyo; el admin de la escuela (`user_admin_school_ids()`, sin
+  coaches) lee su escuela por coach; el super admin todo; nadie escribe directo.
+- **Obsoleto** (se depreca SIN borrar datos): `tactical_ai_credits` (contador por escuela en número de análisis),
+  `tactical_ai_free_quota()`, `consume_/refund_tactical_ai_credit()` (sin EXECUTE para nadie: la tabla queda
+  congelada) y `tactical_ai_balance()`. `tactical_ai_analyses` (caché por hash) sigue vigente.

@@ -78,6 +78,8 @@ const FIX_LECTURA_TACTICA = '20261005173002'; // pizarra_blindaje_datos_y_lectur
 const FIX_PIZARRA = '20261013200604';         // pizarra_rls_biblioteca_y_rpc_ejercicio (H1/H2/H3)
 const MIG_PAQUETES = '20261014121142';        // pizarra_paquetes_biblioteca (M2: exercise_packs + RPCs)
 const PAQ = { requiere: 'public.exercise_packs', tras: MIG_PAQUETES };
+const MIG_CUPO = '20261014155445';           // pizarra_ia_cupo_por_entrenador_tokens (IA: cupo por costo real por usuario)
+const CUPO = { requiere: 'public.tactical_ai_user_usage', tras: MIG_CUPO };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Casos. Cada `sql` corre como `actor` y devuelve UN entero n:
@@ -317,6 +319,74 @@ const CASOS = [
     ['postgres', 'paquetes del sistema: ninguna plantilla SportMaps sin paquete', 'ACEPTAR',
         `select (count(*) = 0)::int from public.training_exercises where school_id is null and is_template and pack_id is null`, PAQ],
 
+    // ── 14. IA: cupo por costo real por usuario (20261014155445) ─────────────
+    // Esperado tras 20261014155445 (sobre 20261014111442): se omiten (⏸️) hasta
+    // que se aplique. Fixtures en el bloque DO (solo si la tabla existe):
+    // filas del mes para coach y owner de A y para staff_b en B, un run del
+    // coach y un grant de A. El padre de A NO tiene fila (para las reservas).
+    ['coach', 'IA: coach de A lee su propio consumo', 'ACEPTAR', LEER('tactical_ai_user_usage', `user_id = '{coach}'`), CUPO],
+    ['coach', 'IA: coach de A lee el consumo de OTRO usuario de A (el owner)', 'RECHAZAR', LEER('tactical_ai_user_usage', `user_id = '{owner}'`), CUPO],
+    ['owner', 'IA: admin de A lee el consumo de sus coaches', 'ACEPTAR', LEER('tactical_ai_user_usage', `school_id = '{sch_a}' and user_id = '{coach}'`), CUPO],
+    ['owner', 'IA: admin de A lee el consumo de la escuela B', 'RECHAZAR', LEER('tactical_ai_user_usage', `school_id = '{sch_b}'`), CUPO],
+    ['staff_b', 'IA: coach de B lee el consumo de A', 'RECHAZAR', LEER('tactical_ai_user_usage', `school_id = '{sch_a}'`), CUPO],
+    ['parent', 'IA: padre de A lee el consumo de A', 'RECHAZAR', LEER('tactical_ai_user_usage', `school_id = '{sch_a}'`), CUPO],
+    ['athlete', 'IA: atleta de A lee el consumo de A', 'RECHAZAR', LEER('tactical_ai_user_usage', `school_id = '{sch_a}'`), CUPO],
+    ['anon', 'IA: anon lee tactical_ai_user_usage', 'RECHAZAR', LEER('tactical_ai_user_usage', 'true'), CUPO],
+    ['coach', 'IA: coach de A lee el total/techo de la escuela (solo admin)', 'RECHAZAR', LEER('tactical_ai_school_usage', `school_id = '{sch_a}'`), CUPO],
+    ['owner', 'IA: admin de A lee el total/techo de su escuela', 'ACEPTAR', LEER('tactical_ai_school_usage', `school_id = '{sch_a}'`), CUPO],
+    ['staff_b', 'IA: coach de B lee el total de A', 'RECHAZAR', LEER('tactical_ai_school_usage', `school_id = '{sch_a}'`), CUPO],
+    ['coach', 'IA: coach de A lee sus propios intentos (runs)', 'ACEPTAR', LEER('tactical_ai_runs', `user_id = '{coach}'`), CUPO],
+    ['owner', 'IA: admin de A lee los intentos de su escuela', 'ACEPTAR', LEER('tactical_ai_runs', `school_id = '{sch_a}'`), CUPO],
+    ['staff_b', 'IA: coach de B lee los intentos de A', 'RECHAZAR', LEER('tactical_ai_runs', `school_id = '{sch_a}'`), CUPO],
+    ['anon', 'IA: anon lee tactical_ai_runs', 'RECHAZAR', LEER('tactical_ai_runs', 'true'), CUPO],
+    ['coach', 'IA: coach de A lee los cupos regalados de A (solo admin)', 'RECHAZAR', LEER('tactical_ai_grants', `school_id = '{sch_a}'`), CUPO],
+    ['owner', 'IA: admin de A lee los cupos regalados de A', 'ACEPTAR', LEER('tactical_ai_grants', `school_id = '{sch_a}'`), CUPO],
+    ['anon', 'IA: anon lee tactical_ai_grants', 'RECHAZAR', LEER('tactical_ai_grants', 'true'), CUPO],
+    // Nadie escribe directo.
+    ['coach', 'IA: coach de A se pone su consumo en cero (UPDATE directo)', 'RECHAZAR', W(`update public.tactical_ai_user_usage set used_micro_usd = 0 where user_id = '{coach}'`), CUPO],
+    ['coach', 'IA: coach de A se sube el presupuesto (UPDATE directo)', 'RECHAZAR', W(`update public.tactical_ai_user_usage set extra_micro_usd = 100000000 where user_id = '{coach}'`), CUPO],
+    ['owner', 'IA: admin de A sube el techo de su escuela (UPDATE directo)', 'RECHAZAR', W(`update public.tactical_ai_school_usage set extra_micro_usd = 100000000 where school_id = '{sch_a}'`), CUPO],
+    ['owner', 'IA: admin de A borra el consumo de un coach', 'RECHAZAR', W(`delete from public.tactical_ai_user_usage where school_id = '{sch_a}'`), CUPO],
+    ['coach', 'IA: coach de A inserta su fila de consumo', 'RECHAZAR', W(`insert into public.tactical_ai_user_usage (school_id, user_id, period, budget_micro_usd) values ('{sch_a}', '{coach}', '2099-01', 99000000)`), CUPO],
+    ['coach', 'IA: coach de A inserta un intento', 'RECHAZAR', W(`insert into public.tactical_ai_runs (school_id, user_id, period, sport, status) values ('{sch_a}', '{coach}', '2099-01', 'futbol', 'settled')`), CUPO],
+    // RPC del BFF: solo service_role.
+    ['coach', 'IA: coach de A ejecuta tactical_ai_reserve', 'RECHAZAR', `select ((public.tactical_ai_reserve('{sch_a}'::uuid, '{coach}'::uuid, 'futbol', 80000)) ->> 'ok')::boolean::int`, CUPO],
+    ['coach', 'IA: coach de A ejecuta tactical_ai_release', 'RECHAZAR', `select ((public.tactical_ai_release(gen_random_uuid())) ->> 'ok')::boolean::int`, CUPO],
+    ['coach', 'IA: coach de A ejecuta tactical_ai_settle', 'RECHAZAR', `select ((public.tactical_ai_settle(gen_random_uuid(), 0, 'x', 'x', 0, 0, 0, 0)) ->> 'ok')::boolean::int`, CUPO],
+    ['owner', 'IA: admin de A ejecuta tactical_ai_user_balance', 'RECHAZAR', `select ((public.tactical_ai_user_balance('{sch_a}'::uuid, '{coach}'::uuid)) ->> 'ok')::boolean::int`, CUPO],
+    ['owner', 'IA: admin de A (no super admin) se regala cupo en USD', 'RECHAZAR', `select ((public.grant_tactical_ai_credits('{sch_a}'::uuid, 5.0::numeric, '{coach}'::uuid, 'rls')) ->> 'ok')::boolean::int`, CUPO],
+    ['coach', 'IA: coach de A usa la firma vieja (N análisis) para regalarse cupo', 'RECHAZAR', `select ((public.grant_tactical_ai_credits('{sch_a}'::uuid, 50)) ->> 'ok')::boolean::int`, CUPO],
+    ['anon', 'IA: anon ejecuta grant_tactical_ai_credits', 'RECHAZAR', `select ((public.grant_tactical_ai_credits('{sch_a}'::uuid, 5.0::numeric)) ->> 'ok')::boolean::int`, CUPO],
+    // Comportamiento de las RPC (como postgres, que es quien las ejecuta en el BFF vía service_role).
+    ['postgres', 'IA: 20 reservas de US$ 0,08 con presupuesto de US$ 1 → exactamente 12 (FOR UPDATE)', 'ACEPTAR',
+        `select count(*)::int from generate_series(1, 20) g where (public.tactical_ai_reserve('{sch_a}'::uuid, '{parent}'::uuid, 'futbol', 80000) ->> 'ok')::boolean`,
+        { ...CUPO, chk: `select ((select count(*) from public.tactical_ai_runs where user_id = '{parent}' and status = 'reserved') = 12 and (select count(*) from public.tactical_ai_runs where user_id = '{parent}' and status = 'denied' and denied_scope = 'user') = 8 and (select reserved_micro_usd from public.tactical_ai_user_usage where user_id = '{parent}' and school_id = '{sch_a}' and period = public.tactical_ai_current_period()) = 960000)::int` }],
+    ['postgres', 'IA: reservar y liberar deja lo reservado en cero y sin cobrar', 'ACEPTAR',
+        `select (public.tactical_ai_release(((public.tactical_ai_reserve('{sch_a}'::uuid, '{parent}'::uuid, 'voleibol', 80000)) ->> 'reservation_id')::uuid) ->> 'ok')::boolean::int`,
+        { ...CUPO, chk: `select (reserved_micro_usd = 0 and used_micro_usd = 0)::int from public.tactical_ai_user_usage where user_id = '{parent}' and school_id = '{sch_a}' and period = public.tactical_ai_current_period()` }],
+    ['postgres', 'IA: reservar y cobrar el costo real (US$ 0,064) — y cobrar dos veces no duplica', 'ACEPTAR',
+        `with r as (select (public.tactical_ai_reserve('{sch_a}'::uuid, '{parent}'::uuid, 'futbol', 80000) ->> 'reservation_id')::uuid id), s1 as (select public.tactical_ai_settle(id, 64000, 'claude', 'claude-sonnet-5-5', 1400, 5900, 0, 3600) j from r), s2 as (select public.tactical_ai_settle(id, 64000, 'claude', 'claude-sonnet-5-5', 1400, 5900, 0, 3600) j from r, s1) select (s2.j ? 'already')::int from s2`,
+        { ...CUPO, chk: `select (u.used_micro_usd = 64000 and u.reserved_micro_usd = 0 and u.analyses = 1 and u.output_tokens = 5900)::int from public.tactical_ai_user_usage u where u.user_id = '{parent}' and u.school_id = '{sch_a}' and u.period = public.tactical_ai_current_period()` }],
+    ['postgres', 'IA: acierto de caché cuesta US$ 0', 'ACEPTAR',
+        `select (public.tactical_ai_record_cache_hit('{sch_a}'::uuid, '{parent}'::uuid, 'futbol') ->> 'ok')::boolean::int`,
+        { ...CUPO, chk: `select (used_micro_usd = 0 and reserved_micro_usd = 0 and cache_hits = 1)::int from public.tactical_ai_user_usage where user_id = '{parent}' and school_id = '{sch_a}' and period = public.tactical_ai_current_period()` }],
+    ['postgres', 'IA: techo de la escuela B agotado (fixture) → denied_scope school aunque el coach tenga saldo', 'ACEPTAR',
+        `select ((public.tactical_ai_reserve('{sch_b}'::uuid, '{staff_b}'::uuid, 'futbol', 80000) ->> 'denied_scope') = 'school')::int`,
+        { ...CUPO, chk: `select (count(*) = 1)::int from public.tactical_ai_runs where user_id = '{staff_b}' and school_id = '{sch_b}' and status = 'denied' and denied_scope = 'school'` }],
+    // Invariantes estáticos.
+    ...[
+        'public.tactical_ai_reserve(uuid,uuid,text,bigint)',
+        'public.tactical_ai_settle(uuid,bigint,text,text,integer,integer,integer,integer)',
+        'public.tactical_ai_release(uuid)',
+        'public.tactical_ai_record_cache_hit(uuid,uuid,text)',
+        'public.tactical_ai_user_balance(uuid,uuid)',
+    ].map((firma) => ['postgres', `IA: ${firma.split('(')[0]} SECURITY DEFINER + search_path, EXECUTE solo service_role`, 'ACEPTAR',
+        `select (p.prosecdef and exists (select 1 from unnest(p.proconfig) c where c like 'search_path=%pg_temp%') and not has_function_privilege('anon', '${firma}', 'EXECUTE') and not has_function_privilege('authenticated', '${firma}', 'EXECUTE') and has_function_privilege('service_role', '${firma}', 'EXECUTE'))::int from pg_proc p where p.oid = '${firma}'::regprocedure`, CUPO]),
+    ['postgres', 'IA: tablas del cupo con RLS, solo policies SELECT, authenticated sin escritura y anon sin nada', 'ACEPTAR',
+        `select ((select count(*) from pg_class where oid in ('public.tactical_ai_user_usage'::regclass, 'public.tactical_ai_school_usage'::regclass, 'public.tactical_ai_runs'::regclass, 'public.tactical_ai_grants'::regclass) and relrowsecurity) = 4 and (select count(*) from pg_policies where schemaname = 'public' and tablename in ('tactical_ai_user_usage','tactical_ai_school_usage','tactical_ai_runs','tactical_ai_grants') and cmd <> 'SELECT') = 0 and not exists (select 1 from unnest(array['public.tactical_ai_user_usage','public.tactical_ai_school_usage','public.tactical_ai_runs','public.tactical_ai_grants']) t, unnest(array['INSERT','UPDATE','DELETE']) p where has_table_privilege('authenticated', t, p) or has_table_privilege('anon', t, p)) and not exists (select 1 from unnest(array['public.tactical_ai_user_usage','public.tactical_ai_school_usage','public.tactical_ai_runs','public.tactical_ai_grants']) t where has_table_privilege('anon', t, 'SELECT')))::int`, CUPO],
+    ['postgres', 'IA: lo obsoleto de 20261014111442 queda congelado (service_role sin consume/refund)', 'ACEPTAR',
+        `select (not has_function_privilege('service_role', 'public.consume_tactical_ai_credit(uuid)', 'EXECUTE') and not has_function_privilege('service_role', 'public.refund_tactical_ai_credit(uuid)', 'EXECUTE'))::int`, CUPO],
+
     // ── 13. Invariantes estáticos (como postgres; n = 1 si se cumple) ────────
     ...[
         ['log_tactical_board_event', 'public.log_tactical_board_event(uuid,text,uuid,text,text)'],
@@ -542,6 +612,32 @@ BEGIN
           USING v_schr, (ids->>'pk_sys')::uuid;
       END IF;
     END IF;
+  END IF;
+
+  -- IA, cupo por costo real (20261014155445): solo si está aplicada.
+  IF to_regclass('public.tactical_ai_user_usage') IS NOT NULL THEN
+    EXECUTE $f$
+      INSERT INTO public.tactical_ai_school_usage (school_id, period, ceiling_micro_usd, used_micro_usd)
+      VALUES ($1, public.tactical_ai_current_period(), 10000000, 300000),
+             ($2, public.tactical_ai_current_period(), 10000000, 10000000)
+      ON CONFLICT (school_id, period) DO UPDATE SET used_micro_usd = EXCLUDED.used_micro_usd, reserved_micro_usd = 0, extra_micro_usd = 0$f$
+      USING v_sch, v_schb;
+    EXECUTE $f$
+      INSERT INTO public.tactical_ai_user_usage (school_id, user_id, period, budget_micro_usd, used_micro_usd, analyses)
+      VALUES ($1, $2, public.tactical_ai_current_period(), 1000000, 200000, 3),
+             ($1, $3, public.tactical_ai_current_period(), 1000000, 100000, 1),
+             ($4, $5, public.tactical_ai_current_period(), 1000000, 0, 0)
+      ON CONFLICT (school_id, user_id, period) DO NOTHING$f$
+      USING v_sch, v_coach, v_owner, v_schb, v_staffb;
+    EXECUTE $f$DELETE FROM public.tactical_ai_user_usage WHERE school_id = $1 AND user_id = $2$f$ USING v_sch, v_parent;
+    EXECUTE $f$
+      INSERT INTO public.tactical_ai_runs (school_id, user_id, period, sport, status, cost_micro_usd, finished_at)
+      VALUES ($1, $2, public.tactical_ai_current_period(), 'futbol', 'settled', 64000, now())$f$
+      USING v_sch, v_coach;
+    EXECUTE $f$
+      INSERT INTO public.tactical_ai_grants (school_id, user_id, period, amount_micro_usd, note)
+      VALUES ($1, $2, public.tactical_ai_current_period(), 500000, 'RLS pizarra')$f$
+      USING v_sch, v_coach;
   END IF;
 
   -- ── Casos: cada uno en su subbloque, que SIEMPRE termina en excepción ─────
