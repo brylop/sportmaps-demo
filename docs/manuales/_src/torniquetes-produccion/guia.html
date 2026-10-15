@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Torniquetes a producción — Guía de campo</title>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root{--g1:#1c5c34;--g2:#248223;--or:#ff8833;--ink:#1d2a20;--mut:#5d6b60;--line:#e3e9e4;
+        --peach-bg:#fff3e8;--peach-line:#ffb877;--mint-bg:#eaf7ee;--mint-line:#79c98f}
+  @page{size:Letter;margin:.55in 0 .6in}
+  @page :first{margin:0}
+  *{box-sizing:border-box}
+  body{margin:0;font:13.5px/1.55 Inter,system-ui,sans-serif;color:var(--ink);background:#fff}
+  h1,h2,h3,.badge,.num,.logo{font-family:'Baloo 2',sans-serif}
+  code,.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;background:#f1f4f2;border:1px solid var(--line);border-radius:5px;padding:1px 5px;white-space:nowrap}
+  pre{font-family:'JetBrains Mono',monospace;font-size:11.5px;background:#0f2614;color:#d9f2df;border-radius:10px;padding:12px 14px;margin:8px 0 4px;white-space:pre-wrap}
+  b{font-weight:700}
+  /* Portada */
+  .cover{height:11in;padding:64px 64px;color:#fff;display:flex;flex-direction:column;page-break-after:always;
+    background:radial-gradient(120% 90% at 15% 95%,#2a7a3f,transparent 55%),linear-gradient(155deg,#123416,#0f2614 45%,#0c1f10)}
+  .logo{display:flex;align-items:center;gap:10px;font-size:26px;font-weight:800}
+  .pin{width:30px;height:30px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--g2);position:relative}
+  .pin:after{content:"";position:absolute;inset:9px;border-radius:50%;background:#0f2614}
+  .eyebrow{margin-top:auto;display:inline-flex;align-items:center;gap:8px;font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:#cfe9d5}
+  .eyebrow i{width:8px;height:8px;border-radius:50%;background:var(--or)}
+  .cover h1{font-size:50px;line-height:1.02;margin:14px 0 14px;font-weight:800}
+  .cover p.lead{font-size:17px;color:#d6eadb;max-width:560px;margin:0 0 26px}
+  .pills{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  .pill{border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:6px 14px;font-size:12.5px;color:#eaf6ec}
+  .cover .meta{font-size:12px;color:#a9c9b1;margin-top:28px}
+  /* Cuerpo */
+  .body{padding:0 60px}
+  .chap{display:flex;align-items:center;gap:14px;margin:26px 0 4px;break-after:avoid}
+  .chap:first-child{margin-top:0}
+  .badge{width:38px;height:38px;border-radius:10px;background:var(--g1);color:#fff;display:grid;place-items:center;font-weight:800;font-size:20px;flex:none}
+  .chap h2{font-size:25px;margin:0;font-weight:800;line-height:1.1}
+  .crumb{font-size:12px;color:var(--mut);margin:0 0 6px 52px}
+  .rule{break-after:avoid;height:3px;background:var(--g2);border-radius:2px;margin:6px 0 14px}
+  .step{display:flex;gap:12px;margin:12px 0;break-inside:avoid}
+  .num{width:26px;height:26px;border-radius:50%;background:var(--or);color:#fff;display:grid;place-items:center;font-weight:800;font-size:14px;flex:none;margin-top:1px}
+  .step h3{font-size:16px;margin:0 0 2px;font-weight:700;line-height:1.3}
+  .step p{margin:2px 0}
+  .callout{border:1px solid;border-left-width:5px;border-radius:10px;padding:10px 14px;margin:14px 0;break-inside:avoid}
+  .callout .tag{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px}
+  .warn{background:var(--peach-bg);border-color:var(--peach-line)} .warn .tag{color:#c75c00}
+  .tip{background:var(--mint-bg);border-color:var(--mint-line)} .tip .tag{color:#1c7a3c}
+  table{width:100%;border-collapse:collapse;margin:8px 0 12px;font-size:12.5px;break-inside:avoid}
+  th{background:#f1f6f2;text-align:left;font-weight:700;color:var(--g1)}
+  th,td{border:1px solid var(--line);padding:7px 9px;vertical-align:top}
+  .cfg td:first-child{width:44%;font-weight:600}
+  ul.check{list-style:none;padding:0;margin:6px 0}
+  .final{break-inside:avoid}
+  ul.check li{display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-bottom:1px dashed var(--line);break-inside:avoid}
+  ul.check li .box{width:16px;height:16px;border:2px solid var(--g1);border-radius:4px;flex:none;margin-top:2px}
+  ul.check li .box.ok{background:var(--g2);border-color:var(--g2);position:relative}
+  ul.check li .box.ok:after{content:"✓";color:#fff;font-size:12px;position:absolute;top:-3px;left:2px}
+  .blank{display:inline-block;min-width:170px;border-bottom:1.5px solid var(--ink);height:16px;vertical-align:bottom}
+  .pb{page-break-before:always}
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <div class="logo"><span class="pin"></span>SportMaps</div>
+  <div class="eyebrow"><i></i>Guía de campo · Técnico</div>
+  <h1>Pasar los torniquetes de GYM RM y Dreamers a producción</h1>
+  <p class="lead">Cambiar el servidor al que hablan los lectores y los puentes, de <b>desarrollo</b> a <b>producción</b>, sin perder registros ni volver a enrolar huellas.</p>
+  <div class="pills">
+    <span class="pill">Para: Julián</span>
+    <span class="pill">2 lectores F22ID + 2 puentes</span>
+    <span class="pill">~1 hora en sitio</span>
+  </div>
+  <div class="meta">Versión del 14 de octubre de 2026 · Ante cualquier duda, escribir a SportMaps por WhatsApp antes de seguir.</div>
+</section>
+
+<main class="body">
+
+  <div class="chap"><div class="badge">0</div><h2>Antes de ir</h2></div>
+  <div class="rule"></div>
+  <p>Lo único que cambia es la dirección del servidor: <code>bffdev.sportmaps.co</code> pasa a <code>bffprod.sportmaps.co</code>. La base de datos es la misma, así que <b>no se pierde ningún registro y no hay que volver a enrolar huellas</b>.</p>
+
+  <div class="callout warn"><div class="tag">No arrancar sin confirmación</div>
+    No reprogramar nada hasta que SportMaps confirme por WhatsApp que los puntos de abajo están listos. Si se hace antes, los lectores pueden quedar rechazados y dejan de registrar asistencia.</div>
+
+  <ul class="check">
+    <li><span class="box ok"></span><span><b>IP de GYM RM autorizada en producción.</b> Listo: <code>181.63.24.149</code> ya está agregada.</span></li>
+    <li><span class="box"></span><span><b>IP de Dreamers.</b> En el PC de Dreamers abrir PowerShell, correr <code>curl.exe https://api.ipify.org</code> y enviarle el número a SportMaps. <b>Esperar</b> a que confirme que lo agregó antes de tocar el puente de Dreamers.</span></li>
+    <li><span class="box"></span><span><b>Fecha acordada:</b> los puentes se cambian el mismo día en que el personal del gimnasio empieza a entrar por <code>app.sportmaps.co</code>. Fecha: <span class="blank"></span></span></li>
+    <li><span class="box"></span><span>Alguien de SportMaps disponible por WhatsApp durante la visita para revisar en vivo.</span></li>
+    <li><span class="box"></span><span>Horario de baja ocupación acordado con cada gimnasio.</span></li>
+  </ul>
+
+  <div class="chap"><div class="badge">1</div><h2>Qué equipos se tocan</h2></div>
+  <div class="rule"></div>
+  <table>
+    <tr><th>Serial</th><th>Gimnasio</th><th>Puerta</th><th>Modelo</th><th>Qué se toca</th></tr>
+    <tr><td><code>JJA1254900899</code></td><td>GYM RM</td><td>Entrada</td><td>ZKTeco F22ID</td><td><b>Menú del lector</b></td></tr>
+    <tr><td><code>JJA1254900898</code></td><td>GYM RM</td><td>Salida</td><td>ZKTeco F22ID</td><td><b>Menú del lector</b></td></tr>
+    <tr><td><code>CEZU222860004</code></td><td>Dreamers</td><td>Entrada</td><td>ZKTeco MB360</td><td>Nada en el lector (va por el puente)</td></tr>
+    <tr><td><code>CEZU214960067</code></td><td>Dreamers</td><td>Salida</td><td>ZKTeco MB360</td><td>Nada en el lector (va por el puente)</td></tr>
+  </table>
+  <table>
+    <tr><th>Puente (PC del gimnasio)</th><th>Carpeta</th><th>Archivo</th><th>Tarea programada</th></tr>
+    <tr><td>GYM RM: apertura remota</td><td><code>C:\SportMaps\gymrm-door-bridge</code></td><td><code>door_bridge.py</code></td><td><code>SportMaps-GymRM-DoorBridge</code></td></tr>
+    <tr><td>Dreamers: asistencia, apertura y bloqueo</td><td><code>C:\SportMaps\dreamers_bridge</code></td><td><code>dreamers_bridge.py</code></td><td><code>SportMaps-DreamersBridge</code></td></tr>
+  </table>
+  <div class="callout tip"><div class="tag">El serial manda</div>
+    Identificar cada lector por su <b>serial</b>, no por el nombre que le pone el software ZKTeco del gimnasio: en GYM RM esos nombres están cruzados.</div>
+
+  <div class="chap"><div class="badge">2</div><h2>Lectores de GYM RM (los dos F22ID)</h2></div>
+  <div class="crumb">Menú → Comm. → Cloud Server Setting (en algunos firmwares aparece como ADMS)</div>
+  <div class="rule"></div>
+
+  <div class="step"><div class="num">1</div><div><h3>Tomar foto de la configuración actual</h3>
+    <p>Entrar a <b>Cloud Server Setting</b> y, <b>antes de cambiar nada</b>, tomar una foto de la pantalla. Esa foto es la forma de devolver todo si algo sale mal.</p></div></div>
+
+  <div class="step"><div class="num">2</div><div><h3>Dejar estos valores</h3>
+    <table class="cfg">
+      <tr><td>Server Address / Dirección</td><td><code>bffprod.sportmaps.co</code> (sin <code>https://</code> y sin <code>/iclock</code>)</td></tr>
+      <tr><td>Server Port / Puerto</td><td><code>443</code></td></tr>
+      <tr><td>Enable Domain Name</td><td>ON</td></tr>
+      <tr><td>HTTPS</td><td>ON</td></tr>
+      <tr><td>Proxy</td><td>OFF</td></tr>
+    </table>
+    <p>Debe quedar <b>igual a lo que muestra la foto, cambiando solo <code>bffdev</code> por <code>bffprod</code></b>.</p></div></div>
+
+  <div class="callout warn"><div class="tag">Si la foto muestra otra cosa</div>
+    Si el puerto no es 443 o el HTTPS está apagado, avisar a SportMaps antes de seguir. El servidor solo responde por HTTPS en el puerto 443; por el puerto 80 devuelve una redirección que el lector no sigue.</div>
+
+  <div class="step"><div class="num">3</div><div><h3>Guardar y confirmar conexión</h3>
+    <p>Guardar y volver al menú principal. Si en 1 minuto no aparece el ícono de nube conectada, reiniciar el lector.</p></div></div>
+
+  <div class="step"><div class="num">4</div><div><h3>Repetir en el segundo lector</h3>
+    <p>Mismos pasos en el otro F22ID (entrada y salida).</p></div></div>
+
+  <div class="chap"><div class="badge">3</div><h2>Puentes (PC de GYM RM y PC de Dreamers)</h2></div>
+  <div class="crumb">La dirección está escrita dentro del script, en una sola línea</div>
+  <div class="rule"></div>
+
+  <div class="step"><div class="num">1</div><div><h3>Abrir PowerShell como Administrador</h3>
+    <p>Abrirlo en la carpeta del puente (ver tabla de la sección 1).</p></div></div>
+
+  <div class="step"><div class="num">2</div><div><h3>Hacer una copia del script</h3>
+    <pre>Copy-Item door_bridge.py door_bridge.py.bak          # GYM RM
+Copy-Item dreamers_bridge.py dreamers_bridge.py.bak  # Dreamers</pre></div></div>
+
+  <div class="step"><div class="num">3</div><div><h3>Cambiar una sola línea</h3>
+    <p>Abrir el <code>.py</code> con el Bloc de notas, buscar <code>BACKEND_BASE_URL</code> y dejarla así:</p>
+    <pre>BACKEND_BASE_URL = "https://bffprod.sportmaps.co"</pre>
+    <p>No tocar nada más. La conexión <code>wss://…/bridge/ws</code> se arma sola a partir de esa línea, y la llave <code>SPORTMAPS_BRIDGE_API_KEY</code> es la misma en desarrollo y producción.</p></div></div>
+
+  <div class="step"><div class="num">4</div><div><h3>Reiniciar la tarea y mirar el log</h3>
+    <pre>Stop-ScheduledTask  -TaskName "SportMaps-GymRM-DoorBridge"
+Start-ScheduledTask -TaskName "SportMaps-GymRM-DoorBridge"
+Get-Content bridge_supervisor.log -Tail 30 -Wait</pre>
+    <p>En Dreamers la tarea es <code>SportMaps-DreamersBridge</code>.</p></div></div>
+
+  <div class="callout tip"><div class="tag">Qué debe salir en el log</div>
+    <code>Backend: https://bffprod.sportmaps.co</code> y <code>Conectado y autenticado por WebSocket</code>. En Dreamers, además, <code>escuchando asistencia en vivo...</code> por cada lector.</div>
+
+  <div class="chap"><div class="badge">4</div><h2>Cómo saber que quedó bien</h2></div>
+  <div class="rule"></div>
+  <div class="step"><div class="num">1</div><div><h3>Huella de prueba en los 4 lectores</h3>
+    <p>Marcar una huella real en la entrada y otra en la salida de cada gimnasio, y avisar a SportMaps la hora exacta. SportMaps confirma en vivo que llegó a producción.</p></div></div>
+  <div class="step"><div class="num">2</div><div><h3>Apertura manual en las 4 puertas</h3>
+    <p>Desde la app, abrir la puerta de entrada y la de salida en cada gimnasio. Confirmar que se abre <b>la puerta correcta</b>.</p></div></div>
+  <div class="callout tip"><div class="tag">Lo revisa SportMaps</div>
+    Que los cuatro seriales se reporten cada pocos segundos, que lleguen las marcaciones, que los dos puentes estén conectados y que desarrollo ya no reciba nada de esos equipos. Si producción dice <b>"IP no autorizada"</b>, falta agregar la IP de ese gimnasio (sección 0).</div>
+
+  <div class="chap"><div class="badge">5</div><h2>Si algo falla: volver atrás</h2></div>
+  <div class="crumb">Si no se resuelve en 15 minutos</div>
+  <div class="rule"></div>
+  <div class="step"><div class="num">1</div><div><h3>Lectores GYM RM</h3><p>Volver a poner <code>bffdev.sportmaps.co</code> con los valores de la foto.</p></div></div>
+  <div class="step"><div class="num">2</div><div><h3>Puentes</h3>
+    <pre>Copy-Item door_bridge.py.bak door_bridge.py -Force   # o dreamers_bridge.py.bak</pre>
+    <p>y reiniciar la tarea como en la sección 3.</p></div></div>
+  <div class="step"><div class="num">3</div><div><h3>Avisar a SportMaps</h3>
+    <p>Mientras tanto nadie se queda afuera: el lector abre con su propia base de huellas. Lo único que se pierde es el registro de asistencia y los comandos remotos.</p></div></div>
+
+  <div class="final"><div class="chap"><div class="badge">✓</div><h2>Checklist en sitio</h2></div>
+  <div class="rule"></div>
+  <ul class="check">
+    <li><span class="box"></span><span>Sección 0 confirmada por SportMaps (IP de Dreamers agregada y fecha acordada)</span></li>
+    <li><span class="box"></span><span>Foto de la configuración actual de cada F22ID</span></li>
+    <li><span class="box"></span><span>Copia <code>.bak</code> de cada script de puente</span></li>
+    <li><span class="box"></span><span>Los dos F22ID en <code>bffprod.sportmaps.co</code>, puerto 443, HTTPS ON, proxy OFF</span></li>
+    <li><span class="box"></span><span>Los dos puentes con <code>bffprod</code> en el log y autenticados</span></li>
+    <li><span class="box"></span><span>Huella de prueba en los 4 lectores, confirmada por SportMaps</span></li>
+    <li><span class="box"></span><span>Apertura manual probada en las 4 puertas</span></li>
+  </ul></div>
+</main>
+</body>
+</html>

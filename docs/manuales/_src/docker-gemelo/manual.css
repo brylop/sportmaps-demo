@@ -1,0 +1,52 @@
+
+  :root{--g1:#1c5c34;--g2:#248223;--or:#ff8833;--ink:#1d2a20;--mut:#5d6b60;--line:#e3e9e4;
+        --peach-bg:#fff3e8;--peach-line:#ffb877;--mint-bg:#eaf7ee;--mint-line:#79c98f}
+  @page{size:Letter;margin:.55in 0 .6in}
+  @page :first{margin:0}
+  *{box-sizing:border-box}
+  body{margin:0;font:13.5px/1.55 Inter,system-ui,sans-serif;color:var(--ink);background:#fff}
+  h1,h2,h3,.badge,.num,.logo{font-family:'Baloo 2',sans-serif}
+  code,.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;background:#f1f4f2;border:1px solid var(--line);border-radius:5px;padding:1px 5px;white-space:nowrap}
+  pre{font-family:'JetBrains Mono',monospace;font-size:11.5px;background:#0f2614;color:#d9f2df;border-radius:10px;padding:12px 14px;margin:8px 0 4px;white-space:pre-wrap}
+  b{font-weight:700}
+  /* Portada */
+  .cover{height:11in;padding:64px 64px;color:#fff;display:flex;flex-direction:column;page-break-after:always;
+    background:radial-gradient(120% 90% at 15% 95%,#2a7a3f,transparent 55%),linear-gradient(155deg,#123416,#0f2614 45%,#0c1f10)}
+  .logo{display:flex;align-items:center;gap:10px;font-size:26px;font-weight:800}
+  .pin{width:30px;height:30px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--g2);position:relative}
+  .pin:after{content:"";position:absolute;inset:9px;border-radius:50%;background:#0f2614}
+  .eyebrow{margin-top:auto;display:inline-flex;align-items:center;gap:8px;font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:#cfe9d5}
+  .eyebrow i{width:8px;height:8px;border-radius:50%;background:var(--or)}
+  .cover h1{font-size:50px;line-height:1.02;margin:14px 0 14px;font-weight:800}
+  .cover p.lead{font-size:17px;color:#d6eadb;max-width:560px;margin:0 0 26px}
+  .pills{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  .pill{border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:6px 14px;font-size:12.5px;color:#eaf6ec}
+  .cover .meta{font-size:12px;color:#a9c9b1;margin-top:28px}
+  /* Cuerpo */
+  .body{padding:0 60px}
+  .chap{display:flex;align-items:center;gap:14px;margin:26px 0 4px;break-after:avoid}
+  .chap:first-child{margin-top:0}
+  .badge{width:38px;height:38px;border-radius:10px;background:var(--g1);color:#fff;display:grid;place-items:center;font-weight:800;font-size:20px;flex:none}
+  .chap h2{font-size:25px;margin:0;font-weight:800;line-height:1.1}
+  .crumb{font-size:12px;color:var(--mut);margin:0 0 6px 52px}
+  .rule{break-after:avoid;height:3px;background:var(--g2);border-radius:2px;margin:6px 0 14px}
+  .step{display:flex;gap:12px;margin:12px 0;break-inside:avoid}
+  .num{width:26px;height:26px;border-radius:50%;background:var(--or);color:#fff;display:grid;place-items:center;font-weight:800;font-size:14px;flex:none;margin-top:1px}
+  .step h3{font-size:16px;margin:0 0 2px;font-weight:700;line-height:1.3}
+  .step p{margin:2px 0}
+  .callout{border:1px solid;border-left-width:5px;border-radius:10px;padding:10px 14px;margin:14px 0;break-inside:avoid}
+  .callout .tag{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px}
+  .warn{background:var(--peach-bg);border-color:var(--peach-line)} .warn .tag{color:#c75c00}
+  .tip{background:var(--mint-bg);border-color:var(--mint-line)} .tip .tag{color:#1c7a3c}
+  table{width:100%;border-collapse:collapse;margin:8px 0 12px;font-size:12.5px;break-inside:avoid}
+  th{background:#f1f6f2;text-align:left;font-weight:700;color:var(--g1)}
+  th,td{border:1px solid var(--line);padding:7px 9px;vertical-align:top}
+  .cfg td:first-child{width:44%;font-weight:600}
+  ul.check{list-style:none;padding:0;margin:6px 0}
+  .final{break-inside:avoid}
+  ul.check li{display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-bottom:1px dashed var(--line);break-inside:avoid}
+  ul.check li .box{width:16px;height:16px;border:2px solid var(--g1);border-radius:4px;flex:none;margin-top:2px}
+  ul.check li .box.ok{background:var(--g2);border-color:var(--g2);position:relative}
+  ul.check li .box.ok:after{content:"✓";color:#fff;font-size:12px;position:absolute;top:-3px;left:2px}
+  .blank{display:inline-block;min-width:170px;border-bottom:1.5px solid var(--ink);height:16px;vertical-align:bottom}
+  .pb{page-break-before:always}

@@ -1,0 +1,13 @@
+import { chromium, newSession, BASE_URL, ACC, sleep } from './lib.mjs';
+const browser = await chromium.launch();
+const { page } = await newSession(browser, ACC.owner, { dpr: 1, viewport: { width: 1600, height: 1400 } });
+await page.goto(BASE_URL + '/offerings'); await page.getByText('Mis Planes').first().waitFor(); await sleep(4000);
+const row = page.locator('div', { hasText: 'PGR4x2' }).filter({ has: page.getByText('Invitar') }).last();
+await row.getByText('Invitar').first().click(); await sleep(3000);
+await page.screenshot({ path: 'discover/i1.png' });
+console.log(await page.locator('[role=dialog]').last().innerText().catch(() => 'no dialog'));
+await page.keyboard.press('Escape'); await sleep(800);
+await row.getByText('Inscribir').first().click(); await sleep(3000);
+await page.screenshot({ path: 'discover/i2.png' });
+console.log('----\n' + await page.locator('[role=dialog]').last().innerText().catch(() => 'no dialog'));
+await browser.close();
