@@ -44,6 +44,7 @@ export function GlobalDiscount({ mode, value, onChange, targets, onToggleTarget,
                     <DiscountControl
                         idPrefix="global"
                         value={value}
+                        effect={targets.reduce((a, t) => a + (t.checked ? (t.share ?? 0) : 0), 0)}
                         onChange={(next) => onChange(next ? { ...next, enabled: true } : { ...value, enabled: false })}
                     />
                     {targets.length > 0 && (

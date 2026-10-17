@@ -316,10 +316,52 @@ export async function listarLotes(schoolId: string, cursor: string | undefined, 
     const filas = (data ?? []) as Record<string, any>[];
     const pagina = filas.slice(0, limit);
     const nombres = await nombresDePerfiles(pagina.map((f) => f.created_by));
+    const destinos = await etiquetasDeDestino(schoolId, pagina);
     return {
-        items: pagina.map((f) => ({ ...f, created_by_name: nombres.get(f.created_by) ?? null })),
+        items: pagina.map((f) => ({
+            ...f,
+            created_by_name: nombres.get(f.created_by) ?? null,
+            target_label: destinos.get(f.id) ?? null,
+        })),
         next_cursor: filas.length > limit ? pagina[pagina.length - 1]?.created_at ?? null : null,
     };
+}
+
+/**
+ * Nombre legible del destino de cada lote («Equipo Sub-12», «Sofía Ensayo +2»).
+ * El lote solo guarda `target: { kind, ids }`; sin esto «Operaciones» mostraba
+ * «Un atleta» sin nombre. Una consulta por tabla para toda la página (sin N+1) y
+ * siempre acotada a la escuela.
+ */
+async function etiquetasDeDestino(schoolId: string, lotes: Record<string, any>[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const idsDe = (l: Record<string, any>): string[] => (Array.isArray(l.target?.ids) ? l.target.ids.filter((x: unknown): x is string => typeof x === 'string') : []);
+    const equipos = [...new Set(lotes.filter((l) => l.target?.kind === 'team').flatMap(idsDe))];
+    const atletas = [...new Set(lotes.filter((l) => l.target?.kind === 'athlete').flatMap(idsDe))];
+    const nombreEquipo = new Map<string, string>();
+    const nombreAtleta = new Map<string, string>();
+    if (equipos.length) {
+        const { data } = await supabase.from('teams').select('id, name').eq('school_id', schoolId).in('id', equipos);
+        for (const t of (data ?? []) as { id: string; name: string | null }[]) if (t.name) nombreEquipo.set(t.id, t.name);
+    }
+    if (atletas.length) {
+        const [hijos, perfiles] = await Promise.all([
+            supabase.from('children').select('id, full_name').in('id', atletas),
+            supabase.from('profiles').select('id, full_name').in('id', atletas),
+        ]);
+        for (const c of (hijos.data ?? []) as { id: string; full_name: string | null }[]) if (c.full_name) nombreAtleta.set(c.id, c.full_name);
+        for (const p of (perfiles.data ?? []) as { id: string; full_name: string | null }[]) if (p.full_name && !nombreAtleta.has(p.id)) nombreAtleta.set(p.id, p.full_name);
+    }
+    for (const l of lotes) {
+        const ids = idsDe(l);
+        if (!ids.length) continue;
+        const nombres = (l.target.kind === 'team' ? nombreEquipo : l.target.kind === 'athlete' ? nombreAtleta : null);
+        const primero = nombres?.get(ids[0]);
+        if (!primero) continue;
+        if (l.target.kind === 'team') out.set(l.id, ids.length > 1 ? `Equipo ${primero} +${ids.length - 1}` : `Equipo ${primero}`);
+        else out.set(l.id, ids.length > 1 ? `${primero} +${ids.length - 1}` : primero);
+    }
+    return out;
 }
 
 async function nombresDePerfiles(ids: (string | null | undefined)[]): Promise<Map<string, string>> {

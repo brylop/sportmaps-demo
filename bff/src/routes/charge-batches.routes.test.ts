@@ -426,6 +426,20 @@ describe('anular, historial, destinos y buscador', () => {
         expect(r.body.batch.created_by_name).toBe('Dueña');
     });
 
+    it('historial: cada lote trae el nombre de su destino (atleta o equipo), no «Un atleta»', async () => {
+        estado.ref.tablas.charge_batches = [
+            { id: 'b-atleta', school_id: ESCUELA, mode: 'single', target: { kind: 'athlete', ids: [NINO] }, created_by: DUENO, created_at: '2026-10-10T00:00:02Z' },
+            { id: 'b-equipo', school_id: ESCUELA, mode: 'multi', target: { kind: 'team', ids: [EQUIPO] }, created_by: DUENO, created_at: '2026-10-10T00:00:01Z' },
+            { id: 'b-lista', school_id: ESCUELA, mode: 'multi', target: { kind: 'list', ids: [] }, created_by: DUENO, created_at: '2026-10-10T00:00:00Z' },
+        ];
+        const r = await llamar('GET', '/', ADMIN);
+        expect(r.status).toBe(200);
+        const por = Object.fromEntries(r.body.items.map((i: any) => [i.id, i.target_label]));
+        expect(por['b-atleta']).toBe('Niño Uno');
+        expect(por['b-equipo']).toBe('Equipo Sub-12');
+        expect(por['b-lista']).toBeNull(); // sin ids: el front cae a «Varios atletas»
+    });
+
     it('historial sin la tabla (F1 sin aplicar) → 503 claro', async () => {
         estado.ref.erroresTabla.charge_batches = { code: '42P01', message: 'relation "public.charge_batches" does not exist' };
         const r = await llamar('GET', '/', ADMIN);
