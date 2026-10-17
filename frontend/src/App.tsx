@@ -38,6 +38,7 @@ const Index = lazy(() => import("./pages/Index"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const RegisterPage = lazy(() => import("./pages/RegisterPage"));
 const OnboardingRolePage = lazy(() => import("./pages/OnboardingRolePage"));
+const ElegirRolPage = lazy(() => import("./pages/ElegirRolPage"));
 const JoinTeamPage = lazy(() => import("./pages/JoinTeamPage"));
 const JoinPlanPage = lazy(() => import("./pages/JoinPlanPage"));
 const TermsPage = lazy(() => import("./pages/TermsPage"));
@@ -86,6 +87,7 @@ const CalendarPage = lazy(() => import("./pages/CalendarPage"));
 const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const TeamsPage = lazy(() => import("./pages/TeamsPage"));
+const BiomechVolleyballLabPage = lazy(() => import("./pages/BiomechVolleyballLabPage"));
 const SchoolSportsPage = lazy(() => import("./pages/SchoolSportsPage"));
 const MembershipsPage = lazy(() => import("./pages/MembershipsPage"));
 const OfferingsPage = lazy(() => import("./pages/OfferingsPage"));
@@ -340,6 +342,10 @@ const App = () => (
                     <Route path="/register" element={<RegisterPage />} />
                     <Route path="/onboarding/role" element={
                       <ProtectedRoute skipOnboardingCheck><OnboardingRolePage /></ProtectedRoute>
+                    } />
+                    {/* Personas multirol: elegir con qué rol entrar (no usa AuthLayout). */}
+                    <Route path="/elegir-rol" element={
+                      <ProtectedRoute><ElegirRolPage /></ProtectedRoute>
                     } />
                     <Route path="/join-team/:teamId" element={<JoinTeamPage />} />
                     <Route path="/join-plan/:planId" element={<JoinPlanPage />} />
@@ -626,6 +632,11 @@ const App = () => (
                       <Route path="school/dotacion" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
                           <SchoolEquipmentPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="coach/voleibol-pose" element={
+                        <ProtectedRoute allowedRoles={['coach', 'school', 'admin', 'school_admin']}>
+                          <BiomechVolleyballLabPage />
                         </ProtectedRoute>
                       } />
                       <Route path="coach/dotacion" element={

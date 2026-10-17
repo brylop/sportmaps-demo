@@ -131,7 +131,7 @@ const ETIQUETA_TIPO: Record<TipoDeContacto, { texto: string; clase: string }> = 
     negocio:            { texto: 'Negocio',     clase: 'border-slate-400 text-slate-600 dark:text-slate-300' },
     otro_club:          { texto: 'Otro club',   clase: 'border-slate-400 text-slate-600 dark:text-slate-300' },
     plataforma:         { texto: 'Plataforma',  clase: 'border-slate-400 text-slate-600 dark:text-slate-300' },
-    prospecto:          { texto: 'Prospecto',   clase: 'border-fuchsia-300 text-fuchsia-700 dark:text-fuchsia-400' },
+    prospecto:          { texto: 'Interesado',   clase: 'border-fuchsia-300 text-fuchsia-700 dark:text-fuchsia-400' },
 };
 
 function EtiquetaTipo({ c }: { c: Pick<Conversacion, 'contact_kind' | 'es_prospecto' | 'prospecto' | 'last_inbound_at'> }) {
@@ -139,9 +139,9 @@ function EtiquetaTipo({ c }: { c: Pick<Conversacion, 'contact_kind' | 'es_prospe
     if (!tipo || !ETIQUETA_TIPO[tipo]) return null;
     const e = ETIQUETA_TIPO[tipo];
     return (
-        <Badge variant="outline" className={`text-[10px] ${e.clase}`}
+        <Badge variant="outline" className={`text-xs ${e.clase}`}
                title={tipo === 'ambiguo' ? 'El número coincide con más de una persona: revísalo'
-                   : tipo === 'prospecto' ? 'Número nuevo que pidió información de clases o inscripción' : undefined}>
+                   : tipo === 'prospecto' ? 'Interesado: pidió información de clases o inscripción' : undefined}>
             {e.texto}
         </Badge>
     );
@@ -159,20 +159,18 @@ const TIPOS_FAMILIA: readonly string[] = ['familia', 'familia_sin_cuenta', 'ambi
 const esFamilia = (c: Conversacion) => !!c.contact_kind && TIPOS_FAMILIA.includes(c.contact_kind);
 
 /**
- * ¿Va a la bandeja de prospectos? Lo que el backend marcó como prospecto, y
- * además cualquier número desconocido que escribió.
- * TODO: los desconocidos entran mientras el backend no detecte prospectos para
- * todas las escuelas (con `responder_desconocidos` apagado el asistente nunca
- * les contesta, así que `es_prospecto` no se entera). Un contacto personal que
- * cae acá se saca con «Marcar como personal» desde la fila. Cuando el backend
- * clasifique prospectos por su cuenta, dejar solo `es_prospecto`.
+ * ¿Es un interesado? Solo lo que el backend marcó: el asistente le respondió
+ * como prospecto (pidió precio, horario, inscripción o clase de cortesía) o
+ * hay un lead suyo en `school_signup_leads`.
+ * Antes también entraba cualquier desconocido que escribiera: en Dynasty eran
+ * 131 filas, casi todas ruido (spec comunicaciones-rediseno-v2, D5). Ese
+ * desconocido sigue en «Ver todo › Todas».
  */
 function esProspectoMarcado(c: Pick<Conversacion, 'contact_kind' | 'es_prospecto' | 'prospecto'>): boolean {
     if (esMarcaNoFamilia(c.contact_kind) || c.contact_kind === 'staff') return false;
     return c.es_prospecto === true || !!c.prospecto || c.contact_kind === 'prospecto';
 }
-const esProspecto = (c: Conversacion) =>
-    esProspectoMarcado(c) || (c.contact_kind === 'desconocido' && !!c.last_inbound_at);
+const esProspecto = (c: Conversacion) => esProspectoMarcado(c);
 
 const DIA_MS = 24 * 3_600_000;
 
@@ -192,14 +190,18 @@ function esRuido(c: Conversacion): boolean {
 }
 
 type Bandeja = 'responder' | 'aprobar' | 'prospectos' | 'familias' | 'otros' | 'todas';
-const BANDEJAS: { id: Bandeja; texto: string; urgente?: boolean; soloClasificado?: boolean }[] = [
-    { id: 'responder',  texto: 'Por responder', urgente: true },
-    // Junto a «Por responder»: los leads sin respuesta se estaban quedando (2026-10-06).
-    { id: 'prospectos', texto: 'Prospectos',    soloClasificado: true },
-    { id: 'aprobar',    texto: 'Por aprobar',   urgente: true },
-    { id: 'familias',   texto: 'Familias',      soloClasificado: true },
-    { id: 'otros',      texto: 'Personal y otros', soloClasificado: true },
-    { id: 'todas',      texto: 'Todas' },
+/**
+ * V2 (spec comunicaciones-rediseno-v2, D2): a la vista solo «Te esperan» y los
+ * filtros que tengan algo; el resto va plegado en «Ver todo».
+ */
+const BANDEJAS: { id: Bandeja; texto: string; urgente?: boolean; soloClasificado?: boolean; enVerTodo?: boolean }[] = [
+    { id: 'responder',  texto: 'Te esperan',  urgente: true },
+    { id: 'aprobar',    texto: 'Por aprobar', urgente: true },
+    // Los leads sin respuesta se estaban quedando (2026-10-06): van a la vista.
+    { id: 'prospectos', texto: 'Interesados', soloClasificado: true },
+    { id: 'familias',   texto: 'Familias',    soloClasificado: true, enVerTodo: true },
+    { id: 'otros',      texto: 'Personales y otros', soloClasificado: true, enVerTodo: true },
+    { id: 'todas',      texto: 'Todas',       enVerTodo: true },
 ];
 const CLAVE_BANDEJA = 'sm.wa.buzon.bandeja';
 const POR_PAGINA = 25;
@@ -255,31 +257,51 @@ function restante(vence: string | null): string {
     return h >= 1 ? `${h} h` : `${Math.max(1, Math.floor(ms / 60_000))} min`;
 }
 
-/** Ventana de la fila: roja si quedan menos de 3 h para contestar en texto libre. */
+/**
+ * Hasta cuándo se le puede escribir en texto libre, en palabras de la cancha:
+ * «3:40 p. m.», «mañana 1:05 p. m.» o la fecha. Nunca «ventana de 24 h».
+ */
+export function hastaCuando(vence: string | null | undefined, ahora = new Date()): string {
+    if (!vence) return '';
+    const d = new Date(vence);
+    const horaTxt = d.toLocaleTimeString('es-CO', { hour: 'numeric', minute: '2-digit' });
+    if (d.toDateString() === ahora.toDateString()) return horaTxt;
+    const manana = new Date(ahora); manana.setDate(ahora.getDate() + 1);
+    if (d.toDateString() === manana.toDateString()) return `mañana ${horaTxt}`;
+    return d.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' });
+}
+
+const AYUDA_VENTANA_CERRADA =
+    'Pasó más de un día desde su último mensaje: WhatsApp solo deja escribirle con un mensaje aprobado hasta que vuelva a escribir';
+
+/** Hasta cuándo responder: rojo si quedan menos de 3 h para contestar en texto libre. */
 function ChipVentana({ c, destacar = false }: { c: Conversacion; destacar?: boolean }) {
     if (!c.ventana_abierta) {
         return destacar ? (
-            <Badge variant="outline" className="text-[10px] border-amber-400 text-amber-700 dark:text-amber-400"
-                   title="Pasaron más de 24 h: WhatsApp solo deja escribirle con una plantilla aprobada">
-                ventana cerrada · solo plantilla
+            <Badge variant="outline" className="text-xs border-amber-400 text-amber-700 dark:text-amber-400"
+                   title={AYUDA_VENTANA_CERRADA}>
+                pasó un día · solo mensaje aprobado
             </Badge>
-        ) : <span className="text-[10px] text-amber-600 dark:text-amber-500">ventana cerrada</span>;
+        ) : <span className="text-xs text-amber-600 dark:text-amber-500" title={AYUDA_VENTANA_CERRADA}>pasó un día</span>;
     }
     const urgente = msRestantes(c.ventana_vence) < 3 * 3_600_000;
+    const texto = `responde hasta ${hastaCuando(c.ventana_vence)}`;
     if (destacar && !urgente) {
         return (
-            <Badge variant="outline" className="text-[10px] border-orange-300 text-orange-700 dark:border-orange-800 dark:text-orange-400">
-                <Clock className="h-2.5 w-2.5 mr-1" />quedan {restante(c.ventana_vence)} para responder
+            <Badge variant="outline" className="text-xs border-orange-300 text-orange-700 dark:border-orange-800 dark:text-orange-400"
+                   title={`Quedan ${restante(c.ventana_vence)}`}>
+                <Clock className="h-3 w-3 mr-1" />{texto}
             </Badge>
         );
     }
     return urgente ? (
-        <Badge variant="outline" className="text-[10px] border-red-300 text-red-700 dark:border-red-800 dark:text-red-400">
-            <Clock className="h-2.5 w-2.5 mr-1" />vence en {restante(c.ventana_vence)}
+        <Badge variant="outline" className="text-xs border-red-300 text-red-700 dark:border-red-800 dark:text-red-400"
+               title={`Quedan ${restante(c.ventana_vence)}`}>
+            <Clock className="h-3 w-3 mr-1" />{texto}
         </Badge>
     ) : (
-        <span className="text-[10px] text-muted-foreground">
-            <Clock className="h-2.5 w-2.5 inline mr-0.5" />quedan {restante(c.ventana_vence)}
+        <span className="text-xs text-muted-foreground" title={`Quedan ${restante(c.ventana_vence)}`}>
+            <Clock className="h-3 w-3 inline mr-0.5" />{texto}
         </span>
     );
 }
@@ -697,9 +719,9 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
     };
 
     const vacio: Record<Bandeja, string> = {
-        responder: 'Nada por responder: estás al día.',
+        responder: 'Nadie te espera: estás al día.',
         aprobar: 'No hay respuestas de Mapi esperando tu aprobación.',
-        prospectos: 'No hay números nuevos pidiendo información.',
+        prospectos: 'No hay interesados pidiendo información.',
         familias: 'No hay conversaciones con familias.',
         otros: 'No hay conversaciones personales ni de otros números.',
         todas: 'Todavía no hay conversaciones.',
@@ -778,11 +800,11 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                             {tomaDisponible && (
                                 c.toma ? (
                                     <DropdownMenuItem disabled={accionando} onSelect={() => void cambiarToma(c, false)}>
-                                        <Unlock className="h-4 w-4 mr-2" /> Soltar la conversación
+                                        <Unlock className="h-4 w-4 mr-2" /> Devolver a Mapi
                                     </DropdownMenuItem>
                                 ) : (
                                     <DropdownMenuItem disabled={accionando} onSelect={() => void cambiarToma(c, true)}>
-                                        <Hand className="h-4 w-4 mr-2" /> Tomar la conversación
+                                        <Hand className="h-4 w-4 mr-2" /> Atender yo (Mapi en pausa)
                                     </DropdownMenuItem>
                                 )
                             )}
@@ -884,13 +906,13 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                     </p>
                 ) : bandeja === 'responder' ? (
                     <p className="hidden md:block text-xs text-muted-foreground px-1">
-                        Familias y prospectos que escribieron y nadie les ha respondido. Primero las que
-                        se quedan sin ventana de 24 h.
+                        Familias e interesados que escribieron y nadie les ha respondido. Primero a
+                        quien se le acaba antes el tiempo para responder.
                     </p>
                 ) : bandeja === 'prospectos' ? (
                     <p className="hidden md:block text-xs text-muted-foreground px-1">
-                        Números nuevos que piden información: posibles inscripciones. Respóndeles antes de
-                        que se cierre la ventana de 24 h; después solo se les puede escribir con plantilla.
+                        Personas que pidieron precio, horario, inscripción o clase de cortesía. Respóndeles
+                        a tiempo: pasado un día solo se les puede escribir con un mensaje aprobado.
                         Si alguno es un contacto tuyo, márcalo como personal desde los tres puntos.
                     </p>
                 ) : bandeja === 'otros' ? (
@@ -954,7 +976,7 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                                     className="flex w-full items-center gap-1.5 px-1 min-h-touch md:min-h-0 md:py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
                                 >
                                     {verCerradas ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                                    Ventana cerrada · solo plantilla ({cerradas.length})
+                                    Pasó más de un día · solo mensaje aprobado ({cerradas.length})
                                 </button>
                                 {verCerradas && (
                                     <div className="space-y-2 mt-1">
@@ -1000,11 +1022,11 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
             <DropdownMenuContent align="end" className="w-60">
                 {abierta.toma ? (
                     <DropdownMenuItem disabled={accionando || !tomaDisponible} onSelect={() => void cambiarToma(abierta, false)}>
-                        <Unlock className="h-4 w-4 mr-2" /> Soltar (el asistente vuelve)
+                        <Unlock className="h-4 w-4 mr-2" /> Devolver a Mapi
                     </DropdownMenuItem>
                 ) : (
                     <DropdownMenuItem disabled={accionando || !tomaDisponible} onSelect={() => void cambiarToma(abierta, true)}>
-                        <Hand className="h-4 w-4 mr-2" /> Tomar (el asistente calla)
+                        <Hand className="h-4 w-4 mr-2" /> Atender yo (Mapi en pausa)
                     </DropdownMenuItem>
                 )}
                 {submenuTipo(abierta)}
@@ -1047,14 +1069,14 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                             {abierta.toma ? (
                                 <Button variant="outline" size="sm" disabled={accionando || !tomaDisponible}
                                         onClick={() => void cambiarToma(abierta, false)}>
-                                    <Unlock className="h-3.5 w-3.5 mr-1" /> Soltar
+                                    <Unlock className="h-3.5 w-3.5 mr-1" /> Devolver a Mapi
                                 </Button>
                             ) : (
                                 <Button variant="outline" size="sm" disabled={accionando || !tomaDisponible}
                                         title={tomaDisponible ? 'Mapi deja de responder en esta conversación'
                                             : 'Todavía no disponible'}
                                         onClick={() => void cambiarToma(abierta, true)}>
-                                    <Hand className="h-3.5 w-3.5 mr-1" /> Tomar
+                                    <Hand className="h-3.5 w-3.5 mr-1" /> Atender yo
                                 </Button>
                             )}
                             <Button variant="outline" size="sm" disabled={accionando}
@@ -1174,7 +1196,7 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                 {abierta.ventana_abierta ? (
                     <div className="flex items-end gap-2">
                         <Button type="button" variant="ghost" size="icon" className="w-touch h-touch md:h-10 md:w-10 shrink-0"
-                                aria-label="Enviar plantilla" title="Enviar una plantilla aprobada"
+                                aria-label="Enviar mensaje aprobado" title="Enviar un mensaje aprobado por WhatsApp"
                                 onClick={() => setPlantillaAbierta(true)}>
                             <FileText className="h-4 w-4" />
                         </Button>
@@ -1193,16 +1215,16 @@ export function Conversaciones({ schoolId, conversacionInicial }: { schoolId: st
                 ) : (
                     <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 text-sm space-y-2">
                         <p className="font-medium text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
-                            <Clock className="h-4 w-4 shrink-0" /> Ventana de 24 horas cerrada
+                            <Clock className="h-4 w-4 shrink-0" /> Pasó más de un día sin que escriba
                         </p>
                         <p className="text-muted-foreground">
-                            Pasaron más de 24 horas desde su último mensaje: WhatsApp solo deja escribirle con
-                            una plantilla aprobada. Si te escribe de nuevo, la ventana se reabre.
+                            WhatsApp solo deja escribirle con un mensaje aprobado hasta que vuelva a escribir.
+                            Cuando escriba, puedes responderle normal otra vez.
                         </p>
                         <Button size="sm" className="min-h-touch md:min-h-0" onClick={() => setPlantillaAbierta(true)}
                                 disabled={esPersonal}
                                 title={esPersonal ? 'Es una conversación personal: el canal de la escuela no le escribe' : undefined}>
-                            <FileText className="h-4 w-4 mr-1.5" /> Enviar plantilla
+                            <FileText className="h-4 w-4 mr-1.5" /> Enviar mensaje aprobado
                         </Button>
                         {esPersonal && (
                             <p className="text-xs text-muted-foreground">Es personal: el canal de la escuela no le escribe.</p>

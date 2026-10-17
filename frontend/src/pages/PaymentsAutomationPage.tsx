@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { BranchChip } from '@/components/common/BranchChip';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -405,6 +406,8 @@ interface PaymentTransaction {
   wompi_transaction_id?: string | null;
   provider_transaction_id?: string | null;
   qr_id?: string | null;
+  /** Sede del cobro (payments.branch_id). NULL = «Sin sede»: solo se ve en «Todas». */
+  branch_id?: string | null;
 }
 
 // Devuelto por el RPC school_payment_kpis: agregados sobre TODO el histórico de
@@ -504,7 +507,12 @@ const CHARGE_PRIORITY: Record<string, number> = {
 export default function PaymentsAutomationPage() {
   const { profile, user } = useAuth();
   const { toast } = useToast();
-  const { schoolId, schoolName, activeBranchId, currentUserRole } = useSchoolContext();
+  const { schoolId, schoolName, activeBranchId, currentUserRole, branches, totalBranches } = useSchoolContext();
+  // Multisede: con más de una sede se muestra la columna Sede y lo que no
+  // tiene sede solo aparece en «Todas» (mismo criterio que la consulta de cobros).
+  const showBranchCol = totalBranches > 1;
+  const inActiveBranch = (branchId?: string | null) =>
+    !activeBranchId || branchId === activeBranchId || (!branchId && totalBranches <= 1);
   // «Cobros y pagos» (docs/specs/cobros-multiples.md F3). Apagado = «Registrar pago» de siempre.
   const cobrosYPagosOn = isCobrosYPagosEnabled();
   const showRegisterButton = !cobrosYPagosOn || canManageCharges(currentUserRole);
@@ -612,6 +620,14 @@ export default function PaymentsAutomationPage() {
       fetchGlosas();
     }
   }, [schoolId, activeBranchId]);
+
+  // El conteo de sedes llega async (selectSchool) DESPUÉS de activeBranchId:
+  // un admin de sede que carga con totalBranches=0 vería también los cobros sin
+  // sede. Al conocerse el conteo, se recarga la lista (solo si hay sede elegida).
+  useEffect(() => {
+    if (schoolId && activeBranchId) fetchPayments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [totalBranches]);
 
   // Los estados opt-in (hoy solo 'Cancelado') no vienen en la carga base, así
   // que elegirlos exige volver a consultar. Se salta el primer render para no
@@ -769,7 +785,7 @@ export default function PaymentsAutomationPage() {
         .from('payments')
         .select(`
           id, amount, amount_paid, status, created_at, payment_date, payment_method, payment_type,
-          receipt_url, concept, child_id, parent_id, user_id, team_id,
+          receipt_url, concept, child_id, parent_id, user_id, team_id, branch_id,
           unregistered_athlete_id, early_payment_discount_applied,
           period_year, period_month,
           payment_channel, payment_provider, wompi_reference, wompi_transaction_id,
@@ -822,10 +838,17 @@ export default function PaymentsAutomationPage() {
         );
       }
 
-      // Un pago con branch_id NULL no es "de otra sede": es un pago sin sede
-      // asignada (207 de 499 en Dynasty). Con .eq() se caían todos al
-      // seleccionar una sede, incluidos comprobantes esperando validación.
-      if (activeBranchId) query = query.or(`branch_id.is.null,branch_id.eq.${activeBranchId}`);
+      // Sede (multisede S1, docs/specs/multisede-selector-y-sede-del-atleta.md):
+      // con una sede elegida solo salen los cobros de ESA sede. Un cobro sin
+      // sede no se reparte en todas: se ve en «Todas» con la etiqueta «Sin
+      // sede». Excepción: escuela de UNA sola sede (Dynasty: 207 de 499 sin
+      // sede) — ahí NULL es implícitamente esa sede, como en la vista
+      // school_athletes (get_single_branch_id), y se sigue viendo.
+      if (activeBranchId) {
+        query = totalBranches > 1
+          ? query.eq('branch_id', activeBranchId)
+          : query.or(`branch_id.is.null,branch_id.eq.${activeBranchId}`);
+      }
       return query;
       };
 
@@ -901,6 +924,7 @@ export default function PaymentsAutomationPage() {
         receipt_url: p.receipt_url, concept: p.concept,
         child_id: p.child_id, parent_id: p.parent_id, user_id: p.user_id,
         team_id: p.team_id,
+        branch_id: p.branch_id ?? null,
         payment_channel: p.payment_channel ?? null,
         payment_provider: p.payment_provider ?? null,
         wompi_reference: p.wompi_reference ?? null,
@@ -1441,14 +1465,14 @@ export default function PaymentsAutomationPage() {
   // sin que les cascadeara. Mismo alcance de sede que `subsFiltered`, pero sin
   // el filtro de texto — es un conteo, no debe moverse al buscar.
   const subsEnSede = teamSubscriptions
-    .filter(s => !activeBranchId || !s.branch_id || s.branch_id === activeBranchId);
+    .filter(s => inActiveBranch(s.branch_id));
   const subsConPlanPropio = subsEnSede.filter(s => s.fee_source === 'enrollment' && s.plan_price_now != null);
   const subsConTarifaCongelada = subsConPlanPropio.filter(s => s.plan_price_now !== s.fee);
 
   const subsFiltered = teamSubscriptions
-    // Una inscripción sin sede no es "de otra sede": es una sin asignar. Misma
-    // regla que la lista de cobros, o al filtrar por sede se caen 55 de Dynasty.
-    .filter(s => !activeBranchId || !s.branch_id || s.branch_id === activeBranchId)
+    // Misma regla que la lista de cobros: sin sede solo en «Todas», salvo en
+    // escuelas de una sola sede (ahí se veían caer 55 de Dynasty).
+    .filter(s => inActiveBranch(s.branch_id))
     .filter(s => {
       const term = subsSearch.trim().toLowerCase();
       const searchMatch = !term ||
@@ -1641,6 +1665,7 @@ export default function PaymentsAutomationPage() {
                                   {(payment as any).period_label}
                                 </Badge>
                               )}
+                              {showBranchCol && <BranchChip branchId={payment.branch_id} branches={branches} className="h-4" />}
                               {!payment.team?.name && !(payment as any).plan?.name && (
                                 <span className="text-xs text-muted-foreground truncate">{payment.concept}</span>
                               )}
@@ -1696,6 +1721,7 @@ export default function PaymentsAutomationPage() {
                         <TableRow>
                           <TableHead>Fecha</TableHead>
                           <TableHead>Deportista / Programa</TableHead>
+                          {showBranchCol && <TableHead>Sede</TableHead>}
                           <TableHead>Padre</TableHead>
                           <TableHead>Monto</TableHead>
                           <TableHead>Origen</TableHead>
@@ -1743,6 +1769,9 @@ export default function PaymentsAutomationPage() {
                                 <FamilyNote note={familyNotes[payment.id]} />
                               </div>
                             </TableCell>
+                            {showBranchCol && (
+                              <TableCell className="align-top"><BranchChip branchId={payment.branch_id} branches={branches} /></TableCell>
+                            )}
                             <TableCell><span className="text-sm">{(payment as any).parent_responsible || <span className="text-muted-foreground text-xs">—</span>}</span></TableCell>
                             <TableCell className="font-bold text-primary whitespace-nowrap align-top">
                               <div className="flex flex-col gap-0.5">
@@ -2239,6 +2268,7 @@ export default function PaymentsAutomationPage() {
                                 Cubre {(payment as any).period_label}
                               </Badge>
                             )}
+                            {showBranchCol && <BranchChip branchId={payment.branch_id} branches={branches} className="h-4" />}
                             {!payment.team?.name && !(payment as any).plan?.name && (
                               <span className="text-xs text-muted-foreground truncate">{payment.concept}</span>
                             )}
@@ -2288,6 +2318,7 @@ export default function PaymentsAutomationPage() {
                       <TableHead>Fecha de pago</TableHead>
                       <TableHead>Deportista</TableHead>
                       <TableHead>Concepto</TableHead>
+                      {showBranchCol && <TableHead>Sede</TableHead>}
                       <TableHead>Monto</TableHead>
                       <TableHead>Entró por</TableHead>
                       <TableHead>Estado</TableHead>
@@ -2296,7 +2327,7 @@ export default function PaymentsAutomationPage() {
                   </TableHeader>
                   <TableBody>
                     {historyPayments.length === 0 ? (
-                      <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No se encontraron transacciones con los filtros actuales.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={showBranchCol ? 8 : 7} className="text-center py-8 text-muted-foreground">No se encontraron transacciones con los filtros actuales.</TableCell></TableRow>
                     ) : pagedHistory.map((payment) => {
                       const cfg = STATUS_CONFIG[payment.status] ?? { label: payment.status, className: 'bg-gray-100 text-gray-600' };
                       return (
@@ -2343,6 +2374,9 @@ export default function PaymentsAutomationPage() {
                               )}
                             </div>
                           </TableCell>
+                          {showBranchCol && (
+                            <TableCell><BranchChip branchId={payment.branch_id} branches={branches} /></TableCell>
+                          )}
                           <TableCell className="font-semibold">{formatCurrency(payment.amount)}</TableCell>
                           {/* Antes: {payment.payment_method || 'TRANSFER'} — inventaba
                               "TRANSFER" en los pagos sin método registrado. */}

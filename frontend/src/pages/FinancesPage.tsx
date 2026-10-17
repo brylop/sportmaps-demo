@@ -29,7 +29,8 @@ import { todayColombia } from '@/lib/dateUtils';
  * autocontenido (Antigüedad, Próximo Cierre, Historial) trae su propia RPC.
  */
 export default function FinancesPage() {
-  const { schoolId, activeBranchId, schoolName } = useSchoolContext();
+  const { schoolId, activeBranchId, schoolName, totalBranches } = useSchoolContext();
+  const multiBranch = totalBranches > 1;
   const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   // Los dos tabs autocontenidos avisan su conteo para el badge del trigger,
@@ -39,7 +40,7 @@ export default function FinancesPage() {
 
   // Fetch payments from Supabase — filtrado por school_id y branch
   const { data: payments, isError, isFetching, refetch } = useQuery({
-    queryKey: ['school-payments-all', schoolId, activeBranchId],
+    queryKey: ['school-payments-all', schoolId, activeBranchId, multiBranch],
     queryFn: async () => {
       let query = supabase
         .from('payments')
@@ -80,10 +81,16 @@ export default function FinancesPage() {
         .limit(FETCH_CAP);
 
       if (schoolId) query = query.eq('school_id', schoolId);
-      // Un pago sin sede asignada (branch_id NULL) no es "de otra sede": con
-      // .eq() se caía de la vista al seleccionar sede, igual que pasaba en
-      // Gestión de Pagos y hacía desaparecer plata real de la pantalla.
-      if (activeBranchId) query = query.or(`branch_id.is.null,branch_id.eq.${activeBranchId}`);
+      // Sede (multisede S1): con una sede elegida solo los cobros de ESA sede;
+      // los sin sede se ven únicamente en «Todas» (no se reparten en cada sede,
+      // así no se cuentan dos veces al sumar sedes). En una escuela de UNA sola
+      // sede, NULL es esa sede y se sigue viendo (antes con .eq() se caía plata
+      // real de la pantalla).
+      if (activeBranchId) {
+        query = multiBranch
+          ? query.eq('branch_id', activeBranchId)
+          : query.or(`branch_id.is.null,branch_id.eq.${activeBranchId}`);
+      }
 
       const { data, error } = await query;
       if (error) throw error;

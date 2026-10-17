@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 768,
-  "head": "20261014212441",
+  "count": 772,
+  "head": "20261014215112",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -767,10 +767,14 @@
     {"v":"20261014113038","file":"20261014113038_qr_signup_restaura_guarda_escuela_operativa.sql","sha256":"04c5fd92cd1199092a1310438d811e6e7cbb4530639f5cebe0c7bafe96d2b74c","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261014113152","file":"20261014113152_versiona_insert_exercise_tactical_scope.sql","sha256":"0bbfc719f33564c5acc9acf7af4f77eecf53a640d90a450f30337e1e92f7bade","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261014125527","file":"20261014125527_aviso_politica_cobranza.sql","sha256":"8fc99f5e185c3b32f97945cd6bffe1b44d0da5e7b572b7303862414446aac213","added":"2026-10-14","by":"Brayan Steven Lopez"},
+    {"v":"20261014130128","file":"20261014130128_mora_no_cancela_reactiva_y_detector_autocierra.sql","sha256":"0570f18df1e763cc87a8ae7f0cadb7a824960a0dbde13ec7654c96deefc20fa8","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261014152937","file":"20261014152937_reservas_guarda_seguridad_m0.sql","sha256":"c6038ebb47ca1ccd38b7bd49983317a2aac0b7d9ca40d25446c97d96b83b802b","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261014153533","file":"20261014153533_rol_facility_manager.sql","sha256":"38cd62990ae0ab41b8111e91915b7974e7b1255d0e9d57ec9c74856056b63209","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261014153538","file":"20261014153538_reservas_f0_ocupacion_y_columnas.sql","sha256":"46628ba25c317e05f53bbe9d84999f78966eaa8bf84dbaf0edbf5d453bc3a6f9","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261014153542","file":"20261014153542_reservas_f0_gating_por_addon.sql","sha256":"52cd67c53eced95ec768281dcbb61d2238f96c651e6a2a86b66bc4751fcf66b8","added":"2026-10-14","by":"Brayan Steven Lopez"},
-    {"v":"20261014212441","file":"20261014212441_directorio_publico_clubes.sql","sha256":"ddc7cb74b69d3b8963bacbccf7cf4f36372869686266ae298512b2bfcc7d5810","added":"2026-10-15","by":"Brayan Steven Lopez"}
+    {"v":"20261014212441","file":"20261014212441_directorio_publico_clubes.sql","sha256":"ddc7cb74b69d3b8963bacbccf7cf4f36372869686266ae298512b2bfcc7d5810","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261014212620","file":"20261014212620_contextos_familia_invitaciones.sql","sha256":"384ddc33c304b71895dcb79e2d5b3566b3f52e0b56d74a17b066835c1dafdccf","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261014212627","file":"20261014212627_sede_del_atleta_por_equipo.sql","sha256":"95d1dcf82c3b47ad5e53c5239c122cdc8369b21438985bf14b8d9bd723e36b6c","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261014215112","file":"20261014215112_staff_no_se_reactiva_ni_cambia_de_escuela.sql","sha256":"10beb334a6b8c5691b7b6f9b838a6890ff13150cc807711bd7eadbf2553880f0","added":"2026-10-15","by":"Brayan Steven Lopez"}
   ]
 }
