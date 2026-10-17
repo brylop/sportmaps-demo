@@ -791,6 +791,6 @@
     {"v":"20261015171129","file":"20261015171129_pizarra_notas_y_videos.sql","sha256":"9575e51abc1626c18e7fff47f3e6e16783c7c5db10cb77dc4c4744b2fce26cda","added":"2026-10-15","by":"Brayan Steven Lopez"},
     {"v":"20261015171130","file":"20261015171130_pizarra_equipos_rivales.sql","sha256":"65ed94e0ff685ef0d54523004a53c3360ce14abf0ab7ef5060a23715efeb75ce","added":"2026-10-15","by":"Brayan Steven Lopez"},
     {"v":"20261015171131","file":"20261015171131_pizarra_videos_subidos.sql","sha256":"49da3d7dacb49ac1d77ff1c4503858f55487207e1c42e93de576722d8a83deea","added":"2026-10-15","by":"Brayan Steven Lopez"},
-    {"v":"20261017123746","file":"20261017123746_cobros_revertir_ajuste_resta_del_lote.sql","sha256":"edc474cf3d97697df794370b2ff39cba1a340c698c745e855905adc84da315c1","added":"2026-10-17","by":"Brayan Steven Lopez"}
+    {"v":"20261017123746","file":"20261017123746_cobros_revertir_ajuste_resta_del_lote.sql","sha256":"3038f20c989586f2f35d4faa648df4df13892f4f41c2c60bef81ede9a3489177","added":"2026-10-17","by":"Brayan Steven Lopez"}
   ]
 }
