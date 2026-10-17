@@ -37,5 +37,8 @@ UNA vez, `npm run seguridad:rls-pizarra` y `seguridad:invariantes` UNA vez. El m
 --linked -f`: hace falta permiso explícito (`Bash(npx supabase db query --linked:*)`, `Bash(npx supabase migration
 repair:*)`).
 
+Ojo al integrar en develop: otra sesión ya subió a origin/develop (commit 5f87147c) este archivo, el spec M6 y
+`docs/capturas/pizarra-multideporte/` → conflicto add/add esperable; quedarse con la versión de la rama.
+
 Ojo con el ledger: M6b y M6c reservaron versiones en ramas distintas → al integrar, `git checkout --ours` del
 ledger + `npm run migrations:sync`.

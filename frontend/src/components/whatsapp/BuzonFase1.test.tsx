@@ -79,7 +79,7 @@ describe('Conversaciones · búsqueda en servidor', () => {
 });
 
 describe('Conversaciones · hilo', () => {
-    it('ventana cerrada: aviso con «Enviar plantilla» (antes no había cómo) y adjuntos en vez de «(image)»', async () => {
+    it('ventana cerrada: aviso con «Enviar mensaje aprobado» (antes no había cómo) y adjuntos en vez de «(image)»', async () => {
         const cerrada = conv('c', { ventana_abierta: false, last_inbound_at: iso(30 * 3_600_000) });
         rutearGet({
             '/conversaciones?vista=todas': { conversaciones: [cerrada], conteos: { todas: 1 }, clasificacion_disponible: true, toma_disponible: true },
@@ -103,7 +103,7 @@ describe('Conversaciones · hilo', () => {
         expect(within(hilo).getByRole('button', { name: /Escuchar nota de voz/ })).toBeInTheDocument();
         const compositor = within(hilo).getByTestId('compositor');
         expect(within(compositor).getByText('Ventana de 24 horas cerrada')).toBeInTheDocument();
-        fireEvent.click(within(compositor).getByRole('button', { name: /Enviar plantilla/ }));
+        fireEvent.click(within(compositor).getByRole('button', { name: /Enviar mensaje aprobado/ }));
         await waitFor(() => expect(bff.get).toHaveBeenCalledWith('/api/v1/whatsapp/s1/conversaciones/c/plantillas'));
     });
 
@@ -117,7 +117,7 @@ describe('Conversaciones · hilo', () => {
         const compositor = await screen.findByTestId('compositor');
         expect(within(compositor).getByPlaceholderText('Escribe tu respuesta…')).toBeInTheDocument();
         expect(within(compositor).getByRole('button', { name: 'Enviar' })).toBeDisabled();
-        expect(within(compositor).getByRole('button', { name: 'Enviar plantilla' })).toBeInTheDocument();
+        expect(within(compositor).getByRole('button', { name: 'Enviar mensaje aprobado' })).toBeInTheDocument();
     });
 });
 

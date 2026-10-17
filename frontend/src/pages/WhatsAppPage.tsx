@@ -227,7 +227,7 @@ export default function WhatsAppPage() {
         try {
             await bffClient.post(`/api/v1/whatsapp/${schoolId}/ponerse-al-dia`, { solo_borradores: true });
             setEstado((e) => (e ? { ...e, borradores_huerfanos: { conversaciones: 0, borradores: 0 } } : e));
-            toast({ title: 'Respondiendo', description: 'El asistente está contestando esas conversaciones. Tarda uno o dos minutos.' });
+            toast({ title: 'Respondiendo', description: 'Mapi está contestando esas conversaciones. Tarda uno o dos minutos.' });
         } catch (err: any) {
             toast({ title: 'No se pudo', description: err?.message ?? 'Error', variant: 'destructive' });
         } finally {
@@ -304,7 +304,7 @@ export default function WhatsAppPage() {
 
             {/* EL ASISTENTE APAGADO ES EL PRIMER AVISO, arriba de todos los demas.
 
-                Un canal recien conectado arranca con la IA apagada a proposito
+                Un canal recien conectado arranca con Mapi apagada a proposito
                 (ver whatsapp-onboarding.service.ts): conectar el numero y
                 prender el bot son dos decisiones distintas. Pero apagado y sin
                 avisar es peor que prendido — la escuela cree que esta
@@ -316,7 +316,7 @@ export default function WhatsAppPage() {
                     <CardContent className="pt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
                         <Power className="h-5 w-5 text-sky-600 shrink-0" />
                         <div className="text-sm flex-1">
-                            <p className="font-medium">El asistente todavia no esta respondiendo</p>
+                            <p className="font-medium">Mapi todavia no esta respondiendo</p>
                             <p className="text-muted-foreground">
                                 El numero ya quedo conectado y los mensajes llegan a
                                 <strong> Conversaciones</strong>, pero los contesta una persona.
@@ -332,7 +332,7 @@ export default function WhatsAppPage() {
                             {guardando
                                 ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                                 : <Power className="h-4 w-4 mr-2" />}
-                            Prender el asistente
+                            Prender a Mapi
                         </Button>
                     </CardContent>
                 </Card>
@@ -783,10 +783,10 @@ function AjusteAudiosSinConsentimiento({ schoolId }: { schoolId: string }) {
                             Escuchar las notas de voz de familias e interesados
                         </Label>
                         <p className="text-sm text-muted-foreground">
-                            El asistente pasa a texto los audios que le mandan las familias y quienes preguntan
+                            Mapi pasa a texto los audios que le mandan las familias y quienes preguntan
                             por inscripciones, aunque no hayan aceptado los avisos por WhatsApp. Nunca los de tus
                             contactos personales ni los del equipo. El audio no se guarda, y en su primera
-                            respuesta el asistente le avisa a la persona que convierte sus audios en texto.
+                            respuesta Mapi le avisa a la persona que convierte sus audios en texto.
                             Apagado, solo escucha a las familias que aceptaron los avisos.
                         </p>
                         {!disponible && (
@@ -848,9 +848,9 @@ function PanelConfig({ ajustes, guardando, onGuardar }: {
                     </div>
                     <div className="flex items-start justify-between gap-4">
                         <div>
-                            <Label htmlFor="wa-ai-enabled">Asistente encendido</Label>
+                            <Label htmlFor="wa-ai-enabled">Mapi encendida</Label>
                             <p className="text-sm text-muted-foreground">
-                                Apagado, el asistente <strong>no responde nada automático</strong>: ningún
+                                Apagada, Mapi <strong>no responde nada automático</strong>: ningún
                                 mensaje recibe respuesta del bot y todo lo contesta una persona. Solo siguen
                                 saliendo los avisos automáticos de pagos.
                             </p>
@@ -869,7 +869,7 @@ function PanelConfig({ ajustes, guardando, onGuardar }: {
                                 Responder también a números que no son familias
                             </Label>
                             <p className="text-sm text-muted-foreground">
-                                Si está apagado, el asistente solo contesta a acudientes de la escuela. Los
+                                Si está apagado, Mapi solo contesta a acudientes de la escuela. Los
                                 demás mensajes los sigues viendo y respondiendo desde tu celular.
                             </p>
                         </div>
@@ -887,7 +887,7 @@ function PanelConfig({ ajustes, guardando, onGuardar }: {
                                 Responder a quienes piden información para inscribirse
                             </Label>
                             <p className="text-sm text-muted-foreground">
-                                Aunque lo de arriba esté apagado, el asistente contesta a números nuevos que
+                                Aunque lo de arriba esté apagado, Mapi contesta a números nuevos que
                                 escriben claramente por inscripciones, horarios, precios o la clase de cortesía, y
                                 los deja registrados como prospectos. A los saludos sueltos y a tus contactos
                                 personales no les escribe.

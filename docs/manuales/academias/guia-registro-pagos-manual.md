@@ -1,155 +1,134 @@
-# Registro de Pagos Manuales (Efectivo y Transferencia)
+# Cobros y pagos — registrar pagos por fuera, crear cobros y descuentos
 
-**SportMaps — Guia para Escuelas**
+**SportMaps — Guía para escuelas** · actualizada el 2026-10-17 · reemplaza la guía «Registro de pagos manuales (efectivo y transferencia)» de abril.
 
----
-
-## Que es el Registro de Pago Manual?
-
-Cuando un padre o atleta te paga directamente — ya sea en **efectivo** en la escuela o por **transferencia bancaria** — puedes registrar ese pago en SportMaps para que:
-
-- El estudiante aparezca como **"Al dia"** en la lista de estudiantes
-- Desaparezca de la lista de **Recordatorios de cobro**
-- El padre reciba una **notificacion** y un **correo** confirmando el pago
-- El pago quede en el **historial financiero** de la escuela
+PDF con capturas: `guia-registro-pagos-manual.pdf` (misma carpeta).
 
 ---
 
-## Como registrar un pago
+## 1. Qué es «Cobros y pagos» y dónde se abre
 
-**Menu:** Gestion de Pagos → Cobros
+Es **una sola ventana** para todo lo que se hace con el dinero de un deportista: **registrar lo que la familia ya pagó** (efectivo o transferencia), **crear cobros nuevos**, **aplicar descuentos** con su motivo y **cobrarle lo mismo a todo un equipo**. Reemplaza al botón «Registrar pago» de antes.
 
-### Paso 1 — Abrir el formulario
-
-Haz clic en el boton **"Registrar pago"** en la parte superior derecha de la pagina de Gestion de Pagos.
-
-### Paso 2 — Seleccionar el metodo de pago
-
-El formulario muestra dos botones:
-
-| Boton | Cuando usarlo |
+| Desde | Cómo |
 |---|---|
-| **Efectivo** (verde) | El padre pago en persona con dinero en efectivo |
-| **Transferencia** (azul) | El padre hizo una transferencia o consignacion bancaria |
+| **Pagos** | Gestión de Pagos → botón **«Cobros y pagos»** (arriba a la derecha). Abre en blanco: eliges a quién. |
+| **Deportistas** | El **lápiz** de la fila → **«Editar estado de cuenta»**. Abre con el deportista ya elegido y fijo. En el celular: tres puntos de la tarjeta → «Cobros y pagos». |
+| **Equipos** | Mis Equipos → **«Cobrar a este equipo»**. Abre en modo «Varios atletas» con el equipo elegido. |
 
-Haz clic en el que aplique. Por defecto viene seleccionado "Efectivo".
+Solo lo ven el **dueño y los administradores**. El entrenador no (no registra dinero). El contador ve la pestaña «Operaciones», sin botones para anular.
 
-### Paso 3 — Seleccionar el estudiante
+## 2. Registrar lo que una familia ya pagó (modo «Un atleta»)
 
-Abre el desplegable **"Estudiante / Atleta"** y selecciona a quien corresponde el pago. Si el estudiante es menor de edad, veras el nombre del acudiente entre parentesis.
+1. **Elegir el atleta.** Busca por nombre, acudiente o teléfono. «Atleta nuevo» crea uno (nombre, teléfono del acudiente o del adulto; documento y fecha de nacimiento opcionales) y avisa si ya existe alguien parecido.
+2. **Marcar los cobros pendientes que cubre el pago** («Cobros pendientes · marca los que cubre»). Si no marcas ninguno, no se paga ningún cobro viejo. Un cobro con comprobante en revisión o con un pago en línea en curso sale bloqueado, con el motivo escrito.
+3. **«Pagar» y «Descuento».** Al marcar un cobro aparece «Pagar» con el saldo completo (puedes escribir menos) y el botón «Descuento».
+4. **Cobros nuevos** (si la familia pagó algo que aún no estaba cobrado): «Agregar cobro» → tipo, detalle, valor, vencimiento (por defecto 10 días). Queda marcado «Pagar»; desmárcalo para dejarlo solo cobrado.
 
-### Paso 4 — Completar los datos del pago
+   | Tipo | Qué es |
+   |---|---|
+   | Mensualidad | La cuota del mes. Da vigencia y es la única que puede entrar en mora. |
+   | Inscripción, Seguro | Se cobran una vez (el seguro no se repite en 12 meses). |
+   | Artículos / uniformes, Torneo, Clase extra, Vacacional, Viaje, Otro cobro | Cobros únicos: **no generan mora**. |
+   | Horas adicionales | Excedente del banco de horas. Solo el dueño. |
 
-| Campo | Que poner |
+   Un atleta nuevo no tiene plan: no se le puede generar mensualidad.
+5. **«Ya lo pagaron»** (a la derecha, encendido por defecto): **Efectivo** o **Transferencia**, **fecha del pago** (hoy o anterior, nunca futura), **referencia** (opcional) y, en transferencia, **comprobante** (opcional). «Se registran $X» suma todo lo marcado. La **vista previa** se calcula sola; «Actualizar» la fuerza.
+6. **Confirmar.** El botón dice qué hará; sale «Listo» con el resumen y las opciones «Ver operación», «Anular lote», «Otra operación» y «Cerrar».
+7. **Comprobar:** Pagos → Historial muestra el pago como «Pagado», con método, fecha y mes que cubre.
+
+### El botón principal
+
+| Dice | Hace |
 |---|---|
-| **Concepto de pago** | Describe que se esta pagando. Viene con "Mensualidad" por defecto, pero puedes cambiarlo (ej: "Uniforme", "Torneo", "Inscripcion") |
-| **Monto ($ COP)** | El valor que recibiste. Escribe solo el numero sin puntos ni signos |
-| **Fecha del pago** | La fecha en que recibiste el dinero. Viene con la fecha de hoy, pero puedes cambiarla si el pago fue dias atras |
+| Generar 1 · Pagar 2 | Crea 1 cobro nuevo y registra el pago de 2 cobros |
+| Generar 2 | Solo crea cobros (nadie pagó) |
+| Registrar pago / Registrar pago (3) | Solo registra el pago de 1 (o 3) cobros existentes |
+| Guardar descuentos | Solo aplica descuentos o condonaciones |
 
-### Paso 5 — Confirmar
+Si está apagado, a la izquierda aparece el motivo: «Elige el atleta.», «Marca un cobro pendiente o agrega un cobro nuevo.» (arriba dice «Se registran $0.»), «Corrige lo marcado en rojo.» (dato incompleto: valor, motivo del descuento, fecha de pago futura, vencimiento anterior a hoy) o «Calculando la vista previa…».
 
-Haz clic en **"Guardar y confirmar"**.
+Los **cobros nuevos no se avisan** a la familia por correo ni WhatsApp (los ve en su app); la casilla «Avisar por correo/WhatsApp» viene apagada. Al **registrar un pago**, la familia recibe la notificación «Pago registrado».
 
----
+## 3. Descuentos, condonar la mora y «No cobrar»
 
-## Que pasa cuando confirmas?
+Todo descuento **exige motivo** y queda registrado (quién, cuándo, motivo, valor original). La familia nunca ve estas casillas.
 
-El sistema hace todo esto automaticamente:
+- **Descuento en un cobro:** valor + % o $ + motivo (Pronto pago, Varios meses juntos, Hermanos, Beca, Convenio, Cortesía, Ajuste de precio, Error de cobro, Otro). Se calcula sobre el valor **sin recargo** y no baja el cobro de lo ya abonado.
+- **Descuento general** (interruptor arriba a la derecha): reparte un solo descuento entre varios cobros. Por defecto, los que no tienen descuento propio; con «Sobre:» eliges a cuáles. Un % se aplica igual a cada cobro; un valor fijo se reparte en proporción.
+- **Condonar recargo de mora:** en un cobro vencido con recargo aparece «Condonar recargo ($…)». Condona todo o la parte que escribas; el motivo viene como «Condonación de mora».
+- **«No cobrar»:** exonera el cobro con motivo obligatorio. Mensualidad: queda pagada en $0 y cuenta para la vigencia. Cobro único: se anula. Solo si nadie ha abonado.
+- **Pagar menos de lo que se debe:** eliges «Abono — queda debiendo $X» o «Cerrar el cobro — los $X son descuento» (con motivo).
+- **Sugerencias:** pronto pago vigente; «Varios meses juntos» al marcar 3 o más mensualidades; hermanos/militar se aplican solos a la mensualidad nueva. Más del 50 % de descuento dispara un aviso (no lo impide).
 
-1. **Salda la deuda completa** — Si el estudiante tenia pagos pendientes o vencidos, TODOS se marcan como pagados de una sola vez
-2. **Si no habia deuda** — Se crea un nuevo registro de pago con estado "Pagado"
-3. **Notificacion al padre** — Si el padre tiene cuenta en SportMaps, recibe una notificacion en la app
-4. **Correo de confirmacion** — Si el padre tiene email registrado, recibe un correo automatico
-5. **Historial actualizado** — El pago aparece en la pestaña "Historial" con el metodo (CASH o TRANSFER) y una referencia unica
+## 4. Pagos por fuera: efectivo y transferencia
 
----
+| Campo | Qué poner |
+|---|---|
+| Efectivo / Transferencia | Cómo pagó (transferencia incluye consignación) |
+| Fecha del pago | El día que recibiste el dinero (nunca futura) |
+| Referencia (opcional) | Nº de transferencia o de recibo de caja |
+| Comprobante (opcional, solo transferencia) | Foto o PDF; se lee y avisa si valor o fecha no coinciden (no te bloquea) |
+| Factura electrónica (si la escuela la tiene) | Interruptor para facturar este pago; avisa si al pagador le faltan datos |
 
-## Donde se reflejan los cambios?
+Varias cosas pagadas juntas: marca todos los cobros y registra un solo pago. Si no pagaron nada todavía: apaga «Ya lo pagaron». Con tarjeta, PSE o enlace de pago no hay que hacer nada: el sistema lo registra cuando la pasarela confirma.
 
-| Seccion | Antes | Despues |
+## 5. Cobrarle lo mismo a varios atletas
+
+Modo «Varios atletas»: **solo genera cobros** (para registrar pagos, abre un atleta).
+
+1. **¿A quiénes?** Equipo, Categoría, Plan o A mano. Desmarca a quien no va; «Incluir pausados».
+2. **¿Qué se cobra?** Igual que en un atleta, el mismo cobro para todos. «Descuento para todos» aplica el mismo % o valor.
+3. **Vista previa:** cuántos cobros se crean y por cuánto, y **«Se omiten N»** con la razón (ya tiene la mensualidad de ese mes, seguro en los últimos 12 meses, mismo cobro creado hoy, **no tiene inscripción activa**…). A veces aparece «Cobrar igual». Sin acudiente: avisa y ofrece «Omitirlos».
+4. **Generar N.** Queda como una operación en Pagos → Operaciones. Cada familia recibe una sola notificación dentro de la app.
+
+Límites: 200 atletas y 600 cobros por lote; el vencimiento no puede ser anterior a hoy.
+
+## 6. Corregir un error: qué se puede y qué no
+
+| Quiero… | ¿Se puede? | Cómo |
 |---|---|---|
-| **Estudiantes** | Badge rojo "Vencido" o amarillo "Pendiente" | Badge verde **"Al dia"** |
-| **Recordatorios** | Aparece en la lista con dias de mora | **Desaparece** de la lista |
-| **Historial de pagos** | Solo mostraba el cobro pendiente | Muestra el pago como **"Pagado"** con metodo y fecha |
-| **Estadisticas** | No sumaba en ingresos | Se suma a **"Pagos exitosos"** |
+| Cambiar un dato antes de confirmar | Sí | Todo se edita hasta pulsar el botón; «Cancelar» no guarda nada |
+| Deshacer cobros creados por error (nadie los ha pagado) | Sí | Pagos → Operaciones → **Anular lote** (o desde la pantalla de resultado) |
+| Quitar un descuento de un cobro abierto | Sí | Operaciones → Ver detalle → **Quitar descuento**, con motivo |
+| Rechazar un comprobante que no corresponde | Sí | Pagos → Cobros por Aprobar → «Rechazar» |
+| Anular una factura electrónica emitida | Sí | Nota crédito, en Contabilidad → Facturación electrónica |
+| Cambiar monto, fecha o método de un pago ya registrado | **No existe todavía** | — |
+| Borrar o devolver un pago ya registrado | **No existe todavía** | — |
+| Cambiar el valor de un cobro ya creado | **No existe todavía** | Anular el lote y crearlo de nuevo |
 
----
+> **Lo que ya está pagado es definitivo.** Anular un lote no toca lo pagado, lo que está en revisión ni lo facturado. Hoy no hay forma, desde la app, de corregir un pago registrado con valor, fecha o método equivocado; la guía anterior decía «contacta al administrador» y eso sigue siendo cierto para ese caso: todavía no hay opción de «anular pago».
 
-## Preguntas frecuentes
+### Pagos → Operaciones
 
-### Un padre me pago pero tiene varios cobros pendientes, que hago?
+Cada vez que alguien confirma en «Cobros y pagos» queda una operación: fecha y hora, quién, a quién, cobros creados, pagos registrados, descuentos, recargo condonado y estado (**Vigente**, **Anulado en parte**, **Anulado**). «Con descuentos» filtra; «Informe de descuentos de este mes» lista cada descuento. «Ver detalle» muestra cada cobro con su estado y descuentos.
 
-Solo registra UN pago. El sistema automaticamente marca TODOS los cobros pendientes y vencidos de ese estudiante como pagados.
+- **Anular lote:** pide motivo (3 a 300 caracteres) y dice antes cuántos cobros se anularán y por cuánto. Solo se anula lo que nadie ha pagado. Las familias reciben «La escuela anuló N cobros». Las **mensualidades anuladas se vuelven a generar** con el ciclo normal del mes.
+- **Quitar descuento:** solo mientras nadie haya pagado el cobro; pide motivo y el cobro sube a su valor anterior. Queda como reversión en el historial.
 
-### Me equivoque al registrar un pago, como lo corrijo?
+## 7. Dónde se refleja
 
-Contacta al administrador para corregir el registro directamente en la base de datos. Proximamente habra opcion de anular pagos desde la app.
-
-### Cual es la diferencia entre "Registrar pago" y el flujo de pago online?
-
-| Registro manual | Pago online (Wompi/link) |
+| Sección | Qué cambia |
 |---|---|
-| La escuela registra el pago | El padre paga desde su celular |
-| Se marca como pagado al instante | Empieza como "Pendiente" hasta que el gateway confirma |
-| Para efectivo y transferencias ya recibidas | Para pagos con tarjeta o PSE |
+| Deportistas | «Al día» cuando ya no le queda nada vencido ni pendiente |
+| Recordatorios de cobro | Un cobro pagado sale de la lista; uno nuevo sin pagar entra |
+| Pagos → Historial | El pago aparece como Pagado, con método, fecha y mes que cubre |
+| Pagos → Operaciones | La operación completa |
+| Estadísticas de Pagos | Suma a «Ingresos Totales» y «Transacciones» |
+| App de la familia | Pago como «Pagado», cobros nuevos como pendientes; notificación «Pago registrado» |
 
-### Si registro un pago manual, el padre aun puede pagar online?
+La familia ve el valor final del cobro; el motivo del descuento y la nota interna son solo para la escuela.
 
-No. Una vez registrado, los cobros pendientes del estudiante se cierran. Si el padre intenta pagar online un cobro que ya fue registrado como pagado, no encontrara deuda pendiente.
+### Preguntas frecuentes
 
-### Puedo registrar un pago de un monto diferente al cobro original?
+**Un padre me pagó, pero tiene varios cobros pendientes, ¿qué hago?** Marca los que cubre el pago. Si pagó menos, escribe el valor en «Pagar» y elige abono o cerrar el cobro con la diferencia como descuento.
 
-Si. El sistema registra el monto que tu ingreses. Si el cobro original era $35,000 y el padre te pago $40,000, puedes registrar $40,000. El sistema guarda el monto pagado sin importar el valor original del cobro.
+**Me equivoqué al registrar un pago, ¿cómo lo corrijo?** Antes de confirmar, en la ventana. Después, hoy no hay opción para editar ni anular un pago ya registrado: hay que pedirle la corrección al equipo de SportMaps. Si lo que te equivocaste fue crear cobros y nadie los pagó, usa «Anular lote».
 
----
+**¿Diferencia con el pago en línea?** «Cobros y pagos» es para lo que se pagó por fuera y queda pagado al instante; en línea, el cobro queda pendiente hasta que la pasarela confirma. Un cobro con pago en línea en curso o comprobante en revisión sale bloqueado.
 
-## Cobros Pendientes por Generar
-
-**Menu:** Gestion de Pagos → Config (parte inferior)
-
-### Que es?
-
-Es una herramienta que detecta estudiantes inscritos que **no tienen ningun cobro registrado** — ni pendiente, ni pagado. Esto puede pasar cuando:
-
-- Inscribes un alumno manualmente y el cobro automatico no se genero
-- Borraste pagos de prueba
-- Es inicio de un nuevo ciclo de facturacion
-
-### Como usarlo
-
-1. Ve a **Config** en la pestaña de Gestion de Pagos
-2. Baja hasta la tarjeta amarilla **"Cobros Pendientes por Generar"**
-3. Haz clic en **"Verificar atletas sin cobro"**
-4. El sistema muestra una tabla con los atletas que no tienen pago, el monto calculado segun su plan/equipo, y la fecha de vencimiento
-5. Si todo esta correcto, haz clic en **"Confirmar y generar X pago(s)"**
-
-Esto crea cobros con estado "Pendiente" que luego puedes:
-- Registrar como pagados manualmente (con el boton "Registrar pago")
-- Enviar recordatorios a los padres
-- Esperar a que el padre pague online
+**¿Le llega un aviso a la familia? ¿Por qué no veo el botón?** Al registrar un pago, sí («Pago registrado»). Al crear cobros no, salvo que enciendas «Avisar por correo/WhatsApp». El botón es solo del dueño y los administradores.
 
 ---
 
-## Resumen del flujo completo
-
-```
-ESTUDIANTE SE INSCRIBE
-  └── Sistema genera cobro automatico (Pendiente)
-
-SI EL COBRO NO SE GENERO:
-  └── Config → "Verificar atletas sin cobro" → Generar
-
-PADRE PAGA EN EFECTIVO O TRANSFERENCIA:
-  └── Registrar pago → seleccionar metodo → confirmar
-      ├── Todos los pendientes/vencidos → Pagado
-      ├── Estudiante → "Al dia"
-      ├── Recordatorios → Desaparece
-      └── Padre recibe notificacion + correo
-
-PADRE PAGA ONLINE (Wompi/link):
-  └── Flujo automatico, no requiere accion de la escuela
-```
-
----
-
-*SportMaps &copy; 2026*
+*SportMaps © 2026*

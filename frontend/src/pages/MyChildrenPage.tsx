@@ -40,7 +40,7 @@ export default function MyChildrenPage() {
         .from('children')
         .select(`
           *,
-          schools(name),
+          schools!children_school_id_fkey(name),
           teams!team_id(
             name, sport, level,
             coach:coach_id(full_name)

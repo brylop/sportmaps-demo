@@ -210,7 +210,7 @@ describe('Conversaciones · tipo de contacto en el hilo', () => {
             { tipo: 'personal', tambien_familia: true }));
     });
 
-    it('un contacto marcado negocio dice que el asistente no le responde', async () => {
+    it('un contacto marcado negocio dice que Mapi no le responde', async () => {
         rutear(conv('n', { contact_kind: 'negocio' }));
         render(<Conversaciones schoolId="s1" conversacionInicial="n" />);
         const hilo = await screen.findByTestId('hilo');

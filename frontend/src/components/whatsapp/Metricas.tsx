@@ -189,7 +189,7 @@ export function Metricas({ schoolId }: { schoolId: string }) {
                     <section className="space-y-2">
                         <h3 className="text-sm font-semibold">Familias que escribieron</h3>
                         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                            <Kpi titulo="Resueltas solo por el asistente" valor={pct(f?.pct_solo_bot)}
+                            <Kpi titulo="Resueltas solo por Mapi" valor={pct(f?.pct_solo_bot)}
                                 detalle={`${f?.solo_bot ?? 0} de ${f?.activas ?? 0} conversaciones`} />
                             <Kpi titulo="Pasadas a una persona" valor={pct(f?.pct_escaladas)}
                                 detalle={`${f?.escaladas ?? 0} escaladas · ${f?.atendidas_por_persona ?? 0} contestadas directo`} />
@@ -209,7 +209,7 @@ export function Metricas({ schoolId }: { schoolId: string }) {
                         <CardHeader className="p-4 pb-2">
                             <CardTitle className="text-base">Mensajes por día</CardTitle>
                             <CardDescription>
-                                Entrantes y respuestas: del asistente o de una persona (celular de la escuela o
+                                Entrantes y respuestas: de Mapi o de una persona (celular de la escuela o
                                 buzón). Los saludos automáticos del celular no cuentan como respuesta.
                             </CardDescription>
                         </CardHeader>
@@ -229,7 +229,7 @@ export function Metricas({ schoolId }: { schoolId: string }) {
                                         <Legend wrapperStyle={{ fontSize: 12 }} />
                                         <Line type="linear" dataKey="entrantes" name="Entrantes" stroke="var(--wa-ent)"
                                             strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
-                                        <Line type="linear" dataKey="bot" name="Asistente" stroke="var(--wa-bot)"
+                                        <Line type="linear" dataKey="bot" name="Mapi" stroke="var(--wa-bot)"
                                             strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                                         <Line type="linear" dataKey="humano" name="Persona" stroke="var(--wa-hum)"
                                             strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
@@ -242,7 +242,7 @@ export function Metricas({ schoolId }: { schoolId: string }) {
                                     <table className="w-full text-xs tabular-nums">
                                         <thead className="text-muted-foreground">
                                             <tr><th className="text-left py-1">Día</th><th className="text-right">Entrantes</th>
-                                                <th className="text-right">Asistente</th><th className="text-right">Persona</th>
+                                                <th className="text-right">Mapi</th><th className="text-right">Persona</th>
                                                 <th className="text-right">Automáticos</th></tr>
                                         </thead>
                                         <tbody>

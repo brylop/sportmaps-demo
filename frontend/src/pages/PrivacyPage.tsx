@@ -326,7 +326,7 @@ export default function PrivacyPage() {
                 <li><strong className="text-foreground">Render:</strong> alojamiento de nuestros servicios de backend.</li>
                 <li><strong className="text-foreground">Google Firebase:</strong> notificaciones push a la aplicación móvil.</li>
                 <li><strong className="text-foreground">Meta Platforms:</strong> mensajería a través de la WhatsApp Business Platform, cuando la escuela habilita ese canal.</li>
-                <li><strong className="text-foreground">Google (Gemini), Groq y OpenAI:</strong> proveedores de inteligencia artificial para la lectura automática de comprobantes de pago y hojas de matrícula, y para el asistente automático de los canales de atención. Usamos varios proveedores con conmutación automática para garantizar la disponibilidad del servicio. El detalle de qué datos reciben está en la Sección 8.2.</li>
+                <li><strong className="text-foreground">Google (Gemini), Groq y OpenAI:</strong> proveedores de inteligencia artificial para la lectura automática de comprobantes de pago y hojas de matrícula, y para Mapi, el asistente automático con IA de los canales de atención. Usamos varios proveedores con conmutación automática para garantizar la disponibilidad del servicio. El detalle de qué datos reciben está en la Sección 8.2.</li>
               </ul>
             </div>
 
@@ -397,12 +397,12 @@ export default function PrivacyPage() {
               de API lo garantizan (verificado 2026-10-04). De Google NO se afirma: sus
               términos solo lo garantizan en la modalidad PAGA de la API de Gemini y,
               al redactar esto, no estaba confirmado que la cuenta de SportMaps lo sea. */}
-          <h3 className="text-base font-semibold text-foreground mt-6 mb-2">8.2. Asistente Automático con Inteligencia Artificial</h3>
+          <h3 className="text-base font-semibold text-foreground mt-6 mb-2">8.2. Mapi, el Asistente Automático con Inteligencia Artificial</h3>
           <div className="space-y-3">
             <p>
-              Cuando una escuela activa el asistente automático en su WhatsApp, algunas respuestas las
+              Cuando una escuela activa a Mapi, el asistente automático, en su WhatsApp, algunas respuestas las
               redacta un sistema de <strong className="text-foreground">inteligencia artificial (IA)</strong> y no una persona.
-              El asistente se presenta siempre como <strong className="text-foreground">«asistente automático»</strong> de la
+              Mapi se presenta siempre como <strong className="text-foreground">«asistente automático»</strong> de la
               escuela al iniciar la conversación. La IA también se usa para leer los comprobantes de pago y,
               cuando la escuela lo utiliza, las fotos de hojas de matrícula.
             </p>
@@ -416,7 +416,7 @@ export default function PrivacyPage() {
                 respuesta no contradiga lo que la escuela ya te dijo.
               </li>
               <li>
-                <strong className="text-foreground">La información que el asistente consulta para responderte:</strong> el
+                <strong className="text-foreground">La información que Mapi consulta para responderte:</strong> el
                 nombre de los deportistas a tu cargo, el estado de sus cobros (concepto, periodo, valor, fecha de
                 vencimiento y pagos registrados), la información de la escuela (sedes, horarios, contacto) y los
                 medios de pago que la escuela publicó. Solo se consultan los datos asociados al número de
@@ -470,10 +470,10 @@ export default function PrivacyPage() {
               comprobante cuyo valor no supere el tope que la escuela definió puede quedar aprobado sin revisión
               de una persona, siempre que la lectura coincida con el cobro. Cuando la lectura no coincide o hay
               dudas, el comprobante queda para revisión de la escuela. Puedes pedir en cualquier momento que una
-              persona de la escuela revise un pago o una respuesta del asistente.
+              persona de la escuela revise un pago o una respuesta de Mapi.
             </p>
             <p>
-              Las respuestas del asistente son informativas y pueden contener errores. El estado de cuenta que
+              Las respuestas de Mapi son informativas y pueden contener errores. El estado de cuenta que
               registra la escuela es el que vale.
             </p>
 

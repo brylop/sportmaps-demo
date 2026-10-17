@@ -68,7 +68,7 @@ export function TipoDeContactoDialog({
                 <DialogHeader>
                     <DialogTitle>Tipo de contacto</DialogTitle>
                     <DialogDescription>
-                        {nombre ? <strong>{nombre}</strong> : 'Este número'}. Si no es una familia, el asistente no le
+                        {nombre ? <strong>{nombre}</strong> : 'Este número'}. Si no es una familia, Mapi no le
                         responde, no se guarda lo que escribe y sus fotos dejan de llegar a «Comprobantes sin
                         resolver» (las que ya estaban se cierran). Puedes cambiarlo cuando quieras.
                     </DialogDescription>

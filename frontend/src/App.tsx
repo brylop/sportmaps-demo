@@ -87,6 +87,7 @@ const CalendarPage = lazy(() => import("./pages/CalendarPage"));
 const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const TeamsPage = lazy(() => import("./pages/TeamsPage"));
+const BiomechVolleyballLabPage = lazy(() => import("./pages/BiomechVolleyballLabPage"));
 const SchoolSportsPage = lazy(() => import("./pages/SchoolSportsPage"));
 const MembershipsPage = lazy(() => import("./pages/MembershipsPage"));
 const OfferingsPage = lazy(() => import("./pages/OfferingsPage"));
@@ -632,6 +633,11 @@ const App = () => (
                       <Route path="school/dotacion" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
                           <SchoolEquipmentPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="coach/voleibol-pose" element={
+                        <ProtectedRoute allowedRoles={['coach', 'school', 'admin', 'school_admin']}>
+                          <BiomechVolleyballLabPage />
                         </ProtectedRoute>
                       } />
                       <Route path="coach/dotacion" element={

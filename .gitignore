@@ -247,3 +247,7 @@ frontend/playwright-report-gemelo/
 
 # Auditoría responsive: capturas y resultados (pesan; se regeneran)
 scripts/qa-responsive/out/
+
+# Datos personales de menores/clientes: no versionar
+scripts/monster-volley-norte-import/data/
+docs/gym-rm-atletas-sin-plan-*.csv
