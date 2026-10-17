@@ -32,7 +32,7 @@ import { PaymentProvidersAdmin } from '@/components/admin/PaymentProvidersAdmin'
 import { CobrosYPagosModal } from '@/components/payment/CobrosYPagosModal';
 import { OperacionesTab } from '@/components/payment/OperacionesTab';
 import { isCobrosYPagosEnabled } from '@/lib/cobrosYPagosFlag';
-import { canManageCharges, canReadChargeBatches } from '@/lib/cobrosYPagos';
+import { canManageCharges, canReadChargeBatches, isMensualidad } from '@/lib/cobrosYPagos';
 import { ApprovePaymentMethodSheet } from '@/components/payment/ApprovePaymentMethodSheet';
 import { RejectReceiptDialog } from '@/components/payment/RejectReceiptDialog';
 import { BulkApproveGreensDialog } from '@/components/payment/BulkApproveGreensDialog';
@@ -787,7 +787,7 @@ export default function PaymentsAutomationPage() {
           id, amount, amount_paid, status, created_at, payment_date, payment_method, payment_type,
           receipt_url, concept, child_id, parent_id, user_id, team_id, branch_id,
           unregistered_athlete_id, early_payment_discount_applied,
-          period_year, period_month,
+          period_year, period_month, payment_category,
           payment_channel, payment_provider, wompi_reference, wompi_transaction_id,
           provider_transaction_id, qr_id,
           ocr_amount, ocr_currency, ocr_date, ocr_bank, ocr_reference, ocr_provider,
@@ -945,7 +945,9 @@ export default function PaymentsAutomationPage() {
         last_failure_reason: p.last_failure_reason ?? null,
         period_year:  p.period_year ?? null,
         period_month: p.period_month ?? null,
-        period_label: monthLabel(p.period_year, p.period_month),
+        // Solo la mensualidad «cubre» un mes: un torneo o un uniforme no (aunque
+        // tenga periodo por su fecha de cobro).
+        period_label: isMensualidad(p.payment_category) ? monthLabel(p.period_year, p.period_month) : null,
         // Solo marcamos duplicado en pendientes que reclaman un periodo
         // ya saldado por OTRO pago (no por si mismo).
         period_already_settled:

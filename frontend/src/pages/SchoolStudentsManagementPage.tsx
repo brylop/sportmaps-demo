@@ -1349,7 +1349,7 @@ export default function SchoolStudentsManagementPage() {
             <User className="h-4 w-4 mr-2" /> Editar deportista
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setAccountStudentId(student.id)}>
-            <FileText className="h-4 w-4 mr-2" /> Editar estado de cuenta
+            <FileText className="h-4 w-4 mr-2" /> {cobrosYPagosOn ? 'Cobros y pagos' : 'Editar estado de cuenta'}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -2740,6 +2740,7 @@ export default function SchoolStudentsManagementPage() {
           open={!!accountStudentId}
           onOpenChange={(o) => { if (!o) setAccountStudentId(null); }}
           initialAthleteId={accountStudentId ?? undefined}
+          onViewOperations={() => navigate('/payments-automation?tab=operaciones')}
           onSuccess={() => {
             queryClient.invalidateQueries({ queryKey: ['school-students'] });
             queryClient.invalidateQueries({ queryKey: ['school-payments'] });

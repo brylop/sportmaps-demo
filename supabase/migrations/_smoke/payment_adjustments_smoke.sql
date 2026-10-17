@@ -106,6 +106,11 @@ BEGIN
      OR (SELECT discount_amount FROM public.payments WHERE id = v_p) <> 0 THEN
     RAISE EXCEPTION 'ASSERT revertir: %', v_res;
   END IF;
+  -- Hallazgo 2026-10-17: quitar el descuento también lo resta del total del lote.
+  IF (SELECT b.discount_total FROM public.charge_batches b
+        JOIN public.payments p ON p.charge_batch_id = b.id WHERE p.id = v_p) <> 0 THEN
+    RAISE EXCEPTION 'ASSERT revertir: charge_batches.discount_total no bajó';
+  END IF;
   PERFORM pg_temp.espera_error(format('SELECT public.revert_payment_adjustment(%L, %L, %L, ''otra vez'')',
                                       c_school, v_owner, v_adj), 'YA_REVERTIDO');
 

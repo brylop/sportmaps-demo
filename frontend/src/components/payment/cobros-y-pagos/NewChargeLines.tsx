@@ -95,7 +95,7 @@ export function NewChargeLines({
                 const errors = single?.errors ?? multi?.errors ?? [];
                 return (
                     <div key={l.key} className="rounded-xl border p-3 space-y-2 bg-background" data-testid={`cyp-line-${idx}`}>
-                        <div className="grid gap-2 grid-cols-2 sm:grid-cols-[10rem_minmax(0,1fr)_8rem_9rem_auto]">
+                        <div className="grid gap-2 grid-cols-2 sm:grid-cols-[13rem_minmax(0,1fr)_8rem_9rem_auto]">
                             <Select value={l.category} onValueChange={(v) => changeCategory(idx, v as PaymentChargeCategory)}>
                                 <SelectTrigger className="h-10 text-sm" aria-label="Tipo de cobro"><SelectValue /></SelectTrigger>
                                 <SelectContent>
