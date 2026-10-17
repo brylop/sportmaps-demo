@@ -27,6 +27,21 @@ export function isMobileDevice(): boolean {
   return /Macintosh/.test(ua) && (navigator.maxTouchPoints ?? 0) > 1;
 }
 
+/**
+ * ¿Este navegador comparte ESTE archivo con la hoja del sistema? Solo en el
+ * celular (en escritorio la hoja no tiene WhatsApp a mano: se descarga).
+ * Sirve para PNG, video y GIF: cada navegador decide por tipo de archivo.
+ */
+export function canShareFiles(blob: Blob, filename: string): boolean {
+  const nav = typeof navigator !== 'undefined' ? navigator : undefined;
+  if (!nav || !isMobileDevice() || typeof nav.share !== 'function' || typeof nav.canShare !== 'function') return false;
+  try {
+    return nav.canShare({ files: [new File([blob], filename, { type: blob.type || 'application/octet-stream' })] });
+  } catch {
+    return false;
+  }
+}
+
 export async function shareFile(blob: Blob, filename: string, text: string): Promise<ShareResult> {
   const whatsappUrl = whatsappTextUrl(text);
   const nav = typeof navigator !== 'undefined' ? navigator : undefined;

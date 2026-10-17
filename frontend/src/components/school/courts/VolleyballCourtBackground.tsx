@@ -6,17 +6,19 @@
  */
 import { SPORTS } from '@/lib/school/tacticalSports';
 import { CourtShell } from './CourtShell';
-import { lineProps, meters, type CourtBackgroundProps } from './courtGeometry';
+import { VOLLEY_POST_OUTSIDE_M, lineProps, meters, type CourtBackgroundProps } from './courtGeometry';
+import { useCourtLook } from './courtLook';
 
 export function VolleyballCourtBackground({ viewBox }: CourtBackgroundProps = {}) {
   const def = SPORTS.voleibol;
   const f = def.frame!;
   const m = meters(f);
-  const { line } = def.colors;
+  const { line } = useCourtLook(def.colors);
   const L = lineProps(line, 1.8, 0.95);
   const W = f.widthM;
   const len = f.lengthM;
   const net = len / 2;
+  const post = VOLLEY_POST_OUTSIDE_M;
   // Zonas de la mitad propia, mirando a la red: adelante 4-3-2, atrás 5-6-1.
   const zones: [number, number, string][] = [
     [1.5, net + 1.5, '4'], [4.5, net + 1.5, '3'], [7.5, net + 1.5, '2'],
@@ -55,10 +57,10 @@ export function VolleyballCourtBackground({ viewBox }: CourtBackgroundProps = {}
       </g>
       {/* Línea central (bajo la red) + red, postes y antenas. */}
       <line x1={m.X(0)} y1={m.Y(net)} x2={m.X(W)} y2={m.Y(net)} {...L} />
-      <line x1={m.X(-1)} y1={m.Y(net) + 1.2} x2={m.X(W + 1)} y2={m.Y(net) + 1.2} stroke="#000000" strokeOpacity={0.35} strokeWidth={3.4} />
-      <line x1={m.X(-1)} y1={m.Y(net)} x2={m.X(W + 1)} y2={m.Y(net)} stroke="#f8fafc" strokeWidth={3} strokeDasharray="1.2 1.2" />
-      <line x1={m.X(-1)} y1={m.Y(net) - 1.5} x2={m.X(W + 1)} y2={m.Y(net) - 1.5} stroke="#f8fafc" strokeWidth={1} />
-      {[-1, W + 1].map((x) => (
+      <line x1={m.X(-post)} y1={m.Y(net) + 1.2} x2={m.X(W + post)} y2={m.Y(net) + 1.2} stroke="#000000" strokeOpacity={0.35} strokeWidth={3.4} />
+      <line x1={m.X(-post)} y1={m.Y(net)} x2={m.X(W + post)} y2={m.Y(net)} stroke="#f8fafc" strokeWidth={3} strokeDasharray="1.2 1.2" />
+      <line x1={m.X(-post)} y1={m.Y(net) - 1.5} x2={m.X(W + post)} y2={m.Y(net) - 1.5} stroke="#f8fafc" strokeWidth={1} />
+      {[-post, W + post].map((x) => (
         <circle key={x} cx={m.X(x)} cy={m.Y(net)} r={3} fill="#e5e7eb" stroke="#111827" strokeOpacity={0.5} strokeWidth={0.8} />
       ))}
       {[0, W].map((x) => (

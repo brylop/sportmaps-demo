@@ -441,3 +441,85 @@ describe('otros cobros del mismo pagador', () => {
         expect((await (await get(TOKEN_A)).json()).transferencia.qrEscuelaUrl).toBeNull();
     });
 });
+
+// ─── Mora y abonos (2026-10-14) ──────────────────────────────────────────────
+//
+// La mora nunca cancela: apply_late_fees la suma DENTRO de payments.amount
+// (+ late_fee_amount). El enlace recalcula el saldo en cada clic:
+//   saldo = amount - amount_paid - early_payment_discount_applied
+// y el recargo en línea va sobre ese saldo.
+
+describe('mora y abonos', () => {
+    it('vista: el monto ya trae la mora y late_fee_amount la explica (0 si no hay)', async () => {
+        const sin = await (await get(TOKEN_A)).json();
+        expect(sin.late_fee_amount).toBe(0);
+
+        Object.assign(estado.tablas.payments[0], { amount: 165000, late_fee_amount: 15000, status: 'overdue' });
+        const v = await (await get(TOKEN_A)).json();
+        expect(v.monto).toBe(165000);
+        expect(v.late_fee_amount).toBe(15000);
+        expect(v.estado).toBe('vencido');
+        expect(v.enLinea).toEqual({ proveedor: 'wompi', recargoPct: 5, recargo: 8250, total: 173250 });
+    });
+
+    it("abono ('partial'): se muestra y se cobra en línea el saldo (amount - pagado - pronto pago)", async () => {
+        Object.assign(estado.tablas.payments[0], {
+            status: 'partial', amount_paid: 50000, early_payment_discount_applied: 10000,
+        });
+        const v = await (await get(TOKEN_A)).json();
+        expect(v.estado).toBe('abono');
+        expect(v.monto).toBe(90000);
+        expect(v.enLinea).toEqual({ proveedor: 'wompi', recargoPct: 5, recargo: 4500, total: 94500 });
+
+        const res = await pagar(TOKEN_A);
+        expect(res.status).toBe(201);
+        const body = await res.json();
+        expect(body.base).toBe(90000);
+        expect(body.recargo).toBe(4500);
+        expect(body.amountInCents).toBe(9450000);
+        const link = estado.inserts[0].fila;
+        expect(link.base_amount).toBe(90000);
+        expect(link.gross_amount).toBe(94500);
+    });
+
+    it('link pending creado ANTES de la mora: no se reusa; se expira y nace otro con el saldo nuevo', async () => {
+        estado.tablas.payment_links.push({
+            id: 'l-viejo', payment_id: COBRO_A, payment_provider: 'wompi', status: 'pending',
+            provider_reference: 'SCH-ANTES-MORA', wompi_reference: 'SCH-ANTES-MORA',
+            gross_amount: 157500, base_amount: 150000, fee_pct: 5, expires_at: '2099-01-01T00:00:00Z',
+        });
+        Object.assign(estado.tablas.payments[0], { amount: 165000, late_fee_amount: 15000, status: 'overdue' });
+        const res = await pagar(TOKEN_A);
+        expect(res.status).toBe(201);
+        const body = await res.json();
+        expect(body.reference).not.toBe('SCH-ANTES-MORA');
+        expect(body.reused).toBe(false);
+        expect(estado.tablas.payment_links.find((l) => l.id === 'l-viejo')!.status).toBe('expired');
+        expect(estado.inserts[0].fila.base_amount).toBe(165000);
+        expect(estado.inserts[0].fila.gross_amount).toBe(173250);
+    });
+
+    it('link pending con el abono ya descontado: se reusa', async () => {
+        estado.tablas.payment_links.push({
+            id: 'l1', payment_id: COBRO_A, payment_provider: 'wompi', status: 'pending',
+            provider_reference: 'SCH-SALDO', wompi_reference: 'SCH-SALDO',
+            gross_amount: 105000, base_amount: 100000, fee_pct: 5, expires_at: '2099-01-01T00:00:00Z',
+        });
+        Object.assign(estado.tablas.payments[0], { status: 'partial', amount_paid: 50000 });
+        const res = await pagar(TOKEN_A);
+        expect(res.status).toBe(200);
+        expect((await res.json()).reference).toBe('SCH-SALDO');
+        expect(estado.inserts).toHaveLength(0);
+    });
+
+    it('sin saldo (abonos + pronto pago cubren el total): sin pago en línea, 409 sin escribir', async () => {
+        Object.assign(estado.tablas.payments[0], { status: 'partial', amount_paid: 140000, early_payment_discount_applied: 10000 });
+        const v = await (await get(TOKEN_A)).json();
+        expect(v.monto).toBe(0);
+        expect(v.enLinea).toBeNull();
+        const res = await pagar(TOKEN_A);
+        expect(res.status).toBe(409);
+        expect((await res.json()).code).toBe('sin_saldo');
+        expect(estado.inserts).toHaveLength(0);
+    });
+});

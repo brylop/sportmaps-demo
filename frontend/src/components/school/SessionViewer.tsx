@@ -22,6 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { Calendar, ClipboardList, Loader2, Package, Star, StickyNote, Target, Clock } from 'lucide-react';
 import { TacticalStaticSvg, type TacticalStaticPlayer } from '@/components/school/TacticalStaticSvg';
 import { TacticalBoard } from '@/components/school/TacticalBoard';
+import { useTeamTacticalSport } from '@/hooks/useTeamTacticalSport';
 import {
   getFootballLineup, getFootballLineups, type TacticalArrow,
 } from '@/lib/school/footballQueries';
@@ -97,6 +98,8 @@ function Section({ icon: Icon, title, children }: { icon: typeof Target; title: 
 
 export function SessionViewer({ open, onClose, sessionId, teamId, teamName, createdByName }: SessionViewerProps) {
   const [boardBlock, setBoardBlock] = useState<{ id: string; name: string } | null>(null);
+  // T4: miniaturas y pizarra con la cancha del deporte del equipo.
+  const { sport } = useTeamTacticalSport(teamId, { enabled: open });
 
   const { data: session, isLoading } = useQuery({
     queryKey: ['session-viewer', sessionId],
@@ -238,7 +241,7 @@ export function SessionViewer({ open, onClose, sessionId, teamId, teamName, crea
                                 className="group shrink-0 self-start rounded-lg border bg-muted/30 p-1 transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                 title="Ver la jugada en la pizarra"
                               >
-                                <TacticalStaticSvg players={drawing.players} arrows={drawing.arrows} width={140} className="rounded-md" />
+                                <TacticalStaticSvg players={drawing.players} arrows={drawing.arrows} width={140} className="rounded-md" sport={sport} />
                                 <span className="mt-1 block text-center text-xs font-medium text-primary group-hover:underline">
                                   Ver jugada
                                 </span>
@@ -327,6 +330,7 @@ export function SessionViewer({ open, onClose, sessionId, teamId, teamName, crea
           sourceId={boardBlock.id}
           contextLabel={`Entrenamiento ${shortDate} — ${boardBlock.name}`}
           mode="view"
+          sport={sport}
         />
       )}
     </>

@@ -84,13 +84,23 @@ begin
   if r.action <> 'notice' or r.total <> 257500 then raise exception 'FALLO 1g: plan % %', r.action, r.total; end if;
 end $$;
 
--- Un cobro ya vencido NO se re-planifica.
+-- Un cobro ya vencido SÍ se re-planifica (D14 revertida 2026-10-14, mig 20261014133326):
+-- se debita con la mora. Uno pagado no.
 update public.autopay_cycles set state = 'skipped', skip_reason = 'over_max_amount' where payment_id = current_setting('qa.pay_oct')::uuid;
+update public.payments set status = 'overdue' where id = current_setting('qa.pay_oct')::uuid;
 select public.autopay_update_subscription(current_setting('qa.padre_a')::uuid, current_setting('qa.sub_a')::uuid, 310000, null, '2026-10-11');
 do $$ begin
-  if (select state from public.autopay_cycles where payment_id = current_setting('qa.pay_oct')::uuid) <> 'skipped' then
-    raise exception 'FALLO 1h: re-planificó un cobro vencido'; end if;
+  if (select state from public.autopay_cycles where payment_id = current_setting('qa.pay_oct')::uuid) <> 'scheduled' then
+    raise exception 'FALLO 1h: no re-planificó un cobro vencido'; end if;
 end $$;
+update public.autopay_cycles set state = 'skipped', skip_reason = 'over_max_amount' where payment_id = current_setting('qa.pay_oct')::uuid;
+update public.payments set status = 'paid' where id = current_setting('qa.pay_oct')::uuid;
+select public.autopay_update_subscription(current_setting('qa.padre_a')::uuid, current_setting('qa.sub_a')::uuid, 320000, null, '2026-10-11');
+do $$ begin
+  if (select state from public.autopay_cycles where payment_id = current_setting('qa.pay_oct')::uuid) <> 'skipped' then
+    raise exception 'FALLO 1h2: re-planificó un cobro pagado'; end if;
+end $$;
+update public.payments set status = 'pending' where id = current_setting('qa.pay_oct')::uuid;
 
 -- ── 2. Cambiar el medio: solo a uno propio, disponible y de la misma escuela ──
 do $$

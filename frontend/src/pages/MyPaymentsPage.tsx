@@ -148,6 +148,8 @@ export default function MyPaymentsPage() {
     discount_eligible?: boolean;
     discount_amount?: number;
     paymentCategory?: string | null;
+    /** Recargo por mora ya sumado en el cobro (apply_late_fees). Solo se muestra. */
+    late_fee_amount?: number | null;
   } | null>(null);
 
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
@@ -525,6 +527,7 @@ export default function MyPaymentsPage() {
     discount_eligible: p.discount_eligible,
     discount_amount: p.discount_amount,
     paymentCategory: p.payment_category ?? null,
+    late_fee_amount: p.late_fee_amount ?? null,
   });
 
   useEffect(() => {
@@ -613,6 +616,7 @@ export default function MyPaymentsPage() {
             discount_eligible: p.discount_eligible,
             discount_amount: p.discount_amount,
             paymentCategory: p.payment_category ?? null,
+            late_fee_amount: p.late_fee_amount ?? null,
           });
         }}
         isSelected={selectedPayment?.paymentId === txn.id}
@@ -876,6 +880,11 @@ export default function MyPaymentsPage() {
             ) : (
               <span className="font-bold text-xl text-emerald-400 dark:text-emerald-300">
                 {formatCurrency(selectedPayment.amount)}
+              </span>
+            )}
+            {(selectedPayment.late_fee_amount ?? 0) > 0 && (
+              <span className="text-[10px] font-semibold text-amber-400 dark:text-amber-300">
+                Incluye recargo por mora: {formatCurrency(selectedPayment.late_fee_amount as number)}
               </span>
             )}
           </div>

@@ -6,11 +6,18 @@
 import { bffClient } from '@/lib/api/bffClient';
 import type { TacticalArrow } from './footballQueries';
 import { presetSlotKey, presetSlotIndex, type TacticalFrame } from './tacticalFrames';
+import type { PlayNotes, PlayVideo } from './tacticalMedia';
 import type { TacticalStaticPlayer } from '@/components/school/TacticalStaticSvg';
+import { isLibraryBoardSport } from '@/lib/sports/sportCatalog';
 
 export type ExerciseSport =
   | 'futbol' | 'futbol7' | 'futbol5' | 'futsal'
   | 'voleibol' | 'baloncesto' | 'balonmano' | 'generico';
+
+/** ¿La cancha tiene biblioteca? Solo las de nivel «completa» + genérico
+ *  (= EXERCISE_SPORTS del BFF). Rugby, tenis, waterpolo… (nivel «cancha»,
+ *  M6f) abren la pizarra pero no guardan ni buscan ejercicios. */
+export const isExerciseSport = (s: unknown): s is ExerciseSport => isLibraryBoardSport(s);
 
 export const EXERCISE_SPORT_LABEL: Record<ExerciseSport, string> = {
   futbol: 'Fútbol 11',
@@ -20,7 +27,8 @@ export const EXERCISE_SPORT_LABEL: Record<ExerciseSport, string> = {
   voleibol: 'Voleibol',
   baloncesto: 'Baloncesto',
   balonmano: 'Balonmano',
-  generico: 'Genérico',
+  // D1: lo genérico (calentamiento, coordinación) se muestra a todos con este nombre.
+  generico: 'Preparación física',
 };
 
 /** Puesto de la jugada guardada: sin atleta real, solo etiqueta y posición.
@@ -40,6 +48,10 @@ export interface ExerciseBoard {
   players: ExerciseBoardPlayer[];
   arrows: TacticalArrow[];
   frames: TacticalFrame[];
+  /** M6c: notas y videos de la jugada viajan DENTRO de board (sin columna
+   *  nueva en training_exercises; el paquete y la RPC los llevan tal cual). */
+  notes?: PlayNotes | null;
+  videos?: PlayVideo[] | null;
 }
 
 export interface TrainingExercise {
@@ -77,6 +89,9 @@ export interface ExerciseInput {
 export interface ExerciseListParams {
   q?: string;
   sport?: ExerciseSport;
+  /** Con `sport`: trae también los genéricos (calentamientos, coordinación),
+   *  que sirven para cualquier deporte. */
+  includeGeneric?: boolean;
   tag?: string;
   mine?: boolean;
   /** true = solo plantillas SportMaps; false = solo de mi escuela; undefined = ambas. */
@@ -98,12 +113,24 @@ export async function listExercises(params: ExerciseListParams = {}): Promise<Tr
   const query = new URLSearchParams();
   if (params.q?.trim()) query.set('q', params.q.trim());
   if (params.sport) query.set('sport', params.sport);
+  if (params.sport && params.includeGeneric && params.sport !== 'generico') query.set('include_generic', 'true');
   if (params.tag) query.set('tag', params.tag);
   if (params.mine) query.set('mine', 'true');
   if (params.templates !== undefined) query.set('templates', String(params.templates));
   if (params.limit) query.set('limit', String(params.limit));
   const qs = query.toString();
   return bffClient.get<TrainingExercise[]>(qs ? `${BASE}?${qs}` : BASE);
+}
+
+const EXERCISE_SPORT_KEYS = Object.keys(EXERCISE_SPORT_LABEL) as ExerciseSport[];
+
+/** D1: deportes de la biblioteca de la escuela activa (sus equipos ∪
+ *  schools.sports, más 'generico'), en el orden del catálogo. El BFF ya filtra
+ *  las plantillas con esto; el panel lo usa para los chips. */
+export async function listLibrarySports(): Promise<ExerciseSport[]> {
+  const res = await bffClient.get<{ sports?: unknown }>(`${BASE}/sports`);
+  const raw = Array.isArray(res?.sports) ? res.sports : [];
+  return EXERCISE_SPORT_KEYS.filter((s) => raw.includes(s));
 }
 
 export async function getExercise(id: string): Promise<TrainingExercise> {

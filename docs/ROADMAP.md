@@ -168,6 +168,16 @@ WS (`bridgeWsServer.ts`). **Verificado:** los 4 `last_seen_at` volvieron a los s
   plan con traslado de horas y aviso parcial/completo construido (Dreamers y Academia Superior), falta desplegar BFF y
   frontend. Edna y Fabio ya salieron de estudiantes (Edna a staff, diferido).
   Spec: [`specs/dreamers-ciclo-cobro-1-al-5-y-bloqueo.md`](specs/dreamers-ciclo-cobro-1-al-5-y-bloqueo.md).
+- **Dreamers — primer cobro sin recargo, descuento que viaja, pago de varios cobros, ID del torniquete y link de
+  agendamiento** (2026-10-10 → 14): el cobro del mes de alta vence en el corte del mes siguiente y nunca recibe recargo
+  (migración `20261011101750`, flag `late_fee_skip_signup_month`); el descuento del primer mes viaja con el cobro
+  (`20261010140353`) y Zoe quedó reversada con descuento; «Registrar pago» admite varios cobros en una RPC atómica
+  (`20261010143350`); el registro pide el **ID del torniquete** en lugar del dorsal en Dreamers y Academia Superior
+  (`20261013180924`, flag `registration_zk_pin_enabled`); «Compartir link» activado para Dreamers. Todo lo de base está
+  en vivo; **falta desplegar BFF + frontend** y decidir: descuento solo del primer mes o recurrente, y asociar a Zoe,
+  Avril y Sofía al torniquete. Specs:
+  [`specs/dreamers-id-torniquete-en-registro.md`](specs/dreamers-id-torniquete-en-registro.md) y el plan de cierre en
+  [`specs/dreamers-ciclo-cobro-1-al-5-y-bloqueo.md`](specs/dreamers-ciclo-cobro-1-al-5-y-bloqueo.md).
 - **Banco de horas — parámetros y regla de cobro con Dreamers** (`MOD-21`): gracia 10 min antes / 20 después
   y reingreso 5 min (Dreamers; Academia Superior: igual gracia, reingreso 15) — son settings por escuela,
   no código. Nuevo `school_settings.hours_billing_rounding` (`none` | `hour_up`): pasada la gracia, todo
@@ -187,7 +197,7 @@ ya existe `alert_offline_access_devices()` (pg_cron cada 5 min, avisa al owner c
 el heartbeat y `last_seen_at` solo se movía al marcar. Ahora el heartbeat sale solo mientras la captura
 está viva, así que esa alerta cubre también «la captura murió».
 
-*Nuevo en la cola:* `MOD-34` 🔴 (carga de PINs de Dreamers — solo 6 mapeos), `MOD-35` (ciclo de vida de
+*Nuevo en la cola:* `MOD-34` 🔴 (carga de PINs de Dreamers — 7 mapeos; las altas nuevas ya los asocian con el campo de ID del torniquete, queda el backlog del lector), `MOD-35` (ciclo de vida de
 las reservas del banco de horas), `INF-16` (ingesta autenticada para los bridges).
 
 **Cambios v2.33 → v2.34** (2026-10-01 → 04, verificado contra git y la base viva el 2026-10-04 —

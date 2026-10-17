@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 772,
-  "head": "20261014215112",
+  "count": 787,
+  "head": "20261015171131",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -753,6 +753,7 @@
     {"v":"20261013170543","file":"20261013170543_tienda_cupones_por_empresa.sql","sha256":"7200d51d49609f625a7d30ca4b851d426e91dab23c98be08f7bc9dbdc9a1a0f1","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261013170548","file":"20261013170548_tienda_ingresos_en_finanzas.sql","sha256":"e058e851a91c8c29b3ce4e3fff3d0091e33a46fb7f708c03f90c75ec0d9656cd","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261013170553","file":"20261013170553_tienda_compra_sin_cuenta.sql","sha256":"0661801b93d651676ff1d4be71e92864c32cfcb9d7451092158b5beedba9ac09","added":"2026-10-14","by":"Brayan Steven Lopez"},
+    {"v":"20261013180924","file":"20261013180924_dreamers_id_torniquete_en_registro.sql","sha256":"1bcc9d3ea8c7b4b01097b8ed118d3f2f826fad2e371dcd39b1ffdd991c36c4a2","added":"2026-10-14","by":"judegor99"},
     {"v":"20261013192838","file":"20261013192838_fix_aging_cartera_vencidos_meses.sql","sha256":"84ef5fa7d1ebb1de921d0f8efa41203ffbfc56aefeeb4a3cc4ec4ac0c81899bc","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261013192856","file":"20261013192856_nuevo_pago_mensualidad_estampa_plan.sql","sha256":"028f09e21e3cf9ae12d055ec927e8cc03666a230b1af14bd0bccc17575b77bd7","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261013192915","file":"20261013192915_reserve_hour_bank_periodo_de_la_fecha.sql","sha256":"834e3383f4ea653d0fb601566ca7da6b810d246844704cda5808461fe713760e","added":"2026-10-14","by":"Brayan Steven Lopez"},
@@ -767,7 +768,6 @@
     {"v":"20261014113038","file":"20261014113038_qr_signup_restaura_guarda_escuela_operativa.sql","sha256":"04c5fd92cd1199092a1310438d811e6e7cbb4530639f5cebe0c7bafe96d2b74c","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261014113152","file":"20261014113152_versiona_insert_exercise_tactical_scope.sql","sha256":"0bbfc719f33564c5acc9acf7af4f77eecf53a640d90a450f30337e1e92f7bade","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261014125527","file":"20261014125527_aviso_politica_cobranza.sql","sha256":"8fc99f5e185c3b32f97945cd6bffe1b44d0da5e7b572b7303862414446aac213","added":"2026-10-14","by":"Brayan Steven Lopez"},
-    {"v":"20261014130128","file":"20261014130128_mora_no_cancela_reactiva_y_detector_autocierra.sql","sha256":"0570f18df1e763cc87a8ae7f0cadb7a824960a0dbde13ec7654c96deefc20fa8","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261014152937","file":"20261014152937_reservas_guarda_seguridad_m0.sql","sha256":"c6038ebb47ca1ccd38b7bd49983317a2aac0b7d9ca40d25446c97d96b83b802b","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261014153533","file":"20261014153533_rol_facility_manager.sql","sha256":"38cd62990ae0ab41b8111e91915b7974e7b1255d0e9d57ec9c74856056b63209","added":"2026-10-14","by":"Brayan Steven Lopez"},
     {"v":"20261014153538","file":"20261014153538_reservas_f0_ocupacion_y_columnas.sql","sha256":"46628ba25c317e05f53bbe9d84999f78966eaa8bf84dbaf0edbf5d453bc3a6f9","added":"2026-10-14","by":"Brayan Steven Lopez"},
@@ -775,6 +775,21 @@
     {"v":"20261014212441","file":"20261014212441_directorio_publico_clubes.sql","sha256":"ddc7cb74b69d3b8963bacbccf7cf4f36372869686266ae298512b2bfcc7d5810","added":"2026-10-15","by":"Brayan Steven Lopez"},
     {"v":"20261014212620","file":"20261014212620_contextos_familia_invitaciones.sql","sha256":"384ddc33c304b71895dcb79e2d5b3566b3f52e0b56d74a17b066835c1dafdccf","added":"2026-10-15","by":"Brayan Steven Lopez"},
     {"v":"20261014212627","file":"20261014212627_sede_del_atleta_por_equipo.sql","sha256":"95d1dcf82c3b47ad5e53c5239c122cdc8369b21438985bf14b8d9bd723e36b6c","added":"2026-10-15","by":"Brayan Steven Lopez"},
-    {"v":"20261014215112","file":"20261014215112_staff_no_se_reactiva_ni_cambia_de_escuela.sql","sha256":"10beb334a6b8c5691b7b6f9b838a6890ff13150cc807711bd7eadbf2553880f0","added":"2026-10-15","by":"Brayan Steven Lopez"}
+    {"v":"20261014215112","file":"20261014215112_staff_no_se_reactiva_ni_cambia_de_escuela.sql","sha256":"10beb334a6b8c5691b7b6f9b838a6890ff13150cc807711bd7eadbf2553880f0","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261015153059","file":"20261015153059_torneos_escuela_inscribe_y_gratis.sql","sha256":"daf6390a9da730c38ffc81d98d7b9b27111abe993e8ca167abc6df199118eca4","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261015163554","file":"20261015163554_mora_no_cancela_reactiva_y_detector_autocierra.sql","sha256":"37edf49e9fb252e2cffe62a27534c3f3a4113a8a1b5929301acf76fdbb8fdfdf","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261015163555","file":"20261015163555_mora_vence_enlaces_y_autopay_cobra_vencidos.sql","sha256":"418f0c5f5424d444946540d8bc801099efd3cece1d95543c122c209ad52571cc","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261015163556","file":"20261015163556_wa_estado_pagos_con_mora.sql","sha256":"4f1b0c8d28f8258efd9a2e4e53001687a4064da3cf85a01e457add38d4bf7e12","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261015170323","file":"20261015170323_acuerdos_comerciales_saas.sql","sha256":"af37d59458a12d442447a5298aa2335e7fe3ac308802ec8229684f957f33f416","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261015170324","file":"20261015170324_acuerdo_monster_volley.sql","sha256":"76c67e254c00983a8a1858c674ce316dbb6017b13e09c6135b563e7ad67a054e","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261015171123","file":"20261015171123_plantillas_ejercicios_otros_deportes.sql","sha256":"ed7fb32202da4dbc32f5f105f65b81b753dce328197ac5dfc3c19bbc96b55509","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261015171124","file":"20261015171124_pizarra_rls_biblioteca_y_rpc_ejercicio.sql","sha256":"bc523dbd622f86a87c321b7f928d7dc56fc5cdc3f43865fa3122300c659cb6ab","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261015171125","file":"20261015171125_pizarra_ia_cupo_y_cache.sql","sha256":"93013542a34d63bb6c7ed8a29ae1d4428cdb5b9311ed3d111c7392dc55183935","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261015171126","file":"20261015171126_pizarra_paquetes_biblioteca.sql","sha256":"413f73a59f8b4d68a93f8d28cf53218d0f12410dcc597f91afd87787ed7665d6","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261015171127","file":"20261015171127_pizarra_eventos_ia_3d_paquetes.sql","sha256":"d9557306b1869862dc498af8d0cce5b081f98da500ac540cbf0246f1bbfb06d9","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261015171128","file":"20261015171128_pizarra_ia_cupo_por_entrenador_tokens.sql","sha256":"2c7c5ac00030dbddcce826f98fc2cd71bb1ef1d04492266c1fc8d218ca803fc5","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261015171129","file":"20261015171129_pizarra_notas_y_videos.sql","sha256":"9575e51abc1626c18e7fff47f3e6e16783c7c5db10cb77dc4c4744b2fce26cda","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261015171130","file":"20261015171130_pizarra_equipos_rivales.sql","sha256":"65ed94e0ff685ef0d54523004a53c3360ce14abf0ab7ef5060a23715efeb75ce","added":"2026-10-15","by":"Brayan Steven Lopez"},
+    {"v":"20261015171131","file":"20261015171131_pizarra_videos_subidos.sql","sha256":"49da3d7dacb49ac1d77ff1c4503858f55487207e1c42e93de576722d8a83deea","added":"2026-10-15","by":"Brayan Steven Lopez"}
   ]
 }

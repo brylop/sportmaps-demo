@@ -18,6 +18,9 @@
  */
 import type { TacticalArrow } from './footballQueries';
 import { hydrateShape, isPointShape } from './tacticalGeometry';
+import { sanitizeNoteText, FRAME_NOTE_MAX } from './tacticalMedia';
+import { applyCurve, type AnimationCurve } from './tacticalBoardSettings';
+import { possessionBallAt } from './tacticalPossession';
 import {
   DEFAULT_FRAME_MS, MAX_FRAME_MS, MIN_FRAME_MS, MAX_FRAMES,
   type TacticalFrame, type TacticalFramePlayer, type TacticalPlayerKey,
@@ -26,8 +29,7 @@ import {
 // ─── Tiempo ─────────────────────────────────────────────────────────────────
 
 export function easeInOutCubic(t: number): number {
-  const x = Math.min(1, Math.max(0, t));
-  return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+  return applyCurve('suave', t);
 }
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -137,11 +139,38 @@ function staticFrame(frames: TacticalFrame[], index: number): InterpolatedFrame 
   };
 }
 
+export interface InterpolateOptions {
+  /** Curva de velocidad (Ajustes de la pizarra, M6g). Por defecto «suave». */
+  curve?: AnimationCurve;
+}
+
 /**
  * Estado de la jugada en el instante `tMs` (0 = cuadro 1). Fuera de rango se
  * recorta: antes de 0 es el primer cuadro, después del total, el último.
+ * Si algún cuadro tiene `ball_owner` (posesión, M6g), el balón sigue a su
+ * dueño y viaja de uno a otro en los pases; si no, todo como siempre.
  */
-export function interpolateFrames(frames: TacticalFrame[], tMs: number): InterpolatedFrame {
+export function interpolateFrames(frames: TacticalFrame[], tMs: number, opts: InterpolateOptions = {}): InterpolatedFrame {
+  const base = interpolateBase(frames, tMs, opts.curve);
+  const bp = frames && frames.length > 0 ? possessionBallAt(frames, tMs, opts.curve, frameDuration) : null;
+  if (!bp) return base;
+  // La figura balón (la pizarra mueve el balón como material) o el `ball` del
+  // cuadro pasan a la posición de la posesión, opacos. Si no había ninguno,
+  // aparece el balón: asignar un dueño alcanza para que se vea.
+  const at = { x: bp.x, y: bp.y };
+  const idx = base.arrows.findIndex((a) => a.shape.type === 'ball');
+  if (idx >= 0) {
+    const arrows = base.arrows
+      .filter((a, i) => i === idx || a.shape.type !== 'ball')
+      .map((a) => (a.shape.type === 'ball'
+        ? { shape: { ...a.shape, x1: at.x, y1: at.y, x2: at.x, y2: at.y }, opacity: 1 }
+        : a));
+    return { ...base, arrows, ball: null };
+  }
+  return { ...base, ball: { ...at, opacity: 1 } };
+}
+
+function interpolateBase(frames: TacticalFrame[], tMs: number, curve: AnimationCurve | undefined): InterpolatedFrame {
   if (!frames || frames.length === 0) {
     return { players: [], ball: null, arrows: [], fromIndex: 0, toIndex: 0, progress: 1 };
   }
@@ -163,7 +192,7 @@ export function interpolateFrames(frames: TacticalFrame[], tMs: number): Interpo
 
   const from = frames[seg - 1];
   const to = frames[seg];
-  const e = easeInOutCubic(progress);
+  const e = applyCurve(curve, progress);
 
   // Jugadores: en los dos → se desliza; en uno solo → fade quieto.
   const a = playersByKey(from);
@@ -271,6 +300,8 @@ const cloneFrame = (f: TacticalFrame, id: string): TacticalFrame => ({
   players: f.players.map((p) => ({ ...p })),
   ball: f.ball ? { ...f.ball } : null,
   arrows: f.arrows.map((a) => ({ ...a, ...(a.points ? { points: [...a.points] } : {}) })),
+  // El cuadro nuevo arranca con el mismo dueño del balón (M6g).
+  ...(f.ball_owner ? { ball_owner: f.ball_owner } : {}),
 });
 
 /** «+ Cuadro»: copia el cuadro `index` justo después y lo devuelve como
@@ -348,12 +379,16 @@ export function hydrateFrames(raw: unknown, opts: { ballAsObject?: boolean } = {
       if (!arrows.some((a) => a.type === 'ball')) arrows.push({ type: 'ball', x1: ball.x, y1: ball.y, x2: ball.x, y2: ball.y });
       ball = null;
     }
+    const note = sanitizeNoteText(fr.note, FRAME_NOTE_MAX);
+    const owner = typeof fr.ball_owner === 'string' && fr.ball_owner && seen.has(fr.ball_owner) ? fr.ball_owner : null;
     out.push({
       id: typeof fr.id === 'string' && fr.id ? fr.id : newFrameId(),
       duration_ms: frameDuration({ duration_ms: fr.duration_ms ?? DEFAULT_FRAME_MS }),
       players,
       ball,
       arrows,
+      ...(note ? { note } : {}),
+      ...(owner ? { ball_owner: owner } : {}),
     });
   }
   return out.length > 0 ? out : null;
@@ -372,6 +407,9 @@ export function serializeFrames(frames: TacticalFrame[]): TacticalFrame[] | null
     players: f.players.map((p) => ({ key: p.key, x: round2(p.x), y: round2(p.y) })),
     ball: f.ball ? { x: round2(f.ball.x), y: round2(f.ball.y) } : null,
     arrows: f.arrows,
+    ...(sanitizeNoteText(f.note, FRAME_NOTE_MAX) ? { note: sanitizeNoteText(f.note, FRAME_NOTE_MAX) } : {}),
+    // Solo si el dueño está en el cuadro: una clave suelta no sirve de nada.
+    ...(f.ball_owner && f.players.some((p) => p.key === f.ball_owner) ? { ball_owner: f.ball_owner } : {}),
   }));
 }
 

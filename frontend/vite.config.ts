@@ -17,6 +17,10 @@ export default defineConfig(({ mode }) => ({
         manualChunks: (id) => {
           if (id.includes("tesseract.js") || id.includes("tesseract-core")) return "vendor-tesseract";
           if (id.includes("pdfjs-dist")) return "vendor-pdfjs";
+          // Visor 3D de la pizarra (M4): three + react-three-fiber van aparte y solo
+          // bajan al tocar «Ver en 3D». Antes que la regla de react: react-reconciler
+          // y react-use-measure contienen "node_modules/react" y caerían en vendor-react.
+          if (/node_modules\/(three|@react-three|react-reconciler|react-use-measure|its-fine|suspend-react)\//.test(id)) return "vendor-three";
           if (id.includes("node_modules/react")) return "vendor-react";
         },
       }
@@ -114,6 +118,9 @@ export default defineConfig(({ mode }) => ({
           '**/jspdf*.js',
           '**/html2canvas*.js',
           '**/generateCategoricalChart-*.js',
+          // Visor 3D: solo lo descarga quien lo abre (no al instalar la PWA).
+          '**/vendor-three-*.js',
+          '**/Tactical3DModal-*.js',
         ],
       },
       devOptions: {

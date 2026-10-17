@@ -23,10 +23,13 @@ import {
   type TacticalPlayerKey,
 } from '@/lib/school/tacticalFrames';
 import type { TacticalStaticPlayer } from '@/components/school/TacticalStaticSvg';
+import { applyCurve, type AnimationCurve } from '@/lib/school/tacticalBoardSettings';
+import { possessionBallAt } from '@/lib/school/tacticalPossession';
 
+/** La «suave» de siempre. La curva elegida en Ajustes (M6g) entra por
+ *  `interpolateFrames(..., curve)`: MISMA función que el 2D y el 3D. */
 export function easeInOutCubic(t: number): number {
-  const x = Math.min(1, Math.max(0, t));
-  return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+  return applyCurve('suave', t);
 }
 
 /** Duración saneada de la transición que LLEGA al cuadro (no aplica al cuadro 0). */
@@ -94,7 +97,15 @@ function staticState(frames: TacticalFrame[], index: number): InterpolatedState 
  * Estado de la jugada en el instante `tMs` (0 = cuadro 1). Fuera de rango se
  * recorta: antes de 0 es el primer cuadro, después del total el último.
  */
-export function interpolateFrames(frames: TacticalFrame[], tMs: number): InterpolatedState {
+export function interpolateFrames(frames: TacticalFrame[], tMs: number, curve?: AnimationCurve): InterpolatedState {
+  const st = interpolateBase(frames, tMs, curve);
+  // Posesión (M6g): el balón sigue a su dueño y viaja en los pases. El
+  // renderer saca la figura balón del fondo cuando la jugada usa posesión.
+  const bp = frames && frames.length > 0 ? possessionBallAt(frames, tMs, curve, frameDuration) : null;
+  return bp ? { ...st, ball: { x: bp.x, y: bp.y, opacity: 1 } } : st;
+}
+
+function interpolateBase(frames: TacticalFrame[], tMs: number, curve: AnimationCurve | undefined): InterpolatedState {
   if (!frames || frames.length === 0) {
     return { players: [], ball: null, arrows: [], arrowsFrameIndex: 0, fromIndex: 0, toIndex: 0, progress: 1 };
   }
@@ -116,7 +127,7 @@ export function interpolateFrames(frames: TacticalFrame[], tMs: number): Interpo
 
   const from = frames[seg - 1];
   const to = frames[seg];
-  const e = easeInOutCubic(progress);
+  const e = applyCurve(curve, progress);
   const a = byKey(from);
   const b = byKey(to);
 
@@ -154,6 +165,7 @@ export function frameToStatic(
   frame: TacticalFrame,
   playerLabels?: Record<string, string>,
   playerJerseys?: Record<string, number | null>,
+  playerNames?: Record<string, string>,
 ): { players: TacticalStaticPlayer[]; arrows: TacticalArrow[] } {
   const players: TacticalStaticPlayer[] = [...byKey(frame)].map(([key, p]) => ({
     x: p.x,
@@ -161,6 +173,7 @@ export function frameToStatic(
     label: playerLabels?.[key] ?? (key.startsWith('slot:') ? key.slice(5) : undefined),
     jersey: playerJerseys?.[key] ?? null,
     role: 'starter',
+    ...(playerNames?.[key] ? { name: playerNames[key] } : {}),
   }));
   const arrows: TacticalArrow[] = [...(frame.arrows || [])];
   if (frame.ball) {

@@ -15,6 +15,7 @@ import {
     TournamentForParticipant, MyRegistration,
 } from '@/lib/api/tournaments';
 import { PaymentCheckoutModal } from '@/components/payment/PaymentCheckoutModal';
+import { etiquetaDelMedio, soloEfectivo } from '@/lib/tournaments/mediosDeCobro';
 
 interface ChildOption { id: string; full_name: string; }
 
@@ -72,6 +73,10 @@ export default function TournamentRegisterPage() {
         .filter((p) => new Date(p.valid_until) >= new Date(new Date().toDateString()))
         .sort((a, b) => a.valid_until.localeCompare(b.valid_until))[0];
 
+    // Torneo gratis: sin cobro. Solo efectivo: se paga en la escuela, no en la app.
+    const esGratis = tournament?.is_paid === false;
+    const pagaEnEfectivo = soloEfectivo(tournament?.payment_methods);
+
     // Registro existente para el hijo/atleta seleccionado (evita re-inscribir).
     const subjectId = isParent ? selectedChildId : user?.id;
     const existingReg = (tournament?.my_registrations || []).find((r) =>
@@ -90,7 +95,10 @@ export default function TournamentRegisterPage() {
                 category_id: selectedCategoryId,
                 child_id: isParent ? selectedChildId : undefined,
             });
-            toast({ title: 'Inscripción registrada', description: 'Ya podés pagar la inscripción.' });
+            toast({
+                title: 'Inscripción registrada',
+                description: esGratis ? 'Quedaste inscrito. El torneo es gratis.' : 'Ya podés pagar la inscripción.',
+            });
             const refreshed = await getForParticipant(eventId);
             setTournament(refreshed);
         } catch (err: any) {
@@ -156,10 +164,21 @@ export default function TournamentRegisterPage() {
                         </Select>
                     </div>
 
-                    {currentPhase && (
-                        <p className="text-sm font-semibold text-primary">
-                            Cuota de inscripción: {formatCurrency(currentPhase.price_solo)}
-                        </p>
+                    {esGratis ? (
+                        <p className="text-sm font-semibold text-emerald-600">Inscripción gratis</p>
+                    ) : (
+                        <>
+                            {currentPhase && (
+                                <p className="text-sm font-semibold text-primary">
+                                    Cuota de inscripción: {formatCurrency(currentPhase.price_solo)}
+                                </p>
+                            )}
+                            {(tournament.payment_methods?.length ?? 0) > 0 && (
+                                <p className="text-xs text-muted-foreground">
+                                    Medios de pago: {tournament.payment_methods!.map(etiquetaDelMedio).join(', ')}
+                                </p>
+                            )}
+                        </>
                     )}
 
                     {existingReg ? (
@@ -169,11 +188,19 @@ export default function TournamentRegisterPage() {
                                 <Badge variant="outline">{existingReg.status}</Badge>
                             </div>
                             {existingReg.payment && existingReg.payment.status !== 'paid' ? (
-                                <Button className="w-full" onClick={() => openCheckout(existingReg)}>
-                                    Pagar {formatCurrency(existingReg.payment.amount)}
-                                </Button>
+                                pagaEnEfectivo ? (
+                                    <p className="text-sm text-muted-foreground">
+                                        Paga {formatCurrency(existingReg.payment.amount)} en efectivo en la escuela.
+                                    </p>
+                                ) : (
+                                    <Button className="w-full" onClick={() => openCheckout(existingReg)}>
+                                        Pagar {formatCurrency(existingReg.payment.amount)}
+                                    </Button>
+                                )
                             ) : (
-                                <p className="text-xs text-emerald-600">Pago al día.</p>
+                                <p className="text-xs text-emerald-600">
+                                    {!existingReg.payment && esGratis ? 'Inscripción gratis: no hay nada que pagar.' : 'Pago al día.'}
+                                </p>
                             )}
                         </div>
                     ) : (
@@ -200,6 +227,7 @@ export default function TournamentRegisterPage() {
                     childId={checkoutReg.child_id || undefined}
                     schoolId={tournament.school_id}
                     paymentId={checkoutReg.payment_id || undefined}
+                    allowedMethods={tournament.payment_methods}
                     amount={checkoutReg.payment?.amount || 0}
                     concept={`Inscripción torneo — ${tournament.title}`}
                     mode="update"

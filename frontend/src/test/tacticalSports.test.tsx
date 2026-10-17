@@ -30,9 +30,12 @@ import { FootballPitchBackground } from '@/components/school/FootballPitchBackgr
 import { TacticalStaticSvg } from '@/components/school/TacticalStaticSvg';
 
 describe('catálogo de deportes', () => {
-  it('trae los 8 deportes con nombre en español y el mismo viewBox', () => {
+  it('trae los 19 deportes con nombre en español y el mismo viewBox', () => {
     expect([...TACTICAL_SPORTS].sort()).toEqual(
-      ['baloncesto', 'balonmano', 'futbol', 'futbol5', 'futbol7', 'futsal', 'generico', 'voleibol'].sort(),
+      ['baloncesto', 'balonmano', 'futbol', 'futbol5', 'futbol7', 'futsal', 'generico', 'voleibol',
+        // M6f: nivel «cancha».
+        'rugby', 'futbol_americano', 'tenis', 'padel', 'badminton', 'voley_playa', 'hockey_cesped', 'hockey_patines',
+        'netball', 'waterpolo', 'ultimate'].sort(),
     );
     for (const s of TACTICAL_SPORTS) {
       const d = SPORTS[s];
@@ -46,6 +49,9 @@ describe('catálogo de deportes', () => {
   it('jugadores por lado reglamentarios', () => {
     const expected: Record<TacticalSport, number> = {
       futbol: 11, futbol7: 7, futbol5: 5, futsal: 5, voleibol: 6, baloncesto: 5, balonmano: 7, generico: 6,
+      // Rugby 7 (el XV se arma agregando jugadores); dobles en tenis/pádel/bádminton.
+      rugby: 7, futbol_americano: 11, tenis: 2, padel: 2, badminton: 2, voley_playa: 2,
+      hockey_cesped: 11, hockey_patines: 5, netball: 7, waterpolo: 7, ultimate: 7,
     };
     for (const s of TACTICAL_SPORTS) expect(SPORTS[s].playersPerSide, s).toBe(expected[s]);
   });
@@ -73,7 +79,11 @@ describe('catálogo de deportes', () => {
       }
       // Arquero solo donde hay arquero, y entonces exactamente uno, en la mitad propia.
       const gks = f.slots.filter((x) => isGoalkeeperLabel(x.label));
-      if (d.hasGoalkeeper) {
+      if (f.flyingKeeper) {
+        // M6a: portero/arquero-jugador (5x4, 7 contra 6): sale a jugar o no hay.
+        expect(d.hasGoalkeeper, `${s}/${f.key}: portero-jugador sin arco`).toBe(true);
+        expect(gks.length).toBeLessThanOrEqual(1);
+      } else if (d.hasGoalkeeper) {
         expect(gks, `${s}/${f.key} sin arquero`).toHaveLength(1);
         expect(gks[0].y).toBeGreaterThan(50);
       } else {
@@ -141,7 +151,7 @@ describe('sportFromTeam', () => {
     [{ sport: 'Microfútbol' }, 'futsal'],
     // Slugs y variantes.
     [{ sport: 'futbol_sala' }, 'futsal'],
-    [{ sport: 'voleibol_playa' }, 'voleibol'],
+    [{ sport: 'voleibol_playa' }, 'voley_playa'],
     [{ sport: 'basketball' }, 'baloncesto'],
     [{ sport: 'Básquetbol' }, 'baloncesto'],
     [{ sport: 'Handball' }, 'balonmano'],
@@ -162,7 +172,10 @@ describe('sportFromTeam', () => {
     // Deportes sin cancha propia → genérico.
     [{ sport: 'Natación' }, 'generico'],
     [{ sport: 'Cheerleading All Stars' }, 'generico'],
-    [{ sport: 'Tenis', name: 'Fútbol de los sábados' }, 'generico'],
+    // M6f: tenis tiene su cancha (el nombre del equipo no la cambia).
+    [{ sport: 'Tenis', name: 'Fútbol de los sábados' }, 'tenis'],
+    [{ sport: 'Waterpolo' }, 'waterpolo'],
+    [{ sport: 'Fútbol americano', name: 'Fútbol 7' }, 'futbol_americano'],
     // Sin deporte: se mira el nombre; sin nada, fútbol (comportamiento histórico).
     [{ sport: null, name: 'Voleibol femenino' }, 'voleibol'],
     [{ sport: '', name: 'Equipo A' }, 'futbol'],

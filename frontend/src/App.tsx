@@ -225,6 +225,7 @@ const VendorProductsPage = lazy(() => import("./pages/vendor/VendorProductsPage"
 const ProductWizardPage = lazy(() => import("./components/vendor/product-wizard/ProductWizard").then(m => ({ default: m.ProductWizard })));
 const AdminMarketplaceModerationPage = lazy(() => import("./pages/admin/AdminMarketplaceModerationPage"));
 const AdminPayoutsPage = lazy(() => import("./pages/admin/AdminPayoutsPage"));
+const AdminTacticalAiUsagePage = lazy(() => import("./pages/admin/AdminTacticalAiUsagePage"));
 const VendorInboxPage = lazy(() => import("./pages/vendor/VendorInboxPage"));
 const VendorPayoutsPage = lazy(() => import("./pages/vendor/VendorPayoutsPage"));
 const VendorSubscribersPage = lazy(() => import("./pages/vendor/VendorSubscribersPage"));
@@ -1167,6 +1168,11 @@ const App = () => (
                       <Route path="admin/marketplace/moderation" element={
                         <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
                           <AdminMarketplaceModerationPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/ia-pizarra" element={
+                        <ProtectedRoute allowedRoles={['super_admin']} strictRoleCheck>
+                          <AdminTacticalAiUsagePage />
                         </ProtectedRoute>
                       } />
                       <Route path="admin/payouts" element={

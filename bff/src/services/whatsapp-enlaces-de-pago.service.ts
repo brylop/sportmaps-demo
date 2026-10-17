@@ -26,6 +26,7 @@ import { crearLinkWompiConMonto } from './wompi-link-con-monto.service';
 import { appPublica, enlaceDeCobro } from '../utils/url-publica-familias';
 import { etiquetaDelCobro, type CobroClasificable } from './tipo-de-cobro';
 import { linkDePago } from './payment-accounts';
+import { saldoPorCobrar } from '../utils/saldo-cobro';
 
 /** Máximo de enlaces por mensaje: más que eso es un muro de URLs. */
 export const MAX_ENLACES_POR_MENSAJE = 5;
@@ -77,6 +78,10 @@ interface FilaCobro {
     amount: number | string | null;
     due_date: string | null;
     status: string | null;
+    /** Mora ya sumada a `amount` por `apply_late_fees()` (2026-10-14). */
+    late_fee_amount?: number | string | null;
+    amount_paid?: number | string | null;
+    early_payment_discount_applied?: number | string | null;
 }
 
 const dia = (d: unknown) => (d ? String(d).slice(0, 10) : '');
@@ -135,7 +140,7 @@ export async function conEnlacesDePago<T extends PagoConEnlace>(
         const base = appPublica();
         const { data, error } = await supabase
             .from('payments')
-            .select('id, concept, amount, due_date, status')
+            .select('id, concept, amount, amount_paid, early_payment_discount_applied, due_date, status, late_fee_amount')
             .eq('parent_id', parentId)
             .eq('school_id', schoolId)
             .in('status', ['pending', 'partial', 'overdue'])
@@ -145,16 +150,26 @@ export async function conEnlacesDePago<T extends PagoConEnlace>(
 
         const ids = emparejarIds(lista, data as FilaCobro[]);
         if (!ids.size) return lista;
+        const filaPorId = new Map((data as FilaCobro[]).map((f) => [f.id, f]));
         // Link de pago propio de la escuela (2026-10-13, decisión de Dynasty):
         // si existe, es EL camino. La familia escribe el valor, sin recargo, y
         // manda el comprobante. No se genera el link de la app.
+        // El valor es el SALDO ACTUAL del cobro (`saldoPorCobrar`: amount, que ya
+        // trae la mora de `apply_late_fees()`, menos lo abonado y el descuento por
+        // pronto pago; 2026-10-14) y se dice cuánto es mora.
         const propio = await linkPropioDeLaEscuela(schoolId);
         if (propio) {
-            return lista.map((p, i) => (ids.has(i)
-                ? { ...p, enlace_pago: propio, enlace_de_la_escuela: true,
-                    enlace_instrucciones: instruccionesDelLinkDeLaEscuela(p.amount) }
-                : p));
+            return lista.map((p, i) => {
+                if (!ids.has(i)) return p;
+                const fila = filaPorId.get(ids.get(i)!);
+                return { ...p, enlace_pago: propio, enlace_de_la_escuela: true,
+                    enlace_instrucciones: instruccionesDelLinkDeLaEscuela(fila ? saldoPorCobrar(fila) : p.amount, fila?.late_fee_amount) };
+            });
         }
+        // Los links con monto (Wompi y la página /p/:token) se crean o reusan en
+        // `prepararCheckoutDeCobro`, que solo reusa un link cuya base es el monto
+        // ACTUAL del cobro (también en la carrera 23505): uno de antes de la mora
+        // se expira y se crea otro.
         // Primero el link de Wompi con el monto exacto (eb1e833d): la familia no
         // escribe el valor y, al aprobarse, el pago queda aplicado solo. Si la
         // escuela no tiene pago en línea (Dynasty hoy: 'sin_pago_en_linea') o
@@ -214,11 +229,23 @@ async function linkPropioDeLaEscuela(schoolId: string): Promise<string | null> {
     }
 }
 
-/** «Toca «Ir a pagar», escribe $150.000 y …». Pura. */
-export function instruccionesDelLinkDeLaEscuela(monto: unknown): string {
+/**
+ * «Toca «Ir a pagar», escribe $150.000 y …». Con mora (`late_fee_amount` > 0,
+ * ya sumada al monto) se agrega «Incluye recargo por mora: $X.»: la familia
+ * tiene que escribir el valor CON la mora, o el comprobante llega corto. Pura.
+ */
+export function instruccionesDelLinkDeLaEscuela(monto: unknown, mora?: unknown): string {
     const n = Number(monto);
     const valor = Number.isFinite(n) && n > 0 ? cop(n) : 'el valor de tu cobro';
-    return `Toca «${TEXTO_BOTON_IR_A_PAGAR}», escribe ${valor} y, al terminar, mándame la foto del comprobante por aquí para que la escuela lo aplique.`;
+    const m = Number(mora ?? 0);
+    const conMora = Number.isFinite(m) && m > 0 && Number.isFinite(n) && n > 0;
+    // En el link de la escuela la familia escribe el valor: el del cobro, SIN
+    // recargo por pago en línea, y el comprobante debe mostrar ese mismo valor.
+    // Con mora el valor ya la incluye: se dice eso y no «sin recargo» (se
+    // contradirían en el mismo mensaje).
+    const sinRecargo = conMora ? '' : ' (sin recargo)';
+    const lineaMora = conMora ? ` Incluye recargo por mora: ${cop(m)}.` : '';
+    return `Toca «${TEXTO_BOTON_IR_A_PAGAR}», escribe ${valor}${sinRecargo} y, al terminar, mándame la foto del comprobante por aquí para que la escuela lo aplique.${lineaMora}`;
 }
 
 /** Cuánto hacia atrás cuenta un comprobante de la cola como «en camino». */
@@ -282,8 +309,12 @@ export function instruccionesDelLinkConMonto(
 ): string {
     const recargo = Number(montos?.recargo ?? 0);
     const total = Number(montos?.total ?? 0);
+    // Con recargo: se dice el total del link Y que transferir directo a la
+    // escuela no lleva recargo (el comprobante de cualquiera de los dos vale como
+    // pago completo).
     const valor = recargo > 0 && total > 0
-        ? `El link cobra ${cop(total)} (incluye ${cop(recargo)} de recargo por pago en línea). `
+        ? `El link cobra ${cop(total)} (incluye ${cop(recargo)} de recargo por pago en línea). ` +
+          `Si transfieres directo a la escuela no pagas recargo: son ${cop(total - recargo)}. `
         : '';
     return `${valor}Tienes ${plazoParaPagar(minutos)} para pagar con ese link; al aprobarse, el pago queda aplicado solo` +
         (avisa ? ' y te aviso por aquí.' : '.');
@@ -300,7 +331,8 @@ export function instruccionesDeLaPaginaDeCobro(
     const recargo = Number(montos?.recargo ?? 0);
     const total = Number(montos?.total ?? 0);
     const valor = recargo > 0 && total > 0
-        ? `El pago en línea es de ${cop(total)} (incluye ${cop(recargo)} de recargo). `
+        ? `El pago en línea es de ${cop(total)} (incluye ${cop(recargo)} de recargo de la app). ` +
+          `Si transfieres directo a la escuela no pagas recargo: son ${cop(total - recargo)}. `
         : '';
     return `${valor}Ahí puedes pagar en línea o ver los datos para transferir; si pagas en línea, el pago queda aplicado solo` +
         (avisa ? ' y te aviso por aquí.' : '.');

@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { BranchDot } from './BranchChip';
+import { branchShortLabel, needsStackedLayout } from '@/lib/branchLabel';
 
 /**
  * Selector de sede para el owner / admin global (multisede S1 —
@@ -90,7 +91,9 @@ export function BranchSelector({ className }: { className?: string }) {
     switchSchool(schoolId, value === ALL ? null : value);
   };
 
-  const options = [{ id: ALL, name: 'Todas' }, ...activeBranches.map((b) => ({ id: b.id, name: b.name }))];
+  const options = [{ id: ALL, name: 'Todas', full: 'Todas las sedes' }, ...activeBranches.map((b) => ({ id: b.id, name: branchShortLabel(b.name), full: b.name }))];
+  const stacked = needsStackedLayout(options.map((o) => o.name));
+  const actual = options.find((o) => o.id === current);
 
   if (activeBranches.length > 3) {
     return (
@@ -105,7 +108,7 @@ export function BranchSelector({ className }: { className?: string }) {
               <SelectItem key={o.id} value={o.id}>
                 <span className="flex items-center gap-2">
                   <BranchDot branchId={o.id === ALL ? null : o.id} branches={branches} />
-                  {o.id === ALL ? 'Todas las sedes' : o.name}
+                  {o.full}
                 </span>
               </SelectItem>
             ))}
@@ -119,11 +122,17 @@ export function BranchSelector({ className }: { className?: string }) {
     <div className={cn('w-full', className)}>
       <p className="flex items-center gap-1 text-[10px] uppercase tracking-widest font-bold text-muted-foreground/60 px-1 mb-1">
         <MapPin className="h-3 w-3" aria-hidden /> Sede
+        {actual && current !== ALL && (
+          <span className="normal-case tracking-normal font-medium text-foreground/80 truncate">· {actual.full}</span>
+        )}
       </p>
       <div
         role="radiogroup"
         aria-label="Sede"
-        className="flex w-full rounded-lg border border-border/60 bg-muted/50 p-0.5 gap-0.5"
+        className={cn(
+          'flex w-full rounded-lg border border-border/60 bg-muted/50 p-0.5 gap-0.5',
+          stacked && 'flex-col',
+        )}
       >
         {options.map((o) => {
           const selected = o.id === current;
@@ -134,9 +143,10 @@ export function BranchSelector({ className }: { className?: string }) {
               role="radio"
               aria-checked={selected}
               onClick={() => choose(o.id)}
-              title={o.id === ALL ? 'Todas las sedes' : o.name}
+              title={o.full}
               className={cn(
-                'flex-1 min-w-0 h-9 inline-flex items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors',
+                'flex-1 min-w-0 h-9 inline-flex items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
+                stacked ? 'justify-start' : 'justify-center',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 selected
                   ? 'bg-background text-foreground shadow-sm'
@@ -144,7 +154,7 @@ export function BranchSelector({ className }: { className?: string }) {
               )}
             >
               <BranchDot branchId={o.id === ALL ? null : o.id} branches={branches} />
-              <span className="truncate">{o.name}</span>
+              <span className="truncate">{stacked ? o.full : o.name}</span>
             </button>
           );
         })}

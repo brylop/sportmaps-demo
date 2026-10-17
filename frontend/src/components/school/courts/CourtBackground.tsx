@@ -16,6 +16,12 @@ import { GenericCourtBackground } from './GenericCourtBackground';
 import { HandballCourtBackground } from './HandballCourtBackground';
 import { Football5CourtBackground, Football7CourtBackground } from './SmallFootballCourtBackground';
 import { VolleyballCourtBackground } from './VolleyballCourtBackground';
+import { CourtConfigContext } from './courtLook';
+import { CourtTemplateOverlay } from './CourtTemplateOverlay';
+import { isDefaultCourt, type CourtConfig } from '@/lib/school/tacticalCourt';
+import { BadmintonCourtBackground, BeachVolleyballCourtBackground, PadelCourtBackground, TennisCourtBackground } from './NetCourtBackgrounds';
+import { AmericanFootballCourtBackground, FieldHockeyCourtBackground, RugbyCourtBackground, UltimateCourtBackground } from './FieldCourtBackgrounds';
+import { NetballCourtBackground, RinkHockeyCourtBackground, WaterPoloCourtBackground } from './RinkPoolCourtBackgrounds';
 
 /** Fútbol 11 con el nombre de la familia *CourtBackground. */
 export function FootballCourtBackground({ viewBox }: CourtBackgroundProps = {}) {
@@ -30,10 +36,30 @@ const COURT_BACKGROUNDS: Record<TacticalSport, ComponentType<CourtBackgroundProp
   voleibol: VolleyballCourtBackground,
   baloncesto: BasketballCourtBackground,
   balonmano: HandballCourtBackground,
+  rugby: RugbyCourtBackground,
+  futbol_americano: AmericanFootballCourtBackground,
+  tenis: TennisCourtBackground,
+  padel: PadelCourtBackground,
+  badminton: BadmintonCourtBackground,
+  voley_playa: BeachVolleyballCourtBackground,
+  hockey_cesped: FieldHockeyCourtBackground,
+  hockey_patines: RinkHockeyCourtBackground,
+  netball: NetballCourtBackground,
+  waterpolo: WaterPoloCourtBackground,
+  ultimate: UltimateCourtBackground,
   generico: GenericCourtBackground,
 };
 
-export function CourtBackground({ sport, viewBox }: CourtBackgroundProps & { sport?: TacticalSport | null }) {
+/** `court` (M6d, diálogo «Campo»): piso, colores y plantilla de líneas. Sin él
+ *  (o con la configuración de siempre) la salida es la de antes, idéntica. */
+export function CourtBackground({ sport, viewBox, court }: CourtBackgroundProps & { sport?: TacticalSport | null; court?: CourtConfig | null }) {
   const Bg = COURT_BACKGROUNDS[isTacticalSport(sport) ? sport : DEFAULT_SPORT];
-  return viewBox === undefined ? <Bg /> : <Bg viewBox={viewBox} />;
+  const bg = viewBox === undefined ? <Bg /> : <Bg viewBox={viewBox} />;
+  if (!court || isDefaultCourt(court)) return bg;
+  return (
+    <CourtConfigContext.Provider value={court}>
+      {bg}
+      <CourtTemplateOverlay sport={sport} court={court} viewBox={viewBox} />
+    </CourtConfigContext.Provider>
+  );
 }

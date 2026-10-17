@@ -24,7 +24,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { supabase } from '../config/supabase';
 
-export type FuncionLlm = 'bot' | 'ocr' | 'transcripcion' | 'sportbot';
+export type FuncionLlm = 'bot' | 'ocr' | 'transcripcion' | 'sportbot' | 'pizarra_ia';
 
 export interface ContextoUsoLlm {
     schoolId?: string | null;

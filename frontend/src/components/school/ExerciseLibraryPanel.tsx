@@ -3,6 +3,15 @@
  * búsqueda, filtros por deporte y objetivo, «Plantillas SportMaps» vs «De mi
  * escuela», tarjetas con miniatura y «Usar en esta sesión» / «Ver».
  *
+ * D1 (docs/specs/pizarra-multideporte-3d-ia.md, M1): los chips de deporte son
+ * SOLO los de la escuela (GET /exercises/sports: sus equipos ∪ schools.sports)
+ * y «Preparación física» (lo genérico) siempre. Con un solo deporte la fila de
+ * chips no aparece. El BFF ya no manda plantillas de otros deportes.
+ *
+ * M2 (D4): pestaña «Paquetes» (ExercisePacksTab) para activar, exportar e
+ * importar paquetes; la lista de plantillas ya llega filtrada por los
+ * paquetes activados desde el BFF.
+ *
  * Es un <Dialog> propio. Quien lo abre desde OTRO Dialog (SessionFormDialog,
  * TacticalBoard) tiene que ocultar el suyo mientras este está abierto —
  * dos Dialogs de Radix abiertos a la vez se cierran solos (ver el comentario
@@ -17,15 +26,19 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TacticalStaticSvg } from '@/components/school/TacticalStaticSvg';
+import { ExercisePacksTab } from '@/components/school/ExercisePacksTab';
+import type { TacticalPackEvent } from '@/lib/school/tacticalUsage';
 import {
   EXERCISE_SPORT_LABEL,
   exerciseThumbnail,
+  isExerciseSport,
   listExercises,
+  listLibrarySports,
   type ExerciseSport,
   type TrainingExercise,
 } from '@/lib/school/exerciseLibrary';
 
-type Source = 'templates' | 'school';
+type Source = 'templates' | 'school' | 'packs';
 
 /** Objetivos frecuentes como atajo (son etiquetas: filtran por `tag`). */
 const OBJECTIVE_CHIPS: { tag: string; label: string }[] = [
@@ -36,11 +49,31 @@ const OBJECTIVE_CHIPS: { tag: string; label: string }[] = [
   { tag: 'finalización', label: 'Finalización' },
   { tag: 'defensa', label: 'Defensa' },
   { tag: 'transición ofensiva', label: 'Transición' },
+  // M6c: fases de juego de las notas de la jugada (lib/school/tacticalMedia.ts).
+  { tag: 'transición defensiva', label: 'Transición defensiva' },
+  { tag: 'ataque organizado', label: 'Ataque organizado' },
+  { tag: 'defensa organizada', label: 'Defensa organizada' },
   { tag: 'balón parado', label: 'Balón parado' },
   { tag: 'conducción', label: 'Conducción' },
+  { tag: 'calentamiento', label: 'Calentamiento' },
 ];
 
-const SPORT_CHIPS: ExerciseSport[] = ['futbol', 'futbol7', 'futbol5', 'futsal', 'generico'];
+/**
+ * Chips de deporte a partir de los deportes de la escuela (ya en orden del
+ * catálogo). 'generico' («Preparación física») siempre, al final. Con UN solo
+ * deporte (además de lo genérico) no hay nada que elegir: sin fila de chips.
+ * Si el BFF no responde, el deporte del equipo + lo genérico (nunca todos).
+ */
+export function librarySportChips(
+  schoolSports: readonly ExerciseSport[] | undefined,
+  fallbackSport?: ExerciseSport,
+): { chips: ExerciseSport[]; showRow: boolean } {
+  const base = schoolSports && schoolSports.length > 0
+    ? schoolSports
+    : (fallbackSport && fallbackSport !== 'generico' ? [fallbackSport] : []);
+  const chips: ExerciseSport[] = [...base.filter((s) => s !== 'generico'), 'generico'];
+  return { chips, showRow: chips.length > 2 };
+}
 
 export interface ExerciseLibraryPanelProps {
   open: boolean;
@@ -48,10 +81,14 @@ export interface ExerciseLibraryPanelProps {
   /** Se llama al tocar «Usar en esta sesión». Si no viene, el panel es solo de consulta. */
   onPick?: (exercise: TrainingExercise) => void;
   pickLabel?: string;
-  /** Deporte con el que arranca el filtro (el del equipo). */
+  /** Deporte con el que arranca el filtro (el del equipo). Con un deporte
+   *  elegido la lista trae también los genéricos (calentamientos,
+   *  coordinación): sirven para cualquier equipo. */
   defaultSport?: ExerciseSport;
   /** Deshabilita «Usar» mientras el padre aplica el ejercicio. */
   picking?: boolean;
+  /** Métrica de uso (T0) de la pestaña «Paquetes». */
+  onPackEvent?: (event: TacticalPackEvent) => void;
 }
 
 export function ExerciseLibraryPanel({
@@ -61,22 +98,38 @@ export function ExerciseLibraryPanel({
   pickLabel = 'Usar en esta sesión',
   defaultSport,
   picking,
+  onPackEvent,
 }: ExerciseLibraryPanelProps) {
   const [source, setSource] = useState<Source>('templates');
   const [search, setSearch] = useState('');
-  const [sport, setSport] = useState<ExerciseSport | undefined>(defaultSport);
+  const [sport, setSport] = useState<ExerciseSport | undefined>(isExerciseSport(defaultSport) ? defaultSport : undefined);
   const [tag, setTag] = useState<string | undefined>();
   const [viewing, setViewing] = useState<TrainingExercise | null>(null);
 
+  const sportsQuery = useQuery({
+    queryKey: ['training-exercise-sports'],
+    queryFn: listLibrarySports,
+    enabled: open,
+    staleTime: 5 * 60_000,
+  });
+  const { chips, showRow: showSportRow } = librarySportChips(
+    sportsQuery.data,
+    isExerciseSport(defaultSport) ? defaultSport : undefined,
+  );
+  // Un deporte que la escuela no tiene (o la fila escondida con un solo
+  // deporte) = sin filtro: el BFF ya devuelve solo lo de la escuela.
+  const sportsKnown = sportsQuery.isSuccess || sportsQuery.isError;
+  const effectiveSport = sport && (!sportsKnown || (showSportRow && chips.includes(sport))) ? sport : undefined;
+
   const params = useMemo(
-    () => ({ q: search.trim() || undefined, sport, tag, templates: source === 'templates' }),
-    [search, sport, tag, source],
+    () => ({ q: search.trim() || undefined, sport: effectiveSport, includeGeneric: true, tag, templates: source === 'templates' }),
+    [search, effectiveSport, tag, source],
   );
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['training-exercises', params],
     queryFn: () => listExercises(params),
-    enabled: open,
+    enabled: open && source !== 'packs',
     staleTime: 60_000,
   });
 
@@ -89,7 +142,10 @@ export function ExerciseLibraryPanel({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
+      {/* min-w-0 + overflow-x-hidden: DialogContent es un grid y una fila de chips
+          sin envolver lo ensanchaba más allá del diálogo (pestañas, buscador y
+          chips cortados a la derecha en escritorio). */}
+      <DialogContent className="max-w-3xl max-h-[90vh] grid-cols-[minmax(0,1fr)] overflow-y-auto overflow-x-hidden p-4 sm:p-6">
         <DialogHeader>
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
@@ -115,12 +171,13 @@ export function ExerciseLibraryPanel({
             picking={picking}
           />
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-4 min-w-0">
             {/* Origen: una acción por fila, botones grandes (celular). */}
-            <div className="grid grid-cols-2 gap-2" role="tablist" aria-label="Origen de los ejercicios">
+            <div className="grid grid-cols-3 gap-2" role="tablist" aria-label="Origen de los ejercicios">
               {([
                 { value: 'templates', label: 'Plantillas SportMaps' },
                 { value: 'school', label: 'De mi escuela' },
+                { value: 'packs', label: 'Paquetes' },
               ] as const).map((o) => (
                 <Button
                   key={o.value}
@@ -128,7 +185,7 @@ export function ExerciseLibraryPanel({
                   role="tab"
                   aria-selected={source === o.value}
                   variant={source === o.value ? 'default' : 'outline'}
-                  className="min-h-11"
+                  className="min-h-11 h-auto px-2 py-2 whitespace-normal leading-tight text-center"
                   onClick={() => setSource(o.value)}
                 >
                   {o.label}
@@ -136,25 +193,33 @@ export function ExerciseLibraryPanel({
               ))}
             </div>
 
+            {source === 'packs' ? <ExercisePacksTab onEvent={onPackEvent} /> : (<>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar por nombre u objetivo (ej: rondo, presión)"
+                placeholder="Buscar (ej: rondo, saque, bandeja)"
                 className="pl-9 min-h-11"
                 aria-label="Buscar ejercicio"
               />
             </div>
 
-            <ChipRow label="Deporte">
-              <Chip active={!sport} onClick={() => setSport(undefined)}>Todos</Chip>
-              {SPORT_CHIPS.map((s) => (
-                <Chip key={s} active={sport === s} onClick={() => setSport(sport === s ? undefined : s)}>
-                  {EXERCISE_SPORT_LABEL[s]}
-                </Chip>
-              ))}
-            </ChipRow>
+            {showSportRow && (
+              <ChipRow label="Deporte">
+                <Chip active={!effectiveSport} onClick={() => setSport(undefined)}>Todos</Chip>
+                {chips.map((s) => (
+                  <Chip key={s} active={effectiveSport === s} onClick={() => setSport(effectiveSport === s ? undefined : s)}>
+                    {EXERCISE_SPORT_LABEL[s]}
+                  </Chip>
+                ))}
+              </ChipRow>
+            )}
+            {effectiveSport && effectiveSport !== 'generico' && (
+              <p className="text-xs text-muted-foreground -mt-2">
+                También ves la preparación física (calentamiento, coordinación), que sirve para cualquier deporte.
+              </p>
+            )}
 
             <ChipRow label="Objetivo">
               <Chip active={!tag} onClick={() => setTag(undefined)}>Todos</Chip>
@@ -194,6 +259,7 @@ export function ExerciseLibraryPanel({
                 ))}
               </div>
             )}
+            </>)}
           </div>
         )}
       </DialogContent>
@@ -205,7 +271,9 @@ function ChipRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="space-y-1.5">
       <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">{children}</div>
+      {/* Envuelven en varias filas: con 9 deportes y 10 objetivos un scroll
+          lateral escondía la mitad y empujaba el ancho del diálogo. */}
+      <div className="flex flex-wrap gap-2">{children}</div>
     </div>
   );
 }
@@ -254,7 +322,7 @@ function ExerciseCard({
   return (
     <div className="rounded-xl border bg-card overflow-hidden flex flex-col">
       <button type="button" onClick={onView} className="block bg-emerald-800" aria-label={`Ver ${exercise.name}`}>
-        <TacticalStaticSvg players={thumb.players} arrows={thumb.arrows} width={300} className="w-full h-auto max-h-44" />
+        <TacticalStaticSvg sport={exercise.sport} players={thumb.players} arrows={thumb.arrows} width={300} className="w-full h-auto max-h-44" />
       </button>
       <div className="p-3 flex flex-col gap-2 flex-1">
         <div className="space-y-1">
@@ -262,10 +330,10 @@ function ExerciseCard({
           <ExerciseMeta exercise={exercise} />
         </div>
         {exercise.objective && <p className="text-xs text-muted-foreground line-clamp-2">{exercise.objective}</p>}
-        <div className="mt-auto grid grid-cols-2 gap-2 pt-1">
-          <Button type="button" variant="outline" className="min-h-11" onClick={onView}>Ver</Button>
+        <div className="mt-auto grid grid-cols-[auto_minmax(0,1fr)] gap-2 pt-1">
+          <Button type="button" variant="outline" className="min-h-11 px-4" onClick={onView}>Ver</Button>
           {onPick && (
-            <Button type="button" className="min-h-11 px-2 text-xs sm:text-sm" onClick={onPick} disabled={picking}>
+            <Button type="button" className="min-h-11 h-auto px-3 py-2 text-sm whitespace-normal leading-tight text-center" onClick={onPick} disabled={picking}>
               {picking ? 'Aplicando…' : pickLabel}
             </Button>
           )}
@@ -293,7 +361,7 @@ function ExerciseDetail({
       </Button>
       <div className="grid grid-cols-1 md:grid-cols-[minmax(0,320px)_1fr] gap-4">
         <div className="rounded-xl overflow-hidden bg-emerald-800 self-start">
-          <TacticalStaticSvg players={thumb.players} arrows={thumb.arrows} width={320} className="w-full h-auto" />
+          <TacticalStaticSvg sport={exercise.sport} players={thumb.players} arrows={thumb.arrows} width={320} className="w-full h-auto" />
         </div>
         <div className="space-y-3 text-sm">
           <ExerciseMeta exercise={exercise} />

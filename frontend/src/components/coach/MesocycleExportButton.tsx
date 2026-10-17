@@ -8,6 +8,8 @@ import { useToast } from '@/hooks/use-toast';
 import { Download, Loader2 } from 'lucide-react';
 import { getFootballLineup, getFootballLineups, type Lineup } from '@/lib/school/footballQueries';
 import { renderTacticalPng } from '@/lib/export/tacticalImage';
+import { fetchTeamSportRow } from '@/hooks/useTeamTacticalSport';
+import { sportFromTeam } from '@/lib/school/tacticalSports';
 
 /**
  * PDF del mesociclo COMPLETO (spec rediseno-seguimiento-deportivo.md, F3):
@@ -626,6 +628,8 @@ export function MesocycleExportButton({ mesocycleId, mesocycle, teamName }: Meso
             );
             const images = new Map<string, BlockImage>();
             if (meso.team_id && blockIds.size > 0) {
+                // T4: la cancha del deporte del equipo (sin deporte → fútbol 11).
+                const sport = sportFromTeam(await fetchTeamSportRow(meso.team_id).catch(() => null));
                 let lineups: Lineup[] = [];
                 try {
                     lineups = await getFootballLineups({ team_id: meso.team_id, source_type: 'training_session' });
@@ -644,7 +648,7 @@ export function MesocycleExportButton({ mesocycleId, mesocycle, teamName }: Meso
                             .map((p) => ({ x: Number(p.x), y: Number(p.y), label: p.slot_label ?? undefined, jersey: p.jersey_number ?? null, role: 'starter' as const }));
                         const arrows = asArray<Lineup['arrows'][number]>(detail.arrows ?? lineup.arrows);
                         if (players.length === 0 && arrows.length === 0) continue;
-                        images.set(blockId, await renderTacticalPng(players, arrows));
+                        images.set(blockId, await renderTacticalPng(players, arrows, undefined, sport));
                     } catch {
                         // Una jugada que no se pudo leer o dibujar no tumba el PDF.
                     }

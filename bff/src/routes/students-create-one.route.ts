@@ -24,6 +24,9 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
+import {
+  prepareZkPinForSignup, assignZkPin, ZkPinError, type ZkSubject,
+} from '../services/zkPinAssignment';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { calcFirstPayment, BillingCycleType } from '../utils/prorationUtils';
 import {
@@ -116,6 +119,8 @@ const ChildSchema = EnrollmentBase.extend({
   gender:        z.string().nullable().optional(),
   grade:         z.string().max(20).nullable().optional(),
   dorsal:        z.string().trim().max(10).nullable().optional(),
+  /** ID del lector ZKTeco (solo escuelas con registration_zk_pin_enabled). */
+  zk_pin:        z.number().int().nullable().optional(),
   medical_info:  z.string().optional(),   // JSON con has_allergies
   parent_name:   z.string().min(2),
   // Obligatorio salvo que la escuela active school_settings.parent_email_optional
@@ -136,6 +141,7 @@ const AdultExistingSchema = EnrollmentBase.extend({
   type:    z.literal('adult_existing'),
   user_id: z.string().uuid(),   // profiles.id
   dorsal:  z.string().trim().max(10).nullable().optional(),
+  zk_pin:  z.number().int().nullable().optional(),
 });
 
 const ChildExistingSchema = EnrollmentBase.extend({
@@ -158,6 +164,7 @@ const UnregisteredAdultSchema = EnrollmentBase.extend({
   date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   gender:        z.string().nullable().optional(),
   dorsal:        z.string().trim().max(10).nullable().optional(),
+  zk_pin:        z.number().int().nullable().optional(),
   send_invite:   z.boolean().default(false),
   /** Ver ChildSchema.allow_duplicate. */
   allow_duplicate: z.boolean().default(false),
@@ -654,6 +661,36 @@ router.post(
         return res.status(400).json({ error: 'El email del acudiente es obligatorio.' });
       }
 
+      // ID del torniquete (Dreamers): asociar el deportista al lector desde el alta.
+      // Se valida ANTES de crear nada (formato, escuela habilitada, ID libre).
+      // Control de acceso es de administración: el entrenador no lo configura.
+      const rawZkPin = (data as any).zk_pin as number | null | undefined;
+      if (rawZkPin != null && req.role === 'coach') {
+        return res.status(403).json({
+          error: 'El ID del torniquete lo asigna la administración de la escuela.',
+          code: 'ZK_PIN_FORBIDDEN',
+        });
+      }
+      const zkPin = await prepareZkPinForSignup(
+        schoolId!, rawZkPin,
+        data.type === 'adult_existing' ? { user_id: data.user_id } : undefined,
+      );
+      // Tras crear al deportista: si el vínculo falla (carrera por el mismo ID) el alta
+      // NO se revierte; se avisa para asignarlo desde Control de acceso.
+      const linkZkPin = async (subject: ZkSubject): Promise<{ zk_pin?: number; zk_pin_warning?: string }> => {
+        if (zkPin === null) return {};
+        try {
+          await assignZkPin(schoolId!, zkPin, subject);
+          return { zk_pin: zkPin };
+        } catch (e: any) {
+          req.log?.error({ err: e?.message ?? e, zkPin }, 'No se pudo asociar el ID del torniquete tras el alta');
+          return {
+            zk_pin_warning: `Se registró, pero no se pudo asociar el ID ${zkPin} al torniquete. `
+              + 'Asígnalo desde Control de acceso.',
+          };
+        }
+      };
+
       // Alta por clases restantes (F7): se valida ANTES de crear al atleta.
       const remaining = data.type === 'adult_invite'
         ? null
@@ -852,9 +889,12 @@ router.post(
           full_name: data.full_name, type: 'child',
         });
 
+        const zkLink = await linkZkPin({ child_id: childId });
+
         return res.status(201).json({
           success: true,
           child_id: childId,
+          ...zkLink,
           enrollments_created: enrollmentsCreated,
           payment_created: paymentCreated,
           invitation_sent: invitationSent,
@@ -958,9 +998,12 @@ router.post(
           full_name: profile.full_name, type: 'adult_existing',
         });
 
+        const zkLink = await linkZkPin({ user_id: userId });
+
         return res.status(201).json({
           success: true,
           user_id: userId,
+          ...zkLink,
           enrollments_created: enrollmentsCreated,
           payment_created: paymentCreated,
           message: `${profile.full_name} inscrito correctamente. ${enrollmentsCreated} inscripción(es) creada(s).`,
@@ -1245,9 +1288,12 @@ router.post(
           full_name: data.full_name, type: 'unregistered_adult',
         });
 
+        const zkLink = await linkZkPin({ unregistered_athlete_id: uaId });
+
         return res.status(201).json({
           success: true,
           unregistered_athlete_id: uaId,
+          ...zkLink,
           enrollments_created: enrollmentsCreated,
           invitation_sent: invitationSent,
           registration_link: invitationSent && data.email
@@ -1261,6 +1307,9 @@ router.post(
     } catch (err: any) {
       if (err instanceof AltaError) {
         return res.status(err.status).json({ error: err.message, code: err.code, ...err.extra });
+      }
+      if (err instanceof ZkPinError) {
+        return res.status(err.status).json({ error: err.message, code: err.code });
       }
       req.log?.error({ err: err.message || err }, 'Error inesperado en create-one');
       return res.status(500).json({ error: 'Error interno del servidor.' });

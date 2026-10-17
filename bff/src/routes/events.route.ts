@@ -265,6 +265,8 @@ const SchoolTournamentSchema = z.object({
     correction_deadline: z.string().optional().nullable(),
     crossover_allowed: z.boolean().optional().default(false),
     payment_methods: z.array(z.string()).optional(),
+    // false = torneo gratis: la inscripción no genera cobro (solo aplica a internos).
+    is_paid: z.boolean().optional().default(true),
 
     // Sub-recursos (columnas reales)
     categories: z.array(z.any()).optional(),
@@ -352,6 +354,7 @@ router.post('/school-tournament', requireAuth, requireRole('school', 'school_adm
                 correction_deadline: p.correction_deadline ?? null,
                 crossover_allowed: p.crossover_allowed,
                 payment_methods: p.payment_methods ?? [],
+                is_paid: p.is_paid,
             })
             .select()
             .single();
@@ -480,13 +483,31 @@ router.post('/school-tournaments/:id/publish', requireAuth, requireRole('school'
         // Verificar propiedad + estado ANTERIOR (para no re-notificar si ya estaba activo)
         const { data: ev } = await supabase
             .from('events')
-            .select('id, status')
+            .select('id, status, is_paid, tournament_scope, payment_methods')
             .eq('id', id)
             .eq('school_id', schoolId)
             .eq('creator_role', 'school')
             .maybeSingle();
         if (!ev) return res.status(404).json({ error: 'Torneo no encontrado' });
         const wasAlreadyActive = ev.status === 'active';
+
+        // Torneo interno CON cobro: sin tarifa vigente mayor que cero la RPC de
+        // inscripción falla (y un cobro de $0 no existe), y sin medios de pago
+        // la familia no sabe cómo pagar. Gratis (is_paid=false) no pide ninguno.
+        if (ev.tournament_scope === 'internal' && ev.is_paid !== false) {
+            const { data: fases } = await supabase
+                .from('event_price_phases')
+                .select('price_solo, valid_until')
+                .eq('event_id', id);
+            const hoy = new Date().toISOString().slice(0, 10);
+            const hayTarifa = (fases || []).some((f: any) => Number(f.price_solo) > 0 && String(f.valid_until) >= hoy);
+            if (!hayTarifa) {
+                return res.status(400).json({ error: 'Un torneo con cobro necesita una tarifa vigente mayor que cero. Si es gratis, márcalo como gratis.' });
+            }
+            if (!Array.isArray(ev.payment_methods) || ev.payment_methods.length === 0) {
+                return res.status(400).json({ error: 'Elige al menos un medio de pago para el torneo.' });
+            }
+        }
 
         const { data, error } = await supabase
             .from('events')
@@ -594,6 +615,8 @@ const PatchTournamentSchema = z.object({
     payment_deadline: z.string().nullable().optional(),
     correction_deadline: z.string().nullable().optional(),
     crossover_allowed: z.boolean().optional(),
+    is_paid: z.boolean().optional(),
+    payment_methods: z.array(z.string()).optional(),
 });
 router.patch('/school-tournaments/:id', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
     try {
@@ -983,6 +1006,7 @@ router.get('/school-tournaments/:id/for-participant', requireAuth, requireRole('
             .from('events')
             .select(`
                 id, title, sport, city, event_date, status, tournament_scope, registrations_open, school_id,
+                is_paid, payment_methods,
                 categories:event_categories_config(id, division, level, category, rama, age_min, age_max, active),
                 phases:event_price_phases(id, phase_name, valid_until, price_solo)
             `)
@@ -1084,6 +1108,60 @@ router.get('/school-tournaments/:id/individual-registrations', requireAuth, requ
         return res.status(200).json(data || []);
     } catch (err: any) {
         req.log?.error({ err }, 'Error inesperado listando inscripciones individuales');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// POST /api/v1/events/school-tournaments/:id/register-athlete — la escuela inscribe a un atleta (hijo de su escuela).
+// Queda APROBADA; si el torneo es pago crea el cobro al acudiente. Permite inscribir con el plazo cerrado.
+const RegisterAthleteSchema = z.object({
+    category_id: z.string().uuid(),
+    child_id: z.string().uuid(),
+});
+router.post('/school-tournaments/:id/register-athlete', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const eventId = String(req.params.id);
+        if (!(await assertOwnedSchoolTournament(eventId, schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        const parsed = RegisterAthleteSchema.safeParse(req.body);
+        if (!parsed.success) return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
+
+        // Con el cliente del usuario: la RPC valida auth.uid() contra la administración de la escuela.
+        const client = userClient(req);
+        const { data, error } = await client.rpc('school_register_athlete_for_tournament', {
+            p_event_id: eventId,
+            p_category_id: parsed.data.category_id,
+            p_child_id: parsed.data.child_id,
+        });
+        if (error) {
+            req.log?.warn({ err: error }, 'school_register_athlete_for_tournament rechazó la inscripción');
+            return res.status(error.code === '42501' ? 403 : 400).json({ error: error.message });
+        }
+
+        const r = (data ?? {}) as {
+            registration_id?: string; already_registered?: boolean; parent_id?: string | null;
+            payment_id?: string | null; amount?: number | null; is_paid?: boolean;
+        };
+
+        // Aviso a la familia solo si la inscripción es NUEVA (no repetir si ya estaba).
+        if (!r.already_registered && r.parent_id) {
+            const { data: ev } = await supabase.from('events').select('title').eq('id', eventId).maybeSingle();
+            const titulo = ev?.title ?? 'el torneo';
+            notifyProfiles([r.parent_id], {
+                title: '🏆 Inscribieron a tu deportista en un torneo',
+                message: r.is_paid === false
+                    ? `La escuela inscribió a tu deportista en "${titulo}".`
+                    : `La escuela inscribió a tu deportista en "${titulo}". Tienes un cobro pendiente en Mis pagos.`,
+                link: `/tournaments/${eventId}/register`,
+                data: { eventId, registrationId: r.registration_id },
+            }).catch((err) => req.log?.warn({ err }, 'Error notificando inscripción hecha por la escuela'));
+        }
+
+        return res.status(r.already_registered ? 200 : 201).json(r);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado inscribiendo atleta desde la escuela');
         return res.status(500).json({ error: 'Error interno del servidor' });
     }
 });

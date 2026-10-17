@@ -29,6 +29,22 @@ describe('invoiceLines', () => {
         expect(lines.reduce((s, l) => s + l.amount_cents, 0)).toBe(31800000);
     });
 
+    it('cobro único: usa su label, o el rótulo del certificado digital', () => {
+        const lines = invoiceLines({
+            plan_code: 'starter',
+            amount_cents: 41900000,
+            line_items: [
+                { kind: 'plan', code: 'starter', amount_cents: 28900000, negotiated: true },
+                { kind: 'one_time', code: 'certificado_digital', label: 'Certificado digital (anual)', amount_cents: 13000000 },
+                { kind: 'one_time', code: 'certificado_digital', amount_cents: 1 },
+                { kind: 'one_time', code: 'otro', label: 'Otro cobro', amount_cents: 2 },
+            ],
+        });
+        expect(lines[1].label).toBe('Certificado digital (anual)');
+        expect(lines[2].label).toBe('Certificado digital (anual)');
+        expect(lines[3].label).toBe('Otro cobro');
+    });
+
     it('addon sin nombre conocido muestra su código', () => {
         const lines = invoiceLines({
             plan_code: 'start',

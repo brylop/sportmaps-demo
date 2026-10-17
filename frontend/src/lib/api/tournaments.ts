@@ -55,6 +55,10 @@ export interface TournamentForParticipant {
     tournament_scope: string;
     registrations_open: boolean;
     school_id: string;
+    /** false = torneo gratis: la inscripción no genera cobro. */
+    is_paid?: boolean;
+    /** Medios que acepta el torneo (claves de mediosDeCobro). */
+    payment_methods?: string[] | null;
     categories: TournamentCategory[];
     phases: TournamentPricePhase[];
     my_registrations: MyRegistration[];
@@ -105,6 +109,19 @@ export const getPublicResults = (eventId: string, categoryId?: string) =>
 // ── Lado escuela (Fase 4) ───────────────────────────────────────────────────
 export const getIndividualRegistrations = (eventId: string) =>
     bffClient.get<IndividualRegistration[]>(`${BASE}/school-tournaments/${eventId}/individual-registrations`);
+
+/** La escuela inscribe a un atleta (hijo de su escuela). Queda aprobada; si el torneo es pago crea el cobro al acudiente. */
+export interface SchoolRegistrationResult {
+    registration_id: string;
+    already_registered?: boolean;
+    parent_id: string | null;
+    payment_id?: string | null;
+    amount?: number | null;
+    is_paid: boolean;
+}
+
+export const registerAthleteBySchool = (eventId: string, body: { category_id: string; child_id: string }) =>
+    bffClient.post<SchoolRegistrationResult>(`${BASE}/school-tournaments/${eventId}/register-athlete`, body);
 
 export const assignTeams = (
     eventId: string,

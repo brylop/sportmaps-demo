@@ -459,6 +459,12 @@ export async function estamparComprobante(
      * completo.
      */
     esperado?: number,
+    /**
+     * Estados desde los que se estampa. Por defecto pending/overdue (el bot);
+     * el enlace público /p/:token también acepta 'partial' (abono: el
+     * comprobante es del saldo, que llega en `esperado`).
+     */
+    opciones: { estados?: string[] } = {},
 ): Promise<ResultadoEstampado> {
     /**
      * El veredicto se calcula ACÁ y se persiste. No es opcional.
@@ -501,7 +507,7 @@ export async function estamparComprobante(
         receipt_verdict_reasons: veredicto.reasons,
         receipt_verdict_at: new Date().toISOString(),
         status: 'awaiting_approval',
-    }).eq('id', pago.id).in('status', ['pending', 'overdue']).select('id');
+    }).eq('id', pago.id).in('status', opciones.estados ?? ['pending', 'overdue']).select('id');
 
     if (stampErr) {
         // 23505 sobre `uq_payments_school_ocr_reference` NO es un fallo: es la
