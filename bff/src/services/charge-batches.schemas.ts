@@ -191,7 +191,11 @@ export const Pago = z.object({
     method: z.enum(['cash', 'transfer']),
     payment_date: fecha(),
     reference: z.string().trim().max(120).optional(),
-    receipt_url: z.string().url('Enlace del comprobante inválido').optional(),
+    // El bucket `payment-receipts` es privado: el uploader devuelve la RUTA (`<uid>/<archivo>`),
+    // no una URL. Se acepta ruta o URL http(s); nunca recorridos `..` ni otros esquemas.
+    receipt_url: z.string().trim().min(1).max(500)
+        .refine((v) => !v.includes('..') && !/^(?!https?:\/\/)[a-z][a-z0-9+.-]*:/i.test(v), 'Enlace del comprobante inválido')
+        .optional(),
     receipt_sha256: z.string().regex(/^[0-9a-f]{64}$/i, 'Huella del comprobante inválida').optional(),
     ocr: z.record(z.string(), z.unknown()).optional(),
 }).superRefine((p, ctx) => {
