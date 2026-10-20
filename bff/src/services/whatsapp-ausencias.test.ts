@@ -73,6 +73,8 @@ describe('detectaAusencia', () => {
         'Mile con respecto al comunicado Paula no puede ir yo le había comentado a Ricardo que la niña estudia inglés los sábados de 9am a 1pm, y no puede faltar, porque pierde el curso solo nos aceptan excusas medicas',
         'Mile es con respecto al torneo del 7 de noviembre, Paula no puede asistir',
         'ellas no pueden asistir el sábado 7 de noviembre',
+        'Nury siguió mal de su mano, este mes no va a entrenar, no puede',
+        'Te comento que durante dos meses Isabella no asiste a entreno por compromisos del colegio',
     ])('NO dispara con «%s»', (texto) => {
         expect(detectaAusencia(texto, HOY)).toBeNull();
     });

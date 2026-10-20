@@ -58,6 +58,8 @@ const PREGUNTA_DE_HORARIO = /\b(hay|habra|tienen|tiene) (clase|entreno|entrenami
 const MESES_RE = '(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)';
 /** «los sábados», «todos los lunes», «cada viernes», «sábados de 9 a 1». */
 const HORARIO_FIJO = /\b(todos los|cada|los) (lunes|martes|miercoles|jueves|viernes|sabados?|domingos?)\b|\b(sabados|domingos)\b/;
+/** «este mes no va a entrenar», «durante dos meses», «unas semanas»: una pausa, no la ausencia de hoy (Dynasty 10-13 y 10-17). */
+const PERIODO_LARGO = /\b(este mes|el proximo mes|el mes que viene|todo el mes|\d+ meses|meses|dos semanas|tres semanas|varias semanas|unas semanas|durante)\b/;
 /** Una fecha de calendario: «7 de noviembre». El detector solo sabe de hoy, mañana o el próximo día de la semana. */
 const FECHA_DE_CALENDARIO = new RegExp(`\\b\\d{1,2} de ${MESES_RE}\\b|\\b${MESES_RE}\\b`);
 /** Un evento: «comunicado», «torneo», «selección». Con un día de la semana nombrado («no va el sábado al torneo») sí avisa. */
@@ -114,7 +116,8 @@ export function detectaAusencia(texto: string | null | undefined, hoy: string = 
     // inglés los sábados» recibió «le aviso al entrenador que Maria no va hoy».)
     if (!/\bhoy\b/.test(n) && !diceManana(n)) {
         const diaNombrado = DIAS.some((d) => new RegExp(`\\b${d}\\b`).test(n));
-        if (HORARIO_FIJO.test(n) || FECHA_DE_CALENDARIO.test(n) || (EVENTO.test(n) && !diaNombrado)) return null;
+        if (HORARIO_FIJO.test(n) || FECHA_DE_CALENDARIO.test(n) || PERIODO_LARGO.test(n)
+            || (EVENTO.test(n) && !diaNombrado)) return null;
     }
 
     let dispara = NO_PUEDE.test(n) || NO_LO_LLEVO.test(n);

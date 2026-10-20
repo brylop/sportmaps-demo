@@ -36,6 +36,7 @@ import { runInformeCarteraSemanal } from '../services/informe-cartera.service';
 import { runFranjasCortesia } from '../services/franjas-cortesia.service';
 import { anularCobrosSueltosVencidos } from '../services/ventas-servicios.service';
 import { runRecordatorioCortesia } from '../services/recordatorio-cortesia.service';
+import { runCortesiaVencida } from '../services/cortesia-vencida.service';
 import { runSeguimientoNocheCortesia, detectarInscripcionesDeLeads } from '../services/prospecto-ciclo-clase.service';
 
 /** Último aviso de factura atascada por dueño (memoria del proceso; se reinicia con el deploy). */
@@ -852,6 +853,24 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Borrado físico de cuentas registrado para las 06:30 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Terminó la semana de cortesía (escuelas con school_settings.cortesia_unica):
+    // avisa a la administración, UNA vez por inscripción, de quien sigue sin plan
+    // ni cuota. Solo informa: no cancela ni cobra. 08:30 COT.
+    // Kill-switch: DISABLE_CORTESIA_VENCIDA_CRON=true.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('30 8 * * *', async () => {
+        if (process.env.DISABLE_CORTESIA_VENCIDA_CRON === 'true') return;
+        try {
+            await runCortesiaVencida();
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en aviso de cortesías vencidas:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Aviso de cortesías vencidas registrado para las 08:30 COT.');
 
     // ────────────────────────────────────────────────────────────────────────
     // Franjas de clase de cortesía desde los entrenamientos (teams.schedule).

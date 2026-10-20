@@ -189,3 +189,17 @@ describe('check 4 con llaves restringidas a un concepto', () => {
         expect(r.reasons.find((x) => x.code === 'DESTINO_NO_COINCIDE')?.level).toBe('rojo');
     });
 });
+
+describe('normalizeDestination: lecturas del OCR (Dynasty 10-14 y 10-18)', () => {
+    it('la O del OCR es un 0 en una cuenta numérica', () => {
+        expect(normalizeDestination('OO89455111')).toBe('0089455111');
+        expect(normalizeDestination('OO89 4551 11')).toBe('0089455111');
+    });
+    it('la llave con «@» delante es el mismo número', () => {
+        expect(normalizeDestination('@3204298969')).toBe('3204298969');
+    });
+    it('una llave alfanumérica no se toca, salvo el «@»', () => {
+        expect(normalizeDestination('@xji669')).toBe('XJI669');
+        expect(normalizeDestination('LOLA2024')).toBe('LOLA2024');
+    });
+});
