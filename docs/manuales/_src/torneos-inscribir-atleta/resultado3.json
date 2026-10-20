@@ -1,0 +1,41 @@
+{
+  "checks": [
+    {
+      "n": "despliegue nuevo: «Ya inscrito en esta categoría» en quien ya está",
+      "ok": true
+    },
+    {
+      "n": "despliegue nuevo: aparece la etiqueta «Adulto»",
+      "ok": true
+    },
+    {
+      "n": "el botón de quien ya está inscrito queda apagado",
+      "ok": true
+    },
+    {
+      "n": "adulto inscrito: aviso «Se le avisó al atleta»",
+      "ok": true,
+      "x": "Atleta inscrito\nDaniel Ospina quedó inscrito. Se le avisó al atleta. | Notification Atleta inscritoDaniel Ospina quedó inscrito. Se le avisó"
+    },
+    {
+      "n": "en la base: adulto aprobado, sin cobro, sin child_id",
+      "ok": true,
+      "x": {
+        "participant_name": "Daniel Ospina",
+        "participant_role": "athlete",
+        "status": "approved",
+        "payment_status": "not_required",
+        "child_id": null
+      }
+    },
+    {
+      "n": "tras inscribirlo, el modal lo marca «Ya inscrito»",
+      "ok": true
+    },
+    {
+      "n": "torneo solo efectivo: el encabezado avisa que se registra en Pagos",
+      "ok": true
+    }
+  ],
+  "adulto": "Daniel Ospina"
+}
