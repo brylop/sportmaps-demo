@@ -147,7 +147,7 @@ Se extiende la tabla de `V2Palabras`. Lo técnico va pequeño al lado, nunca com
 | Ventana de 24 h abierta | **Puedes responder hasta las 3:40 p. m.** | ventana de 24 h | chip con la hora |
 | Ventana cerrada | **Pasó un día sin que escriba: solo mensajes aprobados** | ventana cerrada, solo plantilla | aviso en el compositor |
 | Plantilla de Meta | **Mensaje aprobado** (plantilla, pequeño) | template, HSM | «Mensaje aprobado · recordatorio de pago» |
-| El bot | **el asistente** en la escuela. La familia ve el nombre del club | SportBot ante la familia, IA, bot | «El asistente respondió» |
+| El bot | **el asistente** en la escuela. La familia ve el nombre del club | Mapi ante la familia, IA, bot | «El asistente respondió» |
 | Tomar una conversación | **Responder**: quien responde queda a cargo | tomar, candado | «A cargo: Laura · el asistente en pausa» |
 | Consentimiento | **Acepta avisos por WhatsApp** | opt-in | ya así en `ComMovilContacto` |
 | Contacto personal de la dueña | **Personal** (el asistente no responde) | spam, desconocido | «Personales (2)» |
@@ -263,7 +263,7 @@ lo que sale escrito desde el celular.
 
 1. **Relevo desde el WhatsApp personal** (D4, fuera de alcance): ¿se quiere a mediano plazo? Exige un spec aparte de
    seguridad.
-2. **El nombre «SportBot» ante la escuela:** ¿«el asistente» o «SportBot»? Ante la familia ya se muestra el nombre del
+2. **El nombre «Mapi» ante la escuela:** ¿«el asistente» o «Mapi»? Ante la familia ya se muestra el nombre del
    club.
 3. **Horario de atención por defecto** (D6): lunes a sábado de 8:00 a. m. a 6:00 p. m. ¿O se copia del horario de
    entrenamientos?

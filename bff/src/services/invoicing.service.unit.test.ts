@@ -586,6 +586,24 @@ describe('qué fila de electronic_invoices significa "ya facturado"', () => {
         expect(r.pendiente).toBe(false);
     });
 
+    it('un rejected por bloqueo del PAC (factura pendiente en la DIAN) sin número se reintenta', async () => {
+        const r = await clasificarCon({
+            status: 'rejected',
+            error_message: 'Se encontró una factura pendiente por enviar a la DIAN',
+        });
+        expect(r.yaFacturado).toBe(false);
+        expect(r.pendiente).toBe(true);
+    });
+
+    it('un rejected con ese mismo texto pero CON número es un documento real: no se reintenta', async () => {
+        const r = await clasificarCon({
+            status: 'rejected',
+            number: 'DYTY700',
+            error_message: 'Se encontró una factura pendiente por enviar a la DIAN',
+        });
+        expect(r.yaFacturado).toBe(true);
+    });
+
     it('un draft nunca salió: sigue pendiente', async () => {
         const r = await clasificarCon({ status: 'draft' });
         expect(r.yaFacturado).toBe(false);

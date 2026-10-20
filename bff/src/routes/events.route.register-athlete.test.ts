@@ -135,6 +135,28 @@ describe('POST /school-tournaments/:id/register-athlete', () => {
         expect(h.rpcCalls).toHaveLength(0);
     });
 
+    it('atleta ADULTO → la RPC recibe p_athlete_user_id (sin p_child_id) y el aviso va al propio atleta', async () => {
+        h.rpc = { data: { registration_id: 'r4', already_registered: false, parent_id: PADRE, payment_id: 'p4', amount: 50000, is_paid: true, is_adult: true }, error: null };
+        const res = await post({ category_id: CATEGORIA, athlete_user_id: PADRE });
+        expect(res.status).toBe(201);
+        expect(h.rpcCalls).toEqual([{ fn: 'school_register_athlete_for_tournament',
+            args: { p_event_id: EVENTO, p_category_id: CATEGORIA, p_athlete_user_id: PADRE } }]);
+        expect(h.notifs[0]).toMatchObject({ user_id: PADRE });
+    });
+
+    it('cuerpo con hijo Y adulto, o con ninguno → 400 sin llamar la RPC', async () => {
+        expect((await post({ category_id: CATEGORIA, child_id: NINO, athlete_user_id: PADRE })).status).toBe(400);
+        expect((await post({ category_id: CATEGORIA })).status).toBe(400);
+        expect(h.rpcCalls).toHaveLength(0);
+    });
+
+    it('torneo lleno (cupo) → 400 con el mensaje de la RPC', async () => {
+        h.rpc = { data: null, error: { code: 'P0001', message: 'El torneo llegó a su cupo (50). Sube el cupo en la pestaña Info para inscribir a más.' } };
+        const res = await post(cuerpo);
+        expect(res.status).toBe(400);
+        expect((await res.json()).error).toContain('cupo');
+    });
+
     it('sin escuela resuelta → 403', async () => {
         h.schoolId = null;
         const res = await post(cuerpo);

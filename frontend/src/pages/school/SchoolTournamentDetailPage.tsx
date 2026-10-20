@@ -16,7 +16,7 @@ import { getIndividualRegistrations, assignTeams, IndividualRegistration } from 
 import { RegisterAthleteDialog } from '@/components/school/RegisterAthleteDialog';
 import { CobroTorneoFields } from '@/components/school/CobroTorneoFields';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
-import { mediosDeCobroDeLaEscuela } from '@/lib/tournaments/mediosDeCobro';
+import { mediosDeCobroDeLaEscuela, soloEfectivo } from '@/lib/tournaments/mediosDeCobro';
 
 interface Category {
   division: string; level: string; category: string; rama: string;
@@ -309,6 +309,8 @@ export default function SchoolTournamentDetailPage() {
           eventId={String(id)}
           categorias={savedCats.map((c: any) => ({ id: c.id, etiqueta: `${c.division} · ${c.category} (${c.rama})` }))}
           isPaid={t.is_paid !== false}
+          soloEfectivo={soloEfectivo(t.payment_methods)}
+          inscritos={regs}
           onRegistered={() => void loadIndividualRegistrations()}
         />
       )}

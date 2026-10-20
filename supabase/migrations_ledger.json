@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 788,
-  "head": "20261017123746",
+  "count": 792,
+  "head": "20261020113226",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -791,6 +791,10 @@
     {"v":"20261015171129","file":"20261015171129_pizarra_notas_y_videos.sql","sha256":"9575e51abc1626c18e7fff47f3e6e16783c7c5db10cb77dc4c4744b2fce26cda","added":"2026-10-15","by":"Brayan Steven Lopez"},
     {"v":"20261015171130","file":"20261015171130_pizarra_equipos_rivales.sql","sha256":"65ed94e0ff685ef0d54523004a53c3360ce14abf0ab7ef5060a23715efeb75ce","added":"2026-10-15","by":"Brayan Steven Lopez"},
     {"v":"20261015171131","file":"20261015171131_pizarra_videos_subidos.sql","sha256":"49da3d7dacb49ac1d77ff1c4503858f55487207e1c42e93de576722d8a83deea","added":"2026-10-15","by":"Brayan Steven Lopez"},
-    {"v":"20261017123746","file":"20261017123746_cobros_revertir_ajuste_resta_del_lote.sql","sha256":"3038f20c989586f2f35d4faa648df4df13892f4f41c2c60bef81ede9a3489177","added":"2026-10-17","by":"Brayan Steven Lopez"}
+    {"v":"20261017123746","file":"20261017123746_cobros_revertir_ajuste_resta_del_lote.sql","sha256":"3038f20c989586f2f35d4faa648df4df13892f4f41c2c60bef81ede9a3489177","added":"2026-10-17","by":"Brayan Steven Lopez"},
+    {"v":"20261020111232","file":"20261020111232_cortesia_unica_besser.sql","sha256":"c1fbf306aa3bd7cb43fed66e6096a6e521cdb4e47c4da973b27e662c99999d9a","added":"2026-10-20","by":"Brayan Steven Lopez"},
+    {"v":"20261020111530","file":"20261020111530_migrar_documentos_ficha.sql","sha256":"b979d9144d7b09b8d1f03fb4160409b9e696266fab4d6685d79248f1d4d37f11","added":"2026-10-20","by":"Brayan Steven Lopez"},
+    {"v":"20261020113208","file":"20261020113208_torneos_escuela_inscribe_ajustes.sql","sha256":"ee4f3ccf157601587f22f1b4a2b2fce6605eb84aedbf829a406fe9477d4cd01c","added":"2026-10-20","by":"Brayan Steven Lopez"},
+    {"v":"20261020113226","file":"20261020113226_pizarra_ia_revoca_grant_creditos_firma_vieja.sql","sha256":"2eb6bd8cbd50a6bbabd471f48f068bcdf663fbd594df7d86c6cb165e347d0f78","added":"2026-10-20","by":"Brayan Steven Lopez"}
   ]
 }

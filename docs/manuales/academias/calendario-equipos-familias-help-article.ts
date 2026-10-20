@@ -1,5 +1,5 @@
 /**
- * Artículo NUEVO para `bff/src/data/help-articles.ts` (Sportbot / Centro de
+ * Artículo NUEVO para `bff/src/data/help-articles.ts` (Mapi / Centro de
  * Ayuda). Slug nuevo `calendario-equipos-familias`: no reemplaza ninguno.
  *
  * Por qué no se toca `calendario-reservas`: ese artículo habla del calendario

@@ -78,8 +78,8 @@ export function altaFeesDueDate(startDate: string, today: string): string {
 function feeLine(raw: number | null | undefined, waived: boolean, active = false): OneTimeFeeLine {
   const amount = Number(raw) > 0 ? Number(raw) : 0;
   if (amount <= 0) return { amount: 0, charged: 0, status: 'none' };
-  if (waived) return { amount, charged: 0, status: 'waived' };
   if (active) return { amount, charged: 0, status: 'active' };
+  if (waived) return { amount, charged: 0, status: 'waived' };
   return { amount, charged: amount, status: 'charged' };
 }
 

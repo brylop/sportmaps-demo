@@ -41,6 +41,7 @@ import {
     cardTypeFromGatewayPayload,
     isRetryablePacError,
     TRANSPORT_ERROR_PREFIX,
+    esRechazoPorBloqueoDelPac,
 } from './invoicing/types';
 import {
     duenoDelCobro, filaDe, decidirClienteDeFactura, consumidorFinalHabilitado,
@@ -355,13 +356,20 @@ async function runEmission(params: {
     // hacía que TODA emisión real se contara como fallida y que el barrido
     // reportara 0 emitidas con las facturas saliendo bien. Quien completa la
     // fila es reconcilePendingInvoices.
+    const ok = result.status === 'accepted' || result.status === 'sent';
     return {
-        ok: result.status === 'accepted' || result.status === 'sent',
+        ok,
         invoiceId,
         status: result.status,
+        // Con este código el barrido sabe que es el PAC el que está bloqueado
+        // (no este pago) y deja de insistir con el resto del dueño.
+        ...(!ok && esRechazoPorBloqueoDelPac(result.errorMessage) ? { error: PAC_BLOQUEADO } : {}),
         ...(warnings.length > 0 ? { warnings } : {}),
     };
 }
+
+/** Código de EmitResult.error cuando el PAC frena la emisión por una factura sin validar. */
+export const PAC_BLOQUEADO = 'pac_bloqueado_por_factura_pendiente';
 
 // ─── Origen 1: pagos de escuela (tabla payments) ───────────────────────────────
 
@@ -1274,7 +1282,9 @@ const SKIP_ERRORS = new Set([
  *                      puso número/CUFE; si no, se puede reintentar (la
  *                      idempotencia por reference_code está confirmada).
  *   rejected         → terminal, SALVO que el motivo sea un fallo nuestro de
- *                      transporte, que sí se reintenta.
+ *                      transporte o que el PAC haya frenado la emisión por otra
+ *                      factura sin validar (sin número ni CUFE: no se quemó
+ *                      nada), que sí se reintentan.
  *   draft            → nunca salió.
  */
 function esFacturaEfectiva(row: {
@@ -1293,7 +1303,9 @@ function esFacturaEfectiva(row: {
         case 'queued':
             return tieneDocumento;
         case 'rejected':
-            return !String(row.error_message ?? '').startsWith(TRANSPORT_ERROR_PREFIX);
+            if (String(row.error_message ?? '').startsWith(TRANSPORT_ERROR_PREFIX)) return false;
+            if (!tieneDocumento && esRechazoPorBloqueoDelPac(row.error_message)) return false;
+            return true;
         default:
             return false;
     }
@@ -1407,13 +1419,27 @@ export async function autoEmitPendingInvoices(
         return AUTO_EMPTY;
     }
 
+    // Escuela de cada pendiente, para frenar SOLO a la que el PAC bloquea: un
+    // bloqueo es por dueño, y cortar todo el barrido atrasaría a las demás.
+    const { data: dueños } = await supabase.from('payments').select('id, school_id').in('id', pending);
+    const escuelaDe = new Map<string, string>((dueños ?? []).map((p: any) => [p.id, p.school_id]));
+    const bloqueadas = new Set<string>();
+
     let emitted = 0, failed = 0, skipped = 0;
     for (const id of pending) {
+        const escuela = escuelaDe.get(id);
+        if (escuela && bloqueadas.has(escuela)) { failed++; continue; }
         try {
             const r = await emitInvoiceForPayment(id);
             if (r.ok) emitted++;
             else if (r.error && SKIP_ERRORS.has(r.error)) skipped++;
-            else failed++;
+            else {
+                failed++;
+                if (r.error === PAC_BLOQUEADO && escuela) {
+                    bloqueadas.add(escuela);
+                    console.warn(`[invoicing] el PAC frenó la emisión de la escuela ${escuela} por una factura sin validar; se reintenta en el próximo barrido`);
+                }
+            }
         } catch { failed++; }
     }
     return { scanned: pending.length, emitted, failed, skipped };
@@ -1607,7 +1633,7 @@ export async function backfillInvoices(params: {
  */
 export async function reconcilePendingInvoices(
     opts?: { sinceDays?: number; limit?: number },
-): Promise<{ scanned: number; completed: number; stillPending: number; failed: number }> {
+): Promise<{ scanned: number; completed: number; stillPending: number; failed: number; stuck: number; stuckOwners: string[] }> {
     const sinceDays = opts?.sinceDays ?? 15;
     const limit = opts?.limit ?? 100;
     const since = new Date(Date.now() - sinceDays * 86_400_000).toISOString();
@@ -1617,15 +1643,16 @@ export async function reconcilePendingInvoices(
     // 'rejected' no tiene nada que reconciliar.
     const { data: rows } = await supabase
         .from('electronic_invoices')
-        .select('id, owner_type, owner_id, reference_code, status, cufe, validated_at, document_type')
+        .select('id, owner_type, owner_id, reference_code, status, cufe, validated_at, document_type, created_at')
         .in('status', ['sent', 'queued'])
         .gte('created_at', since)
         .order('created_at', { ascending: false })
         .limit(limit);
 
-    if (!rows || rows.length === 0) return { scanned: 0, completed: 0, stillPending: 0, failed: 0 };
+    if (!rows || rows.length === 0) return { scanned: 0, completed: 0, stillPending: 0, failed: 0, stuck: 0, stuckOwners: [] };
 
     let completed = 0, stillPending = 0, failed = 0;
+    const confirmadas = new Set<string>();
 
     // Una config de facturador por dueño, no por fila: varias facturas de la
     // misma escuela comparten credenciales y token.
@@ -1716,15 +1743,26 @@ export async function reconcilePendingInvoices(
                 }
             }
 
-            if (result.status === 'accepted') completed++;
+            if (result.status === 'accepted') { completed++; confirmadas.add(row.id); }
             else stillPending++;
         } catch {
             failed++;
         }
     }
 
-    return { scanned: rows.length, completed, stillPending, failed };
+    // Una factura que lleva horas en 'sent'/'queued' bloquea al PAC para TODO el
+    // dueño (Factus no emite mientras haya una sin llegar a la DIAN). Se
+    // reporta para que alguien la mire antes de que se acumulen rechazos.
+    const limiteAtasco = Date.now() - FACTURA_ATASCADA_HORAS * 3_600_000;
+    const atascadas = rows.filter((r: any) =>
+        !confirmadas.has(r.id) && r.document_type !== 'credit_note' && new Date(r.created_at).getTime() < limiteAtasco);
+    const stuckOwners = [...new Set(atascadas.map((r: any) => r.owner_id as string))];
+
+    return { scanned: rows.length, completed, stillPending, failed, stuck: atascadas.length, stuckOwners };
 }
+
+/** Horas en 'sent'/'queued' a partir de las cuales una factura se considera atascada. */
+export const FACTURA_ATASCADA_HORAS = 3;
 
 /** Barre ventas de marketplace 'paid' recientes sin factura (tienda escolar y externa). */
 export async function autoEmitPendingMarketplaceInvoices(

@@ -1,5 +1,5 @@
 /**
- * Contenido para Sportbot / Centro de Ayuda — versión ACADEMIAS del manual
+ * Contenido para Mapi / Centro de Ayuda — versión ACADEMIAS del manual
  * docs/manuales/academias/mesociclo-mes-siguiente.pdf (2026-10-02).
  *
  * Cómo usarlo: REEMPLAZA el artículo existente con slug "planes-entrenamiento"

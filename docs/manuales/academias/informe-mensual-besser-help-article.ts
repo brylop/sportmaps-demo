@@ -1,5 +1,5 @@
 /**
- * Contenido para el Centro de Ayuda / Sportbot (`bff/src/data/help-articles.ts`)
+ * Contenido para el Centro de Ayuda / Mapi (`bff/src/data/help-articles.ts`)
  * que acompaña al manual `docs/manuales/academias/informe-mensual-besser.pdf`.
  * APLICADO el 2026-10-02 en bff/src/data/help-articles.ts (lo pidió el
  * usuario). Este archivo queda como registro de lo que se cargó.

@@ -345,6 +345,8 @@ export interface OperationCalc {
     toPay: { n: number; total: number };
     discountsTotal: number;
     lateFeeWaived: number;
+    /** Recargo por mora que va DENTRO de lo que se registra hoy (ya sumado en `toPay`; no se suma otra vez). */
+    lateFeeIncluded: number;
     exonerated: number;
     /** Pendientes marcados que solo reciben ajustes (sin pago). */
     adjustOnly: number;
@@ -614,6 +616,7 @@ export function computeSingle(input: SingleInput): OperationCalc {
         toPay: { n: 0, total: 0 },
         discountsTotal: 0,
         lateFeeWaived: 0,
+        lateFeeIncluded: 0,
         exonerated: 0,
         adjustOnly: 0,
         listTotal: 0,
@@ -635,6 +638,7 @@ export function computeSingle(input: SingleInput): OperationCalc {
         if (c.payAmount > 0) {
             out.toPay.n += 1;
             out.toPay.total += c.payAmount;
+            if (c.kind === 'pending' && !c.exonerated) out.lateFeeIncluded += Math.max(0, c.lateFee - c.waived);
         }
         if (c.exonerated) out.exonerated += 1;
         else out.discountsTotal += c.lineDiscount + c.generalShare + c.closingDiscount;

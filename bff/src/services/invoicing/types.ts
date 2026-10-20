@@ -589,6 +589,18 @@ export function resolvePaymentMethodCode(
 export const TRANSPORT_ERROR_PREFIX = 'transporte:';
 
 /**
+ * El PAC se niega a emitir porque el dueño tiene OTRA factura que aún no
+ * llegó a la DIAN («Se encontró una factura pendiente por enviar a la DIAN»).
+ * No es un rechazo del documento: el PAC corta ANTES de asignar número, así
+ * que no se quema nada de la resolución y el mismo pago se puede reintentar
+ * en cuanto la factura que bloquea se valide. Caso real: Dynasty, 15-oct-2026
+ * (DYTY615 quedó sin validar y 28 cobros rebotaron en 4 días).
+ */
+export function esRechazoPorBloqueoDelPac(message: string | null | undefined): boolean {
+    return /pendiente por enviar a la dian/i.test(String(message ?? ''));
+}
+
+/**
  * Fallo de transporte contra el PAC: la petición no llegó, no volvió, o volvió
  * ilegible. Lo importante es que en ese escenario el documento PUDO quedar
  * creado ante la DIAN con su número consumido, así que NO es un rechazo.

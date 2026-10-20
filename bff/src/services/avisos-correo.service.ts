@@ -1,5 +1,5 @@
 /**
- * avisos-correo.service — Avisos por correo del bot (WhatsApp y SportBot).
+ * avisos-correo.service — Avisos por correo del bot (WhatsApp y Mapi).
  *
  * CONTRATO (lo fija la integración; el cuerpo lo completa el agente de correo):
  * quien escala llama `avisarEscalamientoPorCorreo` SIN await bloqueante sobre
@@ -421,11 +421,11 @@ export async function avisarEscalamientoPorCorreo(aviso: AvisoEscalamiento): Pro
     }
 }
 
-// ─── 3. Ticket de SportBot a SportMaps ──────────────────────────────────────
+// ─── 3. Ticket de Mapi a SportMaps ──────────────────────────────────────
 
 const ESTADOS_TICKET: Record<string, string> = {
     open: 'Abierto',
-    bot_handled: 'Respondido por SportBot',
+    bot_handled: 'Respondido por Mapi',
     waiting_human: 'Esperando a una persona',
     waiting_user: 'Esperando al usuario',
     resolved: 'Resuelto',
@@ -435,12 +435,12 @@ const ESTADOS_TICKET: Record<string, string> = {
 export type OrigenTicket = 'nuevo' | 'escalado';
 
 /**
- * Correo a SportMaps (`SUPPORT_ALERT_EMAIL`) por un ticket de SportBot.
+ * Correo a SportMaps (`SUPPORT_ALERT_EMAIL`) por un ticket de Mapi.
  *
  *  - 'nuevo': primer mensaje del ticket. Lo dispara support.routes DESPUÉS del
- *    turno del bot, así el correo ya dice si SportBot lo resolvió o lo pasó a
+ *    turno del bot, así el correo ya dice si Mapi lo resolvió o lo pasó a
  *    una persona. Uno por ticket, nunca más (id determinístico por ticket).
- *  - 'escalado': SportBot lo pasó a waiting_human en un mensaje POSTERIOR. Si
+ *  - 'escalado': Mapi lo pasó a waiting_human en un mensaje POSTERIOR. Si
  *    es el primer mensaje no se manda: el 'nuevo' sale enseguida y ya trae el
  *    estado "Esperando a una persona" (si no, serían dos correos en un segundo
  *    por el mismo caso). Freno de 6 h por ticket.
@@ -490,7 +490,7 @@ export async function avisarTicketSoportePorCorreo(p: { ticketId: string; origen
             .slice(0, 3)
             .reverse()
             .map((m) => ({
-                quien: m.author_type === 'user' ? nombre : m.author_type === 'bot' ? 'SportBot' : 'Soporte',
+                quien: m.author_type === 'user' ? nombre : m.author_type === 'bot' ? 'Mapi' : 'Soporte',
                 texto: recortar(String(m.body ?? ''), 500),
                 hora: horaColombia(m.created_at),
             }));
@@ -498,7 +498,7 @@ export async function avisarTicketSoportePorCorreo(p: { ticketId: string; origen
         const estado = ESTADOS_TICKET[t.status] ?? t.status;
         const escuela = (escuelaRes as any)?.data?.name || 'Sin escuela';
         const url = `${frontendUrl()}/admin/support`;
-        const titulo = p.origen === 'nuevo' ? 'Nuevo caso en SportBot' : 'SportBot pasó un caso a una persona';
+        const titulo = p.origen === 'nuevo' ? 'Nuevo caso en Mapi' : 'Mapi pasó un caso a una persona';
         const motivo = p.motivo ? motivoLegible(p.motivo) : '';
 
         const r = await enviarConReserva({

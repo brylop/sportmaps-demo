@@ -84,7 +84,7 @@ Cuando un manual tiene versión interna, ambos archivos comparten el mismo nombr
 ## Carnets digitales (2026-10-10)
 
 - `carnets-digitales.pdf` (`academias/` 22 págs. e `interno/` 24 págs.) — cómo la escuela genera los carnets y cómo les llegan a las familias: 9 capítulos (dónde están → plantilla → emitir uno → emitir por equipo → emitidos/PDF/revocar → cuatro caminos a la familia → qué ve la familia → check-in con el QR → "la familia no ve el carnet"). Capturas reales contra `dev.sportmaps.co` con el tenant demo `Club Campestre Demo` (owner, papá Mauricio Herrera, entrenadora de natación). Quedaron en ese tenant: la plantilla "Carnet 2026" y 8 carnets (Tomás Herrera v1 revocado + v2, Natación — Infantil y Fútbol — Sub-15). La interna suma lo que NO existe o está roto: no hay aviso automático a la familia al emitir, la plantilla predeterminada no se aplica (la RPC ignora `is_default`), el lote sin selector de plantilla, envío por WhatsApp uno por uno sin número, revocados mezclados en "Carnets de mis hijos", datos de ejemplo con "Coliseo Dynasty" en el editor, privacidad de la página pública, calidad del PDF por equipo y adopción (Dynasty 494 en un lote; check-in por QR: 1 registro).
-- Artículo para el Sportbot: `_src/carnets-digitales/help-article.ts` (slug NUEVO `carnets-digitales`, categoría `operacion-diaria`; no había ninguno de carnets en el corpus).
+- Artículo para Mapi: `_src/carnets-digitales/help-article.ts` (slug NUEVO `carnets-digitales`, categoría `operacion-diaria`; no había ninguno de carnets en el corpus).
 - **Fuente reproducible en `_src/carnets-digitales/`** (`capture.mjs` reanudable, `build.mjs`, `manual.css` con `.pair` y `.side` para capturas lado a lado).
 
 ## Dreamers Gymnastics: familias y administración (2026-10-14)

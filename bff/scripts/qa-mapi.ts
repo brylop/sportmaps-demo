@@ -1,7 +1,7 @@
 /**
- * QA de SportBot (chat de soporte in-app) contra el LLM REAL.
+ * QA de Mapi (chat de soporte in-app) contra el LLM REAL.
  *
- *   npx tsx scripts/qa-sportbot.ts            (desde bff/)
+ *   npx tsx scripts/qa-mapi.ts            (desde bff/)
  *
  * Corre `generarRespuesta()` —el mismo ciclo que producción: contexto del
  * usuario, mapa de la app, tools, redacción— con las preguntas reales que el
@@ -22,7 +22,7 @@
 
 import 'dotenv/config';
 import { generarRespuesta } from '../src/services/inapp-support-bot.service';
-import { construirContextoSportBot } from '../src/services/sportbot-contexto.service';
+import { construirContextoMapi } from '../src/services/mapi-contexto.service';
 import { helpArticles } from '../src/data/help-articles';
 
 const SLUGS = new Set(helpArticles.map((a) => a.slug));
@@ -68,7 +68,7 @@ const PROHIBIDO: [RegExp, string][] = [
 async function main() {
     let ok = 0;
     for (const c of CASOS) {
-        const ctx = await construirContextoSportBot(c.userId, c.schoolId);
+        const ctx = await construirContextoMapi(c.userId, c.schoolId);
         const t0 = Date.now();
         const r = await generarRespuesta([{ role: 'user', content: c.pregunta }], ctx, {
             ticketId: 'qa', requesterId: c.userId, schoolId: c.schoolId,

@@ -69,6 +69,12 @@ describe('detectaAusencia', () => {
         'gracias',
         'no va',
         '',
+        // Dynasty 10-20: horario fijo y torneo con fecha no son la ausencia de hoy
+        'Mile con respecto al comunicado Paula no puede ir yo le había comentado a Ricardo que la niña estudia inglés los sábados de 9am a 1pm, y no puede faltar, porque pierde el curso solo nos aceptan excusas medicas',
+        'Mile es con respecto al torneo del 7 de noviembre, Paula no puede asistir',
+        'ellas no pueden asistir el sábado 7 de noviembre',
+        'Nury siguió mal de su mano, este mes no va a entrenar, no puede',
+        'Te comento que durante dos meses Isabella no asiste a entreno por compromisos del colegio',
     ])('NO dispara con «%s»', (texto) => {
         expect(detectaAusencia(texto, HOY)).toBeNull();
     });
@@ -89,6 +95,13 @@ describe('atletasNombrados', () => {
     });
     it('nadie nombrado', () => {
         expect(atletasNombrados('no puede ir hoy', [SOFIA, JUAN])).toEqual([]);
+    });
+    it('segundo nombre: «Paula» es «María Paula» (Dynasty 10-20)', () => {
+        const MARIA_PAULA: CandidatoAusencia = { ...SOFIA, clave: 'c:3', nombre: 'MARIA PAULA GOMEZ' };
+        expect(atletasNombrados('Paula no puede ir hoy', [MARIA_PAULA, JUAN])).toEqual([MARIA_PAULA]);
+    });
+    it('un apellido compartido no elige a nadie: se pregunta', () => {
+        expect(atletasNombrados('los Pérez no van hoy', [SOFIA, JUAN])).toEqual([]);
     });
 });
 

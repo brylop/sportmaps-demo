@@ -6,7 +6,8 @@ import {
     copToCents,
 } from '../services/wompi.service';
 import { reprocessOrphanWebhooks } from '../services/webhook-reprocess.service';
-import { autoEmitPendingInvoices, autoEmitPendingMarketplaceInvoices, autoEmitPendingOrders, reconcilePendingInvoices } from '../services/invoicing.service';
+import { autoEmitPendingInvoices, autoEmitPendingMarketplaceInvoices, autoEmitPendingOrders, reconcilePendingInvoices, FACTURA_ATASCADA_HORAS } from '../services/invoicing.service';
+
 import { runGlosaNotifications } from './glosa-notifications.job';
 import { isStoreEnabled } from '../services/store-flag.service';
 import { sendChargeCreatedEmails, sendOverdueNoticeEmails } from './payment-lifecycle-emails.job';
@@ -35,7 +36,11 @@ import { runInformeCarteraSemanal } from '../services/informe-cartera.service';
 import { runFranjasCortesia } from '../services/franjas-cortesia.service';
 import { anularCobrosSueltosVencidos } from '../services/ventas-servicios.service';
 import { runRecordatorioCortesia } from '../services/recordatorio-cortesia.service';
+import { runCortesiaVencida } from '../services/cortesia-vencida.service';
 import { runSeguimientoNocheCortesia, detectarInscripcionesDeLeads } from '../services/prospecto-ciclo-clase.service';
+
+/** Último aviso de factura atascada por dueño (memoria del proceso; se reinicia con el deploy). */
+const ultimoAvisoFacturaAtascada = new Map<string, number>();
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -309,7 +314,17 @@ export function initMaintenanceJobs() {
         try {
             const rr = await reconcilePendingInvoices();
             if (rr.scanned > 0) {
-                console.log(`[CRON] Reconciliación de facturas: scanned=${rr.scanned} completed=${rr.completed} stillPending=${rr.stillPending} failed=${rr.failed}`);
+                console.log(`[CRON] Reconciliación de facturas: scanned=${rr.scanned} completed=${rr.completed} stillPending=${rr.stillPending} failed=${rr.failed} stuck=${rr.stuck}`);
+            }
+            // Factura atascada sin validar: bloquea al PAC para todo el dueño.
+            // Se avisa como mucho una vez cada 6 h por dueño (el cron corre cada 15 min).
+            for (const owner of rr.stuckOwners) {
+                const ultimo = ultimoAvisoFacturaAtascada.get(owner) ?? 0;
+                if (Date.now() - ultimo < 6 * 3_600_000) continue;
+                ultimoAvisoFacturaAtascada.set(owner, Date.now());
+                const msg = `[invoicing] ${rr.stuck} factura(s) llevan más de ${FACTURA_ATASCADA_HORAS} h sin validar en la DIAN (dueño ${owner}). El PAC no emite nada nuevo hasta que se resuelvan: revisar en el panel del PAC.`;
+                console.error(msg);
+                Sentry.captureMessage(msg, 'error');
             }
         } catch (err: any) {
             Sentry.captureException(err);
@@ -657,7 +672,7 @@ export function initMaintenanceJobs() {
     // ────────────────────────────────────────────────────────────────────────
     // Resumen semanal de los bots a SportMaps — lunes 07:05 COT (5 min después
     // del diario para no pedir las mismas tablas en el mismo minuto). WhatsApp
-    // por escuela + tickets de SportBot de la semana anterior. Misma
+    // por escuela + tickets de Mapi de la semana anterior. Misma
     // idempotencia en base. Kill-switch: DISABLE_BOT_RESUMEN_SEMANAL_CORREO.
     // ────────────────────────────────────────────────────────────────────────
     cron.schedule('5 7 * * 1', async () => {
@@ -838,6 +853,24 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Borrado físico de cuentas registrado para las 06:30 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Terminó la semana de cortesía (escuelas con school_settings.cortesia_unica):
+    // avisa a la administración, UNA vez por inscripción, de quien sigue sin plan
+    // ni cuota. Solo informa: no cancela ni cobra. 08:30 COT.
+    // Kill-switch: DISABLE_CORTESIA_VENCIDA_CRON=true.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('30 8 * * *', async () => {
+        if (process.env.DISABLE_CORTESIA_VENCIDA_CRON === 'true') return;
+        try {
+            await runCortesiaVencida();
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en aviso de cortesías vencidas:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Aviso de cortesías vencidas registrado para las 08:30 COT.');
 
     // ────────────────────────────────────────────────────────────────────────
     // Franjas de clase de cortesía desde los entrenamientos (teams.schedule).

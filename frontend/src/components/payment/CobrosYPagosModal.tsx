@@ -682,7 +682,7 @@ export function CobrosYPagosDialog({
                                         mode={mode}
                                         local={mode === 'single'
                                             ? single
-                                            : { toCreate: { n: multiCalc.estimatedRows, total: multiCalc.total }, toPay: { n: 0, total: 0 }, discountsTotal: multiCalc.discountsTotal, lateFeeWaived: 0, exonerated: 0, listTotal: multiCalc.listTotal, perAthleteAmounts: multiCalc.hasPerAthleteAmounts }}
+                                            : { toCreate: { n: multiCalc.estimatedRows, total: multiCalc.total }, toPay: { n: 0, total: 0 }, discountsTotal: multiCalc.discountsTotal, lateFeeWaived: 0, lateFeeIncluded: 0, exonerated: 0, listTotal: multiCalc.listTotal, perAthleteAmounts: multiCalc.hasPerAthleteAmounts }}
                                         preview={preview}
                                         fresh={previewFresh}
                                         loading={previewLoading}

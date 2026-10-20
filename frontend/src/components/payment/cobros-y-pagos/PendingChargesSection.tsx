@@ -116,6 +116,19 @@ export function PendingChargesSection({
                                     {late > 0 ? ` + recargo ${formatPesos(late)}` : ''}
                                     {paid > 0 ? ` · abonado ${formatPesos(paid)}` : ''}
                                 </p>
+                                {late > 0 && (
+                                    <div className="flex items-start gap-2 rounded-lg border border-amber-400/40 bg-amber-500/10 p-2" data-testid={`cyp-late-${c.id}`}>
+                                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
+                                        <div className="space-y-0.5 text-xs text-amber-700 dark:text-amber-400">
+                                            <p className="font-bold">En mora: este cobro trae recargo</p>
+                                            <p className="tabular-nums">
+                                                {mensual ? 'Mensualidad' : 'Valor del cobro'} {formatPesos(Math.max(0, Number(c.amount) - late))} + recargo por mora {formatPesos(late)} = <b>{formatPesos(Number(c.amount))}</b>
+                                                {d.selected && d.waive.enabled ? ' · recargo condonado' : ''}
+                                            </p>
+                                            {paid > 0 && <p>Ya abonado {formatPesos(paid)} · se cobra el saldo {formatPesos(balanceNow)}</p>}
+                                        </div>
+                                    </div>
+                                )}
                                 {blocked && (
                                     <p className="text-xs text-amber-700 dark:text-amber-400 flex items-start gap-1">
                                         <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" /> {blocked}

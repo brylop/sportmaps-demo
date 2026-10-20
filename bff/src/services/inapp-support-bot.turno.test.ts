@@ -1,5 +1,5 @@
 /**
- * El turno de SportBot (análisis 2026-10-06): más de la mitad de las
+ * El turno de Mapi (análisis 2026-10-06): más de la mitad de las
  * respuestas eran la lista de links de respaldo o "dame un segundo" sin
  * respuesta detrás. Estas pruebas fijan que el bot redacta, sabe quién es el
  * usuario y nunca deja una promesa colgada.
@@ -36,8 +36,8 @@ vi.mock('../config/supabase', () => ({ supabase: h.supabase }));
 vi.mock('./llm.service', () => ({ chatWithTools: h.chat }));
 vi.mock('./support-diagnosis.service', () => ({ buildUserState: vi.fn(async () => ({})) }));
 vi.mock('./avisos-correo.service', () => ({ avisarTicketSoportePorCorreo: vi.fn(async () => undefined) }));
-vi.mock('./sportbot-contexto.service', () => ({
-    construirContextoSportBot: vi.fn(async () => ({
+vi.mock('./mapi-contexto.service', () => ({
+    construirContextoMapi: vi.fn(async () => ({
         nombre: 'Carlos', roles: ['coach'], rolesVisibles: ['entrenador (coach)'],
         escuelaActiva: 'Carmel Club', otrasEscuelas: [], equiposQueEntrena: ['Sub 11'], modulosApagados: [],
     })),
@@ -58,7 +58,7 @@ beforeEach(() => {
     h.state.historial = [{ author_type: 'user', body: 'quiero editar el nombre de mi equipo' }];
 });
 
-describe('SportBot: redacta en vez de mandar manuales', () => {
+describe('Mapi: redacta en vez de mandar manuales', () => {
     it('busca, redacta con el resultado y agrega UN solo link como complemento', async () => {
         h.chat
             .mockResolvedValueOnce({ toolCalls: [{ name: 'search_help_articles', args: { query: 'editar equipo' } }], provider: 'test' })
@@ -106,7 +106,7 @@ describe('SportBot: redacta en vez de mandar manuales', () => {
     });
 });
 
-describe('SportBot: sabe con quién habla', () => {
+describe('Mapi: sabe con quién habla', () => {
     it('el prompt lleva el usuario y el mapa de SUS roles', async () => {
         h.chat.mockResolvedValueOnce({ text: 'ok', provider: 'test' });
         await turno();

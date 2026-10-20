@@ -45,7 +45,7 @@ import {
 } from '@/components/students/FirstPaymentModeSection';
 import { formatCOP } from '@/lib/prorationUtils';
 import {
-  AltaFirstChargeCard, FeeWaivers, NO_FEE_WAIVERS, feeWaiversPayload,
+  AltaFirstChargeCard, FeeWaivers, feeWaiversPayload, defaultFeeWaivers,
 } from '@/components/students/AltaFirstChargeCard';
 import { useInsuranceActiveSince } from '@/hooks/useInsuranceActiveSince';
 import { PhoneInput } from '@/components/ui/phone-input';
@@ -147,7 +147,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, ca
   const [selectedPlanRegistrationFee, setSelectedPlanRegistrationFee] = useState(0);
   const [selectedPlanInsuranceFee, setSelectedPlanInsuranceFee] = useState(0);
   // Exoneración por alta: «No cobrar inscripción / seguro» (se reinicia al cambiar de plan).
-  const [feeWaivers, setFeeWaivers] = useState<FeeWaivers>(NO_FEE_WAIVERS);
+  const [feeWaivers, setFeeWaivers] = useState<FeeWaivers>(() => defaultFeeWaivers(canWaiveFees));
   // Alta a mitad de mes por clases restantes (F7). Flag por escuela, leído aparte
   // para que una base sin la columna no tumbe la lectura de billing.
   const [remainingClassesEnabled, setRemainingClassesEnabled] = useState(false);
@@ -238,7 +238,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, ca
 
   const handlePlanSelect = (planId: string) => {
     setSelectedPlanId(planId);
-    setFeeWaivers(NO_FEE_WAIVERS);
+    setFeeWaivers(defaultFeeWaivers(canWaiveFees));
     if (!planId || planId === 'none') {
       setSelectedOfferingId('');
       setSelectedPlanPrice(0);
@@ -265,7 +265,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, ca
     setSelectedPlanId('none'); setSelectedOfferingId('');
     setSelectedPlanPrice(0); setSelectedPlanRegistrationFee(0); setSelectedPlanInsuranceFee(0);
     setFirstPayment(DEFAULT_FIRST_PAYMENT_CHOICE);
-    setFeeWaivers(NO_FEE_WAIVERS);
+    setFeeWaivers(defaultFeeWaivers(canWaiveFees));
     setStartDate(todayColombia());
     setMonthlyFee('');
     setDiscountPct(0);

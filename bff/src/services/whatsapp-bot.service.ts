@@ -112,6 +112,8 @@ const OTP_TTL_MIN = 10;
  * no tener que redeployar si la escuela pide más o menos.
  */
 export const SILENCIO_HUMANO_MIN = Number(process.env.WHATSAPP_SILENCIO_HUMANO_MIN) || 15;
+/** Minutos tras un mensaje de la escuela en los que un saludo suelto del contacto no recibe respuesta del bot. */
+const VENTANA_SALUDO_TRAS_HUMANO_MIN = 180;
 
 // ─── Contexto del turno (notas de voz) ───────────────────────────────────────
 //
@@ -242,6 +244,18 @@ async function cuerpoDelTurno(
     //     ya está ahí).
     if (humanoReciente(recientes, SILENCIO_HUMANO_MIN)) {
         console.info('[whatsapp-bot] la escuela está atendiendo; el bot se calla', { conversationId });
+        await marcarAbiertaSinAviso(conversationId);
+        return;
+    }
+
+    // 0b'. Un saludo suelto («Hola amor», «Hola Mile») cuando la escuela escribió en
+    //     las últimas 3 horas es la respuesta a ELLA, no una consulta nueva: el
+    //     bot no se presenta encima (Dynasty 10-20: «Hola amor» 16 min después de
+    //     que Milena escribió recibió «Soy el asistente automático…»). La ventana
+    //     normal es de 15 min; un saludo corto no justifica interrumpir antes.
+    if (!botonId && humanoReciente(recientes, VENTANA_SALUDO_TRAS_HUMANO_MIN)
+        && saludoSinContenido(text, await vocativosDeEscuela(integration.school_id))) {
+        console.info('[whatsapp-bot] saludo tras mensaje de la escuela; el bot se calla', { conversationId });
         await marcarAbiertaSinAviso(conversationId);
         return;
     }
@@ -521,6 +535,14 @@ async function cuerpoDelTurno(
         return;
     }
 
+    // 2.93. «¿Hay entreno hoy?», «¿Cambiaron el horario de hoy?»: el horario del día
+    //       sin modelo. Antes solo corría para desconocidos y a las familias les
+    //       llegaba un saludo del modelo (Dynasty 10-11: «Menores masculino no hay
+    //       entrenamiento hoy?»). Si la escuela está escribiendo, no entra.
+    if (await responderHorarioDeHoy(integration, conversationId, contactWaId, text, rafaga)) {
+        return;
+    }
+
     // 2.95. «No puedo entrar», «olvidé la clave», «cómo pago en la app»
     //       (ajuste `wa_ayuda_app`): paso a paso con los botones reales, sin modelo.
     if (await responderAyudaDeApp(integration, conversationId, contactWaId, rafaga, ajustesEscuela, true)) {
@@ -627,6 +649,7 @@ export function _limpiarCacheVocativos(): void { cacheVocativos.clear(); }
 /** Palabras de saludo/cierre que `soloSaludoOCortesia` no trae y no deben abrir un pedido de correo. */
 const SALUDO_EXTRA = new Set(['quedo', 'pendiente', 'pendientes', 'atento', 'atenta', 'holaa', 'holaaa', 'buenass',
     'querida', 'querido', 'linda', 'lindo', 'reina', 'amiga', 'amigo', 'mija', 'mijo', 'recuerdas',
+    'amor', 'mi', 'cielo', 'bella', 'bello', 'hermosa', 'hermoso', 'mami', 'mamita', 'corazon', 'cari',
     'espero', 'se', 'te', 'encuentre', 'encuentres', 'bien', 'muy', 'estes', 'este']);
 
 /**
@@ -1710,6 +1733,12 @@ export const TEXTO_IDENTIFICACION_AMBIGUA =
 const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
 const CODE_RE = /\b(\d{6})\b/;
 
+/** ¿El mensaje es, en esencia, solo el código? (≤ 4 palabras fuera de los dígitos). */
+export function pareceSoloUnCodigo(texto: string): boolean {
+    const palabras = texto.replace(/\d+/g, ' ').split(/\s+/).filter((w) => /[a-záéíóúñ]/i.test(w));
+    return palabras.length <= 4;
+}
+
 /** El código de 6 dígitos más reciente de la ráfaga (las líneas van en orden). */
 function ultimoCodigo(rafaga: string): RegExpMatchArray | null {
     const lineas = rafaga.split('\n');
@@ -1750,7 +1779,15 @@ async function handleIdentification(
     // Un código de la ráfaga solo cuenta con un OTP vigente: seis dígitos en un
     // mensaje anterior también son un monto («son 150000»).
     const codigoDeRafaga = !text.match(CODE_RE) && rafaga ? ultimoCodigo(rafaga) : null;
-    const codeMatch = text.match(CODE_RE)
+    // Seis dígitos dentro de una frase larga («…Cc 1007 497036») son una cédula o un
+    // monto, no el código: solo cuentan con un OTP vigente (Dynasty 10-14: una
+    // entrenadora pidió una certificación laboral y recibió «no tengo una
+    // verificación pendiente»). Un mensaje corto («123456», «mi código es 123456»)
+    // sigue verificándose para que el código vencido reciba su explicación.
+    const codigoEnTexto = text.match(CODE_RE);
+    const codigoPlausible = codigoEnTexto && (pareceSoloUnCodigo(text) || await hayOtpVigente(integration.id, contactWaId))
+        ? codigoEnTexto : null;
+    const codeMatch = codigoPlausible
         ?? (codigoDeRafaga && await hayOtpVigente(integration.id, contactWaId) ? codigoDeRafaga : null);
 
     // (a) Mandó un código de 6 dígitos → verificar.

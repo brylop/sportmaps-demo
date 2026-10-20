@@ -17,7 +17,7 @@ type EmailType =
     | "athlete_invitation"
     | "staff_invitation"
     | "payment_reminder"
-    // Avisos del bot (WhatsApp y SportBot). Los arma bff/src/services/avisos-correo.service.ts
+    // Avisos del bot (WhatsApp y Mapi). Los arma bff/src/services/avisos-correo.service.ts
     // y los jobs whatsapp-resumen-diario / bot-resumen-semanal.
     | "wa_escalamiento"
     | "wa_resumen_diario"
@@ -356,12 +356,12 @@ function getSubjectAndHtml(type: EmailType, d: Record<string, string>): { subjec
             };
         }
 
-        // Ticket de SportBot (nuevo, o escalado a una persona). A SportMaps.
+        // Ticket de Mapi (nuevo, o escalado a una persona). A SportMaps.
         case "soporte_ticket_nuevo":
             return {
-                subject: `${d.titulo || "Nuevo caso en SportBot"}: ${d.requesterName || "un usuario"}`,
+                subject: `${d.titulo || "Nuevo caso en Mapi"}: ${d.requesterName || "un usuario"}`,
                 html: wrapTemplate(`
-          <h2 style="color: #248223; margin-top: 0;">${esc(d.titulo || "Nuevo caso en SportBot")}</h2>
+          <h2 style="color: #248223; margin-top: 0;">${esc(d.titulo || "Nuevo caso en Mapi")}</h2>
           <table style="width: 100%; border-collapse: collapse; margin: 20px 0; text-align: left;">
             ${filaDato("Usuario", d.requesterName || "")}
             ${d.requesterEmail ? filaDato("Correo", d.requesterEmail) : ""}
@@ -410,10 +410,10 @@ function getSubjectAndHtml(type: EmailType, d: Record<string, string>): { subjec
               <td ${th}>1.ª resp. humana (mediana)</td><td ${th}>Sin responder &gt; 24 h</td>
             </tr>${filas}
           </table>` : ""}
-          <h3 style="color: #248223; text-align: left; margin: 24px 0 8px;">SportBot (soporte in-app)</h3>
+          <h3 style="color: #248223; text-align: left; margin: 24px 0 8px;">Mapi (soporte in-app)</h3>
           <table style="width: 100%; border-collapse: collapse; text-align: left;">
             ${filaDato("Tickets nuevos", n(tk.total))}
-            ${filaDato("Resueltos por SportBot", n(tk.botHandled))}
+            ${filaDato("Resueltos por Mapi", n(tk.botHandled))}
             ${filaDato("Esperando a una persona", n(tk.waitingHuman))}
             ${filaDato("Con respuesta humana", n(tk.conRespuestaHumana))}
             ${filaDato("Mediana a la primera respuesta", n(tk.medianaPrimeraRespuestaMin, " min"), true)}

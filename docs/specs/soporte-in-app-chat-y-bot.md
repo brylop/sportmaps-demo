@@ -119,7 +119,7 @@ Lo que hace que el de Nubank se sienta bien, traducido a requisitos:
 1. **Un solo hilo persistente.** Se abre y está la historia completa, no un chat en blanco. Es la diferencia central contra el widget de la landing.
 2. **El bot arranca con contexto,** no con un menú. Primer turno: llama `get_my_state` y saluda sabiendo quién eres y qué tienes pendiente.
 3. **El humano entra en el mismo hilo.** Sin "te contactaremos por correo". El super_admin escribe y aparece ahí, con su nombre y avatar.
-4. **Estado siempre visible.** Un chip: *SportBot* / *Esperando a soporte* / *Resuelto*. La ansiedad en soporte viene de no saber si alguien leyó.
+4. **Estado siempre visible.** Un chip: *Mapi* / *Esperando a soporte* / *Resuelto*. La ansiedad en soporte viene de no saber si alguien leyó.
 5. **Acciones dentro de la burbuja.** El bot no explica cómo reenviar el enlace: pone el botón.
 
 ### Tools del bot
