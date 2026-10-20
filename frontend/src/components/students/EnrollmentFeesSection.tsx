@@ -5,14 +5,14 @@
  * los cobra después desde aquí: el BFF crea el mismo cobro único del alta con el
  * valor del plan y queda el registro. No repite una inscripción viva ni un seguro
  * de los últimos 12 meses (lo decide el BFF; esto solo lo muestra).
+ *
+ * Lo marcado se cobra al pulsar «Guardar Cambios» de la ficha (el padre llama a
+ * cobrarInscripcionSeguro): marcar y guardar es un solo gesto, sin otro botón.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import { Loader2, ShieldCheck, CheckCircle2, Clock } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { useToast } from '@/hooks/use-toast';
 import { formatCOP } from '@/lib/prorationUtils';
 
 export type FeeKind = 'inscripcion' | 'seguro';
@@ -53,19 +53,33 @@ export function describirLinea(f: FeeLine): string {
   return nombre;
 }
 
+export type FeesMarked = Record<FeeKind, boolean>;
+export const NO_FEES_MARKED: FeesMarked = { inscripcion: false, seguro: false };
+
+/** Cobra lo marcado (POST del BFF). Lanza con el mensaje del servidor si no se pudo. */
+export async function cobrarInscripcionSeguro(
+  athleteId: string,
+  athleteType: 'child' | 'adult' | 'unregistered',
+  marked: FeesMarked,
+): Promise<void> {
+  const { bffClient } = await import('@/lib/api/bffClient');
+  await bffClient.post(`/api/v1/students/${athleteId}/enrollment-fees`, {
+    athlete_type: athleteType, inscripcion: marked.inscripcion, seguro: marked.seguro,
+  });
+}
+
 interface Props {
   athleteId: string;
   athleteType: 'child' | 'adult' | 'unregistered';
+  marked: FeesMarked;
+  onMarkedChange: (m: FeesMarked) => void;
+  disabled?: boolean;
 }
 
-export function EnrollmentFeesSection({ athleteId, athleteType }: Props) {
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
+export function EnrollmentFeesSection({ athleteId, athleteType, marked, onMarkedChange, disabled }: Props) {
   const [view, setView] = useState<FeesView | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [marked, setMarked] = useState<Record<FeeKind, boolean>>({ inscripcion: false, seguro: false });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -81,7 +95,7 @@ export function EnrollmentFeesSection({ athleteId, athleteType }: Props) {
     }
   }, [athleteId, athleteType]);
 
-  useEffect(() => { setMarked({ inscripcion: false, seguro: false }); load(); }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   if (loading) {
     return <p className="text-xs text-muted-foreground flex items-center gap-2"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Revisando inscripción y seguro…</p>;
@@ -96,28 +110,7 @@ export function EnrollmentFeesSection({ athleteId, athleteType }: Props) {
   }
   if (!view.plan) return null; // sin plan activo no hay valores que cobrar
 
-  const total = view.fees.reduce((s, f) => s + (f.can_charge && marked[f.kind] ? f.plan_amount : 0), 0);
-  const anyMarked = view.fees.some((f) => f.can_charge && marked[f.kind]);
-
-  const charge = async () => {
-    setSaving(true);
-    try {
-      const { bffClient } = await import('@/lib/api/bffClient');
-      const out = await bffClient.post<FeesView & { created: string[] }>(
-        `/api/v1/students/${athleteId}/enrollment-fees`,
-        { athlete_type: athleteType, inscripcion: marked.inscripcion, seguro: marked.seguro },
-      );
-      setView({ plan: out.plan, fees: out.fees });
-      setMarked({ inscripcion: false, seguro: false });
-      queryClient.invalidateQueries({ queryKey: ['school-students'] });
-      toast({ title: '✅ Cobro creado', description: `Se cobró ${formatCOP(total)} (queda pendiente en Cobros y pagos).` });
-    } catch (e: any) {
-      toast({ title: 'No se pudo cobrar', description: e?.message || 'Ocurrió un error inesperado', variant: 'destructive' });
-      load();
-    } finally {
-      setSaving(false);
-    }
-  };
+  const total = view.fees.reduce((sum, f) => sum + (f.can_charge && marked[f.kind] ? f.plan_amount : 0), 0);
 
   return (
     <div className="space-y-2 rounded-md border p-3" data-testid="enrollment-fees-section">
@@ -131,8 +124,8 @@ export function EnrollmentFeesSection({ athleteId, athleteType }: Props) {
               <Checkbox
                 id={`fee-after-${f.kind}`}
                 checked={marked[f.kind]}
-                disabled={saving}
-                onCheckedChange={(v) => setMarked((m) => ({ ...m, [f.kind]: v === true }))}
+                disabled={disabled}
+                onCheckedChange={(v) => onMarkedChange({ ...marked, [f.kind]: v === true })}
               />
               <Label htmlFor={`fee-after-${f.kind}`} className="text-sm font-normal cursor-pointer leading-snug">
                 Cobrar {f.kind === 'inscripcion' ? 'inscripción' : 'seguro'} ({formatCOP(f.plan_amount)})
@@ -151,10 +144,10 @@ export function EnrollmentFeesSection({ athleteId, athleteType }: Props) {
           )
         ))}
       </div>
-      {anyMarked && (
-        <Button type="button" size="sm" onClick={charge} disabled={saving}>
-          {saving ? 'Cobrando…' : `Cobrar ${formatCOP(total)}`}
-        </Button>
+      {total > 0 && (
+        <p className="text-xs font-medium text-primary">
+          Al pulsar «Guardar Cambios» se cobran {formatCOP(total)} (quedan pendientes en Cobros y pagos).
+        </p>
       )}
     </div>
   );

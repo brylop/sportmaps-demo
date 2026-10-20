@@ -44,7 +44,7 @@ import { EpsCombobox } from '@/components/common/EpsCombobox';
 import { TSHIRT_SIZES, BLOOD_TYPES } from '@/lib/athlete-options';
 import { CreateChildModal } from '@/components/students/CreateChildModal';
 import { SiblingFamilySection } from '@/components/students/siblings';
-import { EnrollmentFeesSection } from '@/components/students/EnrollmentFeesSection';
+import { EnrollmentFeesSection, NO_FEES_MARKED, cobrarInscripcionSeguro, type FeesMarked } from '@/components/students/EnrollmentFeesSection';
 import { ZkPinField } from '@/components/students/ZkPinField';
 import { CreateAdultAthleteModal } from '@/components/students/CreateAdultAthleteModal';
 import { CobrosYPagosModal } from '@/components/payment/CobrosYPagosModal';
@@ -799,6 +799,9 @@ export default function SchoolStudentsManagementPage() {
     },
   });
 
+  // Inscripción / seguro marcados en la ficha: se cobran al guardar (después del PUT).
+  const [feesMarked, setFeesMarked] = useState<FeesMarked>(NO_FEES_MARKED);
+
   const updateStudentMutation = useMutation({
     mutationFn: async (data: StudentFormData & { plan_change_charge?: PlanChangeChargeMode }) => {
       if (!editingStudent || !schoolId) return;
@@ -841,9 +844,24 @@ export default function SchoolStudentsManagementPage() {
           ...(data.plan_change_charge ? { plan_change_charge: data.plan_change_charge } : {}),
         },
       });
+
+      // Inscripción / seguro marcados en la ficha: el atleta ya quedó guardado; si el
+      // cobro falla se avisa aparte (guardar de nuevo no duplica: el BFF no repite).
+      if ((feesMarked.inscripcion || feesMarked.seguro) && editingAthleteType) {
+        try {
+          await cobrarInscripcionSeguro(editingStudent.id, editingAthleteType, feesMarked);
+        } catch (e: any) {
+          toast({
+            title: 'El atleta se guardó, pero no se pudo cobrar',
+            description: e?.message || 'Intenta de nuevo desde la ficha.',
+            variant: 'destructive',
+          });
+        }
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['school-students'] });
+      setFeesMarked(NO_FEES_MARKED);
       setPlanChangePrompt(null);
       setDialogOpen(false);
       setEditingStudent(null);
@@ -909,6 +927,7 @@ export default function SchoolStudentsManagementPage() {
     const athleteType = getAthleteType(student);
     setEditingStudent(student);
     setEditingAthleteType(athleteType);
+    setFeesMarked(NO_FEES_MARKED);
     let extraFields = { tshirt_size: '', blood_type: '', eps_name: '' };
     if (athleteType === 'child') {
       const { data } = await (supabase as any).from('children').select('tshirt_size, blood_type, eps_name').eq('id', student.id).maybeSingle();
@@ -2277,7 +2296,13 @@ export default function SchoolStudentsManagementPage() {
                 (o se desmarcaron por error). Solo administración; el BFF vuelve a exigirlo. */}
             {editingStudent && editingAthleteType && schoolId && !editingIsInactive
               && profile?.role !== 'coach' && canManageCharges(schoolRole) && (
-              <EnrollmentFeesSection athleteId={editingStudent.id} athleteType={editingAthleteType} />
+              <EnrollmentFeesSection
+                athleteId={editingStudent.id}
+                athleteType={editingAthleteType}
+                marked={feesMarked}
+                onMarkedChange={setFeesMarked}
+                disabled={updateStudentMutation.isPending}
+              />
             )}
 
             {/* F2 hermanos: familia del menor (vínculo manual para acudientes sin
