@@ -181,11 +181,20 @@ export function atletasNombrados(texto: string, candidatos: CandidatoAusencia[])
         const i = Number(num[1]) - 1;
         return candidatos[i] ? [candidatos[i]] : [];
     }
-    return candidatos.filter((c) => {
+    const porPrimerNombre = candidatos.filter((c) => {
         const nombre = normalizarFrase(primerNombre(c.nombre));
         return nombre.length >= 2 && new RegExp(`\\b${nombre}\\b`).test(n);
     });
+    if (porPrimerNombre.length) return porPrimerNombre;
+    // Las familias dicen el segundo nombre («Paula» por «María Paula», «Isabella»
+    // por «Tania Isabella»; Dynasty 10-13/10-17/10-20). Solo cuenta si apunta a UN
+    // deportista: con dos que comparten el nombre se pregunta, no se adivina.
+    const porOtroNombre = candidatos.filter((c) => normalizarFrase(c.nombre).split(' ')
+        .some((p) => p.length >= 3 && !PARTICULAS_DE_NOMBRE.has(p) && new RegExp(`\\b${p}\\b`).test(n)));
+    return porOtroNombre.length === 1 ? porOtroNombre : [];
 }
+
+const PARTICULAS_DE_NOMBRE = new Set(['del', 'las', 'los', 'van', 'von']);
 
 // ─── 3. Mensajes (puros) ─────────────────────────────────────────────────────
 

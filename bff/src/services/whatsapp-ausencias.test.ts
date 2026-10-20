@@ -96,6 +96,13 @@ describe('atletasNombrados', () => {
     it('nadie nombrado', () => {
         expect(atletasNombrados('no puede ir hoy', [SOFIA, JUAN])).toEqual([]);
     });
+    it('segundo nombre: «Paula» es «María Paula» (Dynasty 10-20)', () => {
+        const MARIA_PAULA: CandidatoAusencia = { ...SOFIA, clave: 'c:3', nombre: 'MARIA PAULA GOMEZ' };
+        expect(atletasNombrados('Paula no puede ir hoy', [MARIA_PAULA, JUAN])).toEqual([MARIA_PAULA]);
+    });
+    it('un apellido compartido no elige a nadie: se pregunta', () => {
+        expect(atletasNombrados('los Pérez no van hoy', [SOFIA, JUAN])).toEqual([]);
+    });
 });
 
 describe('mensajes y botones', () => {
