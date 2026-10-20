@@ -69,6 +69,10 @@ describe('detectaAusencia', () => {
         'gracias',
         'no va',
         '',
+        // Dynasty 10-20: horario fijo y torneo con fecha no son la ausencia de hoy
+        'Mile con respecto al comunicado Paula no puede ir yo le había comentado a Ricardo que la niña estudia inglés los sábados de 9am a 1pm, y no puede faltar, porque pierde el curso solo nos aceptan excusas medicas',
+        'Mile es con respecto al torneo del 7 de noviembre, Paula no puede asistir',
+        'ellas no pueden asistir el sábado 7 de noviembre',
     ])('NO dispara con «%s»', (texto) => {
         expect(detectaAusencia(texto, HOY)).toBeNull();
     });

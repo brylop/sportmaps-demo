@@ -363,6 +363,13 @@ describe('se presenta como de otra institución', () => {
         'Hola, soy el coordinador del colegio San Martín',
         'Les escribo desde la fundación Semillas para proponer una alianza comercial',
         'Les enviamos la cotización de los balones',
+        'Buenos días, hablas con Stefania entrenadora de Ushuaia nos preguntábamos si ustedes podrían ir el día sábado a jugar un amistoso en la sede de nuestro club en las categorías mayores a las siete de la mañana',
+        'Queremos agendar un amistoso con ustedes el sábado',
+        'Podemos coordinar un amistoso para el domingo?',
+        'Hola, los esperamos el sábado en nuestra sede, mini vóley a las 11',
+        'Pueden venir a jugar con nosotros el sábado',
+        'Los retamos a un partido el domingo',
+        'Amistoso CVJ MAXI SENIORS',
     ])('«%s» → externo', (t) => expect(seIdentificaComoExterno(t)).toBe(true));
 
     it.each([
@@ -371,6 +378,10 @@ describe('se presenta como de otra institución', () => {
         'Mi hija entrena con la profe de la sede norte',
         '¿Tienen clases para niños de 8 años?',
         'Hola, ¿hablas con la entrenadora?',
+        '¿Hay partido este sábado?',
+        '¿Cuándo es el próximo partido de mi hija?',
+        '¿Los niños pueden ir a jugar a la cancha el sábado?',
+        '¿Ustedes tienen amistosos durante el año?',
     ])('«%s» → no es externo', (t) => expect(seIdentificaComoExterno(t)).toBe(false));
 
     it('entrenadora de otro club que invita a un amistoso: ni enlace de inscripción ni correo, al buzón', async () => {

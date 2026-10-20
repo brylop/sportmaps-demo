@@ -106,6 +106,13 @@ const EXTERNO: RegExp[] = [
     /\bnuestr[oa]s? (club|academia|escuela|empresa|fundacion|liga|institucion|marca|tienda|productos|servicios|portafolio|catalogo)\b/,
     // invitaciones a otro club: amistosos, festivales, «quedan invitados»
     /\b(jugar|hacer|organizar|programar|cuadrar) (un |unos )?(amistosos?|partidos? amistosos?|cuadrangular|triangular|festival)\b/,
+    // 2026-10-19: más verbos («agendar/coordinar un amistoso») y la invitación sin la palabra «amistoso»
+    /\b(agendar|coordinar|concretar|pactar|acordar|fijar|armar|gestionar|realizar|tener|disputar|jugar|organizar) (con ustedes )?(un |unos |el )?(partidos? |encuentros? )?(amistosos?|cuadrangular|triangular|festival)\b/,
+    /\b(partidos?|encuentros?) amistosos?\b.*\b(ustedes|sede|nuestr[oa]s?|invit\w*)\b|\bamistosos?\b.*\b(en|a) (nuestra|nuestro) (sede|cancha|club|coliseo|escuela)\b/,
+    /^amistosos?\b/, // título suelto: «Amistoso CVJ MAXI SENIORS» (Dynasty 10-16)
+    /\b(venir|ir|vayan|vengan|visitarnos) a (jugar|competir) (con nosotr\w+|contra nosotr\w+|un|unos)\b/,
+    /\bjugar con nosotr[oa]s\b|\b(los|las|les) (esperamos|retamos|retar)\b/,
+    /\b(en|a) nuestr[oa] (sede|cancha|coliseo)\b/,
     /\b(los|las|les) (invitamos|invito|queremos invitar)\b/,
     /\b(super |muy )?invitad[oa]s\b/,
     /\b(nos|me) (puedan|pueden|podrian) acompanar\b/,

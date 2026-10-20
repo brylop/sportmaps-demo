@@ -55,6 +55,14 @@ const DUDA = /\b(no se si|todavia no se|aun no se|no estoy segur[oa])\b/;
 const DE_PLATA = /\b(pago|pagos|pagar|pague|comprobante|transferencia|consignacion|consigne|factura|cobro|mensualidad|plata|dinero|abono|nequi|daviplata)\b/;
 const PREGUNTA_DE_HORARIO = /\b(hay|habra|tienen|tiene) (clase|entreno|entrenamiento|practica)\b/;
 
+const MESES_RE = '(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)';
+/** «los sábados», «todos los lunes», «cada viernes», «sábados de 9 a 1». */
+const HORARIO_FIJO = /\b(todos los|cada|los) (lunes|martes|miercoles|jueves|viernes|sabados?|domingos?)\b|\b(sabados|domingos)\b/;
+/** Una fecha de calendario: «7 de noviembre». El detector solo sabe de hoy, mañana o el próximo día de la semana. */
+const FECHA_DE_CALENDARIO = new RegExp(`\\b\\d{1,2} de ${MESES_RE}\\b|\\b${MESES_RE}\\b`);
+/** Un evento: «comunicado», «torneo», «selección». Con un día de la semana nombrado («no va el sábado al torneo») sí avisa. */
+const EVENTO = /\b(comunicado|torneos?|seleccion|campamento|festival|gira|cuadrangular|curso)\b/;
+
 const DIAS = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
 
 const MOTIVOS: [MotivoAusencia, RegExp][] = [
@@ -100,6 +108,14 @@ export function detectaAusencia(texto: string | null | undefined, hoy: string = 
     if (!n || n.length > 400) return null;
     if (DUDA.test(n) || DE_PLATA.test(n)) return null;
     if (PREGUNTA_DE_HORARIO.test(n) && !NO_PUEDE.test(n)) return null;
+    // Sin «hoy» ni «mañana», un horario fijo («los sábados de 9 a 1») o un evento
+    // con fecha («el torneo del 7 de noviembre», «el comunicado») no es la
+    // ausencia de hoy: va a la escuela. (Dynasty 10-20: «Paula no puede ir… estudia
+    // inglés los sábados» recibió «le aviso al entrenador que Maria no va hoy».)
+    if (!/\bhoy\b/.test(n) && !diceManana(n)) {
+        const diaNombrado = DIAS.some((d) => new RegExp(`\\b${d}\\b`).test(n));
+        if (HORARIO_FIJO.test(n) || FECHA_DE_CALENDARIO.test(n) || (EVENTO.test(n) && !diaNombrado)) return null;
+    }
 
     let dispara = NO_PUEDE.test(n) || NO_LO_LLEVO.test(n);
     if (!dispara && (NO_VA.test(n) || EXCUSA.test(n)) && CONTEXTO.test(n)) dispara = true;

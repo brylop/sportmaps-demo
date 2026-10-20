@@ -34,7 +34,9 @@ import { normalizeDestination, normalizeReference, evaluateVerdict, destinationM
 import { evaluatePaymentReceipt, redRejectionMessage } from '../services/receipt-approval.service';
 import { debeAtender, type TipoDeContacto } from '../services/whatsapp-atencion.service';
 import { esMarcaNoFamilia } from '../services/whatsapp-tipo-contacto';
-import { anunciaComprobante, normalizarFrase, PASOS_SIN_CUENTA, type ComprobanteAnunciado } from '../services/whatsapp-reglas-turno';
+import {
+    anunciaComprobante, normalizarFrase, PASOS_SIN_CUENTA, humanoReciente, type ComprobanteAnunciado, type FilaReciente,
+} from '../services/whatsapp-reglas-turno';
 import {
     pagosPendientesDe, resolverPago, describirPago, mensajeElegirPago,
     type PagoPendiente,
@@ -194,6 +196,24 @@ async function textosCercanos(fila: FilaCola): Promise<(string | null | undefine
         // Sin textos se decide solo con el pie y la lectura.
     }
     return textos;
+}
+
+/** ¿Escribió una persona de la escuela en este chat en los últimos 15 min? Nunca lanza; ante el error, false. */
+async function escuelaAtendiendoElChat(fila: FilaCola): Promise<boolean> {
+    try {
+        const { data: conv } = await supabase.from('whatsapp_conversations')
+            .select('id').eq('integration_id', fila.integration_id).eq('contact_wa_id', fila.wa_phone_number)
+            .maybeSingle();
+        if (!(conv as any)?.id) return false;
+        const { data } = await supabase.from('whatsapp_messages')
+            .select('direction, type, text_body, payload, ai_generated, wa_timestamp, created_at')
+            .eq('conversation_id', (conv as any).id)
+            .gte('created_at', new Date(Date.now() - 15 * 60_000).toISOString())
+            .limit(60);
+        return humanoReciente((Array.isArray(data) ? data : []) as FilaReciente[], 15);
+    } catch {
+        return false;
+    }
 }
 
 async function pistaDeCobro(fila: FilaCola): Promise<PistaDeCobro | null> {
@@ -864,6 +884,16 @@ async function continuarComoComprobante(
         return;
     }
     if (!(await destinoEsDeLaEscuela(fila.school_id, ocr))) {
+        // Si una persona de la escuela está escribiendo en este chat, el comprobante
+        // puede ser parte de lo que ella pidió (Dynasty 10-20: Milena le pedía a un
+        // contacto reenviar una transferencia y el bot le dijo «cuenta ajena»). Se
+        // deja a la escuela, sin respuesta, pero queda en la bandeja.
+        if (await escuelaAtendiendoElChat(fila)) {
+            await cerrar(fila.id, 'ignored', {
+                result_type: 'escalated', matched_parent_id: parentId, error_message: 'destino no es de la escuela',
+            });
+            return;
+        }
         await responder(
             `Revisé tu comprobante y el dinero se envió a la cuenta *${ocr.destination}*, ` +
             'que no es ninguna de las cuentas registradas por la escuela.\n\n' +
