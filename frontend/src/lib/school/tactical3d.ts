@@ -361,7 +361,14 @@ export const MIN_FPS = 20;
  * devuelve 'pending' hasta completar la ventana y después el veredicto (una
  * sola vez: luego queda 'done').
  */
-export function createFpsMeter(windowMs = FPS_WINDOW_MS, minFps = MIN_FPS) {
+export function createFpsMeter(
+  windowMs = FPS_WINDOW_MS,
+  minFps = MIN_FPS,
+  opts: { warmupMs?: number; windows?: number } = {},
+) {
+  const warmupMs = opts.warmupMs ?? 0;
+  let windowsLeft = Math.max(1, opts.windows ?? 1);
+  let origin: number | null = null;
   let start: number | null = null;
   let frames = 0;
   let decided = false;
@@ -369,16 +376,37 @@ export function createFpsMeter(windowMs = FPS_WINDOW_MS, minFps = MIN_FPS) {
   return {
     tick(nowMs: number): 'pending' | 'ok' | 'slow' | 'done' {
       if (decided) return 'done';
-      if (start === null) { start = nowMs; return 'pending'; }
+      if (origin === null) {
+        origin = nowMs;
+        if (warmupMs <= 0) start = nowMs;
+        return 'pending';
+      }
+      // Calentamiento: los primeros cuadros compilan shaders y suben texturas
+      // (cientos de ms en cualquier equipo); no dicen nada del ritmo real.
+      if (nowMs - origin < warmupMs) return 'pending';
+      if (start === null) { start = nowMs; frames = 0; return 'pending'; }
       frames += 1;
       const elapsed = nowMs - start;
       if (elapsed < windowMs) return 'pending';
-      decided = true;
       fps = (frames * 1000) / elapsed;
-      return fps < minFps ? 'slow' : 'ok';
+      if (fps >= minFps) { decided = true; return 'ok'; }
+      // Una ventana lenta sola puede ser un tirón (otra pestaña, el SW, el GC):
+      // se exige que la siguiente también lo sea antes de volver a 2D.
+      if (windowsLeft > 1) { windowsLeft -= 1; start = nowMs; frames = 0; return 'pending'; }
+      decided = true;
+      return 'slow';
     },
     get fps() { return fps; },
   };
+}
+
+/** Piso de fps según el equipo: un PC (puntero fino) con GPU integrada rinde
+ *  menos que un celular de gama media y aun así el 3D le sirve a 12 fps. */
+export function defaultMinFps(): number {
+  try {
+    if (typeof window !== 'undefined' && window.matchMedia?.('(pointer: fine)').matches) return 12;
+  } catch { /* sin matchMedia: piso de celular */ }
+  return MIN_FPS;
 }
 
 /** prefers-reduced-motion: sin animación automática de cámara. */
