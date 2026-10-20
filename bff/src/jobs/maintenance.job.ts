@@ -6,7 +6,8 @@ import {
     copToCents,
 } from '../services/wompi.service';
 import { reprocessOrphanWebhooks } from '../services/webhook-reprocess.service';
-import { autoEmitPendingInvoices, autoEmitPendingMarketplaceInvoices, autoEmitPendingOrders, reconcilePendingInvoices } from '../services/invoicing.service';
+import { autoEmitPendingInvoices, autoEmitPendingMarketplaceInvoices, autoEmitPendingOrders, reconcilePendingInvoices, FACTURA_ATASCADA_HORAS } from '../services/invoicing.service';
+
 import { runGlosaNotifications } from './glosa-notifications.job';
 import { isStoreEnabled } from '../services/store-flag.service';
 import { sendChargeCreatedEmails, sendOverdueNoticeEmails } from './payment-lifecycle-emails.job';
@@ -36,6 +37,9 @@ import { runFranjasCortesia } from '../services/franjas-cortesia.service';
 import { anularCobrosSueltosVencidos } from '../services/ventas-servicios.service';
 import { runRecordatorioCortesia } from '../services/recordatorio-cortesia.service';
 import { runSeguimientoNocheCortesia, detectarInscripcionesDeLeads } from '../services/prospecto-ciclo-clase.service';
+
+/** Último aviso de factura atascada por dueño (memoria del proceso; se reinicia con el deploy). */
+const ultimoAvisoFacturaAtascada = new Map<string, number>();
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -309,7 +313,17 @@ export function initMaintenanceJobs() {
         try {
             const rr = await reconcilePendingInvoices();
             if (rr.scanned > 0) {
-                console.log(`[CRON] Reconciliación de facturas: scanned=${rr.scanned} completed=${rr.completed} stillPending=${rr.stillPending} failed=${rr.failed}`);
+                console.log(`[CRON] Reconciliación de facturas: scanned=${rr.scanned} completed=${rr.completed} stillPending=${rr.stillPending} failed=${rr.failed} stuck=${rr.stuck}`);
+            }
+            // Factura atascada sin validar: bloquea al PAC para todo el dueño.
+            // Se avisa como mucho una vez cada 6 h por dueño (el cron corre cada 15 min).
+            for (const owner of rr.stuckOwners) {
+                const ultimo = ultimoAvisoFacturaAtascada.get(owner) ?? 0;
+                if (Date.now() - ultimo < 6 * 3_600_000) continue;
+                ultimoAvisoFacturaAtascada.set(owner, Date.now());
+                const msg = `[invoicing] ${rr.stuck} factura(s) llevan más de ${FACTURA_ATASCADA_HORAS} h sin validar en la DIAN (dueño ${owner}). El PAC no emite nada nuevo hasta que se resuelvan: revisar en el panel del PAC.`;
+                console.error(msg);
+                Sentry.captureMessage(msg, 'error');
             }
         } catch (err: any) {
             Sentry.captureException(err);
