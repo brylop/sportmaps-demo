@@ -89,6 +89,8 @@ interface CreateChildModalProps {
 interface BillingSettings {
   payment_cutoff_day: number;
   billing_cycle_type: 'prorated' | 'fixed_calendar' | 'rolling_30';
+  /** «Primer cobro sin recargo»: la base mueve el primer cobro al próximo corte (trigger). */
+  late_fee_skip_signup_month?: boolean;
 }
 
 // ─── Section wrapper ──────────────────────────────────────────────────────────
@@ -185,7 +187,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveF
       supabase.from('teams').select('id, name, sport, price_monthly').eq('school_id', schoolId).eq('status', 'active').order('name'),
       supabase.from('offering_plans').select('id, name, price, duration_days, registration_fee, insurance_fee, offering_id, offerings(id, name)').eq('school_id', schoolId).eq('is_active', true).order('sort_order'),
       supabase.from('school_branches').select('id, name').eq('school_id', schoolId).order('name'),
-      supabase.from('school_settings').select('payment_cutoff_day, billing_cycle_type').eq('school_id', schoolId).maybeSingle(),
+      supabase.from('school_settings').select('payment_cutoff_day, billing_cycle_type, late_fee_skip_signup_month').eq('school_id', schoolId).maybeSingle(),
     ]).then(([teamsRes, plansRes, branchesRes, settingsRes]) => {
       setTeams((teamsRes.data as Team[]) ?? []);
       const flatPlans: PlanOption[] = ((plansRes.data as any[]) ?? []).map(row => ({
@@ -201,7 +203,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveF
       setPlans(flatPlans);
       setBranches((branchesRes.data as Branch[]) ?? []);
       if (settingsRes.data) {
-        setBilling(settingsRes.data as BillingSettings);
+        setBilling(settingsRes.data as unknown as BillingSettings);
       }
     });
     supabase.from('school_settings').select('remaining_classes_billing_enabled').eq('school_id', schoolId).maybeSingle()

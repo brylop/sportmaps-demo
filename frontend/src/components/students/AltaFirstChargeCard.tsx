@@ -47,7 +47,7 @@ export function feeWaiversPayload(w: FeeWaivers): { waive_registration_fee?: tru
 interface Props {
   startDate: string;
   monthlyFee: number;
-  billing: { billing_cycle_type: BillingCycleType; payment_cutoff_day: number };
+  billing: { billing_cycle_type: BillingCycleType; payment_cutoff_day: number; late_fee_skip_signup_month?: boolean };
   discountPct: number;
   onDiscountChange: (pct: number) => void;
   registrationFee?: number;
@@ -83,6 +83,7 @@ export function AltaFirstChargeCard({
     monthlyFee,
     cycleType: billing.billing_cycle_type,
     cutoffDay: billing.payment_cutoff_day,
+    firstChargeNextCutoff: !!billing.late_fee_skip_signup_month,
     discountPct: discountEnabled ? discountPct : 0,
     registrationFee,
     insuranceFee,
