@@ -44,6 +44,7 @@ import { EpsCombobox } from '@/components/common/EpsCombobox';
 import { TSHIRT_SIZES, BLOOD_TYPES } from '@/lib/athlete-options';
 import { CreateChildModal } from '@/components/students/CreateChildModal';
 import { SiblingFamilySection } from '@/components/students/siblings';
+import { EnrollmentFeesSection } from '@/components/students/EnrollmentFeesSection';
 import { ZkPinField } from '@/components/students/ZkPinField';
 import { CreateAdultAthleteModal } from '@/components/students/CreateAdultAthleteModal';
 import { CobrosYPagosModal } from '@/components/payment/CobrosYPagosModal';
@@ -2271,6 +2272,13 @@ export default function SchoolStudentsManagementPage() {
               </div>
               )}
             </div>
+
+            {/* Inscripción y seguro del plan: se cobran después del alta si no se marcaron
+                (o se desmarcaron por error). Solo administración; el BFF vuelve a exigirlo. */}
+            {editingStudent && editingAthleteType && schoolId && !editingIsInactive
+              && profile?.role !== 'coach' && canManageCharges(schoolRole) && (
+              <EnrollmentFeesSection athleteId={editingStudent.id} athleteType={editingAthleteType} />
+            )}
 
             {/* F2 hermanos: familia del menor (vínculo manual para acudientes sin
                 cuenta). Solo administración; la RPC vuelve a exigirlo. */}
