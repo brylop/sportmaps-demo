@@ -40,7 +40,7 @@ import {
   DropdownMenuSeparator, DropdownMenuCheckboxItem, DropdownMenuSub, DropdownMenuSubTrigger,
   DropdownMenuSubContent, DropdownMenuRadioGroup, DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
-import { Shirt, Loader2, Square, X, Bookmark, Redo2, Trash2, PenLine, Undo2, Eraser, Ruler, Sparkles, Plus, Play, Copy, RotateCw, Pencil, Type, Users, MoreHorizontal, Package, LayoutGrid } from 'lucide-react';
+import { Settings2, Shirt, Loader2, Square, X, Bookmark, Redo2, Trash2, PenLine, Undo2, Eraser, Ruler, Sparkles, Plus, Play, Copy, RotateCw, Pencil, Type, Users, MoreHorizontal, Package, LayoutGrid } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { startHintFormationLabel } from '@/lib/school/tacticalStartHint';
 import { useTeamPerformanceRoster } from '@/hooks/usePerformanceData';
@@ -1555,6 +1555,8 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   // Figuras dibujadas (sin la configuración de cancha): lo que el coach cuenta.
   const drawnCount = drawableShapes(arrows).length;
   const [courtOpen, setCourtOpen] = useState(false);
+  // M6g: «Ajustes de la pizarra» controlado (en el celular se abre desde «Más»).
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const view = gkZoom ? GK_VIEW : viewForCourt(courtCfg, sportCfg.allowGkZoom);
   const zoomedView = view.y1 - view.y0 < 90;
   useEffect(() => { setGkZoom(situation === 'arqueros'); }, [situation]);
@@ -2962,7 +2964,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
               <Button
                 size="sm"
                 variant="ghost"
-                className={`${TB_BTN} ${teamsCtl.teams ? TB_ON : TB_IDLE}`}
+                className={`${TB_BTN} ${teamsCtl.teams ? TB_ON : TB_IDLE} ${isMobile ? 'hidden' : ''}`}
                 onClick={() => teamsCtl.setDialogOpen(true)}
                 title="Nombre, escudo, colores y estilo de ficha de tu equipo y del rival"
                 data-testid="tb-equipos"
@@ -3002,6 +3004,13 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                   {isMobile && (
                     <>
                       <PlayMediaMenuItems media={media} onOpen={setMediaDialog} />
+                      {/* Celular: «Equipos» (M6b) y «Ajustes» (M6g) viven acá; en el toolbar no caben. */}
+                      <DropdownMenuItem onSelect={() => window.setTimeout(() => teamsCtl.setDialogOpen(true), 0)} data-testid="tb-equipos-menu">
+                        <Shirt className="h-4 w-4 mr-2" /> Equipos
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => window.setTimeout(() => setSettingsOpen(true), 0)}>
+                        <Settings2 className="h-4 w-4 mr-2" /> Ajustes de la pizarra
+                      </DropdownMenuItem>
                       <DropdownMenuSeparator />
                     </>
                   )}
@@ -3116,8 +3125,10 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
           )}
 
           {/* pr-8: la X nativa del Dialog (absolute right-4 top-4) queda
-              encima del último botón si el toolbar llega hasta el borde. */}
-          <div className="ml-auto flex items-center gap-1.5 pr-8">
+              encima del último botón si el toolbar llega hasta el borde. En el celular este grupo
+              baja a su propia fila (la X queda arriba): sin el pr-8, que lo hacía
+              7 px más ancho que la pantalla y corría toda la pizarra. */}
+          <div className={`ml-auto flex items-center gap-1.5 ${isMobile && !viewing ? 'pr-0' : 'pr-8'}`}>
             {/* «Exportar ▾» (T2) en ver y en editar; cada exportación es un
                 evento de la métrica (T0). */}
             {!loading && roleCanEdit && hasAiAnalysis(sport) && (
@@ -3136,7 +3147,8 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
               </Button>
             )}
             {!loading && (
-              <TacticalBoardSettingsButton prefs={prefs} className={`${TB_BTN} ${TB_IDLE}`} />
+              <TacticalBoardSettingsButton prefs={prefs} className={`${TB_BTN} ${TB_IDLE}`}
+                open={settingsOpen} onOpenChange={setSettingsOpen} hideTrigger={isMobile && !viewing} />
             )}
             {!loading && (
               <TacticalExportMenu

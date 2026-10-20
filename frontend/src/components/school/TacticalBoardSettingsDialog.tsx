@@ -54,16 +54,23 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-export function TacticalBoardSettingsButton({ prefs, className, disabled }: {
+export function TacticalBoardSettingsButton({ prefs, className, disabled, open: openProp, onOpenChange, hideTrigger = false }: {
   prefs: TacticalBoardPrefs;
   className?: string;
   disabled?: boolean;
+  /** Controlado desde afuera (en el celular se abre desde «Más»). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Sin el botón del toolbar (en el celular el toolbar no da más). */
+  hideTrigger?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [openState, setOpenState] = useState(false);
+  const open = openProp ?? openState;
+  const setOpen = (v: boolean) => { if (openProp === undefined) setOpenState(v); onOpenChange?.(v); };
   const { settings: s, update } = prefs;
   return (
     <>
-      <Button
+      {!hideTrigger && <Button
         type="button"
         size="sm"
         variant="ghost"
@@ -75,7 +82,7 @@ export function TacticalBoardSettingsButton({ prefs, className, disabled }: {
       >
         <Settings2 className="h-3.5 w-3.5" />
         <span className="hidden lg:inline">Ajustes</span>
-      </Button>
+      </Button>}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-md max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
