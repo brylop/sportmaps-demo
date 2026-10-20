@@ -23,17 +23,24 @@ import { bffClient } from "@/lib/api/bffClient";
 // ayuda (/ayuda/slug) dentro del texto — sin esto quedaría como texto plano
 // sin poder tocarlo. Partimos el body en pedazos y solo el pedazo /ayuda/...
 // se vuelve un <Link> de router (navegación SPA, no recarga completa).
-const HELP_LINK_RE = /(\/ayuda\/[a-z0-9-]+)/g;
+//
+// Mapi sí usa **negrita** para los nombres de menús y botones (así lo pide su
+// prompt) y a veces envuelve el link como [texto](/ayuda/slug): se deja solo la
+// ruta y la negrita se dibuja, para que no queden asteriscos ni corchetes sueltos.
+const HELP_LINK_RE = /(\/ayuda\/[a-z0-9-]+|\*\*[^*\n]+\*\*)/g;
+const MD_HELP_LINK_RE = /\[[^\]\n]*\]\((\/ayuda\/[a-z0-9-]+)\)/g;
 
 function MessageBody({ body }: { body: string }) {
     // split() con grupo de captura intercala texto plano y coincidencias en
     // orden — los índices impares son SIEMPRE lo que matcheó el grupo, sin
     // volver a testear el regex (evita el gotcha de estado de un regex /g).
-    const parts = body.split(HELP_LINK_RE);
+    const parts = body.replace(MD_HELP_LINK_RE, '$1').split(HELP_LINK_RE);
     return (
         <>
             {parts.map((part, i) =>
-                i % 2 === 1 ? (
+                i % 2 === 1 && part.startsWith('**') ? (
+                    <strong key={i}>{part.slice(2, -2)}</strong>
+                ) : i % 2 === 1 ? (
                     <Link
                         key={i}
                         to={part}
@@ -171,7 +178,8 @@ export function SupportChatModal({ isOpen, onClose }: SupportChatModalProps) {
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
             <DialogContent className="max-w-lg h-[37.5rem] max-h-sheet flex flex-col p-0 gap-0 overflow-hidden">
-                <DialogHeader className="px-4 py-3 border-b bg-muted/40">
+                {/* pr-12: deja libre la X de cerrar, que tapaba la etiqueta de estado. */}
+                <DialogHeader className="pl-4 pr-12 py-3 border-b bg-muted/40">
                     <DialogTitle className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-3">
                             <MapiAvatar className="w-10 h-10" />
