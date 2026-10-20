@@ -40,7 +40,13 @@ async function addFrame(page: Page, expected: number) {
 }
 
 async function openSettings(page: Page) {
-    await page.getByRole('button', { name: 'Ajustes de la pizarra' }).click();
+    // En el celular «Ajustes» vive en «Más» (el toolbar no da más).
+    const direct = page.getByRole('button', { name: 'Ajustes de la pizarra' });
+    if (await direct.isVisible().catch(() => false)) await direct.click();
+    else {
+        await page.getByRole('button', { name: 'Más opciones' }).click();
+        await page.getByRole('menuitem', { name: 'Ajustes de la pizarra' }).click();
+    }
     const dlg = page.getByRole('dialog', { name: 'Ajustes de la pizarra' });
     await expect(dlg).toBeVisible();
     return dlg;

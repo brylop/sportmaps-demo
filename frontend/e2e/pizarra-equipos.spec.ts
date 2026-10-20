@@ -159,7 +159,9 @@ test.describe('celular', () => {
     await openBoardFromMatch(page);
     await setupPitch(page, true);
 
-    await page.getByTestId('tb-equipos').click();
+    // En el celular «Equipos» vive en «Más».
+    await page.getByRole('button', { name: 'Más opciones' }).click();
+    await page.getByTestId('tb-equipos-menu').click();
     const dlg = page.getByTestId('teams-dialog');
     await expect(dlg).toBeVisible();
     // Apiladas: la columna del rival va DEBAJO de la propia.
