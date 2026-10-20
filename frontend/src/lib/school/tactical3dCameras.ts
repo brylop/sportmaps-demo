@@ -59,6 +59,29 @@ export function resolveCameraKind(
   return { kind: 'tv', playerKey: null };
 }
 
+/** Pantalla vertical: px que tapan la barra de título + chips (arriba) y los controles (abajo). */
+export const PORTRAIT_INSET_TOP_PX = 190;
+export const PORTRAIT_INSET_BOTTOM_PX = 160;
+
+/**
+ * Zona libre del lienzo en vertical: el encuadre se calcula para ese rectángulo
+ * (aspect y FOV efectivos) y luego se desplaza con setViewOffset, así el campo
+ * queda centrado en el espacio visible y no en el centro geométrico.
+ */
+export function portraitFraming(w: number, h: number, fovDeg: number) {
+  if (!(w > 0 && h > 0) || w / h >= 1) return null;
+  const maxInset = h * 0.62;
+  const k = Math.min(1, maxInset / (PORTRAIT_INSET_TOP_PX + PORTRAIT_INSET_BOTTOM_PX));
+  const top = PORTRAIT_INSET_TOP_PX * k;
+  const bottom = PORTRAIT_INSET_BOTTOM_PX * k;
+  const free = h - top - bottom;
+  return {
+    aspect: w / free,
+    fovDeg: 2 * Math.atan(Math.tan((fovDeg * Math.PI) / 360) * (free / h)) * (180 / Math.PI),
+    shiftPx: (top - bottom) / 2,
+  };
+}
+
 // ─── Poses ──────────────────────────────────────────────────────────────────
 
 export interface CameraContext {
@@ -79,20 +102,24 @@ export interface CameraContext {
 
 const halfAngles = (aspect: number, fovDeg: number) => {
   const halfV = Math.tan(((fovDeg / 2) * Math.PI) / 180);
-  return { halfV, halfH: halfV * Math.max(0.8, aspect) };
+  // FOV horizontal efectivo: hfov = 2·atan(tan(vfov/2)·aspect). Sin piso en vertical:
+  // en el celular el ancho de la cancha TIENE que caber.
+  return { halfV, halfH: halfV * Math.max(0.2, aspect) };
 };
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 const v = (x: number, y: number, z: number): Vec3 => ({ x, y, z });
 
 /** Lo que muestra a lo ancho la cámara de transmisión (m): media cancha
  *  larga en fútbol 11; casi toda la cancha en las chicas. */
-export function tvSpanM(court: Court3D): number {
+export function tvSpanM(court: Court3D, aspect = 16 / 9): number {
+  // Pantalla vertical: la cancha entera a lo ancho (sin paneo que la corte).
+  if (aspect < 1) return court.lengthM * 1.16;
   return Math.max(court.lengthM * 0.55, Math.min(court.lengthM * 1.05, 22));
 }
 
 /** Hasta dónde se desplaza a lo largo el paneo de TV (no muestra la nada detrás del fondo). */
-export function tvPanLimitM(court: Court3D): number {
-  return Math.max(0, court.lengthM / 2 - tvSpanM(court) / 2 + court.lengthM * 0.06);
+export function tvPanLimitM(court: Court3D, aspect = 16 / 9): number {
+  return Math.max(0, court.lengthM / 2 - tvSpanM(court, aspect) / 2 + court.lengthM * 0.06);
 }
 
 /** Elevación de la cámara de TV (grados): plataforma alta de la tribuna principal. */
@@ -101,10 +128,10 @@ export const TV_ELEVATION_DEG = 30;
 function tvPose(ctx: CameraContext): CameraPose {
   const { court } = ctx;
   const { halfV, halfH } = halfAngles(ctx.aspect, ctx.fovDeg);
-  const span = tvSpanM(court);
+  const span = tvSpanM(court, ctx.aspect);
   // Distancia: el tramo `span` entra a lo ancho y casi todo el ancho de la cancha a lo alto.
   const dist = Math.max((span / 2) / halfH, (court.widthM * 0.72) / (2 * halfV));
-  const lim = tvPanLimitM(court);
+  const lim = tvPanLimitM(court, ctx.aspect);
   const bz = ctx.ball ? clamp(ctx.ball.z, -lim, lim) : 0;
   const bx = ctx.ball ? clamp(ctx.ball.x * 0.25, -court.widthM / 6, court.widthM / 6) : 0;
   const e = (TV_ELEVATION_DEG * Math.PI) / 180;
@@ -132,7 +159,8 @@ function isoPose(ctx: CameraContext): CameraPose {
   const { court } = ctx;
   const { halfV, halfH } = halfAngles(ctx.aspect, ctx.fovDeg);
   const r = 0.5 * Math.hypot(court.widthM, court.lengthM);
-  const dist = (r / Math.min(halfV, halfH)) * 0.92;
+  // Vertical: la esquina cercana se agranda por la perspectiva, más aire.
+  const dist = (r / Math.min(halfV, halfH)) * (ctx.aspect < 1 ? 1.12 : 0.92);
   // Dirección isométrica clásica: 45° en planta, 35,26° de elevación.
   const el = Math.atan(1 / Math.SQRT2);
   const d = v(-Math.cos(el) * Math.SQRT1_2, Math.sin(el), Math.cos(el) * Math.SQRT1_2);
@@ -181,17 +209,27 @@ export function spiderHeightM(court: Court3D): number {
 function spiderPose(ctx: CameraContext): CameraPose {
   const b = ctx.ball ?? v(0, 0, 0);
   // Sube si el balón va alto (vóley): nunca queda a menos de 7 m por encima.
-  const h = Math.max(spiderHeightM(ctx.court), b.y + 7);
+  let h = Math.max(spiderHeightM(ctx.court), b.y + 7);
+  if (ctx.aspect < 1) {
+    // Vertical: sube lo justo para que el ancho de la cancha quepa (distancia ≈ 1,17·h).
+    const { halfH } = halfAngles(ctx.aspect, ctx.fovDeg);
+    h = Math.max(h, (ctx.court.widthM / 2) * 1.2 / (halfH * 1.17));
+  }
   return { position: v(b.x * 0.7, h, b.z + h * 0.6), target: v(b.x, b.y * 0.5, b.z) };
 }
 
 /** Una vuelta del dron cada 48 s. */
 export const DRONE_PERIOD_S = 48;
 
-export function dronePose(court: Court3D, elapsedS: number): CameraPose {
+export function dronePose(court: Court3D, elapsedS: number, aspect = 16 / 9, fovDeg = 45): CameraPose {
   // Arranca sobre la banda izquierda (x < 0, como la tribuna) y gira despacio.
   const a = Math.PI + (elapsedS / DRONE_PERIOD_S) * Math.PI * 2;
-  const r = Math.max(court.lengthM, court.widthM) * 0.7 + 6;
+  let r = Math.max(court.lengthM, court.widthM) * 0.7 + 6;
+  if (aspect < 1) {
+    // Vertical: el radio deja entera la cancha en cualquier ángulo de la órbita.
+    const { halfV, halfH } = halfAngles(aspect, fovDeg);
+    r = Math.max(r, (0.5 * Math.hypot(court.widthM, court.lengthM) * 1.0) / Math.min(halfV, halfH));
+  }
   return { position: v(Math.cos(a) * r, r * 0.55, Math.sin(a) * r), target: v(0, 0, 0) };
 }
 
@@ -210,7 +248,7 @@ export function cameraPose(kind: CameraKind, ctx: CameraContext): CameraPose | n
     case 'rival': return rivalPose(ctx);
     case 'balon': return ballPose(ctx);
     case 'spider': return spiderPose(ctx);
-    case 'dron': return dronePose(ctx.court, ctx.elapsedS);
+    case 'dron': return dronePose(ctx.court, ctx.elapsedS, ctx.aspect, ctx.fovDeg);
     case 'jugador': {
       if (!ctx.player) return tvPose(ctx);
       if (ctx.playerView === 'tercera') return thirdPersonPose(ctx);

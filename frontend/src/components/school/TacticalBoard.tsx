@@ -8,7 +8,7 @@
  * mouse+touch, sin el comportamiento errático de HTML5 DnD dentro de
  * WebViews de Capacitor (D7).
  */
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { flushSync } from 'react-dom';
 import {
   DndContext,
@@ -46,7 +46,7 @@ import { startHintFormationLabel } from '@/lib/school/tacticalStartHint';
 import { useTeamPerformanceRoster } from '@/hooks/usePerformanceData';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { useIsMobile, useCompactLandscape } from '@/hooks/use-mobile';
 import {
   useFootballLineups,
   useFootballLineup,
@@ -280,10 +280,12 @@ function EmptySlotMarker({ slot, view, onRemove }: { slot: EmptySlot; view: Pitc
       >
         <X className="h-2 w-2" />
       </button>
-      <div className="h-11 w-11 rounded-full border-2 border-dashed border-emerald-300/70 bg-emerald-400/10 animate-pulse" />
-      <span className="text-[10px] font-bold text-white bg-black/50 backdrop-blur-sm rounded-full px-2 py-0.5 leading-tight max-w-[84px] truncate">
-        {slot.slot_label}
-      </span>
+      <div style={PIN_ZOOM} className="flex flex-col items-center gap-0.5">
+        <div className="h-11 w-11 rounded-full border-2 border-dashed border-emerald-300/70 bg-emerald-400/10 animate-pulse" />
+        <span className="text-[10px] font-bold text-white bg-black/50 backdrop-blur-sm rounded-full px-2 py-0.5 leading-tight max-w-[84px] truncate">
+          {slot.slot_label}
+        </span>
+      </div>
     </div>
   );
 }
@@ -1075,6 +1077,11 @@ function ArrowLayer({
  *  iniciales, foto si hay) o silueta genérica por posición (arquero en
  *  amarillo, resto en verde; NUNCA la foto -- es una figura, no la persona),
  *  con etiqueta flotante debajo. */
+/** Ficha proporcional a la cancha: --pin-k lo fija el contenedor de la cancha
+ *  (ver pinK en TacticalBoard). `zoom` escala también el layout, así el área de
+ *  toque y la separación entre ficha y etiqueta encogen juntas. */
+const PIN_ZOOM = { zoom: 'var(--pin-k, 1)' } as CSSProperties;
+
 function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events, animate, pinStyle, showPhotos, readOnly, view }: {
   subject: RosterSubject;
   slot: PlacedSlot;
@@ -1147,13 +1154,17 @@ function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events, 
       {!readOnly && <button
         type="button"
         onClick={onRemove}
-        className="absolute -top-2 -right-2 z-10 h-5 w-5 rounded-full bg-red-600 text-white flex items-center justify-center shadow-lg ring-2 ring-zinc-950/80"
+        // 20 px en cancha grande, ~17 px en chica (no crece con el zoom de la ficha:
+        // sigue siendo tocable).
+        style={{ width: 'calc(14px + 6px * var(--pin-k, 1))', height: 'calc(14px + 6px * var(--pin-k, 1))' }}
+        className="absolute -top-2 -right-2 z-10 rounded-full bg-red-600 text-white flex items-center justify-center shadow-lg ring-2 ring-zinc-950/80"
         aria-label={`Quitar a ${subject.full_name} de la cancha`}
       >
         <X className="h-3 w-3" />
       </button>}
       {/* El handle de arrastre cubre figura + etiqueta juntos. El botón X
           queda AFUERA de este div a propósito, para que nunca compita con el drag. */}
+      <div style={PIN_ZOOM} className="flex flex-col items-center">
       <div
         {...listeners}
         {...attributes}
@@ -1229,6 +1240,7 @@ function PitchPin({ subject, slot, onLabelChange, onRemove, onOpenCard, events, 
           </span>
         )}
         <PinNameTag name={subject.full_name} />
+      </div>
       </div>
     </div>
   );
@@ -1319,6 +1331,7 @@ function PlaybackPin({ subject, meta, x, top, opacity, pinStyle, showPhotos }: {
       style={{ position: 'absolute', left: `${x}%`, top: `${top}%`, transform: 'translate(-50%, -50%)', opacity, zIndex: 10 }}
       className="flex flex-col items-center gap-1"
     >
+      <div style={PIN_ZOOM} className="flex flex-col items-center gap-1">
       {teams ? (
         <TeamPinVisual teams={teams} isGK={isGoalkeeperLabel(label)} subject={teamSubject} />
       ) : pinStyle === 'silhouette' ? (
@@ -1338,6 +1351,7 @@ function PlaybackPin({ subject, meta, x, top, opacity, pinStyle, showPhotos }: {
         </span>
       )}
       <PinNameTag name={subject.full_name} />
+      </div>
     </div>
   );
 }
@@ -1454,7 +1468,12 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   // Celular (<768px): Pizarra y Plantilla salen como hoja inferior debajo de
   // la cancha, no al costado (un panel de 220-260px al lado de una cancha en
   // 390px de ancho no cabe). Solo una hoja abierta a la vez.
-  const isMobile = useIsMobile();
+  // Celular girado: 926 px de ancho pasan el umbral de escritorio pero hay ~400 px
+  // de alto. Se trata como celular (mismos menús y hojas que en vertical, que son
+  // los que se probaron en el iPhone) pero con el panel al costado, no abajo.
+  const isPortraitPhone = useIsMobile();
+  const landscapePhone = useCompactLandscape();
+  const isMobile = isPortraitPhone || landscapePhone;
   // M6g: Ajustes de la pizarra del coach (curva, rastros, posesión, nombres, tema, pantalla completa).
   const prefs = useTacticalBoardPrefs(open);
   function toggleTactics() {
@@ -2847,9 +2866,20 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
       onMove={moveFrameTo}
       onDurationChange={changeFrameDuration}
       // Celular con hoja abierta: solo la tira, para que la cancha no se angoste.
-      compact={isMobile && (tacticsOpen || rosterOpen)}
+      compact={landscapePhone || (isMobile && (tacticsOpen || rosterOpen))}
+      dense={landscapePhone}
     />
   ) : null;
+
+  // Ancho real de la cancha (px), medido. Las fichas, etiquetas y el aviso de
+  // «Empieza aquí» escalan con él: con tamaño fijo en px, en una cancha chica
+  // (celular horizontal) las fichas se montaban unas sobre otras.
+  const pitchW = pitchArea
+    ? Math.max(120, Math.floor(Math.min(zoomedView ? 760 : 580, pitchArea.w, pitchArea.h * 300 / ((view.y1 - view.y0) * 3.4))))
+    : null;
+  // 1 = tamaño de siempre (cancha >= 400 px); mínimo 0.62 para que el texto siga leyéndose.
+  const pinK = pitchW === null ? 1 : Math.min(1, Math.max(0.62, pitchW / 400));
+  const smallPitch = pitchW !== null && pitchW < 300;
 
   return (
     <TacticalTeamsContext.Provider value={teamsCtxValue}>
@@ -2874,8 +2904,17 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
           justo el tipo de inconsistencia que puede leerse como "se ve
           aprisionado" en un dispositivo real. vh es la unidad más probada. */}
       <DialogContent
-        className="w-screen max-w-none max-h-none rounded-none sm:rounded-none border-0 flex flex-col p-0 bg-gradient-to-b from-zinc-950 via-zinc-900 to-zinc-950 text-white shadow-2xl"
-        style={{ height: '100vh', maxHeight: '100vh', overflow: 'hidden', ...prefs.contentStyle }}
+        className={`${landscapePhone ? '[&>button:last-child]:!top-1 ' : ''}left-0 top-0 translate-x-0 translate-y-0 w-screen max-w-none max-h-none rounded-none sm:rounded-none border-0 flex flex-col p-0 bg-gradient-to-b from-zinc-950 via-zinc-900 to-zinc-950 text-white shadow-2xl`}
+        style={isMobile
+          // Celular: anclado arriba-izquierda (top/bottom:0), sin el centrado de
+          // Radix. Con top:50% + translateY(-50%) y height:100vh, si el alto real
+          // de la ventana (WKWebView) no coincide con 100vh el diálogo se corre
+          // hacia arriba y la primera fila del toolbar queda bajo la barra de estado.
+          ? { height: 'auto', bottom: 0, maxHeight: 'none', overflow: 'hidden',
+              paddingBottom: 'max(0.25rem, env(safe-area-inset-bottom))',
+              paddingLeft: 'env(safe-area-inset-left)', paddingRight: 'env(safe-area-inset-right)',
+              ...prefs.contentStyle }
+          : { height: '100vh', maxHeight: '100vh', overflow: 'hidden', ...prefs.contentStyle }}
         data-board-theme={prefs.settings.theme}
       >
         {/* DialogTitle/Description quedan para accesibilidad (Radix los exige)
@@ -2899,8 +2938,8 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
             safe-area) cae sobre la primera fila. */}
         <div
           data-board-chrome=""
-          className="pl-3 pr-12 md:px-4 pb-1.5 flex flex-wrap items-center gap-1.5 border-b border-white/10 bg-black/30 shrink-0"
-          style={{ paddingTop: 'max(0.375rem, env(safe-area-inset-top))' }}
+          className={`${landscapePhone ? 'pl-3 pr-12 pb-1 flex-nowrap gap-1' : 'pl-3 pr-12 md:px-4 pb-1.5 flex-wrap gap-1.5'} flex items-center border-b border-white/10 bg-black/30 shrink-0`}
+          style={{ paddingTop: landscapePhone ? '0.25rem' : 'max(0.375rem, env(safe-area-inset-top))' }}
         >
           {/* En celular editando, el nombre del equipo se esconde: con él el
               toolbar ocupaba 3 filas y la cancha quedaba de 122 px de ancho. */}
@@ -2933,7 +2972,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                 onApplyOwn={applyFormation}
                 onApplyRival={applyRivalFormation}
                 onClearRival={clearRival}
-                triggerClassName={`${TB_BTN} ${TB_IDLE}`}
+                triggerClassName={`${TB_BTN} ${TB_IDLE} ${landscapePhone ? 'max-w-[8.5rem] min-w-0' : ''}`}
               />
 
               <Button
@@ -3128,7 +3167,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
               encima del último botón si el toolbar llega hasta el borde. En el celular este grupo
               baja a su propia fila (la X queda arriba): sin el pr-8, que lo hacía
               7 px más ancho que la pantalla y corría toda la pizarra. */}
-          <div className={`ml-auto flex items-center gap-1.5 ${isMobile && !viewing ? 'pr-0' : 'pr-8'}`}>
+          <div className={`ml-auto flex items-center ${landscapePhone ? 'gap-1' : 'gap-1.5'} ${isMobile && !viewing ? 'pr-0' : 'pr-8'}`}>
             {/* «Exportar ▾» (T2) en ver y en editar; cada exportación es un
                 evento de la métrica (T0). */}
             {!loading && roleCanEdit && hasAiAnalysis(sport) && (
@@ -3142,8 +3181,8 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                 title="La IA lee la jugada y sugiere riesgos, contraataques y variantes"
               >
                 <Sparkles className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Analizar jugada</span>
-                <span className="sm:hidden">IA</span>
+                <span className={isMobile ? 'hidden' : 'hidden sm:inline'}>Analizar jugada</span>
+                <span className={isMobile ? '' : 'sm:hidden'}>IA</span>
               </Button>
             )}
             {!loading && (
@@ -3202,7 +3241,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
               <>
                 {/* En celular la X del diálogo ya cierra: Cancelar solo ocupaba
                     lugar en el toolbar. */}
-                <Button size="sm" variant="ghost" className="hidden sm:inline-flex h-8 text-[11px] px-2 text-white/60 hover:text-white hover:bg-white/10" onClick={onClose}>
+                <Button size="sm" variant="ghost" className={`${isMobile ? 'hidden' : 'hidden sm:inline-flex'} h-8 text-[11px] px-2 text-white/60 hover:text-white hover:bg-white/10`} onClick={onClose}>
                   Cancelar
                 </Button>
                 <Button
@@ -3242,7 +3281,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
             <div className="relative flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
               {/* Columna: cancha + línea de tiempo de los cuadros debajo. */}
               <div className="flex-1 min-h-0 min-w-0 flex flex-col">
-              <div ref={pitchAreaRef} className="relative flex-1 min-h-0 flex items-center justify-center px-3 sm:px-6 py-3 overflow-hidden">
+              <div ref={pitchAreaRef} className={`relative flex-1 min-h-0 flex items-center justify-center px-3 sm:px-6 ${landscapePhone ? 'py-1.5' : 'py-3'} overflow-hidden`}>
                 {/* Ancho = alto de pantalla menos el toolbar (~90px) convertido
                     a ancho según la proporción de la cancha (300/340), topado
                     en 580px. El 100% final del min() ya cubre el caso de que
@@ -3259,6 +3298,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     síntoma de "se ve aprisionado" en un dispositivo real. */}
                 <div
                   ref={pitchRef}
+                  data-testid="tablero-cancha"
                   className="relative rounded-2xl overflow-hidden select-none shadow-[0_12px_40px_rgba(0,0,0,0.55)] ring-1 ring-white/10"
                   style={{
                     // Proporción = la de la ventana visible (300 × alto visible del
@@ -3269,8 +3309,9 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     // Con el área medida: el ancho que entra a lo ancho Y a lo
                     // alto (alto disponible × proporción). Antes de medir (primer
                     // render) cae a la fórmula vieja.
-                    width: pitchArea
-                      ? `${Math.max(120, Math.floor(Math.min(zoomedView ? 760 : 580, pitchArea.w, pitchArea.h * 300 / ((view.y1 - view.y0) * 3.4))))}px`
+                    ['--pin-k' as string]: pinK,
+                    width: pitchW !== null
+                      ? `${pitchW}px`
                       : `min(${zoomedView ? 760 : 580}px, calc((100vh - 90px) * 300 / ${(view.y1 - view.y0) * 3.4}), 100%)`,
                   }}
                 >
@@ -3370,29 +3411,31 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                       un panel abierto (Dibujar/Material/Jugadores): ahí el
                       coach ya eligió qué hacer y el aviso taparía la cancha. */}
                   {canEdit && pitchIsEmpty && !emptyHintDismissed && !tacticsOpen && !rosterOpen && subjects.length > 0 && (
-                    <div className="absolute inset-0 z-[45] flex items-center justify-center p-3 pointer-events-none">
+                    <div className={`absolute inset-0 z-[45] flex items-center justify-center pointer-events-none ${smallPitch ? 'p-1.5' : 'p-3'}`}>
                       <div
                         role="region"
                         aria-label="Empieza aquí"
-                        className="pointer-events-auto w-full max-w-[290px] rounded-2xl bg-zinc-950/85 backdrop-blur-sm ring-1 ring-white/15 shadow-2xl p-4 text-center space-y-2.5"
+                        className={`pointer-events-auto w-full min-w-0 max-w-[290px] overflow-hidden rounded-2xl bg-zinc-950/85 backdrop-blur-sm ring-1 ring-white/15 shadow-2xl text-center ${smallPitch ? 'p-2 space-y-1.5' : 'p-4 space-y-2.5'}`}
                       >
-                        <p className="text-base font-bold text-white">Empieza aquí</p>
-                        <p className="text-xs text-white/75 leading-snug">
-                          Pon a tus jugadores en la cancha o dibuja un ejercicio. Todo se puede mover después.
-                        </p>
+                        <p className={`font-bold text-white ${smallPitch ? 'text-sm' : 'text-base'}`}>Empieza aquí</p>
+                        {!smallPitch && (
+                          <p className="text-xs text-white/75 leading-snug">
+                            Pon a tus jugadores en la cancha o dibuja un ejercicio. Todo se puede mover después.
+                          </p>
+                        )}
                         <Button
-                          className="w-full h-auto min-h-11 py-2 gap-2 text-sm font-bold whitespace-normal bg-emerald-600 hover:bg-emerald-500 text-white"
+                          className={`w-full min-w-0 h-auto py-1.5 gap-1.5 font-bold whitespace-normal bg-emerald-600 hover:bg-emerald-500 text-white ${smallPitch ? 'min-h-9 px-2 text-xs' : 'min-h-11 py-2 gap-2 text-sm'}`}
                           onClick={() => applyFormation(defaultFormation)}
                         >
                           <LayoutGrid className="h-4 w-4 shrink-0" />
                           <span className="flex min-w-0 flex-col items-center leading-tight">
                             <span>Poner jugadores</span>
-                            <span className="text-xs font-semibold text-white/85 break-words">{startHintFormationLabel(defaultFormation)}</span>
+                            <span className={`font-semibold text-white/85 break-words ${smallPitch ? 'text-[10px]' : 'text-xs'}`}>{startHintFormationLabel(defaultFormation)}</span>
                           </span>
                         </Button>
                         <Button
                           variant="outline"
-                          className="w-full h-11 gap-2 text-sm font-semibold bg-transparent border-white/25 text-white hover:bg-white/10 hover:text-white"
+                          className={`w-full min-w-0 gap-1.5 px-2 font-semibold whitespace-normal bg-transparent border-white/25 text-white hover:bg-white/10 hover:text-white ${smallPitch ? 'h-auto min-h-9 py-1 text-xs' : 'h-11 gap-2 text-sm'}`}
                           onClick={openDrawingFromHint}
                         >
                           <PenLine className="h-4 w-4" />
@@ -3431,7 +3474,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                 </div>
               </div>
               <FrameNoteBar frames={timelineFrames} frameIndex={frameIndex} clock={clock} playing={framePlaybackActive}
-                compact={isMobile && (tacticsOpen || rosterOpen)} />
+                compact={landscapePhone || (isMobile && (tacticsOpen || rosterOpen))} />
               {timeline}
               {possessionBar}
               </div>
@@ -3444,7 +3487,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                 <div
                   data-board-chrome=""
                   className="w-full md:w-[252px] shrink-0 border-t md:border-t-0 md:border-r border-white/10 bg-black/30 backdrop-blur-sm overflow-y-auto overscroll-contain px-3 py-3 space-y-3 order-last md:order-first"
-                  style={isMobile ? { height: `${SHEET_VH}vh`, paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' } : undefined}
+                  style={isPortraitPhone ? { height: `${SHEET_VH}vh`, paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' } : undefined}
                 >
                   {isMobile && (
                     // Celular: acciones de siempre fijas arriba + pestañas. Lo de
@@ -3482,7 +3525,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                         </Button>
                       </div>
                       {/* Partes iguales y sin scroll: 6 pestañas entran en 360px. */}
-                      <div className="flex gap-1" role="tablist" aria-label="Herramientas de la pizarra">
+                      <div className="flex gap-1 overflow-x-auto scrollbar-none" role="tablist" aria-label="Herramientas de la pizarra">
                         {MOBILE_TABS.map((t) => (
                           <button
                             key={t.key}
@@ -3490,7 +3533,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                             role="tab"
                             aria-selected={mobileTab === t.key}
                             onClick={() => setMobileTab(t.key)}
-                            className={`flex-1 min-w-0 truncate h-8 px-1 rounded-full text-[11px] font-semibold border ${
+                            className={`flex-1 min-w-fit shrink-0 whitespace-nowrap h-8 px-2 rounded-full text-[11px] font-semibold border ${
                               mobileTab === t.key ? 'bg-white text-zinc-900 border-white' : 'bg-white/5 border-white/15 text-white/70'
                             }`}
                           >
@@ -3818,7 +3861,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
               {rosterOpen && !viewing && (
                 <div
                   className="w-full md:w-[260px] shrink-0 border-t md:border-t-0 md:border-l border-white/10 bg-black/30 backdrop-blur-sm overflow-y-auto overscroll-contain px-3 py-3 space-y-3"
-                  style={isMobile ? { height: `${SHEET_VH}vh`, paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' } : undefined}
+                  style={isPortraitPhone ? { height: `${SHEET_VH}vh`, paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' } : undefined}
                 >
                   <div>
                     <Button
@@ -3919,7 +3962,8 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                 preview={aiPreview}
                 onPreview={setAiPreview}
                 onApply={applyAiFrames}
-                isMobile={isMobile}
+                isMobile={isPortraitPhone}
+                narrow={landscapePhone}
                 get3DSource={buildExportInput}
                 onEvent={(e) => logEvent(e)}
               />

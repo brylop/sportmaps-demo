@@ -215,19 +215,37 @@ export interface CameraPose { position: Vec3; target: Vec3 }
 /** Cámaras fijas. `fovDeg` vertical de la cámara; `aspect` ancho/alto. */
 export function fixedCameraPose(court: Court3D, mode: Exclude<CameraMode, 'jugador'>, aspect = 16 / 9, fovDeg = 45): CameraPose {
   const halfV = Math.tan(((fovDeg / 2) * Math.PI) / 180);
-  // En el celular vertical no se busca que entre todo el ancho (quedaría
-  // diminuta): se corta a los lados y se gira con el dedo.
-  const halfH = halfV * Math.max(0.8, aspect);
+  // FOV horizontal efectivo real: en vertical la cancha entera cabe a lo ancho.
+  const halfH = halfV * Math.max(0.2, aspect);
+  const tall = aspect < 1;
+  if (mode === 'tribuna' && tall) {
+    // Vertical: desde el fondo propio y alto (casi cenital con perspectiva), de modo
+    // que el ANCHO de la cancha sea el ancho de la pantalla y el largo use el alto.
+    const el = (58 * Math.PI) / 180;
+    const d = Math.max(
+      (court.widthM / 2) * 1.32 / halfH,
+      (court.lengthM / 2) * 1.3 * Math.sin(el) / halfV,
+    );
+    return { position: { x: 0, y: Math.sin(el) * d, z: Math.cos(el) * d }, target: { x: 0, y: 0, z: 0 } };
+  }
   if (mode === 'tribuna') {
     // Desde la banda izquierda, elevada: el largo entra a lo ancho del cuadro
     // (con aire: la perspectiva agranda la banda cercana).
     const need = (court.lengthM / 2) * 1.08;
     const d = (Math.max(need / halfH, (court.widthM / 2) / halfV) * 0.95 + court.widthM * 0.35) * 1.15;
-    // Vertical: más desde arriba, para aprovechar el alto de la pantalla.
-    const tall = isCompactAspect(aspect);
-    return { position: { x: -d * (tall ? 0.5 : 0.82), y: d * (tall ? 0.95 : 0.52), z: 0 }, target: { x: 0, y: 0, z: 0 } };
+    return { position: { x: -d * 0.82, y: d * 0.52, z: 0 }, target: { x: 0, y: 0, z: 0 } };
   }
   const fxKind = fixtureFor(court.sport).kind;
+  if (tall) {
+    // Vertical: el fondo propio visto desde atrás y arriba, tan lejos como haga falta
+    // para que el ancho de la cancha (y el fondo rival) quepan en la pantalla.
+    const back = Math.max((court.widthM / 2) * 1.2 / halfH - court.lengthM * 0.3, court.lengthM * 0.12);
+    const hgt = Math.max(5, court.lengthM * 0.3, back * 0.55);
+    return {
+      position: { x: 0, y: hgt, z: court.lengthM / 2 + back },
+      target: { x: 0, y: 0, z: court.lengthM * 0.02 },
+    };
+  }
   if (fxKind === 'hoops' || fxKind === 'rings') {
     // Detrás del aro: arriba del tablero propio (el poste queda a la espalda,
     // no tapa), mirando hacia la otra canasta. Igual el poste de netball.

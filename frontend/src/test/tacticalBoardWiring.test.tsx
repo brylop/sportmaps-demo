@@ -52,7 +52,7 @@ vi.mock('@/hooks/usePerformanceData', () => ({
 vi.mock('@/hooks/useTeamTacticalSport', () => ({ useTeamTacticalSport: () => h.team }));
 vi.mock('@/hooks/useSchoolContext', () => ({ useSchoolContext: () => ({ currentUserRole: 'coach', schoolId: 'active-school' }) }));
 vi.mock('@/hooks/useUnsavedChanges', () => ({ useUnsavedChanges: () => undefined }));
-vi.mock('@/hooks/use-mobile', () => ({ useIsMobile: () => false }));
+vi.mock('@/hooks/use-mobile', () => ({ useIsMobile: () => false, useCompactLandscape: () => false }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: vi.fn() }), toast: vi.fn() }));
 
 import { TacticalBoard } from '@/components/school/TacticalBoard';

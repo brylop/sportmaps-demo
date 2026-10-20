@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { ballFor, figureScale, toMeters, type CameraPose, type Court3D, type Vec3 } from '@/lib/school/tactical3d';
 import {
-  blendPose, cameraPose, createDirector, directorShot, FOLLOW_TAU_S, smoothAngle, smoothToward, transitionMs,
+  blendPose, cameraPose, createDirector, directorShot, FOLLOW_TAU_S, portraitFraming, smoothAngle, smoothToward, transitionMs,
   type CameraKind, type PlayerView,
 } from '@/lib/school/tactical3dCameras';
 import { ballHeadingAt, playerMotion } from '@/lib/school/tactical3dMotion';
@@ -115,9 +115,19 @@ export function CameraRig3D({ court, frames, kind, director, playerKey, playerVi
     const bh = ballHeadingAt(court, frames, lv.main);
     s.ballHeading = s.ballHeading === null || s.first ? bh : smoothAngle(s.ballHeading, bh, dt, 0.5);
 
-    const aspect = size.width / Math.max(1, size.height);
+    // Vertical: encuadre para la zona libre (ver portraitFraming); horizontal/escritorio, igual que siempre.
+    const pf = portraitFraming(size.width, size.height, camera.fov);
+    if (pf) {
+      const vo = camera.view;
+      if (!vo || !vo.enabled || vo.fullWidth !== size.width || vo.fullHeight !== size.height || vo.offsetY !== -pf.shiftPx) {
+        camera.setViewOffset(size.width, size.height, 0, -pf.shiftPx, size.width, size.height);
+      }
+    } else if (camera.view?.enabled) {
+      camera.clearViewOffset();
+    }
+    const aspect = pf ? pf.aspect : size.width / Math.max(1, size.height);
     const pose = cameraPose(shot, {
-      court, aspect, fovDeg: camera.fov, ball: s.ball, player, playerView, elapsedS: s.droneS, ballHeading: s.ballHeading,
+      court, aspect, fovDeg: pf ? pf.fovDeg : camera.fov, ball: s.ball, player, playerView, elapsedS: s.droneS, ballHeading: s.ballHeading,
     });
     s.first = false;
 
