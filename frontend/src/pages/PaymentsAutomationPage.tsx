@@ -2645,6 +2645,7 @@ export default function PaymentsAutomationPage() {
                   description='Torneos, clases extra o de perfeccionamiento, vacacionales y viajes. Ej. "Torneo Interclubes — $50.000": un cobro simple, separado de mensualidad/inscripción/artículos.'
                   itemLabel="cobro"
                   withServiceFields
+                  linkTournaments
                 />
               )}
 

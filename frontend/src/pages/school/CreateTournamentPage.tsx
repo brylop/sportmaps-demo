@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
 import { useToast } from '@/hooks/use-toast';
 import { useEntitlements } from '@/hooks/useEntitlements';
@@ -65,6 +66,10 @@ export default function CreateTournamentPage() {
   const { hasAddon, isLoading: entLoading } = useEntitlements();
   const [form, setForm] = useState<FormState>(INITIAL);
   const [submitting, setSubmitting] = useState(false);
+  // Viene del catálogo de cobros: se prellena con el cobro y, al crear, queda vinculado a él.
+  const [params] = useSearchParams();
+  const fromItem = params.get('from_item');
+  const [itemName, setItemName] = useState<string | null>(null);
   const { schoolSettings } = useSchoolContext();
   // Solo los medios que la escuela ya tiene configurados (D4).
   const medios = mediosDeCobroDeLaEscuela(schoolSettings);
@@ -82,6 +87,36 @@ export default function CreateTournamentPage() {
   };
 
   const hasTournaments = hasAddon('tournaments');
+
+  useEffect(() => {
+    if (!fromItem) return;
+    (async () => {
+      const { data } = await supabase.from('school_tournament_items' as any)
+        .select('name, price, starts_at, capacity, description, event_id').eq('id', fromItem).maybeSingle();
+      const it = data as any;
+      if (!it) return;
+      if (it.event_id) {
+        toast({ title: 'Ese cobro ya tiene torneo', description: 'Ábrelo desde el catálogo con «Ver torneo».', variant: 'destructive' });
+        navigate(`/school/tournaments/${it.event_id}`, { replace: true });
+        return;
+      }
+      setItemName(it.name);
+      const dia = it.starts_at ? new Date(it.starts_at) : null;
+      const pad = (n: number) => String(n).padStart(2, '0');
+      setForm((f) => ({
+        ...f,
+        tournament_scope: 'internal',
+        visibility: 'school_only',
+        title: it.name ?? f.title,
+        description: it.description ?? f.description,
+        capacity: it.capacity ? String(it.capacity) : f.capacity,
+        event_date: dia ? `${dia.getFullYear()}-${pad(dia.getMonth() + 1)}-${pad(dia.getDate())}` : f.event_date,
+        is_paid: Number(it.price) > 0,
+        price: Number(it.price) > 0 ? String(Math.round(Number(it.price))) : '',
+      }));
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fromItem]);
 
   // ── Gate del addon ────────────────────────────────────────────────────────
   if (!entLoading && !hasTournaments) {
@@ -166,8 +201,18 @@ export default function CreateTournamentPage() {
         '/api/v1/events/school-tournament',
         payload,
       );
-      toast({ title: '¡Torneo creado!', description: 'Se creó como borrador.' });
-      navigate(`/school/tournaments`);
+      // Desde el catálogo: el cobro queda vinculado al torneo (así no se vende suelto además).
+      if (fromItem && created?.id) {
+        const { error: linkError } = await supabase.from('school_tournament_items' as any)
+          .update({ event_id: created.id }).eq('id', fromItem);
+        if (linkError) {
+          toast({ title: 'Torneo creado, pero no se pudo vincular al cobro', description: 'Vincúlalo desde el catálogo de cobros.', variant: 'destructive' });
+          navigate(`/school/tournaments/${created.id}`);
+          return created;
+        }
+      }
+      toast({ title: '¡Torneo creado!', description: fromItem ? 'Se creó como borrador y quedó vinculado al cobro.' : 'Se creó como borrador.' });
+      navigate(fromItem && created?.id ? `/school/tournaments/${created.id}` : `/school/tournaments`);
       return created;
     } catch (e: any) {
       toast({ title: 'Error al crear el torneo', description: e?.message ?? 'Intenta de nuevo.', variant: 'destructive' });
@@ -194,6 +239,11 @@ export default function CreateTournamentPage() {
           <p className="text-sm text-muted-foreground">
             Tu escuela como organizadora. Podrás agregar categorías y precios después.
           </p>
+          {itemName && (
+            <p className="mt-1 text-xs font-medium text-primary">
+              Creando desde el cobro «{itemName}»: al guardar, queda vinculado y se inscribe en el torneo, no se vende suelto.
+            </p>
+          )}
         </div>
       </div>
 
