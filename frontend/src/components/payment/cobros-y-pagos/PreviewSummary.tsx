@@ -12,6 +12,8 @@ export interface LocalTotals {
     toPay: { n: number; total: number };
     discountsTotal: number;
     lateFeeWaived: number;
+    /** Recargo por mora ya incluido en `toPay` (solo informativo). */
+    lateFeeIncluded?: number;
     exonerated: number;
     listTotal: number;
     perAthleteAmounts?: boolean;
@@ -82,6 +84,12 @@ export function PreviewSummary({
             )}
             {mode === 'single' && toPay.n > 0 && (
                 <p data-testid="cyp-preview-pay">Se registra el pago de <b>{toPay.n} {toPay.n === 1 ? 'cobro' : 'cobros'}</b> por <b>{formatPesos(toPay.total)}</b></p>
+            )}
+            {mode === 'single' && toPay.n > 0 && (local.lateFeeIncluded ?? 0) > 0 && (
+                <p className="text-xs font-semibold text-amber-700 dark:text-amber-400" data-testid="cyp-preview-late">
+                    <AlertTriangle className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
+                    El total incluye recargo por mora de {formatPesos(local.lateFeeIncluded ?? 0)}
+                </p>
             )}
             {mode === 'single' && (discounts > 0 || waived > 0 || exonerated > 0) && (
                 <p className="text-xs text-violet-700 dark:text-violet-300">
