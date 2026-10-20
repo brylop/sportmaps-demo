@@ -2078,7 +2078,7 @@ export default function SchoolStudentsManagementPage() {
                   {!isCategoryOnlyCoach && (
                   <div className="space-y-1">
                     <Label htmlFor="team_monthly_fee" className="text-xs text-muted-foreground">Mensualidad equipo (COP)</Label>
-                    <Input id="team_monthly_fee" type="number" step={1000}
+                    <Input id="team_monthly_fee" type="number" step={1}
                       disabled={editingIsInactive || !!form.watch('offering_plan_id') || !!form.watch('fee_is_manual')}
                       {...form.register('team_monthly_fee', { valueAsNumber: true })} />
                     {form.watch('offering_plan_id') ? (
@@ -2161,7 +2161,7 @@ export default function SchoolStudentsManagementPage() {
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="plan_monthly_fee" className="text-xs text-muted-foreground">Mensualidad plan (COP)</Label>
-                    <Input id="plan_monthly_fee" type="number" step={1000}
+                    <Input id="plan_monthly_fee" type="number" step={1}
                       disabled={editingIsInactive || !!form.watch('fee_is_manual')}
                       {...form.register('plan_monthly_fee', { valueAsNumber: true })} />
                   </div>
