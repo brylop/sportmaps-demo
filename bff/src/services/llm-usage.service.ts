@@ -14,7 +14,7 @@
  *     aplicar), el insert falla en silencio y se avisa UNA vez en el log.
  *   - La escuela y la conversación salen del contexto asíncrono que fija quien
  *     inicia el trabajo (`conContextoLlm`): el webhook de WhatsApp, la cola de
- *     comprobantes, SportBot. Así llm.service y ocr.service no necesitan que
+ *     comprobantes, Mapi. Así llm.service y ocr.service no necesitan que
  *     cada llamador les pase el school_id.
  *   - Kill-switch: DISABLE_LLM_USAGE_LOG=true.
  *
@@ -24,6 +24,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { supabase } from '../config/supabase';
 
+// 'sportbot' es la clave de Mapi en llm_usage: nombre viejo conservado a propósito
+// (CHECK de la tabla + filas históricas). Renombrarla exige migración y reescribir el histórico.
 export type FuncionLlm = 'bot' | 'ocr' | 'transcripcion' | 'sportbot' | 'pizarra_ia';
 
 export interface ContextoUsoLlm {

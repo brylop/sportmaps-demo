@@ -1,5 +1,5 @@
 /**
- * Mapa de la app por rol, para el bot de soporte in-app (Sportbot,
+ * Mapa de la app por rol, para el bot de soporte in-app (Mapi,
  * `services/inapp-support-bot.service.ts`). Se inyecta en el system prompt
  * para que pueda responder "¿dónde / cómo hago X?" con la ruta exacta del
  * menú y los botones que el usuario ve en pantalla.
@@ -44,7 +44,7 @@ export interface AppMapRole {
 }
 
 const SOPORTE =
-    'Chat de soporte: botón redondo con audífonos abajo a la derecha (en todas las pantallas) → ventana "Soporte SportMaps". Es ESTE mismo chat: a quien ya está hablando con SportBot no lo mandes a abrirlo; ofrécele pasar su caso a una persona.';
+    'Chat de soporte: botón redondo con la cara del lémur Mapi abajo a la derecha (en todas las pantallas) → ventana "Mapi · Soporte SportMaps". Es ESTE mismo chat: a quien ya está hablando con Mapi no lo mandes a abrirlo; ofrécele pasar su caso a una persona.';
 
 const CONFIG_PERSONAL: AppMapEntry[] = [
     {

@@ -1,5 +1,5 @@
 /**
- * Artículo NUEVO para `bff/src/data/help-articles.ts` (Sportbot / Centro de
+ * Artículo NUEVO para `bff/src/data/help-articles.ts` (Mapi / Centro de
  * Ayuda). Slug nuevo `facturacion-electronica-escuela`: hoy no hay ningún
  * artículo de facturación electrónica en el corpus.
  *

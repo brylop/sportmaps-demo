@@ -118,7 +118,7 @@ Lo que incluye la ola 0:
   - canal de plataforma, ajustes por escuela e informe de calidad y costo;
   - bot con Claude;
   - el comprobante elige el cobro por el pie de foto.
-- Informe de cartera, SportBot y ventas por WA F0.
+- Informe de cartera, Mapi y ventas por WA F0.
 - Seguimiento deportivo F1–F6 y pizarra T1/T3/T4.
 - Carnets: plantilla predeterminada y privacidad.
 - Seguridad: alcance del coach, lista blanca de roles en el registro y `/admin` solo para plataforma.
@@ -2020,7 +2020,7 @@ esfuerzo real todavía no está acotado.
 | Decisión | Bloquea | Nota |
 |---|---|---|
 | **D-V2NAV** — el lienzo se contradice en el menú de la escuela: ¿«Dinero» o «Cobros»?, ¿«Deportivo» o «Entrenadores»?, ¿y qué va en la barra inferior? | V2-0d y todo el track V2 | La navegación de 13-oct usa Cobros + Entrenadores, y el spec de Comunicaciones lo asume. Hay que confirmarlo y dibujarlo una sola vez en `Navegacion`, `Sidebar` y `TabBar` |
-| **D-COM** — cuatro decisiones de [Comunicaciones V2](specs/comunicaciones-rediseno-v2.md) §8: (1) ¿responder desde el WhatsApp personal de la dueña (relevo)?; (2) ¿«SportBot» o «el asistente» ante la escuela?; (3) ¿horario de atención por defecto L–S 8–18, o copiado de los entrenos?; (4) confirmar «Cobros» | Comunicaciones F2 (1) y F0 (2–4) | El relevo queda fuera de alcance por riesgo de suplantación; si se quiere, necesita su propio spec de seguridad |
+| **D-COM** — cuatro decisiones de [Comunicaciones V2](specs/comunicaciones-rediseno-v2.md) §8: (1) ¿responder desde el WhatsApp personal de la dueña (relevo)?; (2) ¿«Mapi» o «el asistente» ante la escuela?; (3) ¿horario de atención por defecto L–S 8–18, o copiado de los entrenos?; (4) confirmar «Cobros» | Comunicaciones F2 (1) y F0 (2–4) | El relevo queda fuera de alcance por riesgo de suplantación; si se quiere, necesita su propio spec de seguridad |
 | Las 4 de `DIN-1` §8 | P0 completo | `students.ts:829` · las 16 huérfanas · backfill de `period_*` · GYM RM |
 | `D9/D11` de `NIV-4` — ¿bloqueo real por día vía grupos de acceso del F22, o solo log/aviso en el BFF? | `NIV-4` | El BFF no controla la puerta; automatizar bloqueo real es proyecto aparte — [spec §8.2](specs/dreamers-niveles-por-horas-y-progresion.md) |
 | **D-FPAY** — Factus Pay: ¿solo para la facturación SaaS de SportMaps (una cuenta, la plata entra a SportMaps) o también para mensualidades (cuenta por escuela)? ¿Tiene webhook o hay que hacer polling? | `DIN-23` F2–F3 | Sin webhook, cada cobro pendiente cuesta consultas periódicas; con cuenta única, la plata de las familias le entraría a SportMaps y habría que girarla — lo mismo que ya se descartó con Wompi |

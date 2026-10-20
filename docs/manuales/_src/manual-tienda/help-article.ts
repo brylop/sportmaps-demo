@@ -1,5 +1,5 @@
 /**
- * Contenido para Sportbot / Centro de Ayuda — manual "Tienda escolar" (versión ACADEMIAS,
+ * Contenido para Mapi / Centro de Ayuda — manual "Tienda escolar" (versión ACADEMIAS,
  * sin notas internas). Listo para pegar en bff/src/data/help-articles.ts.
  *
  * Qué hacer con cada uno:

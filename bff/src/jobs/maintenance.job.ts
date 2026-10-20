@@ -672,7 +672,7 @@ export function initMaintenanceJobs() {
     // ────────────────────────────────────────────────────────────────────────
     // Resumen semanal de los bots a SportMaps — lunes 07:05 COT (5 min después
     // del diario para no pedir las mismas tablas en el mismo minuto). WhatsApp
-    // por escuela + tickets de SportBot de la semana anterior. Misma
+    // por escuela + tickets de Mapi de la semana anterior. Misma
     // idempotencia en base. Kill-switch: DISABLE_BOT_RESUMEN_SEMANAL_CORREO.
     // ────────────────────────────────────────────────────────────────────────
     cron.schedule('5 7 * * 1', async () => {

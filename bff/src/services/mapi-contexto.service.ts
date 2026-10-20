@@ -1,5 +1,5 @@
 /**
- * sportbot-contexto.service — quién es el usuario que le escribe a SportBot.
+ * mapi-contexto.service — quién es el usuario que le escribe a Mapi.
  *
  * Antes el bot no recibía nada del usuario: ni rol, ni escuela, ni equipos.
  * Contestaba "si eres coach…" a una cuenta de escuela y le ofrecía "Registrar
@@ -13,7 +13,7 @@
 
 import { supabase } from '../config/supabase';
 
-export interface ContextoSportBot {
+export interface ContextoMapi {
     nombre: string | null;
     /** Claves del mapa de la app: school, coach, parent, athlete, … */
     roles: string[];
@@ -55,8 +55,8 @@ const ROL_VISIBLE: Record<string, string> = {
 
 const uniq = <T,>(xs: T[]) => [...new Set(xs)];
 
-export async function construirContextoSportBot(userId: string, schoolId: string | null): Promise<ContextoSportBot> {
-    const ctx: ContextoSportBot = {
+export async function construirContextoMapi(userId: string, schoolId: string | null): Promise<ContextoMapi> {
+    const ctx: ContextoMapi = {
         nombre: null,
         roles: [],
         rolesVisibles: [],
@@ -125,7 +125,7 @@ export async function construirContextoSportBot(userId: string, schoolId: string
 }
 
 /** Bloque de texto para el prompt de sistema. */
-export function contextoComoTexto(ctx: ContextoSportBot): string {
+export function contextoComoTexto(ctx: ContextoMapi): string {
     const lineas = [
         `Nombre: ${ctx.nombre ?? '(sin nombre)'}`,
         `Rol: ${ctx.rolesVisibles.length ? ctx.rolesVisibles.join(' y ') : 'desconocido'}`,

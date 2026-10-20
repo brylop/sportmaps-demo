@@ -174,7 +174,7 @@ router.post('/messages', async (req: AuthenticatedRequest, res: Response) => {
         }
 
         // Correo a SportMaps por ticket nuevo. Va DESPUÉS del turno del bot a
-        // propósito: así el correo ya dice si SportBot lo resolvió o lo pasó a
+        // propósito: así el correo ya dice si Mapi lo resolvió o lo pasó a
         // una persona, y un caso que escala en el primer mensaje genera UN
         // correo y no dos. El push de arriba no alcanza: nadie lo ve.
         if (userMsgCount === 1) {

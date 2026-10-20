@@ -17,6 +17,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { LoadingSpinner } from "@/components/common/LoadingSpinner";
 import { Headset, Send, Loader2, RefreshCw, Lock } from "lucide-react";
+import { MapiAvatar } from "@/components/brand/MapiAvatar";
 import { bffClient } from "@/lib/api/bffClient";
 import { useToast } from "@/hooks/use-toast";
 import { TicketDiagnosisPanel } from "@/components/support/TicketDiagnosisPanel";
@@ -196,8 +197,9 @@ export default function AdminSupportInboxPage() {
                                                                 : "bg-muted"
                                                     }`}
                                                 >
-                                                    <p className="text-[10px] opacity-70 mb-0.5 uppercase tracking-wide">
-                                                        {m.internal_note ? "Nota interna" : m.author_type}
+                                                    <p className="text-[10px] opacity-70 mb-0.5 uppercase tracking-wide flex items-center gap-1">
+                                                        {!m.internal_note && m.author_type === "bot" && <MapiAvatar className="w-4 h-4" />}
+                                                        {m.internal_note ? "Nota interna" : m.author_type === "bot" ? "Mapi" : m.author_type}
                                                     </p>
                                                     {m.body}
                                                 </div>

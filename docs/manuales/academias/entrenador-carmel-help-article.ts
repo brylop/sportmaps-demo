@@ -1,5 +1,5 @@
 /**
- * Artículo NUEVO propuesto para el Centro de Ayuda / Sportbot:
+ * Artículo NUEVO propuesto para el Centro de Ayuda / Mapi:
  * `bff/src/data/help-articles.ts`. NO está aplicado — es el contenido listo
  * para pegar (patrón `feedback_pdf_manual_template`: "solo el contenido").
  *

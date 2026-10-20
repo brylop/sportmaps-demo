@@ -1,5 +1,5 @@
 /**
- * Artículo NUEVO para `bff/src/data/help-articles.ts` (Sportbot / Centro de
+ * Artículo NUEVO para `bff/src/data/help-articles.ts` (Mapi / Centro de
  * Ayuda). Slug nuevo `carnets-digitales`: no reemplaza ninguno. Antes de
  * escribirlo se buscó en el corpus: no hay artículo de carnets. Solo
  * `tomar-asistencia-coach` menciona el escaneo del carnet (sección 2), y

@@ -315,7 +315,7 @@ describe('runWhatsAppResumenDiario', () => {
     });
 });
 
-// ─── 3. Tickets de SportBot ─────────────────────────────────────────────────
+// ─── 3. Tickets de Mapi ─────────────────────────────────────────────────
 
 describe('avisarTicketSoportePorCorreo', () => {
     beforeEach(() => {

@@ -1,5 +1,5 @@
 /**
- * Contenido para Sportbot / Centro de Ayuda — versión ACADEMIAS del manual
+ * Contenido para Mapi / Centro de Ayuda — versión ACADEMIAS del manual
  * docs/manuales/academias/guia-registro-pagos-manual.pdf (2026-10-17).
  *
  * Cómo usarlo: REEMPLAZA el `body` (y título/excerpt) del artículo existente con
@@ -12,7 +12,7 @@
  *
  * OJO: el modal nuevo está detrás de una bandera (VITE_COBROS_Y_PAGOS /
  * localStorage 'sportmaps:cobros-y-pagos'). No publicar este artículo hasta que
- * la bandera esté encendida para las escuelas; si no, Sportbot describiría una
+ * la bandera esté encendida para las escuelas; si no, Mapi describiría una
  * pantalla que aún no ven.
  */
 import type { HelpArticle } from "../../../bff/src/data/help-articles";

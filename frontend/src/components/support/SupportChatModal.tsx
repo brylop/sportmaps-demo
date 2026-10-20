@@ -174,11 +174,9 @@ export function SupportChatModal({ isOpen, onClose }: SupportChatModalProps) {
                 <DialogHeader className="px-4 py-3 border-b bg-muted/40">
                     <DialogTitle className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center shrink-0">
-                                <Headset className="w-5 h-5 text-primary-foreground" />
-                            </div>
+                            <MapiAvatar className="w-10 h-10" />
                             <div className="text-left">
-                                <span className="text-base font-semibold">Soporte SportMaps</span>
+                                <span className="text-base font-semibold">Mapi · Soporte SportMaps</span>
                                 <p className="text-xs text-muted-foreground font-normal">Un solo chat, siempre la misma conversación</p>
                             </div>
                         </div>
