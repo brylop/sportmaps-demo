@@ -1097,7 +1097,7 @@ router.get('/school-tournaments/:id/individual-registrations', requireAuth, requ
         const { data, error } = await supabase
             .from('event_registrations')
             .select(`
-                id, participant_name, participant_role, category_id, status, team_id, created_at,
+                id, participant_name, participant_role, category_id, child_id, user_id, status, team_id, created_at,
                 payment:payment_id(id, status, amount, due_date),
                 team:team_id(id, team_name)
             `)
@@ -1114,10 +1114,12 @@ router.get('/school-tournaments/:id/individual-registrations', requireAuth, requ
 
 // POST /api/v1/events/school-tournaments/:id/register-athlete — la escuela inscribe a un atleta (hijo de su escuela).
 // Queda APROBADA; si el torneo es pago crea el cobro al acudiente. Permite inscribir con el plazo cerrado.
+// El deportista es un hijo (`child_id`) o un atleta adulto de la escuela (`athlete_user_id`): uno solo.
 const RegisterAthleteSchema = z.object({
     category_id: z.string().uuid(),
-    child_id: z.string().uuid(),
-});
+    child_id: z.string().uuid().optional(),
+    athlete_user_id: z.string().uuid().optional(),
+}).refine((b) => !!b.child_id !== !!b.athlete_user_id, { message: 'Indica un hijo (child_id) o un atleta adulto (athlete_user_id), no ambos.' });
 router.post('/school-tournaments/:id/register-athlete', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
     try {
         const schoolId = req.schoolId;
@@ -1130,10 +1132,13 @@ router.post('/school-tournaments/:id/register-athlete', requireAuth, requireRole
 
         // Con el cliente del usuario: la RPC valida auth.uid() contra la administración de la escuela.
         const client = userClient(req);
+        // El parámetro del adulto solo viaja cuando hace falta: el camino del hijo no cambia.
         const { data, error } = await client.rpc('school_register_athlete_for_tournament', {
             p_event_id: eventId,
             p_category_id: parsed.data.category_id,
-            p_child_id: parsed.data.child_id,
+            ...(parsed.data.child_id
+                ? { p_child_id: parsed.data.child_id }
+                : { p_athlete_user_id: parsed.data.athlete_user_id }),
         });
         if (error) {
             req.log?.warn({ err: error }, 'school_register_athlete_for_tournament rechazó la inscripción');
