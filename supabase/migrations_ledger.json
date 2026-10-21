@@ -800,6 +800,6 @@
     {"v":"20261020122827","file":"20261020122827_catalogo_torneos_vinculo_con_torneo.sql","sha256":"016c9ffbeceed3b5e701213d179c7abf5c780adbc651de46796e08818c9e4bae","added":"2026-10-20","by":"Brayan Steven Lopez"},
     {"v":"20261021100846","file":"20261021100846_cerrar_rls_enrollments_staff_manage.sql","sha256":"f667c58f31e6d2c31bf06dcd0330b6971d4f3f3a24d996ccf47039925f67ff84","added":"2026-10-21","by":"Brayan Steven Lopez"},
     {"v":"20261021112614","file":"20261021112614_coach_can_remove_enrollments.sql","sha256":"472d15f3e980a2b85d64e06d2ec55725db3b06c4721daa061fcede14c53629cd","added":"2026-10-21","by":"Brayan Steven Lopez"},
-    {"v":"20261021135658","file":"20261021135658_tienda_escolar_sin_foto_obligatoria.sql","sha256":"08113d221005c122ce8c1c03193ed5cc87aa7f93854ba7894179bdba347d2734","added":"2026-10-21","by":"Brayan Steven Lopez"}
+    {"v":"20261021135658","file":"20261021135658_tienda_escolar_sin_foto_obligatoria.sql","sha256":"3727b2996b5f2b5922e2045156a5ae43703d9258caed6539b824d82f30e24b07","added":"2026-10-21","by":"Brayan Steven Lopez"}
   ]
 }
