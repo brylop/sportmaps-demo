@@ -12,7 +12,7 @@ import { currentPeriodBogota, formatPeriodLabel, parsePeriodKey, periodKey, shif
 import { formatPesos, monthsFromToday, newLineDraft, type LineCalc, type MultiLineCalc, type NewLineDraft } from '@/lib/cobrosYPagos';
 import type { ChargeSuggestions } from '@/lib/api/chargeBatches';
 import { DiscountControl } from './DiscountControl';
-import { HorasAdicionalesLine, borradorDeVentaDeHoras } from './HorasAdicionalesLine';
+import { HorasAdicionalesLine, borradorDeVentaDeHoras, inscripcionesConHoras } from './HorasAdicionalesLine';
 import { DiscountTags } from './DiscountTags';
 
 interface NewChargeLinesProps {
@@ -89,6 +89,17 @@ export function NewChargeLines({
 
     const addLine = () => {
         onChange([...lines, newLineDraft({ category: 'torneo', due_date: defaultDue, amount: null, pay: paymentOn })]);
+    };
+
+    // Atajo «+ Horas adicionales»: abre directo la venta de horas (1 h y la tarifa del plan) en vez de
+    // la fila de Torneo vacía. Solo el dueño, un atleta, con banco de horas, y una venta por operación.
+    const puedeVenderHoras = canOverage && mode === 'single'
+        && inscripcionesConHoras(suggestions).length > 0
+        && !lines.some((l) => l.category === 'excedente' && l.extra_hours != null);
+    const addHoras = () => {
+        onChange([...lines, newLineDraft({
+            category: 'excedente', due_date: defaultDue, pay: paymentOn, ...borradorDeVentaDeHoras(suggestions),
+        })]);
     };
 
     return (
@@ -262,9 +273,16 @@ export function NewChargeLines({
                     </div>
                 );
             })}
-            <Button type="button" variant="ghost" size="sm" onClick={addLine} data-testid="cyp-add-line">
-                <Plus className="h-4 w-4 mr-1" /> Agregar cobro
-            </Button>
+            <div className="flex flex-wrap items-center gap-1">
+                <Button type="button" variant="ghost" size="sm" onClick={addLine} data-testid="cyp-add-line">
+                    <Plus className="h-4 w-4 mr-1" /> Agregar cobro
+                </Button>
+                {puedeVenderHoras && (
+                    <Button type="button" variant="ghost" size="sm" onClick={addHoras} data-testid="cyp-add-horas">
+                        <Plus className="h-4 w-4 mr-1" /> Horas adicionales
+                    </Button>
+                )}
+            </div>
         </div>
     );
 }
