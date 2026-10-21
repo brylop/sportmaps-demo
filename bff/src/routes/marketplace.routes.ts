@@ -256,6 +256,7 @@ router.get('/vendor/:slug', requireStoreEnabled, optionalAuth, async (req: Reque
             .from('products')
             .select(`id, name, description, price, image_url, category, stock, reserved, visibility, school_id,
                      tax_rate, min_stock_alert,
+                     product_categories!products_category_id_fkey (name),
                      product_variants (id, name, attributes, price_override, stock, reserved, image_url, is_active, sort_order),
                      product_images (image_url, alt_text, sort_order, is_primary)`)
             .or(`vendor_profile_id.eq.${vendor.id},and(vendor_profile_id.is.null,vendor_id.eq.${vendor.user_id})`)
@@ -263,7 +264,12 @@ router.get('/vendor/:slug', requireStoreEnabled, optionalAuth, async (req: Reque
             .in('visibility', ['public', 'school_only'])
             .eq('status', 'active')
             .order('created_at', { ascending: false });
-        const products = shapeStoreCatalog((productRows ?? []) as unknown as CatalogProductRow[], {
+        // La vitrina filtra por categoría: `products.category` (texto) viene vacío, el nombre real está en product_categories.
+        const rowsWithCategory = ((productRows ?? []) as any[]).map(({ product_categories, ...row }) => ({
+            ...row,
+            category: row.category ?? product_categories?.name ?? null,
+        }));
+        const products = shapeStoreCatalog(rowsWithCategory as unknown as CatalogProductRow[], {
             storeSchoolId,
             memberSchoolIds,
         });

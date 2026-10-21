@@ -9,6 +9,7 @@ vi.mock('../config/supabase', () => ({ supabase: { from: vi.fn(), rpc: vi.fn() }
 
 import { pareceSoloUnCodigo, saludoSinContenido } from './whatsapp-bot.service';
 import { preguntaHorarioDeHoy } from './whatsapp-desconocido-reglas';
+import { intencionDeProspecto, puertaDeProspecto } from './whatsapp-atencion.service';
 
 describe('pareceSoloUnCodigo', () => {
     it.each(['123456', 'mi código es 123456', 'el código: 654321 gracias', ' 123456 '])('«%s» → código', (t) =>
@@ -29,4 +30,20 @@ describe('saludoSinContenido con vocativos cariñosos', () => {
 describe('preguntaHorarioDeHoy (el caso del 11 de octubre)', () => {
     it('«Menores masculino no hay entrenamiento hoy?» → sí', () =>
         expect(preguntaHorarioDeHoy('Menores masculino no hay entrenamiento hoy?')).toBe(true));
+});
+
+describe('mensajes precargados de la web del club (ref: web…)', () => {
+    it.each([
+        'Hola Dynasty 👋 Vengo de la página web y quiero información. (ref: web)',
+        'Hola Dynasty 👋 Quiero saber el calendario de torneos. (ref: web-torneos)',
+        'Hola Dynasty 👋 Quiero agendar una clase de prueba gratis 🏐 (ref: web-agendar)',
+        'Hola Dynasty 👋 Quiero inscribir a mi hijo(a) en el club. (ref: web-inscripcion)',
+    ])('«%s» abre la puerta de prospecto', (t) => {
+        expect(intencionDeProspecto(t)).toBe(true);
+        expect(puertaDeProspecto(t)).toBe('prospecto');
+    });
+    it('un saludo o una frase sin la etiqueta sigue sin abrirla', () => {
+        expect(intencionDeProspecto('Hola Dynasty 👋 Quiero saber el calendario de torneos.')).toBe(false);
+        expect(intencionDeProspecto('el ref web del informe')).toBe(false);
+    });
 });
