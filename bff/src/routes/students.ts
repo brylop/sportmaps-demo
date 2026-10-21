@@ -9,6 +9,7 @@ import { esMenorDeEdad } from '../services/contacto-acudiente';
 import {
     createPendingPayment as createPendingPaymentShared,
     cancelPendingPlanPayments,
+    cancelUnpaidPeriodCharges,
     accionCobroDePlan,
     INACTIVE_ATHLETE_ERROR,
     PLAN_PERIOD_CHARGE_FILTER,
@@ -1269,6 +1270,18 @@ router.put(
                     .or(PLAN_PERIOD_CHARGE_FILTER) // B4: no tocar inscripción/seguro/excedente
                 );
               }
+              // El cobro del período sin plata que no era `pending` del plan viejo
+              // (vencido, o del cierre de mes sin plan ligado) también se anula: si
+              // sobrevive, el cobro del plan nuevo choca con el índice único y no nace.
+              const periodCleanup = enrollment.offering_plan_id
+                ? await cancelUnpaidPeriodCharges({
+                    schoolId, athleteCol, athleteId: id,
+                    startDate: billingStartForChange(planStartDate),
+                  })
+                : { cancelled: 0, withPayments: 0 };
+              if (periodCleanup.withPayments > 0) {
+                warnings.push('El cobro de este mes ya tiene pagos o abonos y NO se anuló: revisa su saldo antes de cobrar el plan nuevo.');
+              }
               if (enrollment.offering_plan_id) {
                 // Banco de horas: las horas usadas pasan al plan nuevo y, si el atleta
                 // ya pagó el período, se emite el cobro que eligió el admin (parcial o
@@ -1287,11 +1300,14 @@ router.put(
                 if (!planChange?.handledCharge) {
                   const { data: planData } = await supabase.from('offering_plans').select('name, price').eq('id', enrollment.offering_plan_id).maybeSingle();
                   const amount = planFee ?? planData?.price ?? 0;
-                  await createPendingPayment(
+                  const created = await createPendingPayment(
                     null, enrollment.offering_plan_id, amount,
                     `Plan ${planData?.name || 'Plan'}`,
                     billingStartForChange(planStartDate),
                   );
+                  if (!created && amount > 0) {
+                    warnings.push('No se emitió el cobro del plan nuevo porque el atleta ya tiene un cobro activo en este período. Revísalo en Pagos.');
+                  }
                 }
               }
             } else if (accionPlan === 'sin_cobro') {

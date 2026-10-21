@@ -8,6 +8,7 @@ import {
     athleteColFor,
     createPendingPayment,
     cancelPendingPlanPayments,
+    cancelUnpaidPeriodCharges,
     emitPlanCharge,
     emitEnrollmentFees,
     enrollmentFeeDueDate,
@@ -353,6 +354,15 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
                 athleteId: studentId!,
                 planIds: planHolders.map((r: any) => r.offering_plan_id),
             });
+            // También el cobro del período sin plata que no era `pending` del plan viejo
+            // (vencido, o del cierre de mes sin plan ligado): si sobrevive, el cobro del
+            // plan nuevo choca con el índice único del período y no nace.
+            const periodCleanup = await cancelUnpaidPeriodCharges({
+                schoolId: schoolId!,
+                athleteCol,
+                athleteId: studentId!,
+                startDate,
+            });
 
             const { data: replaced, error: replaceError } = await supabase
                 .from('enrollments')
@@ -386,8 +396,12 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
                 preview: planChangePreview,
             });
 
+            const planWarnings: string[] = [];
+            if (periodCleanup.withPayments > 0) {
+                planWarnings.push('El cobro de este mes ya tiene pagos o abonos y NO se anuló: revisa su saldo antes de cobrar el plan nuevo.');
+            }
             if (!planChange.handledCharge) {
-                await createPendingPayment({
+                const created = await createPendingPayment({
                     schoolId: schoolId!,
                     athleteCol,
                     athleteId: studentId!,
@@ -396,12 +410,16 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
                     concept: `Plan ${planInfo?.name || 'Plan'}`,
                     startDate,
                 });
+                if (!created && Number(planInfo?.price ?? 0) > 0) {
+                    planWarnings.push('No se emitió el cobro del plan nuevo porque el atleta ya tiene un cobro activo en este período. Revísalo en Pagos.');
+                }
             }
 
             return res.status(200).json({
                 message: 'Plan reemplazado exitosamente',
                 data: replaced,
                 replaced: true,
+                ...(planWarnings.length ? { warnings: planWarnings } : {}),
                 plan_change: planChange.applies
                     ? { charge: planChange.charge, hours: planChange.hours }
                     : undefined,
