@@ -330,6 +330,8 @@ export const ChargeBatchCreateSchema = ChargeBatchBase.extend({
     preview_hash: z.string().trim().min(1, 'Falta la vista previa: pídela antes de confirmar').max(200),
     overrides: z.array(Override).max(MAX_FILAS_POR_LOTE).default([]),
     notify_families: z.boolean().default(false),
+    /** El usuario vio «este mismo cobro ya se registró hace X min» y confirma que es otro (cobro-duplicado-reciente.ts). */
+    confirmar_duplicado: z.boolean().default(false),
 }).superRefine((b, ctx) => reglasDelLote(b, ctx));
 export type ChargeBatchCreate = z.infer<typeof ChargeBatchCreateSchema>;
 

@@ -43,10 +43,13 @@ import {
 } from '@/lib/cobrosYPagos';
 import {
     chargeBatchesApi,
+    normalizeCobrosRecientes,
     normalizeDuplicate,
+    textoCobroReciente,
     toChargeBatchError,
     type AthleteDuplicate,
     type AthleteRef,
+    type CobroRecienteAviso,
     type ChargeBatchPreview,
     type ChargeBatchRequest,
     type ChargeBatchResult,
@@ -183,6 +186,8 @@ export function CobrosYPagosDialog({
     const [overrides, setOverrides] = useState<ChargeOverride[]>([]);
     const [submitting, setSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState<string | null>(null);
+    /** El BFF dijo «este mismo cobro ya se registró hace X min»: se pide confirmar antes de crearlo otra vez. */
+    const [duplicadoReciente, setDuplicadoReciente] = useState<CobroRecienteAviso[] | null>(null);
     const [result, setResult] = useState<ChargeBatchResult | null>(null);
     // Lo que hace falta para reintentar la suma de horas vendidas si no entró (se guarda al confirmar).
     const [ventaDeHoras, setVentaDeHoras] = useState<{ athlete: AthleteRef; enrollment_id: string; extra_hours: number } | null>(null);
@@ -197,6 +202,7 @@ export function CobrosYPagosDialog({
 
     const resetAll = useCallback(() => {
         clientRequestId.current = newClientRequestId();
+        setDuplicadoReciente(null);
         setMode(initialMode);
         setAthleteId(null);
         setNewAthleteOn(false);
@@ -471,6 +477,9 @@ export function CobrosYPagosDialog({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, result, sig, somethingToDo, localErrors.length, previewNonce]);
 
+    // Si el usuario cambia la operación, la pregunta «¿crear igual?» ya no aplica.
+    useEffect(() => { setDuplicadoReciente(null); }, [sig]);
+
     const refreshPreview = () => {
         setPreviewSig(null);
         if (body && sig && localErrors.length === 0) runPreview(body, sig);
@@ -511,13 +520,15 @@ export function CobrosYPagosDialog({
         }
     };
 
-    const submit = async () => {
+    /** `forzar`: el usuario ya vio «este mismo cobro se registró hace X min» y confirma que es otro (mismo client_request_id). */
+    const submit = async (forzar = false) => {
         if (!body || !preview || !previewFresh || button.disabled) return;
         // Un doble clic llega antes de que React repinte el botón deshabilitado: el cerrojo va en una ref.
         if (enviando.current) return;
         enviando.current = true;
         setSubmitting(true);
         setSubmitError(null);
+        setDuplicadoReciente(null);
         try {
             const r = await chargeBatchesApi.create({
                 ...body,
@@ -525,6 +536,7 @@ export function CobrosYPagosDialog({
                 preview_hash: preview.preview_hash,
                 ...(overrides.length ? { overrides } : {}),
                 ...(notify ? { notify_families: true } : {}),
+                ...(forzar ? { confirmar_duplicado: true } : {}),
             });
             setResult(r);
             const lineaDeHoras = body.lines.find((x) => x.extra_hours != null && x.enrollment_id);
@@ -547,6 +559,12 @@ export function CobrosYPagosDialog({
             }
         } catch (e) {
             const err = toChargeBatchError(e);
+            if (err.code === 'COBRO_DUPLICADO_RECIENTE') {
+                // No es un error: es una pregunta. Nada se creó; el botón «Sí, crear igual» reintenta con el flag.
+                const dup = normalizeCobrosRecientes((err.body as { duplicates?: unknown } | undefined)?.duplicates) ?? [];
+                setDuplicadoReciente(dup);
+                return;
+            }
             setSubmitError(err.message);
             if (err.code === 'ATLETA_DUPLICADO') {
                 // F2 adjunta lo que mandó la RPC en `detalle` (la coincidencia o la lista).
@@ -799,6 +817,12 @@ export function CobrosYPagosDialog({
                                             onSepararHoras={separarHoras}
                                         />
                                     )}
+                                    {previewFresh && preview?.recent_duplicates?.length ? (
+                                        <p className="rounded-lg border border-amber-500/40 bg-amber-50 dark:bg-amber-950/30 p-2 text-xs flex items-start gap-1.5" data-testid="cyp-aviso-duplicado">
+                                            <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
+                                            Ojo: este mismo cobro ya se registró {textoCobroReciente(preview.recent_duplicates[0])}. Si lo confirmas te pediremos una confirmación más.
+                                        </p>
+                                    ) : null}
                                     <PreviewSummary
                                         mode={mode}
                                         local={mode === 'single'
@@ -845,10 +869,24 @@ export function CobrosYPagosDialog({
                                     <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" /> {submitError}
                                 </p>
                             )}
+                            {duplicadoReciente && (
+                                <div className="rounded-lg border border-amber-500/40 bg-amber-50 dark:bg-amber-950/30 p-3 text-sm space-y-2" role="alert" data-testid="cyp-duplicado-reciente">
+                                    <p className="flex items-start gap-1.5">
+                                        <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-600" />
+                                        <span>
+                                            Este mismo cobro ya se registró {duplicadoReciente[0] ? textoCobroReciente(duplicadoReciente[0]) : 'hace pocos minutos'}. No se creó nada todavía: ¿es otro cobro y lo creamos igual?
+                                        </span>
+                                    </p>
+                                    <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+                                        <Button variant="outline" size="sm" onClick={() => setDuplicadoReciente(null)} data-testid="cyp-duplicado-cancelar">No, revisar</Button>
+                                        <Button size="sm" onClick={() => void submit(true)} disabled={submitting} data-testid="cyp-duplicado-confirmar">Sí, crear igual</Button>
+                                    </div>
+                                </div>
+                            )}
                             <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2">
                                 {buttonReason && <p className="text-xs text-muted-foreground sm:mr-auto" data-testid="cyp-button-reason">{buttonReason}</p>}
                                 <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>Cancelar</Button>
-                                <Button onClick={submit} disabled={button.disabled} className="min-w-[10rem]" data-testid="cyp-primary">
+                                <Button onClick={() => void submit()} disabled={button.disabled || !!duplicadoReciente} className="min-w-[10rem]" data-testid="cyp-primary">
                                     {submitting && <Loader2 className="h-4 w-4 animate-spin mr-1.5" />}
                                     {button.label}
                                 </Button>

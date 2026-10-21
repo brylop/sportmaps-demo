@@ -147,6 +147,17 @@ export interface ChargeBatchCreateRequest extends ChargeBatchRequest {
     preview_hash: string;
     overrides?: ChargeOverride[];
     notify_families?: boolean;
+    /** El usuario vio que el mismo cobro ya se registró hace poco y confirma que es otro. */
+    confirmar_duplicado?: boolean;
+}
+
+/** Un lote idéntico registrado hace pocos minutos (aviso del preview y detalle del 409 COBRO_DUPLICADO_RECIENTE). */
+export interface CobroRecienteAviso {
+    batch_id: string;
+    created_at: string;
+    minutes_ago: number;
+    created_by_name: string | null;
+    total_amount: number | null;
 }
 
 // ── Tipos de respuesta ────────────────────────────────────────────────────────
@@ -236,6 +247,8 @@ export interface ChargeBatchPreview {
     warnings_count?: Record<string, number>;
     lines?: PreviewLine[];
     duplicates?: AthleteDuplicate[];
+    /** Otra pantalla registró lo mismo hace pocos minutos (aviso, no bloqueo). */
+    recent_duplicates?: CobroRecienteAviso[];
     errors?: { ref?: string; code: string; message?: string }[];
 }
 
@@ -438,6 +451,7 @@ export type ChargeBatchErrorCode =
     | 'EXCEDENTE_YA_FACTURADO'
     | 'TOPE_EXCEDIDO'
     | 'ESCUELA_NO_OPERATIVA'
+    | 'COBRO_DUPLICADO_RECIENTE'
     | 'RATE_LIMIT'
     | 'FORBIDDEN'
     | 'VALIDATION'
@@ -468,6 +482,7 @@ const KNOWN_CODES: readonly ChargeBatchErrorCode[] = [
     'PREVIEW_STALE', 'COBRO_CAMBIO', 'EN_REVISION', 'PAGO_EN_CURSO', 'COBRO_CERRADO', 'DESCUENTO_EXCEDE',
     'ATLETA_DUPLICADO', 'SOBREPAGO', 'MULTI_NO_PAGA', 'EXONERACION_CON_PAGO', 'ANNUL_STALE', 'PERIODO_DUPLICADO',
     'YA_REVERTIDO', 'LOTE_ANULADO', 'EXCEDENTE_YA_FACTURADO', 'TOPE_EXCEDIDO', 'ESCUELA_NO_OPERATIVA',
+    'COBRO_DUPLICADO_RECIENTE',
 ];
 
 /** Códigos del BFF de F2 (charge-batches.service.ts / middlewares) que el modal agrupa. */
@@ -507,6 +522,7 @@ export const CHARGE_BATCH_ERROR_MESSAGE: Record<ChargeBatchErrorCode, string> = 
     EXCEDENTE_YA_FACTURADO: 'Esas horas adicionales ya se facturaron o se descartaron.',
     TOPE_EXCEDIDO: 'El lote supera el máximo (200 atletas o 600 cobros). Divide por equipo o plan.',
     ESCUELA_NO_OPERATIVA: 'La escuela está inhabilitada: no se pueden registrar operaciones.',
+    COBRO_DUPLICADO_RECIENTE: 'Este mismo cobro ya se registró hace pocos minutos. Si de verdad es otro, confirma para crearlo igual.',
     RATE_LIMIT: 'Demasiadas operaciones seguidas. Espera unos minutos e intenta de nuevo.',
     FORBIDDEN: 'Solo el dueño o la administración de la escuela pueden hacer esto.',
     VALIDATION: 'Revisa los datos marcados.',
@@ -758,6 +774,24 @@ function previewErrorMessage(e: any): string {
     return e.detail ? `${base} (${e.detail})` : base;
 }
 
+/** `recent_duplicates` del preview o `duplicates` del 409 COBRO_DUPLICADO_RECIENTE → lista tipada (o undefined si no hay). */
+export function normalizeCobrosRecientes(raw: any): CobroRecienteAviso[] | undefined {
+    if (!Array.isArray(raw) || raw.length === 0) return undefined;
+    return raw.map((d: any) => ({
+        batch_id: String(d?.batch_id ?? ''),
+        created_at: String(d?.created_at ?? ''),
+        minutes_ago: num(d?.minutes_ago),
+        created_by_name: d?.created_by_name ?? null,
+        total_amount: numOrNull(d?.total_amount),
+    }));
+}
+
+/** «hace 3 min por Edna» (para el aviso y el diálogo de confirmación). */
+export function textoCobroReciente(c: CobroRecienteAviso): string {
+    const hace = c.minutes_ago <= 0 ? 'hace menos de un minuto' : `hace ${c.minutes_ago} min`;
+    return `${hace}${c.created_by_name ? ` por ${c.created_by_name}` : ''}`;
+}
+
 export function normalizePreview(r: any): ChargeBatchPreview {
     const items: any[] = [
         ...(Array.isArray(r?.items) ? r.items : []),
@@ -807,6 +841,7 @@ export function normalizePreview(r: any): ChargeBatchPreview {
             warnings: Array.isArray(it.warnings) ? it.warnings : [],
         })),
         duplicates: Array.isArray(r?.duplicates) ? r.duplicates.map(normalizeDuplicate) : undefined,
+        recent_duplicates: normalizeCobrosRecientes(r?.recent_duplicates),
         errors: errors.map((e) => ({ ref: e.ref, code: e.code, message: e.message ?? previewErrorMessage(e) })),
     };
 }

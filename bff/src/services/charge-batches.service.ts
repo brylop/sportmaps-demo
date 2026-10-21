@@ -211,7 +211,7 @@ export async function verificarPertenencia(schoolId: string, body: ChargeBatchRe
  * due_date, concept, notes, period{year,month}, enrollment_id, fee_id,
  * overage_charge_id, discount, exonerate) + pay_amount/close_mode por línea.
  */
-function lineasParaRpc(b: ChargeBatchRequest) {
+export function lineasParaRpc(b: Pick<ChargeBatchRequest, 'lines'>) {
     // Contrato del BFF (Linea.pay_amount): «ausente o 0 = la línea nace
     // pendiente». La RPC (§17.2) entiende lo contrario: con p_payment, una
     // línea SIN pay_amount se paga completa. Sin esta normalización, un
