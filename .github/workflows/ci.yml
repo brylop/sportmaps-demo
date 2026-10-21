@@ -7,12 +7,15 @@ on:
     branches: [main, develop]
 
 # Cancela runs anteriores del mismo branch para ahorrar minutos
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '20'
+  NODE_VERSION: '22'
   WORKING_DIR: ./frontend
 
 # =============================================================================
