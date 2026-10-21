@@ -12,6 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { todayColombia } from '@/lib/dateUtils';
 import { chargeCategoryOf, type PaymentChargeCategory } from '@/lib/payment-accounts';
 import { isCobrosYPagosEnabled } from '@/lib/cobrosYPagosFlag';
+import { formatHourBankMinutes } from '@/lib/hourBank';
 import {
     addDays,
     adjustmentLabel,
@@ -26,6 +27,7 @@ import {
     newClientRequestId,
     newLineDraft,
     newPendingDraft,
+    formatHoras,
     pendingBlockReason,
     primaryButtonState,
     requestSignature,
@@ -173,6 +175,9 @@ export function CobrosYPagosDialog({
     const [submitting, setSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState<string | null>(null);
     const [result, setResult] = useState<ChargeBatchResult | null>(null);
+    // Lo que hace falta para reintentar la suma de horas vendidas si no entró (se guarda al confirmar).
+    const [ventaDeHoras, setVentaDeHoras] = useState<{ athlete: AthleteRef; enrollment_id: string; extra_hours: number } | null>(null);
+    const [reintentandoHoras, setReintentandoHoras] = useState(false);
     const [annulOpen, setAnnulOpen] = useState(false);
     const previewSeq = useRef(0);
     /** Cuerpo (firma) de la vista previa en camino o esperando su reintento tras un 429. */
@@ -424,6 +429,21 @@ export function CobrosYPagosDialog({
     });
     const buttonReason = dupBlock ? 'Decide si es una de las coincidencias o crea igual.' : button.reason;
 
+    const retryHours = async () => {
+        if (!result || !ventaDeHoras) return;
+        setReintentandoHoras(true);
+        try {
+            const hb = await chargeBatchesApi.retryHourBankGrant(result.batch_id, ventaDeHoras);
+            setResult({ ...result, hour_bank_grant: hb });
+            if (hb.ok) toast({ title: 'Horas sumadas al banco', description: hb.hours != null ? `Se sumaron ${formatHoras(hb.hours)} h.` : undefined });
+            else toast({ title: 'Todavía no se pudieron sumar', description: hb.message ?? 'Avisa a soporte.', variant: 'destructive' });
+        } catch (e) {
+            toast({ title: 'No se pudo reintentar', description: toChargeBatchError(e).message, variant: 'destructive' });
+        } finally {
+            setReintentandoHoras(false);
+        }
+    };
+
     const submit = async () => {
         if (!body || !preview || !previewFresh || button.disabled) return;
         setSubmitting(true);
@@ -437,8 +457,24 @@ export function CobrosYPagosDialog({
                 ...(notify ? { notify_families: true } : {}),
             });
             setResult(r);
+            const lineaDeHoras = body.lines.find((x) => x.extra_hours != null && x.enrollment_id);
+            setVentaDeHoras(lineaDeHoras && body.athletes[0]
+                ? { athlete: body.athletes[0], enrollment_id: lineaDeHoras.enrollment_id as string, extra_hours: lineaDeHoras.extra_hours as number }
+                : null);
             onSuccess();
             toast({ title: r.duplicated ? 'Ya estaba registrado' : 'Listo', description: r.duplicated ? 'Esta operación ya se había guardado: no se repitió nada.' : 'La operación quedó guardada.' });
+            // Venta de horas adicionales: el cobro ya quedó; lo que sigue es decir QUÉ pasó con las horas.
+            const hb = r.hour_bank_grant;
+            if (hb) {
+                if (hb.ok) {
+                    toast({
+                        title: hb.duplicated ? 'Las horas ya estaban sumadas' : 'Horas sumadas al banco',
+                        description: hb.hours != null ? `Se sumaron ${formatHoras(hb.hours)} h${hb.available_minutes != null ? ` · disponibles ahora: ${formatHourBankMinutes(hb.available_minutes)}` : ''}.` : undefined,
+                    });
+                } else {
+                    toast({ title: 'Ojo: las horas NO se sumaron al banco', description: hb.message ?? 'Avisa a soporte.', variant: 'destructive' });
+                }
+            }
         } catch (e) {
             const err = toChargeBatchError(e);
             setSubmitError(err.message);
@@ -558,6 +594,8 @@ export function CobrosYPagosDialog({
                             onViewOperation={onViewOperations ? () => { onOpenChange(false); onViewOperations(); } : undefined}
                             onAnnul={() => setAnnulOpen(true)}
                             onAnother={() => resetAll()}
+                            onRetryHours={ventaDeHoras ? retryHours : undefined}
+                            retryingHours={reintentandoHoras}
                         />
                         <AnnulBatchDialog batchId={result.batch_id} open={annulOpen} onOpenChange={setAnnulOpen} onDone={onSuccess} />
                     </div>

@@ -20,7 +20,7 @@ import { assertSchoolFinanceAdmin, assertSchoolFinanceReader } from '../middlewa
 import { chargeBatchRateLimit } from '../middlewares/chargeBatchRateLimit';
 import { cobrosRateLimit } from '../middlewares/cobrosRateLimit';
 import {
-    ChargeBatchRequestSchema, ChargeBatchCreateSchema, AnnulSchema, ListQuerySchema,
+    ChargeBatchRequestSchema, ChargeBatchCreateSchema, AnnulSchema, ListQuerySchema, ReintentoHorasSchema,
     TargetsQuerySchema, AthleteSearchQuerySchema, primerError, filasDeLaOperacion,
     type ChargeBatchRequest,
 } from '../services/charge-batches.schemas';
@@ -28,6 +28,9 @@ import {
     CobrosError, verificarPertenencia, previewChargeBatch, createChargeBatch, annulChargeBatch,
     listarLotes, detalleLote, atletasDelGrupo,
 } from '../services/charge-batches.service';
+import {
+    lineaDeHoras, reintentarSumaDeHoras, revertirHorasDeLote, sumarHorasAdicionales, verificarHorasAdicionales,
+} from '../services/hour-bank-extra.service';
 import { buscarCoincidencias } from '../services/athlete-duplicates.service';
 
 const router = Router();
@@ -80,6 +83,7 @@ router.post(
         try {
             exigirDuenoSiHayExcedente(req, body);
             await verificarPertenencia(req.schoolId, body);
+            await verificarHorasAdicionales(req.schoolId, body);
             const data = await previewChargeBatch(req.schoolId, req.user.id, body);
             return res.json(data);
         } catch (err) {
@@ -108,7 +112,13 @@ router.post(
         try {
             exigirDuenoSiHayExcedente(req, body);
             await verificarPertenencia(req.schoolId, body);
+            await verificarHorasAdicionales(req.schoolId, body);
             const data = await createChargeBatch(req.schoolId, req.user.id, body);
+            // Venta de horas por adelantado: con el cobro ya creado, se suman al banco (idempotente por pago).
+            const ventaDeHoras = lineaDeHoras(body);
+            const horas = ventaDeHoras
+                ? await sumarHorasAdicionales(req.schoolId, req.user.id, data.batch_id as string | undefined, ventaDeHoras, body.athletes[0])
+                : null;
             // §9.3: log estructurado sin nombres de menores.
             req.log?.info?.({
                 evento: 'charge_batch_created',
@@ -122,9 +132,10 @@ router.post(
                 pending: body.pending.length,
                 rows_created: data.rows_created ?? null,
                 total_amount: data.total_amount ?? null,
+                hour_bank_grant: horas ? (horas.ok ? 'ok' : horas.reason) : undefined,
                 ms: Date.now() - inicio,
             }, 'charge_batch_created');
-            return res.status(200).json(data);
+            return res.status(200).json(horas ? { ...data, hour_bank_grant: horas } : data);
         } catch (err) {
             return responderError(req, res, err);
         }
@@ -220,8 +231,43 @@ router.post(
         if (!body) return;
         try {
             const data = await annulChargeBatch(req.schoolId, req.user.id, p.id, body.reason, body.expected_count);
-            req.log?.info?.({ evento: 'charge_batch_annulled', school_id: req.schoolId, actor: req.user.id, batch_id: p.id, annulled: data.annulled ?? null }, 'charge_batch_annulled');
-            return res.json(data);
+            // Horas vendidas con los cobros que se anularon: se restan del banco (nunca lanza).
+            const idsAnulados = Array.isArray(data.annulled_ids) ? (data.annulled_ids as string[]) : [];
+            const horasRevertidas = idsAnulados.length
+                ? await revertirHorasDeLote(req.schoolId, req.user.id, idsAnulados, `Cobro anulado: ${body.reason}`.slice(0, 300))
+                : null;
+            req.log?.info?.({
+                evento: 'charge_batch_annulled', school_id: req.schoolId, actor: req.user.id, batch_id: p.id,
+                annulled: data.annulled ?? null, hour_bank_reverted: horasRevertidas?.reverted ?? undefined,
+            }, 'charge_batch_annulled');
+            return res.json(horasRevertidas && (horasRevertidas.reverted > 0 || horasRevertidas.errors.length)
+                ? { ...data, hour_bank_reverted: horasRevertidas }
+                : data);
+        } catch (err) {
+            return responderError(req, res, err);
+        }
+    },
+);
+
+// ─── Reintentar la suma de horas vendidas ───────────────────────────────────
+// El cobro ya se creó y se pagó pero las horas no entraron al banco (falló la suma, o el pago se
+// registró después). Idempotente por pago: reintentar nunca suma dos veces. Solo el dueño.
+router.post(
+    '/:id/hour-bank',
+    requireRole(...ADMIN_ROLES),
+    assertSchoolFinanceAdmin,
+    async (req: Request, res: Response) => {
+        const p = validar(IdParam, req.params, res);
+        if (!p) return;
+        const body = validar(ReintentoHorasSchema, req.body, res);
+        if (!body) return;
+        try {
+            if (req.nivelFinanzas !== 'dueno') {
+                throw new CobrosError(403, 'SOLO_DUENO_EXCEDENTE', 'Solo el dueño de la escuela puede sumar horas adicionales.');
+            }
+            const data = await reintentarSumaDeHoras(req.schoolId, req.user.id, p.id, body.athlete, body.enrollment_id, body.extra_hours);
+            req.log?.info?.({ evento: 'hour_bank_grant_retry', school_id: req.schoolId, actor: req.user.id, batch_id: p.id, ok: data.ok, reason: data.reason }, 'hour_bank_grant_retry');
+            return res.json({ hour_bank_grant: data });
         } catch (err) {
             return responderError(req, res, err);
         }
