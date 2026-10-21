@@ -804,10 +804,10 @@ export default function SchoolStudentsManagementPage() {
 
   const updateStudentMutation = useMutation({
     mutationFn: async (data: StudentFormData & { plan_change_charge?: PlanChangeChargeMode }) => {
-      if (!editingStudent || !schoolId) return;
+      if (!editingStudent || !schoolId) return [] as string[];
 
       const { bffClient } = await import('@/lib/api/bffClient');
-      await bffClient.put(`/api/v1/students/${editingStudent.id}`, {
+      const saved = await bffClient.put<{ warnings?: string[] }>(`/api/v1/students/${editingStudent.id}`, {
         athlete_type: editingAthleteType,
         // ID del torniquete: solo si cambió; vacío = no tocar (quitarlo se hace en Control de acceso).
         ...(registrationZkPinEnabled && data.zk_pin && Number(data.zk_pin) !== currentZkPin
@@ -858,8 +858,9 @@ export default function SchoolStudentsManagementPage() {
           });
         }
       }
+      return saved?.warnings ?? [];
     },
-    onSuccess: () => {
+    onSuccess: (warnings) => {
       queryClient.invalidateQueries({ queryKey: ['school-students'] });
       setFeesMarked(NO_FEES_MARKED);
       setPlanChangePrompt(null);
@@ -867,6 +868,15 @@ export default function SchoolStudentsManagementPage() {
       setEditingStudent(null);
       setEditingAthleteType(null);
       toast({ title: '✅ Atleta actualizado' });
+      // Avisos del BFF (p. ej. el cobro del plan nuevo no se pudo emitir): antes se
+      // perdían y el admin creía que todo había salido bien.
+      if (warnings?.length) {
+        toast({
+          title: 'Revisa los cobros de este atleta',
+          description: warnings.join(' '),
+          variant: 'destructive',
+        });
+      }
     },
     onError: (error: any) => {
       toast({
