@@ -12,7 +12,7 @@ import { currentPeriodBogota, formatPeriodLabel, parsePeriodKey, periodKey, shif
 import { formatPesos, monthsFromToday, newLineDraft, type LineCalc, type MultiLineCalc, type NewLineDraft } from '@/lib/cobrosYPagos';
 import type { ChargeSuggestions } from '@/lib/api/chargeBatches';
 import { DiscountControl } from './DiscountControl';
-import { HorasAdicionalesLine, borradorDeVentaDeHoras, inscripcionesConHoras } from './HorasAdicionalesLine';
+import { HorasAdicionalesLine } from './HorasAdicionalesLine';
 import { DiscountTags } from './DiscountTags';
 
 interface NewChargeLinesProps {
@@ -65,14 +65,14 @@ export function NewChargeLines({
 
     const changeCategory = (idx: number, category: PaymentChargeCategory) => {
         const l = lines[idx];
-        const patch: Partial<NewLineDraft> = { category, concept: CHARGE_CATEGORY_LABEL[category], overage_charge_id: null, extra_hours: null };
+        const patch: Partial<NewLineDraft> = { category, concept: CHARGE_CATEGORY_LABEL[category], overage_charge_id: null, extra_hours: null, horas_modo: null };
         if (category === 'excedente') {
-            // Sin excedentes ya calculados (Dreamers hasta hoy) lo único posible es VENDER horas:
-            // se abre directo en esa vista, con 1 hora y la tarifa del plan.
+            // «Horas adicionales» puede ser cobrar lo que ya usó o vender por adelantado: no se elige
+            // por el usuario. La línea nace sin modo y HorasAdicionalesLine lo pide (sin banco de horas
+            // pasa sola a «Ya las usó»).
             patch.period = null;
             patch.enrollment_id = null;
-            if ((suggestions?.overages?.length ?? 0) === 0) Object.assign(patch, borradorDeVentaDeHoras(suggestions));
-            else if (l.category === 'mensualidad') patch.amount = null;
+            if (l.category === 'mensualidad') patch.amount = null;
         } else if (category === 'mensualidad') {
             const p = suggestions?.next_period ?? today;
             patch.period = p;
@@ -91,15 +91,13 @@ export function NewChargeLines({
         onChange([...lines, newLineDraft({ category: 'torneo', due_date: defaultDue, amount: null, pay: paymentOn })]);
     };
 
-    // Atajo «+ Horas adicionales»: abre directo la venta de horas (1 h y la tarifa del plan) en vez de
-    // la fila de Torneo vacía. Solo el dueño, un atleta, con banco de horas, y una venta por operación.
+    // Atajo «+ Horas adicionales»: abre la línea de horas (sin modo: el usuario elige «Ya las usó» o
+    // «Por adelantado»; sin banco de horas pasa sola a «Ya las usó») en vez de la fila de Torneo vacía.
+    // Solo el dueño, un atleta, y una línea de horas por operación.
     const puedeVenderHoras = canOverage && mode === 'single'
-        && inscripcionesConHoras(suggestions).length > 0
-        && !lines.some((l) => l.category === 'excedente' && l.extra_hours != null);
+        && !lines.some((l) => l.category === 'excedente');
     const addHoras = () => {
-        onChange([...lines, newLineDraft({
-            category: 'excedente', due_date: defaultDue, pay: paymentOn, ...borradorDeVentaDeHoras(suggestions),
-        })]);
+        onChange([...lines, newLineDraft({ category: 'excedente', due_date: defaultDue, pay: paymentOn })]);
     };
 
     return (

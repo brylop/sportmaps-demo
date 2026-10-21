@@ -55,6 +55,14 @@ import {
     type OpenCharge,
     type TargetKind,
 } from '@/lib/api/chargeBatches';
+import {
+    decidirComprobante,
+    horasAPagarDeLineas,
+    horasPorSeparar,
+    separarLineas,
+    type DecisionComprobante,
+    type HorasPorSeparar,
+} from '@/lib/separarHoras';
 import { RegisterCashPaymentModal } from './RegisterCashPaymentModal';
 import { AthletePicker } from './cobros-y-pagos/AthletePicker';
 import { NewAthleteForm } from './cobros-y-pagos/NewAthleteForm';
@@ -179,6 +187,8 @@ export function CobrosYPagosDialog({
     const [ventaDeHoras, setVentaDeHoras] = useState<{ athlete: AthleteRef; enrollment_id: string; extra_hours: number } | null>(null);
     const [reintentandoHoras, setReintentandoHoras] = useState(false);
     const [annulOpen, setAnnulOpen] = useState(false);
+    // «Separar las horas»: las líneas de horas que salieron de ESTA operación y se cobran en una segunda.
+    const [horasAparte, setHorasAparte] = useState<HorasPorSeparar<NewLineDraft> | null>(null);
     const previewSeq = useRef(0);
     /** Cuerpo (firma) de la vista previa en camino o esperando su reintento tras un 429. */
     const previewInFlightSig = useRef<string | null>(null);
@@ -212,6 +222,7 @@ export function CobrosYPagosDialog({
         setOverrides([]);
         setSubmitError(null);
         setResult(null);
+        setHorasAparte(null);
     }, [initialMode, initialTeamId]);
 
     // Al abrir: id de idempotencia nuevo y atletas de la escuela
@@ -303,6 +314,60 @@ export function CobrosYPagosDialog({
         () => computeSingle({ pending: newAthleteOn ? [] : pendingInput, lines, global, paymentOn: payment.on, autoDiscounts: mode === 'single' ? autoDiscounts : undefined }),
         [pendingInput, lines, global, payment.on, newAthleteOn, autoDiscounts, mode],
     );
+    // Comprobante vs. total cuando se venden horas por adelantado: las horas solo van en la misma
+    // operación si el comprobante cubre todo (si no, se bloquea y se ofrece «Separar las horas»).
+    const payAmountsDeLineas = useMemo(() => {
+        const porRef = new Map(single.lines.map((l) => [l.ref, l.payAmount]));
+        return lines.map((_, i) => porRef.get(`new:${i}`) ?? 0);
+    }, [single.lines, lines]);
+    const comprobante: DecisionComprobante = useMemo(() => (
+        mode === 'single' && payment.on && !newAthleteOn
+            ? decidirComprobante({
+                metodo: payment.method,
+                tieneComprobante: !!payment.receiptUrl,
+                montoLeido: payment.ocr?.extractedAmount,
+                totalAPagar: single.toPay.total,
+                horasAPagar: horasAPagarDeLineas(lines, payAmountsDeLineas),
+            })
+            : { tipo: 'ok' }
+    ), [mode, payment, newAthleteOn, single.toPay.total, lines, payAmountsDeLineas]);
+
+    const separarHoras = () => {
+        const { principal, horas } = separarLineas(lines);
+        if (horas.length === 0 || principal.length + pendingInput.filter((x) => x.draft.selected).length === 0) return;
+        setHorasAparte(horasPorSeparar(horas, horasAPagarDeLineas(lines, payAmountsDeLineas)));
+        setLines(principal);
+    };
+    const volverAIncluirHoras = () => {
+        if (!horasAparte) return;
+        setLines((ls) => [...ls, ...horasAparte.lineas]);
+        setHorasAparte(null);
+    };
+    // Segunda operación: mismo atleta, solo las horas, con su propio pago y comprobante.
+    const registrarHorasAparte = () => {
+        const h = horasAparte;
+        if (!h) return;
+        clientRequestId.current = newClientRequestId();
+        previewSeq.current++;
+        previewInFlightSig.current = null;
+        if (previewRetryTimer.current) { clearTimeout(previewRetryTimer.current); previewRetryTimer.current = null; }
+        setResult(null);
+        setVentaDeHoras(null);
+        setLines(h.lineas);
+        setHorasAparte(null);
+        setPayment(emptyPaymentDraft(todayColombia(), true));
+        setDrafts({});
+        setGlobal({ ...emptyDiscount(), enabled: false });
+        setNotify(false);
+        setPreview(null);
+        setPreviewSig(null);
+        setPreviewError(null);
+        setPreviewLoading(false);
+        setOverrides([]);
+        setSubmitError(null);
+        if (athleteRef) void loadAthleteData(athleteRef, false);
+    };
+
     const multiAthletes = useMemo(() => {
         if (!omitWithoutPayer) return multiResolved.athletes;
         const withPayer = new Set(athletes.filter((a) => a.athlete_type === 'adult' || !!a.parent_id).map((a) => a.id));
@@ -321,6 +386,7 @@ export function CobrosYPagosDialog({
         const pe = paymentDraftError(payment, today);
         if (pe && single.toPay.n > 0) extraErrors.push(pe);
         for (const l of lines) if (l.due_date < today) extraErrors.push('El vencimiento no puede ser antes de hoy.');
+        if (comprobante.tipo === 'bloquear') extraErrors.push('El comprobante no cubre el total con las horas: sepáralas o corrige los montos.');
     } else {
         if (multiAthletes.length > 200) extraErrors.push('Máximo 200 atletas por lote: divide por equipo o plan.');
         if (multiAthletes.length * lines.length > 600) extraErrors.push('Máximo 600 cobros por lote.');
@@ -596,6 +662,8 @@ export function CobrosYPagosDialog({
                             onAnother={() => resetAll()}
                             onRetryHours={ventaDeHoras ? retryHours : undefined}
                             retryingHours={reintentandoHoras}
+                            horasPorRegistrar={horasAparte ? { horas: horasAparte.horas, monto: horasAparte.monto } : undefined}
+                            onRegisterHours={horasAparte ? registrarHorasAparte : undefined}
                         />
                         <AnnulBatchDialog batchId={result.batch_id} open={annulOpen} onOpenChange={setAnnulOpen} onDone={onSuccess} />
                     </div>
@@ -627,7 +695,7 @@ export function CobrosYPagosDialog({
                                                     athletes={athletes}
                                                     loading={loadingAthletes}
                                                     selectedId={athleteId}
-                                                    onSelect={(id) => { setAthleteId(id); setOverrides([]); }}
+                                                    onSelect={(id) => { setAthleteId(id); setOverrides([]); setHorasAparte(null); }}
                                                     locked={locked}
                                                     onNewAthlete={locked ? undefined : () => { setNewAthleteOn(true); setAthleteId(null); setCharges([]); setDrafts({}); setLines((ls) => ls.filter((l) => l.category !== 'mensualidad')); }}
                                                 />
@@ -698,6 +766,14 @@ export function CobrosYPagosDialog({
                                             error={mode === 'single' ? single.generalError : null}
                                         />
                                     )}
+                                    {mode === 'single' && horasAparte && (
+                                        <div className="rounded-lg border border-primary/30 bg-primary/5 p-2.5 text-xs space-y-1.5" data-testid="cyp-horas-aparte">
+                                            <p>
+                                                <b>Horas aparte:</b> {formatHoras(horasAparte.horas)} h por {formatPesos(horasAparte.monto)}. Se registran en una segunda operación, con su propio pago, al terminar esta.
+                                            </p>
+                                            <Button type="button" variant="ghost" size="sm" className="h-7 text-xs px-2" onClick={volverAIncluirHoras}>Volver a incluirlas aquí</Button>
+                                        </div>
+                                    )}
                                     {mode === 'single' && (
                                         <PaymentBlock
                                             value={payment}
@@ -714,6 +790,8 @@ export function CobrosYPagosDialog({
                                             payerName={payerName}
                                             payerKind={selected?.athlete_type === 'adult' ? 'adult_athlete' : 'guardian'}
                                             invoicingEnabled={hasAddon('invoicing')}
+                                            comprobante={comprobante}
+                                            onSepararHoras={separarHoras}
                                         />
                                     )}
                                     <PreviewSummary

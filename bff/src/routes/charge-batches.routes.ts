@@ -31,6 +31,7 @@ import {
 import {
     lineaDeHoras, reintentarSumaDeHoras, revertirHorasDeLote, sumarHorasAdicionales, verificarHorasAdicionales,
 } from '../services/hour-bank-extra.service';
+import { verificarComprobanteConHoras } from '../services/comprobante-horas';
 import { buscarCoincidencias } from '../services/athlete-duplicates.service';
 
 const router = Router();
@@ -84,6 +85,7 @@ router.post(
             exigirDuenoSiHayExcedente(req, body);
             await verificarPertenencia(req.schoolId, body);
             await verificarHorasAdicionales(req.schoolId, body);
+            verificarComprobanteConHoras(body);
             const data = await previewChargeBatch(req.schoolId, req.user.id, body);
             return res.json(data);
         } catch (err) {
@@ -113,6 +115,7 @@ router.post(
             exigirDuenoSiHayExcedente(req, body);
             await verificarPertenencia(req.schoolId, body);
             await verificarHorasAdicionales(req.schoolId, body);
+            verificarComprobanteConHoras(body);
             const data = await createChargeBatch(req.schoolId, req.user.id, body);
             // Venta de horas por adelantado: con el cobro ya creado, se suman al banco (idempotente por pago).
             const ventaDeHoras = lineaDeHoras(body);

@@ -9,6 +9,7 @@ import { FileUpload } from '@/components/common/FileUpload';
 import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
 import { cn } from '@/lib/utils';
 import { formatPesos } from '@/lib/cobrosYPagos';
+import { mensajeDeComprobante, type DecisionComprobante } from '@/lib/separarHoras';
 import type { PaymentChargeCategory } from '@/lib/payment-accounts';
 import type { PaymentDraft } from './drafts';
 
@@ -30,6 +31,10 @@ interface PaymentBlockProps {
     payerName: string | null;
     payerKind: 'adult_athlete' | 'guardian';
     invoicingEnabled: boolean;
+    /** Veredicto del comprobante contra el total cuando la operación vende horas (lib/separarHoras). */
+    comprobante?: DecisionComprobante;
+    /** «Separar las horas»: deja el comprobante para lo principal y pasa las horas a otra operación. */
+    onSepararHoras?: () => void;
 }
 
 /**
@@ -41,7 +46,7 @@ interface PaymentBlockProps {
  */
 export function PaymentBlock({
     value: p, onChange, today, schoolId, totalToPay, expectedAmount, paymentCategory,
-    payerProfileId, payerName, payerKind, invoicingEnabled,
+    payerProfileId, payerName, payerKind, invoicingEnabled, comprobante, onSepararHoras,
 }: PaymentBlockProps) {
     // Último borrador, ACUMULADO: dos cambios en el mismo evento (p. ej. «Efectivo» + quitar el
     // comprobante, o el resultado del OCR + la URL subida) parten del anterior y no del `p` de
@@ -134,6 +139,19 @@ export function PaymentBlock({
                                         <p className="text-xs text-amber-700 dark:text-amber-400">
                                             El comprobante dice {formatPesos(p.ocr.extractedAmount)} y se registran {formatPesos(expectedAmount)}.
                                         </p>
+                                    )}
+                                    {comprobante?.tipo === 'bloquear' && (
+                                        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2 space-y-2" role="alert" data-testid="cyp-comprobante-horas">
+                                            <p className="flex items-start gap-1.5 text-xs font-semibold text-destructive">
+                                                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" /> No se puede confirmar así
+                                            </p>
+                                            <p className="text-xs text-destructive">{mensajeDeComprobante(comprobante)}</p>
+                                            {comprobante.puedeSeparar && onSepararHoras && (
+                                                <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={onSepararHoras} data-testid="cyp-separar-horas">
+                                                    Separar las horas
+                                                </Button>
+                                            )}
+                                        </div>
                                     )}
                                     {p.ocr?.extractedDate && p.ocr.extractedDate !== p.date && (
                                         <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => set({ date: p.ocr!.extractedDate! })}>
