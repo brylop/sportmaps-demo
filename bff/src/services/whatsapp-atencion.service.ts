@@ -451,6 +451,11 @@ const CONTEXTO_PROSPECTO =
     /\b(club|academia|escuela|clases?|curso|cursos|grupos?|categorias?|entren\w*|practicar|jugar|voley|volley|voleibol|volleyball|deportes?|iniciar|iniciacion|empezar|comenzar|entrar|ingresar|inscrib\w*|conocer|instalaciones|formacion|ninos?|ninas?|adultos?|menores|hij[oa]s?)\b/;
 
 const PROSPECTO_FUERTE: RegExp[] = [
+    // Los botones de WhatsApp de la web del club precargan el mensaje y lo cierran con
+    // «(ref: web)», «(ref: web-torneos)»… (Dynasty 2026-10-21). Quien llega por ahí
+    // pidió hablar con el club: «quiero información» y «quiero saber el calendario
+    // de torneos» no tienen ninguna palabra de escuela, y sin esto el bot callaba.
+    /\bref web( agendar| inscripcion| torneos)?$/,
     /\binscrib\w*/,
     /\binscripcion(es)?\b/,
     /\bmatricul\w*/,
