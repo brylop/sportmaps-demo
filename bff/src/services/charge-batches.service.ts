@@ -20,6 +20,7 @@ import type {
     ChargeBatchRequest, ChargeBatchCreate, AtletaInput,
 } from './charge-batches.schemas';
 import { esFuncionInexistente } from './athlete-duplicates.service';
+import { conceptoHorasAdicionales, tarifaPorHora } from './hour-bank-extra.shared';
 
 // ─── Errores ─────────────────────────────────────────────────────────────────
 
@@ -120,7 +121,7 @@ export function traducirErrorRpc(err: ErrorRpc, contexto: 'preview' | 'create' |
 
 // ─── Pertenencia a la escuela (antes de la RPC) ─────────────────────────────
 
-const COLUMNA_ATLETA: Record<AtletaInput['type'], 'child_id' | 'user_id' | 'unregistered_athlete_id'> = {
+export const COLUMNA_ATLETA: Record<AtletaInput['type'], 'child_id' | 'user_id' | 'unregistered_athlete_id'> = {
     child: 'child_id',
     adult: 'user_id',
     unregistered: 'unregistered_athlete_id',
@@ -217,7 +218,17 @@ function lineasParaRpc(b: ChargeBatchRequest) {
     // cliente del BFF que omite pay_amount registraba plata que no recibió
     // (hallado en QA sobre el gemelo, 2026-10-10: mensualidad de $280.000
     // quedó `paid`). El modal ya manda pay_amount explícito en modo un atleta.
-    return b.lines.map((l, idx) => ({ idx, ...l, pay_amount: l.pay_amount ?? 0 }));
+    return b.lines.map((l, idx) => {
+        const { extra_hours, ...resto } = l;
+        // Venta de horas por adelantado: el lote la ve como una «Clase extra» con un
+        // concepto fijo (con el que `sumarHorasAdicionales` encuentra el pago). La
+        // misma transformación corre en la vista previa y en la creación, así que el
+        // preview_hash coincide.
+        const linea = extra_hours != null
+            ? { ...resto, category: 'clase_extra' as const, concept: conceptoHorasAdicionales(extra_hours) }
+            : resto;
+        return { idx, ...linea, pay_amount: l.pay_amount ?? 0 };
+    });
 }
 
 function argsComunes(schoolId: string, actor: string, b: ChargeBatchRequest) {
@@ -709,7 +720,12 @@ export async function sugerenciasDeCobro(schoolId: string, atleta: AtletaInput) 
             status: e.status,
             paused: pausado(e),
             is_primary: primariaSet.has(e.id),
-            plan: plan ? { id: plan.id, name: plan.name, hours_plan: Number(plan.included_minutes_per_period) > 0 } : null,
+            plan: plan ? {
+                id: plan.id, name: plan.name, hours_plan: Number(plan.included_minutes_per_period) > 0,
+                // Para vender horas adicionales: la misma tarifa que usa el cobro de excedentes.
+                included_minutes: Number(plan.included_minutes_per_period) > 0 ? Number(plan.included_minutes_per_period) : null,
+                hourly_rate: tarifaPorHora(Number(plan.price), Number(plan.included_minutes_per_period)),
+            } : null,
             team: team ? { id: team.id, name: team.name } : null,
             suggested_monthly_amount: sugerido,
             amount_source: Number(e.monthly_fee) > 0 ? 'tarifa_del_atleta' : Number(plan?.price) > 0 ? 'plan' : Number(team?.price_monthly) > 0 ? 'equipo' : null,

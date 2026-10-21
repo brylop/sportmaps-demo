@@ -74,6 +74,8 @@ export interface ChargeLinePayload {
     enrollment_id?: string;
     fee_id?: string;
     overage_charge_id?: string;
+    /** Horas adicionales vendidas por adelantado (múltiplos de 0,25). Va con `enrollment_id`. */
+    extra_hours?: number;
     discount?: DiscountPayload;
     exonerate?: { reason_text: string };
     /**
@@ -237,9 +239,22 @@ export interface ChargeBatchPreview {
     errors?: { ref?: string; code: string; message?: string }[];
 }
 
+/** Resultado de sumar las horas vendidas al banco (solo si la operación llevaba una venta de horas). */
+export interface HourBankGrantResult {
+    ok: boolean;
+    minutes?: number;
+    hours?: number;
+    available_minutes?: number;
+    duplicated?: boolean;
+    /** sin_cobro: no se creó el cobro. sin_pago: quedó pendiente. error: falló la suma. */
+    reason?: 'sin_cobro' | 'sin_pago' | 'error';
+    message?: string;
+}
+
 export interface ChargeBatchResult {
     batch_id: string;
     duplicated: boolean;
+    hour_bank_grant?: HourBankGrantResult;
     rows_created: number;
     total_amount: number;
     payment_ids?: string[];
@@ -317,6 +332,11 @@ export interface EnrollmentOption {
     is_primary?: boolean;
     monthly_amount: number | null;
     active?: boolean;
+    /** El plan lleva banco de horas (se pueden vender horas adicionales). */
+    hours_plan?: boolean;
+    /** Precio del plan ÷ horas incluidas: la misma tarifa del cobro de excedentes. */
+    hourly_rate?: number | null;
+    included_minutes?: number | null;
 }
 
 export interface ChargeSuggestions {
@@ -623,6 +643,9 @@ export function normalizeSuggestions(r: any): ChargeSuggestions {
         is_primary: !!e.is_primary,
         monthly_amount: numOrNull(e.monthly_amount ?? e.suggested_monthly_amount),
         active: e.active ?? (e.status ? e.status === 'active' : true),
+        hours_plan: !!(e.hours_plan ?? e.plan?.hours_plan),
+        hourly_rate: numOrNull(e.hourly_rate ?? e.plan?.hourly_rate),
+        included_minutes: numOrNull(e.included_minutes ?? e.plan?.included_minutes),
     }));
     const primary = raw.find((e) => e.is_primary) ?? raw.find((e) => e.status === 'active') ?? raw[0];
     const amount = numOrNull(r?.suggested_monthly?.amount ?? primary?.suggested_monthly_amount ?? primary?.monthly_amount);
@@ -839,6 +862,11 @@ export const chargeBatchesApi = {
 
     get: (batchId: string) =>
         call(async () => normalizeBatchDetail(await bffClient.get<unknown>(`${BASE}/${encodeURIComponent(batchId)}`))),
+
+    /** Reintenta sumar al banco las horas de una venta ya creada y pagada (solo el dueño; idempotente por pago). */
+    retryHourBankGrant: (batchId: string, body: { athlete: AthleteRef; enrollment_id: string; extra_hours: number }) =>
+        call(async () => (await bffClient.post<{ hour_bank_grant: HourBankGrantResult }>(
+            `${BASE}/${encodeURIComponent(batchId)}/hour-bank`, body)).hour_bank_grant),
 
     annul: (batchId: string, body: { reason: string; expected_count: number }) =>
         call(() => bffClient.post<{ annulled?: number; kept?: { payment_id: string; status: string }[] }>(

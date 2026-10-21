@@ -12,6 +12,7 @@ import { currentPeriodBogota, formatPeriodLabel, parsePeriodKey, periodKey, shif
 import { formatPesos, monthsFromToday, newLineDraft, type LineCalc, type MultiLineCalc, type NewLineDraft } from '@/lib/cobrosYPagos';
 import type { ChargeSuggestions } from '@/lib/api/chargeBatches';
 import { DiscountControl } from './DiscountControl';
+import { HorasAdicionalesLine, borradorDeVentaDeHoras } from './HorasAdicionalesLine';
 import { DiscountTags } from './DiscountTags';
 
 interface NewChargeLinesProps {
@@ -64,8 +65,15 @@ export function NewChargeLines({
 
     const changeCategory = (idx: number, category: PaymentChargeCategory) => {
         const l = lines[idx];
-        const patch: Partial<NewLineDraft> = { category, concept: CHARGE_CATEGORY_LABEL[category], overage_charge_id: null };
-        if (category === 'mensualidad') {
+        const patch: Partial<NewLineDraft> = { category, concept: CHARGE_CATEGORY_LABEL[category], overage_charge_id: null, extra_hours: null };
+        if (category === 'excedente') {
+            // Sin excedentes ya calculados (Dreamers hasta hoy) lo único posible es VENDER horas:
+            // se abre directo en esa vista, con 1 hora y la tarifa del plan.
+            patch.period = null;
+            patch.enrollment_id = null;
+            if ((suggestions?.overages?.length ?? 0) === 0) Object.assign(patch, borradorDeVentaDeHoras(suggestions));
+            else if (l.category === 'mensualidad') patch.amount = null;
+        } else if (category === 'mensualidad') {
             const p = suggestions?.next_period ?? today;
             patch.period = p;
             patch.concept = `Mensualidad ${formatPeriodLabel(p.year, p.month)}`;
@@ -122,6 +130,7 @@ export function NewChargeLines({
                                     value={l.concept}
                                     placeholder="Ej. Copa Pony 2026 — Sub-12"
                                     maxLength={120}
+                                    readOnly={l.category === 'excedente' && l.extra_hours != null}
                                     onChange={(e) => update(idx, { concept: e.target.value })}
                                 />
                             )}
@@ -193,17 +202,7 @@ export function NewChargeLines({
                         )}
                         {pastMonth && <p className="text-[11px] text-amber-700 dark:text-amber-400">Ese mes ya pasó: se crea solo si no existe, y vence desde hoy.</p>}
                         {l.category === 'excedente' && mode === 'single' && (
-                            <Select value={l.overage_charge_id ?? undefined} onValueChange={(v) => {
-                                const o = suggestions?.overages?.find((x) => x.id === v);
-                                update(idx, { overage_charge_id: v, amount: o?.amount ?? l.amount, concept: o ? `Horas adicionales ${o.period_label}` : l.concept });
-                            }}>
-                                <SelectTrigger className="h-9 text-sm" aria-label="Período de horas adicionales">
-                                    <SelectValue placeholder={(suggestions?.overages?.length ?? 0) > 0 ? 'Elige el período' : 'No hay excedentes por facturar'} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {(suggestions?.overages ?? []).map((o) => <SelectItem key={o.id} value={o.id}>{o.period_label} — {formatPesos(o.amount)}</SelectItem>)}
-                                </SelectContent>
-                            </Select>
+                            <HorasAdicionalesLine line={l} suggestions={suggestions} onPatch={(patch) => update(idx, patch)} />
                         )}
 
                         <div className="flex flex-wrap items-center gap-2">
