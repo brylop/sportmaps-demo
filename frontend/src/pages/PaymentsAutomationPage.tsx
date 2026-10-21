@@ -76,6 +76,8 @@ interface BillingSettings {
   coach_can_upload_enrollment_forms?: boolean;
   /** El entrenador podrá subir fotos de planillas de asistencia (F1, aún sin construir). */
   coach_can_upload_attendance_sheets?: boolean;
+  /** El entrenador puede remover deportistas de SUS equipos (cancelar anula cobros pendientes). */
+  coach_can_remove_enrollments?: boolean;
   require_payment_proof: boolean;
   bank_name?: string | null;
   bank_account_type?: string | null;
@@ -155,6 +157,7 @@ const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
   coach_can_enroll_paid_teams: true,
   coach_can_upload_enrollment_forms: false,
   coach_can_upload_attendance_sheets: false,
+  coach_can_remove_enrollments: false,
   require_payment_proof: true,
   allow_installments: true,
   max_installments_per_payment: 3,
@@ -562,6 +565,7 @@ export default function PaymentsAutomationPage() {
   // ¿Este ambiente ya tiene la columna payment_accounts? Se resuelve al cargar.
   const accountsColumnReady = useRef(false);
   const coachPhotoColumnsReady = useRef(false);
+  const coachRemoveColumnReady = useRef(false);
   const remainingClassesColumnReady = useRef(false);
   // Escalones de hermanos (F2): si la columna no existe aún en este ambiente,
   // mandarla tumbaría el upsert completo.
@@ -664,6 +668,7 @@ export default function PaymentsAutomationPage() {
     accountsColumnReady.current = 'payment_accounts' in data;
     // Mismo cuidado con los permisos de fotos del coach (mig 20261005120806).
     coachPhotoColumnsReady.current = 'coach_can_upload_enrollment_forms' in data;
+    coachRemoveColumnReady.current = 'coach_can_remove_enrollments' in data;
     // Y con el cobro por clases restantes (mig 20261005214250).
     remainingClassesColumnReady.current = 'remaining_classes_billing_enabled' in data;
     siblingTiersColumnReady.current = 'sibling_discount_tiers' in data;
@@ -721,6 +726,9 @@ export default function PaymentsAutomationPage() {
                 coach_can_upload_enrollment_forms: !!billing.coach_can_upload_enrollment_forms,
                 coach_can_upload_attendance_sheets: !!billing.coach_can_upload_attendance_sheets,
               }
+            : {}),
+        ...(coachRemoveColumnReady.current
+            ? { coach_can_remove_enrollments: !!billing.coach_can_remove_enrollments }
             : {}),
         require_payment_proof: billing.require_payment_proof,
         bank_name: billing.bank_name,
@@ -2873,6 +2881,20 @@ export default function PaymentsAutomationPage() {
                     <Switch
                       checked={!!billing.coach_can_upload_attendance_sheets}
                       onCheckedChange={v => updateBilling('coach_can_upload_attendance_sheets', v)}
+                    />
+                  </div>
+                  <Separator />
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <Label className="font-medium">Coaches pueden remover deportistas de sus equipos</Label>
+                      <p className="text-xs text-muted-foreground max-w-[46ch]">
+                        Al remover, la inscripción se cancela y se anulan los cobros pendientes del
+                        deportista. Solo aplica a sus equipos; los planes los maneja la administración.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={!!billing.coach_can_remove_enrollments}
+                      onCheckedChange={v => updateBilling('coach_can_remove_enrollments', v)}
                     />
                   </div>
                 </CardContent>

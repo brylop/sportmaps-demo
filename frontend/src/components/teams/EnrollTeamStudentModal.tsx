@@ -61,7 +61,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
     const [searchQuery, setSearchQuery] = useState('');
     const [teamFee, setTeamFee] = useState<number | null>(null);
     const { toast } = useToast();
-    const { allowSecondaryTeamEnrollment, coachHideFinancialInfo } = useEntitlements();
+    const { allowSecondaryTeamEnrollment, coachHideFinancialInfo, coachCanRemoveEnrollments } = useEntitlements();
     // Besser (coach_hide_financial_info): el coach no ve montos en ninguna pantalla.
     const { currentUserRole } = useSchoolContext();
     const ocultarDinero = currentUserRole === 'coach' && coachHideFinancialInfo;
@@ -487,8 +487,8 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                                                             <span className="text-xs text-muted-foreground text-right block max-w-[9rem]">
                                                                 Entra al aprobar su primer pago
                                                             </span>
-                                                        ) : enrolled && currentUserRole === 'coach' ? (
-                                                            // El coach no cancela inscripciones: anula cobros.
+                                                        ) : enrolled && currentUserRole === 'coach' && !coachCanRemoveEnrollments ? (
+                                                            // El coach solo remueve si la escuela lo habilitó: anula cobros.
                                                             <Badge variant="secondary">Inscrito</Badge>
                                                         ) : enrolled ? (
                                                             <Button

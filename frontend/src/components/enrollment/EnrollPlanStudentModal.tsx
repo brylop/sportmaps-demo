@@ -69,7 +69,7 @@ export function EnrollPlanStudentModal({
     const [enrolling, setEnrolling] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const { toast } = useToast();
-    // El coach no cancela inscripciones: cancelar anula cobros pendientes.
+    // Los planes los maneja la administración: el coach no cancela inscripciones de plan.
     const { currentUserRole } = useSchoolContext();
     const puedeRemover = currentUserRole !== 'coach';
 

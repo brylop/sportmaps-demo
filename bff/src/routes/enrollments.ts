@@ -966,10 +966,65 @@ router.patch('/:id', requireAuth, requireRole('owner', 'admin', 'school_admin'),
 });
 
 // ── DELETE /api/v1/enrollments/:id ───────────────────────────────────────────
-router.delete('/:id', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+router.delete('/:id', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coach'), async (req: AuthenticatedRequest, res: Response) => {
     try {
         const { id } = req.params;
         const { schoolId } = req;
+
+        // Cancelar anula los cobros pendientes del atleta: el coach solo puede si
+        // la ESCUELA lo habilitó (school_settings.coach_can_remove_enrollments,
+        // default false) y solo en equipos que él entrena. Las inscripciones de
+        // plan (sin equipo) siguen siendo de administración.
+        if (req.role === 'coach') {
+            const { data: cfg } = await supabase
+                .from('school_settings')
+                .select('coach_can_remove_enrollments')
+                .eq('school_id', schoolId)
+                .maybeSingle();
+            if ((cfg as any)?.coach_can_remove_enrollments !== true) {
+                return res.status(403).json({ error: 'La escuela no permite que el entrenador remueva deportistas.' });
+            }
+
+            const { data: enr } = await supabase
+                .from('enrollments')
+                .select('team_id')
+                .eq('id', id)
+                .eq('school_id', schoolId)
+                .maybeSingle();
+            if (!enr) return res.status(404).json({ error: 'Inscripción no encontrada' });
+            if (!enr.team_id) {
+                return res.status(403).json({ error: 'El entrenador solo puede remover deportistas de sus equipos.' });
+            }
+
+            const { data: staff } = await supabase
+                .from('school_staff')
+                .select('id')
+                .eq('coach_auth_id', req.user?.id)
+                .eq('school_id', schoolId)
+                .maybeSingle();
+            let esSuyo = false;
+            if (staff?.id) {
+                const { data: team } = await supabase
+                    .from('teams')
+                    .select('coach_id')
+                    .eq('id', enr.team_id)
+                    .eq('school_id', schoolId)
+                    .maybeSingle();
+                esSuyo = team?.coach_id === staff.id;
+                if (!esSuyo) {
+                    const { data: tc } = await supabase
+                        .from('team_coaches')
+                        .select('id')
+                        .eq('team_id', enr.team_id)
+                        .eq('coach_id', staff.id)
+                        .maybeSingle();
+                    esSuyo = !!tc;
+                }
+            }
+            if (!esSuyo) {
+                return res.status(403).json({ error: 'El entrenador solo puede remover deportistas de sus equipos.' });
+            }
+        }
 
         const { data, error } = await supabase
             .from('enrollments')

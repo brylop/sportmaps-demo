@@ -17,6 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { studentsAPI, Student } from '@/lib/api/students';
 import { classesAPI, Class } from '@/lib/api/classes';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useEntitlements } from '@/hooks/useEntitlements';
 import { Search, Loader2, UserPlus, Check, Users, X } from 'lucide-react';
 
 interface EnrollStudentModalProps {
@@ -34,6 +35,7 @@ export function EnrollStudentModal({ open, onClose, onSuccess, classItem }: Enro
     const [searchQuery, setSearchQuery] = useState('');
     const { toast } = useToast();
     const { currentUserRole } = useSchoolContext();
+    const { coachCanRemoveEnrollments } = useEntitlements();
 
     useEffect(() => {
         if (open && classItem) {
@@ -213,8 +215,8 @@ export function EnrollStudentModal({ open, onClose, onSuccess, classItem }: Enro
                                                         </div>
                                                     </div>
                                                     <div className="flex-shrink-0 self-end sm:self-auto w-full sm:w-auto mt-2 sm:mt-0">
-                                                        {enrolled && currentUserRole === 'coach' ? (
-                                                            // El coach no cancela inscripciones: anula cobros.
+                                                        {enrolled && currentUserRole === 'coach' && !coachCanRemoveEnrollments ? (
+                                                            // El coach solo remueve si la escuela lo habilitó: anula cobros.
                                                             <Badge variant="secondary">Inscrito</Badge>
                                                         ) : enrolled ? (
                                                             <Button
