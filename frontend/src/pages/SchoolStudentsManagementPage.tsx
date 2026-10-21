@@ -67,7 +67,7 @@ import {
   mesLegible,
 } from '@/hooks/usePauses';
 import { studentsAPI, StudentViewRow } from '@/lib/api/students';
-import { daysDiffFromToday } from '@/lib/dateUtils';
+import { getPaymentState, type PaymentState } from '@/lib/studentPaymentState';
 import { groupOpenDebtByAthlete, type AthleteOpenDebt } from '@/lib/paymentCartera';
 import { chargeLabel } from '@/lib/payment-accounts';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
@@ -142,7 +142,6 @@ function ZkPinInfoRow({ schoolId, athleteId, athleteType }: {
 type StudentFormData = z.infer<typeof studentSchema>;
 
 // ── Helpers de filtrado (puros, compartidos por los filtros y los badges) ─────
-type PaymentState = 'paid' | 'overdue' | 'pending' | 'none' | 'other';
 
 const PAYMENT_STATE_LABELS: Record<PaymentState, string> = {
   paid:    'Al día',
@@ -214,37 +213,6 @@ const HEALTH_SCREENING_LABELS: Record<string, string> = {
   otra_razon_no_actividad_fisica:    'Otra razón para no hacer actividad física',
   medicamento_en_entrenamiento:      'Medicamento requerido en entrenamientos/partidos',
   alergia_alimento:                  'Alergia alimentaria',
-};
-
-/** Misma lógica que el badge de la tabla, para que filtro y badge nunca difieran. */
-const getPaymentState = (student: any): PaymentState => {
-  const ps  = student.payment_status;
-  const due = student.payment_due_date;
-  if (!ps) return 'none';
-  // Estados terminales = no hay nada que cobrar, NO una categoría propia. La vista
-  // school_athletes ya los excluye (mig 20260804125913), pero antes su cobro
-  // anulado era el más reciente y caía en 'other': al anular 5 duplicados el
-  // contador "OTROS" saltó de 1 a 6 con atletas que no debían nada. Defensa en
-  // profundidad: si otra vía los reintroduce, no vuelven a inventar un bucket.
-  if (ps === 'cancelled' || ps === 'rejected' || ps === 'failed') return 'none';
-  if (ps === 'paid' || ps === 'approved') return 'paid';
-  // `due` es un YYYY-MM-DD (columna date). `new Date(due)` lo parsea como MEDIANOCHE
-  // UTC, y compararlo contra `new Date()` (instante local) marcaba vencido desde las
-  // 19:00 hora Colombia del día ANTERIOR y durante todo el día de vencimiento: ~29 horas
-  // de falso vencido. Misma familia del bug que cerró 035dff3.
-  //
-  // El umbral es > 0 y no >= 0 para alinearse con el motor de mora, que exige
-  // `due_date + payment_grace_days < today` (apply_late_fees): el día de vencimiento
-  // NO cuenta como vencido — se puede pagar el día 10.
-  //
-  // DIVERGENCIA CONOCIDA: esto ignora `school_settings.payment_grace_days`. Con días de
-  // gracia > 0 el badge dice "Vencido" antes de que el motor marque la fila y cobre el
-  // recargo. La fuente autoritativa es `status = 'overdue'`, que ya se honra arriba;
-  // este cálculo solo lo anticipa. Cerrarlo requiere traer el setting a esta pantalla.
-  if (ps === 'overdue' || ((ps === 'pending' || ps === 'awaiting_approval') && due && daysDiffFromToday(due) > 0))
-    return 'overdue';
-  if (ps === 'pending' || ps === 'awaiting_approval') return 'pending';
-  return 'other';
 };
 
 /**
@@ -635,6 +603,17 @@ export default function SchoolStudentsManagementPage() {
       })
       .finally(() => setLoadingPlanInfo(false));
   }, [viewingStudent]);
+
+  // Días de gracia de la escuela: el badge «Vencido» y el filtro esperan lo mismo que el motor de mora.
+  const { data: graceDays = 0 } = useQuery({
+    queryKey: ['school-payment-grace-days', schoolId],
+    enabled: !!schoolId,
+    staleTime: 10 * 60_000,
+    queryFn: async () => {
+      const { data } = await supabase.from('school_settings').select('payment_grace_days').eq('school_id', schoolId!).maybeSingle();
+      return Math.max(0, Number((data as { payment_grace_days?: number } | null)?.payment_grace_days) || 0);
+    },
+  });
 
   const { data: students = [], isLoading, isFetching, refetch } = useQuery({
     queryKey: ['school-students', schoolId, activeBranchId, coachId],
@@ -1202,7 +1181,7 @@ export default function SchoolStudentsManagementPage() {
       if (teamKey) bump(teamMap, teamKey, s.team_name); else noTeam++;
       const planKey = getPlanKey(s);
       if (planKey) bump(planMap, planKey, s.plan_name); else noPlan++;
-      const pState = getPaymentState(s);
+      const pState = getPaymentState(s, graceDays);
       paymentCounts.set(pState, (paymentCounts.get(pState) || 0) + 1);
     }
 
@@ -1221,7 +1200,7 @@ export default function SchoolStudentsManagementPage() {
       noPlan,
       withPlan: tabStudents.length - noPlan,
     };
-  }, [tabStudents]);
+  }, [tabStudents, graceDays]);
 
   // Membresias del club (CAR-4). Solo se pinta la insignia si esa persona TIENE
   // membresia: asi el listado de las escuelas que no usan la funcion queda igual
@@ -1293,7 +1272,7 @@ export default function SchoolStudentsManagementPage() {
       else if (planKey !== planFilter) return false;
     }
 
-    if (paymentFilter !== 'all' && getPaymentState(student) !== paymentFilter) return false;
+    if (paymentFilter !== 'all' && getPaymentState(student, graceDays) !== paymentFilter) return false;
 
     return true;
   });
@@ -1331,7 +1310,7 @@ export default function SchoolStudentsManagementPage() {
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(amount);
 
   const getPaymentBadge = (student: any) => {
-    switch (getPaymentState(student)) {
+    switch (getPaymentState(student, graceDays)) {
       case 'none':    return <Badge variant="secondary" className="text-xs bg-muted text-muted-foreground">Sin cobro</Badge>;
       case 'paid':    return <Badge className="bg-green-500 dark:bg-green-600 text-xs text-white">Al día</Badge>;
       case 'overdue': return <Badge variant="destructive" className="text-xs">Vencido</Badge>;
