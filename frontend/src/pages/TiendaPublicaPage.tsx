@@ -17,7 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useStoreCatalog } from '@/hooks/useStoreCatalog';
 import { formatCurrency } from '@/lib/utils';
 import { productLineId } from '@/lib/store/cart';
-import { availabilityLabel, hasVariants, isSoldOut, priceRange, productAvailable, type StoreProduct } from '@/lib/store/variants';
+import { hasVariants, isSoldOut, priceRange, productAvailable, type StoreProduct } from '@/lib/store/variants';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -143,9 +143,28 @@ export default function TiendaPublicaPage() {
   return (
     <div className="min-h-screen bg-muted/20 pb-28">
       {/* Portada */}
-      <div className="h-36 sm:h-56 w-full bg-gradient-to-br from-primary to-emerald-700 relative" data-testid="store-cover">
-        {vendor.cover_image_url && <img src={vendor.cover_image_url} alt="" className="h-full w-full object-cover" />}
+      {/* Sin portada propia el banner es decorativo: bajo en web para no dejar medio viewport vacío. */}
+      <div
+        className={cn(
+          'w-full bg-gradient-to-br from-primary to-emerald-700 relative overflow-hidden',
+          vendor.cover_image_url ? 'h-36 sm:h-56' : 'h-24 sm:h-32',
+        )}
+        data-testid="store-cover"
+      >
+        {vendor.cover_image_url ? (
+          <img src={vendor.cover_image_url} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <div
+            className="absolute inset-0 opacity-40"
+            aria-hidden
+            style={{ backgroundImage: 'radial-gradient(circle at 20% 120%, rgba(255,255,255,.35) 0, transparent 45%), radial-gradient(circle at 85% -20%, rgba(255,255,255,.3) 0, transparent 40%)' }}
+          />
+        )}
         <div className="absolute top-3 right-3 flex gap-2">
+          <Button size="sm" variant="secondary" className="gap-1.5 shadow" onClick={() => setIsOpen(true)} aria-label={`Abrir carrito${count > 0 ? ` (${count})` : ''}`}>
+            <ShoppingBag className="h-4 w-4" /> Carrito
+            {count > 0 && <span className="rounded-full bg-primary text-primary-foreground text-[11px] font-semibold min-w-5 h-5 px-1.5 grid place-items-center">{count}</span>}
+          </Button>
           {user && (
             <Button asChild size="sm" variant="secondary" className="gap-1.5 shadow">
               <Link to="/mis-compras"><ClipboardList className="h-4 w-4" /> Mis compras</Link>
@@ -159,11 +178,11 @@ export default function TiendaPublicaPage() {
             posicionado): la fila va `relative z-10` para que el logo quede sobre la
             portada, y el bloque del nombre baja más que el traslape (-mt-10 = 40 px)
             para no quedar nunca debajo de ella, aunque el nombre ocupe dos líneas. */}
-        <div className="relative z-10 flex items-start gap-3 sm:gap-4 -mt-10 sm:-mt-14 mb-4" data-testid="store-identity">
-          <div className="h-20 w-20 sm:h-28 sm:w-28 rounded-2xl border-4 border-background shadow-md bg-primary text-primary-foreground grid place-items-center overflow-hidden shrink-0">
+        <div className="relative z-10 flex items-start gap-3 sm:gap-4 -mt-10 sm:-mt-12 mb-4" data-testid="store-identity">
+          <div className="h-20 w-20 sm:h-24 sm:w-24 rounded-2xl border-4 border-background shadow-md bg-primary text-primary-foreground grid place-items-center overflow-hidden shrink-0">
             {vendor.logo_url ? <img src={vendor.logo_url} alt="" className="h-full w-full object-cover" /> : <span className="text-2xl font-bold">{initials}</span>}
           </div>
-          <div className="pt-11 sm:pt-16 min-w-0 flex-1">
+          <div className="pt-11 sm:pt-14 min-w-0 flex-1">
             <div className="flex items-center gap-x-2 gap-y-1 flex-wrap">
               <h1 className="text-xl sm:text-3xl font-bold tracking-tight break-words min-w-0" data-testid="store-name">{vendor.display_name}</h1>
               {(vendor.verification_status === 'verified' || isSchoolStore) && (
@@ -175,12 +194,24 @@ export default function TiendaPublicaPage() {
             <div className="flex items-center gap-3 text-sm text-muted-foreground mt-0.5">
               <span className="flex items-center gap-1"><Store className="h-3.5 w-3.5" /> Tienda</span>
               {vendor.city && <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" /> {vendor.city}</span>}
+              {allProducts.length > 0 && <span>{allProducts.length} productos</span>}
             </div>
+          </div>
+          {/* Web: retiro y contacto viven en la cabecera, no en franjas de ancho completo. */}
+          <div className="hidden md:flex items-center gap-3 pt-14 shrink-0">
+            {isSchoolStore && (
+              <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3.5 h-10 text-sm text-emerald-900">
+                <School className="h-4 w-4 shrink-0" /> <strong>Retiro gratis</strong> en la sede
+              </span>
+            )}
+            <Button variant="outline" className="gap-1.5 h-10 rounded-full" onClick={contactVendor}>
+              <MessageCircle className="h-4 w-4" /> Contactar a la tienda
+            </Button>
           </div>
         </div>
 
         {isSchoolStore && (
-          <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-900 px-4 py-3 text-sm flex items-center gap-2">
+          <div className="md:hidden mb-4 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-900 px-4 py-3 text-sm flex items-center gap-2">
             <School className="h-4 w-4 shrink-0" />
             <span><strong>Retiro gratis en la sede.</strong> Pides aquí y lo recoges en la sede.</span>
           </div>
@@ -192,7 +223,7 @@ export default function TiendaPublicaPage() {
           </div>
         )}
 
-        <div className="mb-5 flex flex-wrap gap-2">
+        <div className="md:hidden mb-5 flex flex-wrap gap-2">
           <Button variant="outline" size="sm" className="gap-1.5" onClick={contactVendor}>
             <MessageCircle className="h-4 w-4" /> Contactar a la tienda
           </Button>
@@ -267,7 +298,6 @@ export default function TiendaPublicaPage() {
             {products.map((p) => {
               const soldOut = isSoldOut(p);
               const available = productAvailable(p);
-              const avail = availabilityLabel(available, p.low_stock_threshold);
               const range = priceRange(p);
               const href = `/tienda/${slug}/p/${p.id}`;
               const withVariants = hasVariants(p);
@@ -277,8 +307,9 @@ export default function TiendaPublicaPage() {
                     {p.image_url ? (
                       <StoreImage src={p.image_url} width={600} sizes="(min-width:1280px) 20vw, (min-width:1024px) 25vw, (min-width:640px) 33vw, 50vw" alt={p.name} className="absolute inset-0 h-full w-full object-contain p-4 transition-transform duration-300 group-hover:scale-105 motion-reduce:transition-none" loading="lazy" decoding="async" />
                     ) : (
-                      <div className="absolute inset-0 grid place-items-center bg-muted/60 text-muted-foreground/50">
-                        <Package className="h-12 w-12" aria-hidden />
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-primary/10 to-emerald-100/60 text-primary/60">
+                        <Package className="h-10 w-10" aria-hidden />
+                        <span className="text-[11px] font-medium uppercase tracking-wide px-3 text-center line-clamp-1">{p.category ?? vendor.display_name}</span>
                       </div>
                     )}
                     {p.visibility === 'school_only' && (
@@ -286,8 +317,9 @@ export default function TiendaPublicaPage() {
                         <Lock className="h-3 w-3" /> Solo para miembros
                       </span>
                     )}
-                    {!soldOut && avail.tone === 'low' && (
-                      <span className="absolute top-2 left-2 rounded-md bg-amber-100 text-amber-800 text-[11px] font-semibold px-2 py-1">{avail.text}</span>
+                    {/* Solo la última unidad: con umbral 5 casi todo el catálogo sale "últimas" y el aviso pierde sentido. El detalle va en la ficha. */}
+                    {!soldOut && available === 1 && (
+                      <span className="absolute top-2 left-2 rounded-md bg-amber-100 text-amber-800 text-[11px] font-semibold px-2 py-1">¡Última unidad!</span>
                     )}
                     {soldOut && <span className="absolute inset-0 bg-background/60 grid place-items-center"><Badge variant="secondary">Agotado</Badge></span>}
                   </Link>

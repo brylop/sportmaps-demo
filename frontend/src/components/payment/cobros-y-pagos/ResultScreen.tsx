@@ -13,10 +13,13 @@ interface ResultScreenProps {
     /** Reintenta sumar las horas vendidas al banco (solo si no se sumaron). */
     onRetryHours?: () => void;
     retryingHours?: boolean;
+    /** Horas que se separaron de esta operación y siguen sin cobrar (segunda operación, con su propio pago). */
+    horasPorRegistrar?: { horas: number; monto: number };
+    onRegisterHours?: () => void;
 }
 
 /** Pantalla de resultado (§10.4): «2 cobros creados, 3 pagos registrados, descuentos $72.300». */
-export function ResultScreen({ result, onClose, onViewOperation, onAnnul, onAnother, onRetryHours, retryingHours }: ResultScreenProps) {
+export function ResultScreen({ result, onClose, onViewOperation, onAnnul, onAnother, onRetryHours, retryingHours, horasPorRegistrar, onRegisterHours }: ResultScreenProps) {
     const hb = result.hour_bank_grant;
     const created = result.rows_created ?? 0;
     const paid = result.payments_registered ?? ((result.paid_ids?.length ?? 0) + (result.partial_ids?.length ?? 0));
@@ -55,6 +58,15 @@ export function ResultScreen({ result, onClose, onViewOperation, onAnnul, onAnot
                             {retryingHours ? 'Reintentando…' : 'Reintentar suma de horas'}
                         </Button>
                     )}
+                </div>
+            )}
+            {horasPorRegistrar && onRegisterHours && (
+                <div className="max-w-md rounded-lg border border-primary/30 bg-primary/5 p-3 text-left text-sm space-y-2" data-testid="cyp-result-horas-pendientes">
+                    <p className="font-semibold">Faltan las horas adicionales</p>
+                    <p className="text-xs text-muted-foreground">
+                        Quedaron aparte {formatHoras(horasPorRegistrar.horas)} h por {formatPesos(horasPorRegistrar.monto)}: se registran en una segunda operación con su propio pago.
+                    </p>
+                    <Button size="sm" onClick={onRegisterHours} data-testid="cyp-result-registrar-horas">Registrar las horas ahora</Button>
                 </div>
             )}
             <div className="flex flex-wrap justify-center gap-2">

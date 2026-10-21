@@ -244,6 +244,11 @@ export interface NewLineDraft {
     overage_charge_id: string | null;
     /** Horas adicionales vendidas por adelantado (null = no es una venta de horas). */
     extra_hours: number | null;
+    /**
+     * Línea «Horas adicionales»: 'usadas' = ya las consumió, solo se cobra (el banco NO cambia);
+     * 'adelantado' = las paga antes de usarlas y se suman al banco. null = sin elegir todavía.
+     */
+    horas_modo: 'usadas' | 'adelantado' | null;
     discount: DiscountDraft | null;
     /** «No cobrar» (exoneración, §6.5). */
     exonerate: { reason_text: string } | null;
@@ -294,6 +299,7 @@ export function newLineDraft(partial: Partial<NewLineDraft> & Pick<NewLineDraft,
         enrollment_id: null,
         overage_charge_id: null,
         extra_hours: null,
+        horas_modo: null,
         discount: null,
         exonerate: null,
         pay: true,
@@ -464,7 +470,12 @@ export function computeSingle(input: SingleInput): OperationCalc {
         if (!l.concept.trim()) errors.push('Escribe el detalle del cobro.');
         if (l.category === 'mensualidad' && !l.period) errors.push('Elige el mes de la mensualidad.');
         if (l.category === 'excedente') {
-            if (l.extra_hours != null) {
+            if (l.horas_modo == null && l.extra_hours == null && !l.overage_charge_id) {
+                errors.push('Elige si las horas ya las usó (solo se cobran) o si las paga por adelantado (se suman al banco).');
+            } else if (l.horas_modo === 'usadas') {
+                // Solo cobra: ni suma horas ni exige pago. Sin período del banco es un cobro libre.
+                if (l.extra_hours != null) errors.push('Las horas que ya usó no se suman al banco: quita las horas vendidas.');
+            } else if (l.extra_hours != null) {
                 if (!(l.extra_hours > 0)) errors.push('Escribe cuántas horas se vendieron.');
                 else if (Math.abs(l.extra_hours * 4 - Math.round(l.extra_hours * 4)) > 1e-9) errors.push('Las horas se venden de a 15 minutos (0,25 h).');
                 else if (l.extra_hours > 24) errors.push('Máximo 24 horas por venta.');
@@ -814,16 +825,18 @@ function discountPayload(d: DiscountDraft | null | undefined): DiscountPayload |
 
 function linePayload(l: NewLineDraft, mode: 'single' | 'multi', calc?: LineCalc): ChargeLinePayload {
     const notes = l.notes.trim();
+    // «Ya las usó» sin período del banco = cobro libre: viaja como «Otro cobro» y nunca suma horas.
+    const horasUsadasLibre = l.category === 'excedente' && l.horas_modo === 'usadas' && !l.overage_charge_id;
     const p: ChargeLinePayload = {
-        category: l.category,
+        category: horasUsadasLibre ? 'otro' : l.category,
         due_date: l.due_date,
         concept: l.concept.trim(),
         ...(l.amount != null ? { amount: Math.round(l.amount) } : {}),
         ...(notes ? { notes } : {}),
         ...(l.category === 'mensualidad' && l.period ? { period: l.period } : {}),
-        ...(l.enrollment_id ? { enrollment_id: l.enrollment_id } : {}),
+        ...(l.enrollment_id && !horasUsadasLibre ? { enrollment_id: l.enrollment_id } : {}),
         ...(l.overage_charge_id ? { overage_charge_id: l.overage_charge_id } : {}),
-        ...(l.category === 'excedente' && l.extra_hours != null ? { extra_hours: l.extra_hours } : {}),
+        ...(l.category === 'excedente' && l.horas_modo !== 'usadas' && l.extra_hours != null ? { extra_hours: l.extra_hours } : {}),
     };
     if (l.exonerate) {
         p.exonerate = { reason_text: l.exonerate.reason_text.trim() };

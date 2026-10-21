@@ -78,6 +78,21 @@ export function paymentDraftError(p: PaymentDraft, today: string): string | null
     return null;
 }
 
+/**
+ * `buildReceiptOcrFields` estampa `receipt_verdict_at: new Date()` en cada llamada. El cuerpo se
+ * recalcula en cada render y su firma decide si la vista previa sigue vigente: con una hora que
+ * cambia cada vez, la firma nunca coincidía y con un comprobante cargado la vista previa se pedía
+ * en bucle (cada 1,5 s) y el botón no se habilitaba. La hora se fija UNA vez por lectura del OCR.
+ */
+const veredictoEn = new WeakMap<object, string>();
+function ocrEstable(ocr: NonNullable<PaymentDraft['ocr']>): Record<string, unknown> {
+    const campos = buildReceiptOcrFields(ocr) as Record<string, unknown>;
+    if (!campos.receipt_verdict_at) return campos;
+    let at = veredictoEn.get(ocr);
+    if (!at) { at = String(campos.receipt_verdict_at); veredictoEn.set(ocr, at); }
+    return { ...campos, receipt_verdict_at: at };
+}
+
 export function paymentPayload(p: PaymentDraft): PaymentPayload {
     const ref = p.reference.trim();
     const withReceipt = p.method === 'transfer' && p.receiptUrl;
@@ -88,7 +103,7 @@ export function paymentPayload(p: PaymentDraft): PaymentPayload {
         ...(withReceipt ? { receipt_url: p.receiptUrl! } : {}),
         ...(withReceipt && p.ocr?.imageSha256 ? { receipt_sha256: p.ocr.imageSha256 } : {}),
         // Hash y referencia OCR quedan en UNA fila (la de mayor monto), lo decide la RPC (Q23).
-        ...(withReceipt && p.ocr ? { ocr: buildReceiptOcrFields(p.ocr) as Record<string, unknown> } : {}),
+        ...(withReceipt && p.ocr ? { ocr: ocrEstable(p.ocr) } : {}),
         ...(p.wantsEInvoice ? { wants_e_invoice: true } : {}),
     };
 }

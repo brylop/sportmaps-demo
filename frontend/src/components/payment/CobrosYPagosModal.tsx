@@ -43,10 +43,13 @@ import {
 } from '@/lib/cobrosYPagos';
 import {
     chargeBatchesApi,
+    normalizeCobrosRecientes,
     normalizeDuplicate,
+    textoCobroReciente,
     toChargeBatchError,
     type AthleteDuplicate,
     type AthleteRef,
+    type CobroRecienteAviso,
     type ChargeBatchPreview,
     type ChargeBatchRequest,
     type ChargeBatchResult,
@@ -55,6 +58,14 @@ import {
     type OpenCharge,
     type TargetKind,
 } from '@/lib/api/chargeBatches';
+import {
+    decidirComprobante,
+    horasAPagarDeLineas,
+    horasPorSeparar,
+    separarLineas,
+    type DecisionComprobante,
+    type HorasPorSeparar,
+} from '@/lib/separarHoras';
 import { RegisterCashPaymentModal } from './RegisterCashPaymentModal';
 import { AthletePicker } from './cobros-y-pagos/AthletePicker';
 import { NewAthleteForm } from './cobros-y-pagos/NewAthleteForm';
@@ -135,6 +146,7 @@ export function CobrosYPagosDialog({
 
     const [mode, setMode] = useState<'single' | 'multi'>(initialMode);
     const clientRequestId = useRef<string>(newClientRequestId());
+    const enviando = useRef(false);
 
     // Atletas de la escuela (lectura; toda escritura va por el BFF)
     const [athletes, setAthletes] = useState<SchoolAthlete[]>([]);
@@ -174,11 +186,15 @@ export function CobrosYPagosDialog({
     const [overrides, setOverrides] = useState<ChargeOverride[]>([]);
     const [submitting, setSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState<string | null>(null);
+    /** El BFF dijo «este mismo cobro ya se registró hace X min»: se pide confirmar antes de crearlo otra vez. */
+    const [duplicadoReciente, setDuplicadoReciente] = useState<CobroRecienteAviso[] | null>(null);
     const [result, setResult] = useState<ChargeBatchResult | null>(null);
     // Lo que hace falta para reintentar la suma de horas vendidas si no entró (se guarda al confirmar).
     const [ventaDeHoras, setVentaDeHoras] = useState<{ athlete: AthleteRef; enrollment_id: string; extra_hours: number } | null>(null);
     const [reintentandoHoras, setReintentandoHoras] = useState(false);
     const [annulOpen, setAnnulOpen] = useState(false);
+    // «Separar las horas»: las líneas de horas que salieron de ESTA operación y se cobran en una segunda.
+    const [horasAparte, setHorasAparte] = useState<HorasPorSeparar<NewLineDraft> | null>(null);
     const previewSeq = useRef(0);
     /** Cuerpo (firma) de la vista previa en camino o esperando su reintento tras un 429. */
     const previewInFlightSig = useRef<string | null>(null);
@@ -186,6 +202,7 @@ export function CobrosYPagosDialog({
 
     const resetAll = useCallback(() => {
         clientRequestId.current = newClientRequestId();
+        setDuplicadoReciente(null);
         setMode(initialMode);
         setAthleteId(null);
         setNewAthleteOn(false);
@@ -212,6 +229,7 @@ export function CobrosYPagosDialog({
         setOverrides([]);
         setSubmitError(null);
         setResult(null);
+        setHorasAparte(null);
     }, [initialMode, initialTeamId]);
 
     // Al abrir: id de idempotencia nuevo y atletas de la escuela
@@ -303,6 +321,60 @@ export function CobrosYPagosDialog({
         () => computeSingle({ pending: newAthleteOn ? [] : pendingInput, lines, global, paymentOn: payment.on, autoDiscounts: mode === 'single' ? autoDiscounts : undefined }),
         [pendingInput, lines, global, payment.on, newAthleteOn, autoDiscounts, mode],
     );
+    // Comprobante vs. total cuando se venden horas por adelantado: las horas solo van en la misma
+    // operación si el comprobante cubre todo (si no, se bloquea y se ofrece «Separar las horas»).
+    const payAmountsDeLineas = useMemo(() => {
+        const porRef = new Map(single.lines.map((l) => [l.ref, l.payAmount]));
+        return lines.map((_, i) => porRef.get(`new:${i}`) ?? 0);
+    }, [single.lines, lines]);
+    const comprobante: DecisionComprobante = useMemo(() => (
+        mode === 'single' && payment.on && !newAthleteOn
+            ? decidirComprobante({
+                metodo: payment.method,
+                tieneComprobante: !!payment.receiptUrl,
+                montoLeido: payment.ocr?.extractedAmount,
+                totalAPagar: single.toPay.total,
+                horasAPagar: horasAPagarDeLineas(lines, payAmountsDeLineas),
+            })
+            : { tipo: 'ok' }
+    ), [mode, payment, newAthleteOn, single.toPay.total, lines, payAmountsDeLineas]);
+
+    const separarHoras = () => {
+        const { principal, horas } = separarLineas(lines);
+        if (horas.length === 0 || principal.length + pendingInput.filter((x) => x.draft.selected).length === 0) return;
+        setHorasAparte(horasPorSeparar(horas, horasAPagarDeLineas(lines, payAmountsDeLineas)));
+        setLines(principal);
+    };
+    const volverAIncluirHoras = () => {
+        if (!horasAparte) return;
+        setLines((ls) => [...ls, ...horasAparte.lineas]);
+        setHorasAparte(null);
+    };
+    // Segunda operación: mismo atleta, solo las horas, con su propio pago y comprobante.
+    const registrarHorasAparte = () => {
+        const h = horasAparte;
+        if (!h) return;
+        clientRequestId.current = newClientRequestId();
+        previewSeq.current++;
+        previewInFlightSig.current = null;
+        if (previewRetryTimer.current) { clearTimeout(previewRetryTimer.current); previewRetryTimer.current = null; }
+        setResult(null);
+        setVentaDeHoras(null);
+        setLines(h.lineas);
+        setHorasAparte(null);
+        setPayment(emptyPaymentDraft(todayColombia(), true));
+        setDrafts({});
+        setGlobal({ ...emptyDiscount(), enabled: false });
+        setNotify(false);
+        setPreview(null);
+        setPreviewSig(null);
+        setPreviewError(null);
+        setPreviewLoading(false);
+        setOverrides([]);
+        setSubmitError(null);
+        if (athleteRef) void loadAthleteData(athleteRef, false);
+    };
+
     const multiAthletes = useMemo(() => {
         if (!omitWithoutPayer) return multiResolved.athletes;
         const withPayer = new Set(athletes.filter((a) => a.athlete_type === 'adult' || !!a.parent_id).map((a) => a.id));
@@ -321,6 +393,7 @@ export function CobrosYPagosDialog({
         const pe = paymentDraftError(payment, today);
         if (pe && single.toPay.n > 0) extraErrors.push(pe);
         for (const l of lines) if (l.due_date < today) extraErrors.push('El vencimiento no puede ser antes de hoy.');
+        if (comprobante.tipo === 'bloquear') extraErrors.push('El comprobante no cubre el total con las horas: sepáralas o corrige los montos.');
     } else {
         if (multiAthletes.length > 200) extraErrors.push('Máximo 200 atletas por lote: divide por equipo o plan.');
         if (multiAthletes.length * lines.length > 600) extraErrors.push('Máximo 600 cobros por lote.');
@@ -404,6 +477,9 @@ export function CobrosYPagosDialog({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, result, sig, somethingToDo, localErrors.length, previewNonce]);
 
+    // Si el usuario cambia la operación, la pregunta «¿crear igual?» ya no aplica.
+    useEffect(() => { setDuplicadoReciente(null); }, [sig]);
+
     const refreshPreview = () => {
         setPreviewSig(null);
         if (body && sig && localErrors.length === 0) runPreview(body, sig);
@@ -444,10 +520,15 @@ export function CobrosYPagosDialog({
         }
     };
 
-    const submit = async () => {
+    /** `forzar`: el usuario ya vio «este mismo cobro se registró hace X min» y confirma que es otro (mismo client_request_id). */
+    const submit = async (forzar = false) => {
         if (!body || !preview || !previewFresh || button.disabled) return;
+        // Un doble clic llega antes de que React repinte el botón deshabilitado: el cerrojo va en una ref.
+        if (enviando.current) return;
+        enviando.current = true;
         setSubmitting(true);
         setSubmitError(null);
+        setDuplicadoReciente(null);
         try {
             const r = await chargeBatchesApi.create({
                 ...body,
@@ -455,6 +536,7 @@ export function CobrosYPagosDialog({
                 preview_hash: preview.preview_hash,
                 ...(overrides.length ? { overrides } : {}),
                 ...(notify ? { notify_families: true } : {}),
+                ...(forzar ? { confirmar_duplicado: true } : {}),
             });
             setResult(r);
             const lineaDeHoras = body.lines.find((x) => x.extra_hours != null && x.enrollment_id);
@@ -477,6 +559,12 @@ export function CobrosYPagosDialog({
             }
         } catch (e) {
             const err = toChargeBatchError(e);
+            if (err.code === 'COBRO_DUPLICADO_RECIENTE') {
+                // No es un error: es una pregunta. Nada se creó; el botón «Sí, crear igual» reintenta con el flag.
+                const dup = normalizeCobrosRecientes((err.body as { duplicates?: unknown } | undefined)?.duplicates) ?? [];
+                setDuplicadoReciente(dup);
+                return;
+            }
             setSubmitError(err.message);
             if (err.code === 'ATLETA_DUPLICADO') {
                 // F2 adjunta lo que mandó la RPC en `detalle` (la coincidencia o la lista).
@@ -490,6 +578,7 @@ export function CobrosYPagosDialog({
                 setPreviewNonce((n) => n + 1);
             }
         } finally {
+            enviando.current = false;
             setSubmitting(false);
         }
     };
@@ -596,6 +685,8 @@ export function CobrosYPagosDialog({
                             onAnother={() => resetAll()}
                             onRetryHours={ventaDeHoras ? retryHours : undefined}
                             retryingHours={reintentandoHoras}
+                            horasPorRegistrar={horasAparte ? { horas: horasAparte.horas, monto: horasAparte.monto } : undefined}
+                            onRegisterHours={horasAparte ? registrarHorasAparte : undefined}
                         />
                         <AnnulBatchDialog batchId={result.batch_id} open={annulOpen} onOpenChange={setAnnulOpen} onDone={onSuccess} />
                     </div>
@@ -627,7 +718,7 @@ export function CobrosYPagosDialog({
                                                     athletes={athletes}
                                                     loading={loadingAthletes}
                                                     selectedId={athleteId}
-                                                    onSelect={(id) => { setAthleteId(id); setOverrides([]); }}
+                                                    onSelect={(id) => { setAthleteId(id); setOverrides([]); setHorasAparte(null); }}
                                                     locked={locked}
                                                     onNewAthlete={locked ? undefined : () => { setNewAthleteOn(true); setAthleteId(null); setCharges([]); setDrafts({}); setLines((ls) => ls.filter((l) => l.category !== 'mensualidad')); }}
                                                 />
@@ -698,6 +789,14 @@ export function CobrosYPagosDialog({
                                             error={mode === 'single' ? single.generalError : null}
                                         />
                                     )}
+                                    {mode === 'single' && horasAparte && (
+                                        <div className="rounded-lg border border-primary/30 bg-primary/5 p-2.5 text-xs space-y-1.5" data-testid="cyp-horas-aparte">
+                                            <p>
+                                                <b>Horas aparte:</b> {formatHoras(horasAparte.horas)} h por {formatPesos(horasAparte.monto)}. Se registran en una segunda operación, con su propio pago, al terminar esta.
+                                            </p>
+                                            <Button type="button" variant="ghost" size="sm" className="h-7 text-xs px-2" onClick={volverAIncluirHoras}>Volver a incluirlas aquí</Button>
+                                        </div>
+                                    )}
                                     {mode === 'single' && (
                                         <PaymentBlock
                                             value={payment}
@@ -714,8 +813,16 @@ export function CobrosYPagosDialog({
                                             payerName={payerName}
                                             payerKind={selected?.athlete_type === 'adult' ? 'adult_athlete' : 'guardian'}
                                             invoicingEnabled={hasAddon('invoicing')}
+                                            comprobante={comprobante}
+                                            onSepararHoras={separarHoras}
                                         />
                                     )}
+                                    {previewFresh && preview?.recent_duplicates?.length ? (
+                                        <p className="rounded-lg border border-amber-500/40 bg-amber-50 dark:bg-amber-950/30 p-2 text-xs flex items-start gap-1.5" data-testid="cyp-aviso-duplicado">
+                                            <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
+                                            Ojo: este mismo cobro ya se registró {textoCobroReciente(preview.recent_duplicates[0])}. Si lo confirmas te pediremos una confirmación más.
+                                        </p>
+                                    ) : null}
                                     <PreviewSummary
                                         mode={mode}
                                         local={mode === 'single'
@@ -762,10 +869,24 @@ export function CobrosYPagosDialog({
                                     <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" /> {submitError}
                                 </p>
                             )}
+                            {duplicadoReciente && (
+                                <div className="rounded-lg border border-amber-500/40 bg-amber-50 dark:bg-amber-950/30 p-3 text-sm space-y-2" role="alert" data-testid="cyp-duplicado-reciente">
+                                    <p className="flex items-start gap-1.5">
+                                        <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-600" />
+                                        <span>
+                                            Este mismo cobro ya se registró {duplicadoReciente[0] ? textoCobroReciente(duplicadoReciente[0]) : 'hace pocos minutos'}. No se creó nada todavía: ¿es otro cobro y lo creamos igual?
+                                        </span>
+                                    </p>
+                                    <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+                                        <Button variant="outline" size="sm" onClick={() => setDuplicadoReciente(null)} data-testid="cyp-duplicado-cancelar">No, revisar</Button>
+                                        <Button size="sm" onClick={() => void submit(true)} disabled={submitting} data-testid="cyp-duplicado-confirmar">Sí, crear igual</Button>
+                                    </div>
+                                </div>
+                            )}
                             <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2">
                                 {buttonReason && <p className="text-xs text-muted-foreground sm:mr-auto" data-testid="cyp-button-reason">{buttonReason}</p>}
                                 <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>Cancelar</Button>
-                                <Button onClick={submit} disabled={button.disabled} className="min-w-[10rem]" data-testid="cyp-primary">
+                                <Button onClick={() => void submit()} disabled={button.disabled || !!duplicadoReciente} className="min-w-[10rem]" data-testid="cyp-primary">
                                     {submitting && <Loader2 className="h-4 w-4 animate-spin mr-1.5" />}
                                     {button.label}
                                 </Button>
