@@ -110,7 +110,7 @@ jobs:
           VITE_SUPABASE_PUBLISHABLE_KEY: 'mock-key-for-tests'
 
       - name: 📈 Subir coverage a Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         if: always()
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
