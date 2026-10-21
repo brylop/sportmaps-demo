@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Loader2, Lock, Package, School, ShoppingBag, Store, Truck } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Loader2, Lock, Package, School, Share2, ShoppingBag, Store, Truck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useCart } from '@/contexts/CartContext';
@@ -103,6 +103,17 @@ export default function TiendaProductoPage() {
     if (goToCart) navigate(`/checkout/tienda/${vendor.id}`);
   };
 
+  // WhatsApp es el canal de las familias: el menú nativo en celular, wa.me en escritorio.
+  const share = async () => {
+    const url = window.location.href;
+    const text = `Mira ${product.name} en ${vendor.display_name}`;
+    if (navigator.share) {
+      try { await navigator.share({ title: product.name, text, url }); } catch { /* canceló */ }
+      return;
+    }
+    window.open(`https://wa.me/?text=${encodeURIComponent(`${text}: ${url}`)}`, '_blank', 'noopener');
+  };
+
   const missingAxis = withVariants ? axes.find((a) => !selection[a.key]) : undefined;
 
   return (
@@ -112,12 +123,24 @@ export default function TiendaProductoPage() {
           <Button variant="ghost" size="sm" className="gap-1 -ml-2" asChild>
             <Link to={`/tienda/${slug}`}><ArrowLeft className="h-4 w-4" /> {vendor.display_name}</Link>
           </Button>
-          {getItemCount() > 0 && (
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setIsOpen(true)}>
-              <ShoppingBag className="h-4 w-4" /> Carrito ({getItemCount()})
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={share}>
+              <Share2 className="h-4 w-4" /> Compartir
             </Button>
-          )}
+            {getItemCount() > 0 && (
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setIsOpen(true)}>
+                <ShoppingBag className="h-4 w-4" /> Carrito ({getItemCount()})
+              </Button>
+            )}
+          </div>
         </div>
+
+        <nav aria-label="Ruta" className="hidden md:flex items-center gap-1.5 text-sm text-muted-foreground pb-4">
+          <Link to={`/tienda/${slug}`} className="hover:underline">{vendor.display_name}</Link>
+          {product.category && <><ChevronRight className="h-3.5 w-3.5" aria-hidden /><span>{product.category}</span></>}
+          <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+          <span className="text-foreground line-clamp-1" aria-current="page">{product.name}</span>
+        </nav>
 
         <div className="grid md:grid-cols-[1.1fr_1fr] gap-6 md:gap-12">
           {/* Galería */}
