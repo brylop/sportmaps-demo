@@ -29,7 +29,7 @@ function defaultCanvas() {
   return typeof document === 'undefined' ? null : document.createElement('canvas');
 }
 
-export const FALLBACK_TOAST = 'Tu celular no soporta bien el 3D; seguimos en 2D';
+export const FALLBACK_TOAST = 'Tu dispositivo no soporta bien el 3D; seguimos en 2D';
 
 // ─── Entrada del visor ──────────────────────────────────────────────────────
 

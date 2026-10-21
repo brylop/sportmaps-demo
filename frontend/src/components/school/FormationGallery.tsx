@@ -208,7 +208,7 @@ export function FormationGallery({
         aria-haspopup="dialog"
       >
         <LayoutGrid className="h-3.5 w-3.5" />
-        {currentLabel ?? 'Formación'}
+        <span className="truncate">{currentLabel ?? 'Formación'}</span>
         <ChevronDown className="h-3 w-3 opacity-70" />
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>

@@ -139,6 +139,8 @@ export interface TacticalAiPanelProps {
   /** Reemplaza los cuadros de la pizarra (con deshacer). */
   onApply: (frames: TacticalFrame[], titulo: string) => void;
   isMobile?: boolean;
+  /** Celular horizontal: panel lateral angosto (300 px) en vez de 380, para no tapar la cancha. */
+  narrow?: boolean;
   /** La jugada del coach para «Ver en 3D» (lo mismo que arma «Exportar»).
    *  Sin esto las tarjetas no ofrecen 3D. */
   get3DSource?: () => Viewer3DSource;
@@ -266,7 +268,7 @@ export function TacticalAiPanel(props: TacticalAiPanelProps) {
 }
 
 function TacticalAiPanelBody({
-  open, onClose, getRequest, sport, canApply, preview, onPreview, onApply, isMobile, get3DSource, onEvent,
+  open, onClose, getRequest, sport, canApply, preview, onPreview, onApply, isMobile, narrow, get3DSource, onEvent,
 }: TacticalAiPanelProps) {
   const [balance, setBalance] = useState<AiBalance | null>(null);
   const [loading, setLoading] = useState(false);
@@ -327,7 +329,7 @@ function TacticalAiPanelBody({
 
   const shell = isMobile
     ? 'absolute inset-x-0 bottom-0 z-[70] max-h-[62vh] rounded-t-2xl border-t'
-    : 'absolute right-0 top-0 bottom-0 z-[70] w-[380px] max-w-full border-l';
+    : `absolute right-0 top-0 bottom-0 z-[70] ${narrow ? 'w-[300px]' : 'w-[380px]'} max-w-full border-l`;
 
   if (minimized && preview) {
     return (

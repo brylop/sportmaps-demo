@@ -297,6 +297,39 @@ describe('caída a 2D: WebGL2 y fps (simulados)', () => {
     expect(run(19, 2100).v).toBe('slow');
   });
 
+  it('el calentamiento no cuenta: cuadros lentos al inicio y 60 fps después → sigue en 3D', () => {
+    const meter = createFpsMeter(2000, 20, { warmupMs: 1200, windows: 2 });
+    let v: string = 'pending';
+    let t = 0;
+    // 1,2 s de arranque a ~5 fps (compilando shaders), luego 60 fps.
+    for (; t < 1200; t += 200) meter.tick(t);
+    for (; t <= 5000 && v === 'pending'; t += 1000 / 60) {
+      const r = meter.tick(t);
+      if (r !== 'pending' && r !== 'done') v = r;
+    }
+    expect(v).toBe('ok');
+  });
+
+  it('una ventana lenta sola no basta; dos seguidas sí', () => {
+    const slowThenOk = createFpsMeter(2000, 20, { windows: 2 });
+    let v: string = 'pending';
+    let t = 0;
+    for (; t < 2100; t += 1000 / 10) slowThenOk.tick(t);      // ventana 1: 10 fps
+    for (; t < 6000 && v === 'pending'; t += 1000 / 60) {     // ventana 2: 60 fps
+      const r = slowThenOk.tick(t);
+      if (r !== 'pending' && r !== 'done') v = r;
+    }
+    expect(v).toBe('ok');
+
+    const slowTwice = createFpsMeter(2000, 20, { windows: 2 });
+    v = 'pending';
+    for (t = 0; t < 8000 && v === 'pending'; t += 1000 / 10) {
+      const r = slowTwice.tick(t);
+      if (r !== 'pending' && r !== 'done') v = r;
+    }
+    expect(v).toBe('slow');
+  });
+
   it('antes de 2 s no decide, y decide una sola vez', () => {
     const meter = createFpsMeter();
     expect(meter.tick(0)).toBe('pending');

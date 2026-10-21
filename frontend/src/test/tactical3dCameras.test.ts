@@ -560,3 +560,25 @@ describe('todas las cámaras en todos los deportes', () => {
     }
   });
 });
+
+describe('encuadre vertical (celular)', () => {
+  it('portraitFraming: null en horizontal; en vertical reserva arriba/abajo y desplaza hacia abajo', async () => {
+    const { portraitFraming } = await import('@/lib/school/tactical3dCameras');
+    expect(portraitFraming(926, 428, 45)).toBeNull();
+    expect(portraitFraming(1440, 900, 45)).toBeNull();
+    const pf = portraitFraming(428, 926, 45)!;
+    expect(pf.aspect).toBeGreaterThan(428 / 926);
+    expect(pf.shiftPx).toBeGreaterThan(0);
+  });
+
+  it('todas las cámaras de campo encuadran el ancho completo en vertical (aspect 0,5)', () => {
+    const c = court3D('futbol');
+    const halfH = Math.tan((45 / 2) * Math.PI / 180) * 0.5;
+    for (const k of ['tv', 'tactica', 'cenital', 'iso', 'detras', 'rival', 'spider', 'dron'] as const) {
+      const pose = cameraPose(k, ctxOf(c, { aspect: 0.5 }))!;
+      const dist = Math.hypot(pose.position.x - pose.target.x, pose.position.y - pose.target.y, pose.position.z - pose.target.z);
+      // El ancho de la cancha (68 m) cabe en el FOV horizontal a esa distancia.
+      expect(dist * halfH * 2).toBeGreaterThanOrEqual(c.widthM * 0.9);
+    }
+  });
+});

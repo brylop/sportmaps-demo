@@ -41,6 +41,9 @@ async function addFrame(page: Page, expected: number) {
 
 async function openSettings(page: Page) {
     // En el celular «Ajustes» vive en «Más» (el toolbar no da más).
+    // Espera a que el toolbar termine de cargar (Exportar y Ajustes salen juntos);
+    // sin esto `isVisible()` (instantáneo) tomaba la rama del celular en escritorio.
+    await expect(page.getByRole('button', { name: 'Exportar la jugada' })).toBeVisible({ timeout: 30_000 });
     const direct = page.getByRole('button', { name: 'Ajustes de la pizarra' });
     if (await direct.isVisible().catch(() => false)) await direct.click();
     else {

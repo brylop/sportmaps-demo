@@ -215,19 +215,37 @@ export interface CameraPose { position: Vec3; target: Vec3 }
 /** Cámaras fijas. `fovDeg` vertical de la cámara; `aspect` ancho/alto. */
 export function fixedCameraPose(court: Court3D, mode: Exclude<CameraMode, 'jugador'>, aspect = 16 / 9, fovDeg = 45): CameraPose {
   const halfV = Math.tan(((fovDeg / 2) * Math.PI) / 180);
-  // En el celular vertical no se busca que entre todo el ancho (quedaría
-  // diminuta): se corta a los lados y se gira con el dedo.
-  const halfH = halfV * Math.max(0.8, aspect);
+  // FOV horizontal efectivo real: en vertical la cancha entera cabe a lo ancho.
+  const halfH = halfV * Math.max(0.2, aspect);
+  const tall = aspect < 1;
+  if (mode === 'tribuna' && tall) {
+    // Vertical: desde el fondo propio y alto (casi cenital con perspectiva), de modo
+    // que el ANCHO de la cancha sea el ancho de la pantalla y el largo use el alto.
+    const el = (58 * Math.PI) / 180;
+    const d = Math.max(
+      (court.widthM / 2) * 1.32 / halfH,
+      (court.lengthM / 2) * 1.3 * Math.sin(el) / halfV,
+    );
+    return { position: { x: 0, y: Math.sin(el) * d, z: Math.cos(el) * d }, target: { x: 0, y: 0, z: 0 } };
+  }
   if (mode === 'tribuna') {
     // Desde la banda izquierda, elevada: el largo entra a lo ancho del cuadro
     // (con aire: la perspectiva agranda la banda cercana).
     const need = (court.lengthM / 2) * 1.08;
     const d = (Math.max(need / halfH, (court.widthM / 2) / halfV) * 0.95 + court.widthM * 0.35) * 1.15;
-    // Vertical: más desde arriba, para aprovechar el alto de la pantalla.
-    const tall = isCompactAspect(aspect);
-    return { position: { x: -d * (tall ? 0.5 : 0.82), y: d * (tall ? 0.95 : 0.52), z: 0 }, target: { x: 0, y: 0, z: 0 } };
+    return { position: { x: -d * 0.82, y: d * 0.52, z: 0 }, target: { x: 0, y: 0, z: 0 } };
   }
   const fxKind = fixtureFor(court.sport).kind;
+  if (tall) {
+    // Vertical: el fondo propio visto desde atrás y arriba, tan lejos como haga falta
+    // para que el ancho de la cancha (y el fondo rival) quepan en la pantalla.
+    const back = Math.max((court.widthM / 2) * 1.2 / halfH - court.lengthM * 0.3, court.lengthM * 0.12);
+    const hgt = Math.max(5, court.lengthM * 0.3, back * 0.55);
+    return {
+      position: { x: 0, y: hgt, z: court.lengthM / 2 + back },
+      target: { x: 0, y: 0, z: court.lengthM * 0.02 },
+    };
+  }
   if (fxKind === 'hoops' || fxKind === 'rings') {
     // Detrás del aro: arriba del tablero propio (el poste queda a la espalda,
     // no tapa), mirando hacia la otra canasta. Igual el poste de netball.
@@ -343,7 +361,14 @@ export const MIN_FPS = 20;
  * devuelve 'pending' hasta completar la ventana y después el veredicto (una
  * sola vez: luego queda 'done').
  */
-export function createFpsMeter(windowMs = FPS_WINDOW_MS, minFps = MIN_FPS) {
+export function createFpsMeter(
+  windowMs = FPS_WINDOW_MS,
+  minFps = MIN_FPS,
+  opts: { warmupMs?: number; windows?: number } = {},
+) {
+  const warmupMs = opts.warmupMs ?? 0;
+  let windowsLeft = Math.max(1, opts.windows ?? 1);
+  let origin: number | null = null;
   let start: number | null = null;
   let frames = 0;
   let decided = false;
@@ -351,16 +376,37 @@ export function createFpsMeter(windowMs = FPS_WINDOW_MS, minFps = MIN_FPS) {
   return {
     tick(nowMs: number): 'pending' | 'ok' | 'slow' | 'done' {
       if (decided) return 'done';
-      if (start === null) { start = nowMs; return 'pending'; }
+      if (origin === null) {
+        origin = nowMs;
+        if (warmupMs <= 0) start = nowMs;
+        return 'pending';
+      }
+      // Calentamiento: los primeros cuadros compilan shaders y suben texturas
+      // (cientos de ms en cualquier equipo); no dicen nada del ritmo real.
+      if (nowMs - origin < warmupMs) return 'pending';
+      if (start === null) { start = nowMs; frames = 0; return 'pending'; }
       frames += 1;
       const elapsed = nowMs - start;
       if (elapsed < windowMs) return 'pending';
-      decided = true;
       fps = (frames * 1000) / elapsed;
-      return fps < minFps ? 'slow' : 'ok';
+      if (fps >= minFps) { decided = true; return 'ok'; }
+      // Una ventana lenta sola puede ser un tirón (otra pestaña, el SW, el GC):
+      // se exige que la siguiente también lo sea antes de volver a 2D.
+      if (windowsLeft > 1) { windowsLeft -= 1; start = nowMs; frames = 0; return 'pending'; }
+      decided = true;
+      return 'slow';
     },
     get fps() { return fps; },
   };
+}
+
+/** Piso de fps según el equipo: un PC (puntero fino) con GPU integrada rinde
+ *  menos que un celular de gama media y aun así el 3D le sirve a 12 fps. */
+export function defaultMinFps(): number {
+  try {
+    if (typeof window !== 'undefined' && window.matchMedia?.('(pointer: fine)').matches) return 12;
+  } catch { /* sin matchMedia: piso de celular */ }
+  return MIN_FPS;
 }
 
 /** prefers-reduced-motion: sin animación automática de cámara. */
