@@ -20,6 +20,7 @@ import {
   variantAxes, variantLabel, type Selection,
 } from '@/lib/store/variants';
 import { QtyStepper } from '@/components/store/QtyStepper';
+import { StoreImage } from '@/components/store/StoreImage';
 
 export default function TiendaProductoPage() {
   const { slug, productId } = useParams<{ slug: string; productId: string }>();
@@ -56,6 +57,13 @@ export default function TiendaProductoPage() {
   }, [product, variant]);
 
   useEffect(() => { setImageIdx(0); }, [variant?.id]);
+
+  // Misma categoría primero; si faltan, completa con el resto de la tienda.
+  const related = useMemo(() => {
+    const others = (data?.products ?? []).filter((p) => p.id !== productId);
+    const same = others.filter((p) => product?.category && p.category === product.category);
+    return [...same, ...others.filter((p) => !same.includes(p))].slice(0, 4);
+  }, [data, product, productId]);
 
   if (isLoading) {
     return <div className="min-h-screen grid place-items-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
@@ -99,8 +107,8 @@ export default function TiendaProductoPage() {
 
   return (
     <div className="min-h-screen bg-background pb-32 md:pb-12">
-      <div className="container mx-auto px-4 max-w-5xl">
-        <div className="flex items-center justify-between py-3">
+      <div className="container mx-auto px-4 max-w-6xl">
+        <div className="flex items-center justify-between py-3 md:py-5">
           <Button variant="ghost" size="sm" className="gap-1 -ml-2" asChild>
             <Link to={`/tienda/${slug}`}><ArrowLeft className="h-4 w-4" /> {vendor.display_name}</Link>
           </Button>
@@ -111,13 +119,18 @@ export default function TiendaProductoPage() {
           )}
         </div>
 
-        <div className="grid md:grid-cols-2 gap-6 md:gap-10">
+        <div className="grid md:grid-cols-[1.1fr_1fr] gap-6 md:gap-12">
           {/* Galería */}
-          <div className="space-y-3">
-            <div className="relative aspect-square rounded-2xl overflow-hidden bg-muted grid place-items-center">
+          <div className="space-y-3 md:sticky md:top-6 md:self-start">
+            <div className="relative aspect-square rounded-2xl overflow-hidden border bg-white grid place-items-center">
               {images[imageIdx]
-                ? <img src={images[imageIdx]} alt={product.name} className="h-full w-full object-cover" />
-                : <Package className="h-16 w-16 text-muted-foreground/40" />}
+                ? <StoreImage src={images[imageIdx]} width={1200} sizes="(min-width:768px) 55vw, 100vw" alt={product.name} className="h-full w-full object-contain p-6" fetchPriority="high" />
+                : (
+                  <div className="flex flex-col items-center gap-2 text-muted-foreground/60">
+                    <Package className="h-16 w-16" aria-hidden />
+                    <span className="text-sm">Foto próximamente</span>
+                  </div>
+                )}
               {product.visibility === 'school_only' && (
                 <span className="absolute top-3 left-3 rounded-full bg-background/90 text-xs font-medium px-2.5 py-1 flex items-center gap-1 shadow-sm">
                   <Lock className="h-3 w-3" /> Solo para miembros
@@ -131,10 +144,10 @@ export default function TiendaProductoPage() {
                     key={src}
                     type="button"
                     onClick={() => setImageIdx(i)}
-                    className={cn('h-16 w-16 rounded-lg overflow-hidden border-2 shrink-0', i === imageIdx ? 'border-primary' : 'border-transparent')}
+                    className={cn('h-16 w-16 md:h-20 md:w-20 rounded-lg overflow-hidden border-2 bg-white shrink-0', i === imageIdx ? 'border-primary' : 'border-border')}
                     aria-label={`Ver imagen ${i + 1}`}
                   >
-                    <img src={src} alt="" className="h-full w-full object-cover" />
+                    <StoreImage src={src} width={200} sizes="80px" alt="" className="h-full w-full object-contain p-1" />
                   </button>
                 ))}
               </div>
@@ -144,12 +157,13 @@ export default function TiendaProductoPage() {
           {/* Compra */}
           <div className="space-y-5">
             <div>
-              <h1 className="text-2xl font-bold tracking-tight">{product.name}</h1>
-              <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1"><Store className="h-3.5 w-3.5" /> {vendor.display_name}</p>
+              {product.category && <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">{product.category}</p>}
+              <h1 className="text-2xl md:text-3xl font-bold tracking-tight">{product.name}</h1>
+              <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1"><Store className="h-3.5 w-3.5" /> Vendido por {vendor.display_name}</p>
             </div>
 
             <div>
-              <p className="text-3xl font-bold tabular-nums" data-testid="product-price">{formatCurrency(price)}</p>
+              <p className="text-3xl md:text-4xl font-bold tabular-nums" data-testid="product-price">{formatCurrency(price)}</p>
               <p className="text-xs text-muted-foreground">IVA incluido</p>
             </div>
 
@@ -221,13 +235,37 @@ export default function TiendaProductoPage() {
             </div>
 
             {product.description && (
-              <div className="pt-2">
-                <h2 className="font-semibold mb-1">Descripción</h2>
-                <p className="text-sm text-muted-foreground whitespace-pre-line">{product.description}</p>
+              <div className="pt-4 border-t">
+                <h2 className="font-semibold mb-2">Descripción</h2>
+                <p className="text-sm md:text-[15px] leading-relaxed text-muted-foreground whitespace-pre-line">{product.description}</p>
               </div>
             )}
           </div>
         </div>
+
+        {/* Más de la tienda: mismos datos del catálogo, sin pedir nada nuevo */}
+        {related.length > 0 && (
+          <section className="mt-14" aria-labelledby="mas-tienda">
+            <h2 id="mas-tienda" className="text-xl font-bold mb-4">Más de {vendor.display_name}</h2>
+            <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5">
+              {related.map((r) => (
+                <li key={r.id}>
+                  <Link to={`/tienda/${slug}/p/${r.id}`} className="group block rounded-2xl border bg-background overflow-hidden hover:shadow-lg transition-shadow">
+                    <div className="aspect-square bg-white grid place-items-center">
+                      {r.image_url
+                        ? <StoreImage src={r.image_url} width={600} sizes="(min-width:1024px) 25vw, 50vw" alt={r.name} loading="lazy" decoding="async" className="h-full w-full object-contain p-4 group-hover:scale-105 transition-transform motion-reduce:transition-none" />
+                        : <Package className="h-10 w-10 text-muted-foreground/40" aria-hidden />}
+                    </div>
+                    <div className="p-3">
+                      <p className="text-sm font-medium line-clamp-2">{r.name}</p>
+                      <p className="mt-1 font-bold tabular-nums">{formatCurrency(Number(r.price))}</p>
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
     </div>
   );

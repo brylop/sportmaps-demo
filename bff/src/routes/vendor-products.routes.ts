@@ -15,6 +15,7 @@ import {
     buildDuplicateRow,
 } from '../services/store-product-fields';
 import { mapStoreRpcError } from '../services/store-rpc-errors';
+import { scheduleProductDerivatives } from '../services/product-image-derivatives';
 import {
     productStockView,
     parseVariantSpecs,
@@ -347,6 +348,7 @@ router.post('/', async (req: Request, res: Response) => {
         }
 
         await auditLog(req, 'product_create', 'products', data.id);
+        scheduleProductDerivatives(data.id);
         return res.status(201).json({ ok: true, data: created });
     } catch (err) {
         return res.status(500).json({ ok: false, error: 'Error interno.' });
@@ -401,6 +403,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
             return res.status(404).json({ ok: false, error: 'Producto no encontrado.' });
         }
 
+        scheduleProductDerivatives(id);
         return res.json({ ok: true, data, inventory });
     } catch (err) {
         return res.status(500).json({ ok: false, error: 'Error interno.' });
@@ -644,6 +647,7 @@ router.patch('/:id/variants/:variantId', async (req: Request, res: Response) => 
             return res.status(404).json({ ok: false, error: 'Variante no encontrada.' });
         }
 
+        scheduleProductDerivatives(id);
         return res.json({ ok: true, data, inventory });
     } catch (err) {
         return res.status(500).json({ ok: false, error: 'Error interno.' });
@@ -712,6 +716,7 @@ router.post('/:id/publish', async (req: Request, res: Response) => {
         }
 
         await auditLog(req, 'product_publish', 'products', id);
+        scheduleProductDerivatives(id);
         return res.json({
             ok:      true,
             data,

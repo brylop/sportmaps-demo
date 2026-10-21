@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 796,
-  "head": "20261021112614",
+  "count": 797,
+  "head": "20261021135658",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -799,6 +799,7 @@
     {"v":"20261020120608","file":"20261020120608_torneos_escuela_inscribe_fix_adulto_con_costo.sql","sha256":"9694fbc1c125c0524568a25a5b4b98b40251c6935754b136075963b724606397","added":"2026-10-20","by":"Brayan Steven Lopez"},
     {"v":"20261020122827","file":"20261020122827_catalogo_torneos_vinculo_con_torneo.sql","sha256":"016c9ffbeceed3b5e701213d179c7abf5c780adbc651de46796e08818c9e4bae","added":"2026-10-20","by":"Brayan Steven Lopez"},
     {"v":"20261021100846","file":"20261021100846_cerrar_rls_enrollments_staff_manage.sql","sha256":"f667c58f31e6d2c31bf06dcd0330b6971d4f3f3a24d996ccf47039925f67ff84","added":"2026-10-21","by":"Brayan Steven Lopez"},
-    {"v":"20261021112614","file":"20261021112614_coach_can_remove_enrollments.sql","sha256":"472d15f3e980a2b85d64e06d2ec55725db3b06c4721daa061fcede14c53629cd","added":"2026-10-21","by":"Brayan Steven Lopez"}
+    {"v":"20261021112614","file":"20261021112614_coach_can_remove_enrollments.sql","sha256":"472d15f3e980a2b85d64e06d2ec55725db3b06c4721daa061fcede14c53629cd","added":"2026-10-21","by":"Brayan Steven Lopez"},
+    {"v":"20261021135658","file":"20261021135658_tienda_escolar_sin_foto_obligatoria.sql","sha256":"08113d221005c122ce8c1c03193ed5cc87aa7f93854ba7894179bdba347d2734","added":"2026-10-21","by":"Brayan Steven Lopez"}
   ]
 }
