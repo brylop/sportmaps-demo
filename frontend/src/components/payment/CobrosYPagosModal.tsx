@@ -143,6 +143,7 @@ export function CobrosYPagosDialog({
 
     const [mode, setMode] = useState<'single' | 'multi'>(initialMode);
     const clientRequestId = useRef<string>(newClientRequestId());
+    const enviando = useRef(false);
 
     // Atletas de la escuela (lectura; toda escritura va por el BFF)
     const [athletes, setAthletes] = useState<SchoolAthlete[]>([]);
@@ -512,6 +513,9 @@ export function CobrosYPagosDialog({
 
     const submit = async () => {
         if (!body || !preview || !previewFresh || button.disabled) return;
+        // Un doble clic llega antes de que React repinte el botón deshabilitado: el cerrojo va en una ref.
+        if (enviando.current) return;
+        enviando.current = true;
         setSubmitting(true);
         setSubmitError(null);
         try {
@@ -556,6 +560,7 @@ export function CobrosYPagosDialog({
                 setPreviewNonce((n) => n + 1);
             }
         } finally {
+            enviando.current = false;
             setSubmitting(false);
         }
     };
