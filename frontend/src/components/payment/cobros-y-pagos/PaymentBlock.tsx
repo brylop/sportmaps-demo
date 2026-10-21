@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Banknote, Building2, CheckCircle2, Loader2, Receipt } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -43,7 +43,17 @@ export function PaymentBlock({
     value: p, onChange, today, schoolId, totalToPay, expectedAmount, paymentCategory,
     payerProfileId, payerName, payerKind, invoicingEnabled,
 }: PaymentBlockProps) {
-    const set = (patch: Partial<PaymentDraft>) => onChange({ ...p, ...patch });
+    // Último borrador, ACUMULADO: dos cambios en el mismo evento (p. ej. «Efectivo» + quitar el
+    // comprobante, o el resultado del OCR + la URL subida) parten del anterior y no del `p` de
+    // este render. Antes cada `set` armaba `{ ...p, ...patch }` con el `p` viejo y el segundo
+    // pisaba al primero: «Efectivo» volvía solo a «Transferencia» (Dreamers, 2026-10-21).
+    const ultimo = useRef(p);
+    ultimo.current = p;
+    const set = (patch: Partial<PaymentDraft>) => {
+        const next = { ...ultimo.current, ...patch };
+        ultimo.current = next;
+        onChange(next);
+    };
     const [uploadKey, setUploadKey] = useState(0);
     const [dian, setDian] = useState<PayerDianState | null>(null);
     const [checkingDian, setCheckingDian] = useState(false);
@@ -90,7 +100,7 @@ export function PaymentBlock({
                                 type="button"
                                 role="radio"
                                 aria-checked={p.method === m}
-                                onClick={() => { set({ method: m }); if (m === 'cash') clearReceipt(); }}
+                                onClick={() => { set({ method: m }); if (m === 'cash' && p.receiptUrl) clearReceipt(); }}
                                 className={cn(
                                     'flex items-center justify-center gap-2 rounded-lg border-2 h-11 text-sm font-semibold transition-colors',
                                     p.method === m ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-foreground/30',
@@ -152,7 +162,7 @@ export function PaymentBlock({
                                     expectedAmount={expectedAmount && expectedAmount > 0 ? expectedAmount : undefined}
                                     paymentCategory={paymentCategory}
                                     onUploadComplete={(url) => set({ receiptUrl: url })}
-                                    onValidationResult={(r) => onChange({ ...p, ocr: r })}
+                                    onValidationResult={(r) => set({ ocr: r })}
                                 />
                             )}
                         </div>
