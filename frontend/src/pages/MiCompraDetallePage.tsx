@@ -249,7 +249,7 @@ export default function MiCompraDetallePage() {
         </div>
         <p className="text-sm" data-testid="buyer-status-message">{buyerStatusMessage(order)}</p>
         {status === 'pending_payment' && order.expires_at && (
-          <p className="text-xs text-muted-foreground">Reservado hasta el {new Date(order.expires_at).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}.</p>
+          <p className="text-xs text-muted-foreground">Reservado hasta el {new Date(order.expires_at).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</p>
         )}
       </header>
 
