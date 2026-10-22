@@ -224,7 +224,7 @@ export default function PedidoInvitadoPage() {
           </div>
           <p className="text-sm" data-testid="buyer-status-message">{buyerStatusMessage(order)}</p>
           {status === 'pending_payment' && order.expires_at && (
-            <p className="text-xs text-muted-foreground">Reservado hasta el {new Date(order.expires_at).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}.</p>
+            <p className="text-xs text-muted-foreground">Reservado hasta el {new Date(order.expires_at).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</p>
           )}
           {order.customer_name && <p className="text-xs text-muted-foreground">A nombre de {order.customer_name}</p>}
         </header>
