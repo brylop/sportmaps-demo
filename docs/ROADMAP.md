@@ -1,11 +1,59 @@
 # SportMaps — Roadmap Maestro
 
-**Versión:** 2.37 · **Fecha:** 2026-10-14 · **Rama:** `develop`
+**Versión:** 2.38 · **Fecha:** 2026-10-23 · **Rama:** `develop`
 
 > **Este es el único roadmap.** Todo lo demás en `docs/` es *spec* (qué se construye y por qué),
 > *plan de fase* (cómo se migra), *doctrina de arquitectura* (cómo se hace) o *auditoría* (qué está
 > mal). Ninguno de esos documentos define prioridades: las define esta cola. Si un pendiente no
 > aparece aquí, no existe.
+
+**Cambios v2.37 → v2.38** (2026-10-14 → 23). Se unifican en este documento los pendientes de todas las sesiones y se abre el **plan de cierre**: antes de empezar cualquier ola nueva del track V2, se cierra lo que ya está construido o prometido. Este bloque manda sobre el orden inmediato de v2.37.
+
+*Entregado entre el 14 y el 23 de octubre (109 commits sin merges):*
+- **Pizarra táctica M1–M6** completa (multideporte, 3D con 11 cámaras, IA con tope por entrenador, paquetes, equipos y videos), más manual v2 (`docs/manuales/academias/pizarra-tactica.pdf`) y video v2 (`docs/manuales/video/pizarra-tactica-v2.mp4`, 8:21, sin commitear).
+- **Torneos:** la escuela inscribe hijos y adultos, torneo gratis, medios de pago por torneo, catálogo vinculado.
+- **Cobranza y mora:** la mora no cancela; recordatorios por correo (−3/0/+3/+10/+20); el enlace público cobra el saldo; checkout cobra el saldo.
+- **Cobros y pagos (Dreamers):** horas «Ya las usó» y «Por adelantado», bloqueo de comprobante menor al total, aviso 409 de cobro duplicado, cerrojo anti doble clic, horas adicionales prepagadas.
+- **Otros:** Mapi (ex SportBot), multirol y multisede F1, acuerdos comerciales SaaS, directorio público de clubes, oferta incluida en todos los planes, SportMaps Canchas F0, cortesía única Besser/Dynasty, tienda (vitrina, cupones, compra sin cuenta), seguridad (RLS de `enrollments`, Node 22, CI con permisos mínimos).
+- **22–23 oct, esta sesión:**
+  - *Reporte del partido (Besser):* base aplicada y probada (2 tablas, 5 RPC, flag `share_match_reports` encendido solo en Besser); pantallas del entrenador/admin y de la familia escritas, `tsc` y eslint en verde, **sin commitear**.
+  - *Pizarra:* `admin` y `school_admin` ya editan (aplicada). Besser no lo necesitaba: su administración es un `owner`.
+  - *Tienda:* aviso al local de pedido nuevo (aplicada).
+  - *Dynasty:* 43 fichas sin datos creadas desde la proyección 2027 y 14 fechas de nacimiento corregidas.
+
+*Verificado el 23-oct contra la base viva (consultas puntuales):*
+- **Migraciones:** de las 66 «sin registro», 58 ya están vivas por el editor de SQL, las 2 con objetos faltantes se aplicaron hoy y quedan 6 sin forma de verificar por existencia (solo cambian policies, datos o cuerpos). Se **cierra el ítem 8 de v2.36** (las 10 locales del 13-oct).
+- **Ítem 1 sigue abierto:** Dynasty, 17 enlaces desde el 13-oct, 0 pagados, 15 pendientes.
+- **Ítem 4 sigue abierto:** `get_school_athletes` (las dos firmas) no usa `user_staff_school_ids()`.
+- **Ítem 14 empeoró:** Besser tiene **21 cobros sin pagador ($6.840.000)**, antes 14 ($4.970.000).
+- **Ítem 2 mejoró a medias:** Monster tiene la autocancelación apagada, pero solo 12 de 145 inscripciones activas tienen monto.
+- **Ítem 9 de §4 anterior sigue:** `open_month` y demás, sin cambio medido.
+
+**Cola de cierre unificada** (se suma a v2.36/v2.37; los números 1–15 conservan su significado):
+
+| # | Crit. | Qué | Hecho cuando |
+|---|---|---|---|
+| 16 | 🔴 P0 | **Commitear y publicar lo construido y sin subir:** reporte del partido (front), 3 migraciones con su ledger, manual y video v2 de la pizarra. Commit solo de lo propio (hay trabajo de otras sesiones en el índice) | Commit hecho, `migrations:check` verde, prueba real de la familia en dev |
+| 17 | 🔴 P0 | **Ítem 1 · Checkout de Dynasty:** registrar el webhook, hacer un pago real y quitar el fallback `VITE_WOMPI_PUBLIC_KEY` | 1 pago en línea `paid` y 0 fallbacks |
+| 18 | 🔴 P0 | **Ítem 14 · Besser:** resolver los 21 cobros sin pagador ($6,84 M) antes de cualquier mensaje del bot; luego alistamiento de WhatsApp | 0 cobros sin pagador |
+| 19 | 🔴 P0 | **Becados de Monster.** Deportistas: Deivis Valle, Samuel López, Miguel Hernández, Felipe Sandoval, María José Vasquez, Paola Ramírez, Laura Ladino (**50 %**), Isabella Silva. Profes: Julián Torres, Tatiana Díaz, Ana Forero, Sebastián Hurtado, Felipe Sossa. Hoy solo están cargados Deivis Valle y Laura Ladino (ambos con $145.000 pendiente y sin marcar como beca), y de los profes solo Sebastián Hurtado e Iván Felipe Sossa. **Falta definir qué significa «profe becado»** (¿entrena sin pagar?) | Beca = inscripción con `fee_is_manual=true` y cuota 0 (Laura: la mitad, 72.500); los que faltan, cargados |
+| 20 | 🔴 P0 | **Ítem 2 · Monster:** cargar monto o beca a las 133 inscripciones activas sin monto y las cuentas de recaudo | 145/145 con monto o beca |
+| 21 | 🔴 P0 | **Ítem 3 · Dreamers:** confirmar con la dueña los 95 PIN antes del 01-nov. Además opera en Nex y ese plan vence el 25-oct | Decisión escrita de la dueña |
+| 22 | 🟠 P1 | **Ítem 4:** gate de `get_school_athletes` a `user_staff_school_ids()` o enmascarar `parent_name`/`parent_email` | Un padre ya no lista acudientes de otros |
+| 23 | 🟠 P1 | **Reporte del partido, lo que falta:** el aviso a la familia al publicar (hoy no sale ningún push ni correo), manual de una página y encendido en otra escuela solo si la pide | Decisión del canal de aviso |
+| 24 | 🟠 P1 | **Dynasty, datos:** 5 fichas dudosas (Bermúdez Reinoso, Medina Bermúdez, Mendoza Flórez, Sánchez Rubiano, Rojas Kristien), 9 nombres con varias coincidencias, SENIORS sin fecha, y rellenar las 43 fichas con el bot y Milena | Fichas sin datos = 0 |
+| 25 | 🟠 P1 | **Ítems 5, 6, 7:** comprobantes por WhatsApp que se pierden, conciliación DKIM y MFA de super_admin | Como en v2.36 |
+| 26 | 🟡 P2 | Seis migraciones sin forma de verificar por existencia (`indices_duplicados_y_parciales`, `rol_facility_manager`, `acuerdo_monster_volley`, `plantillas_ejercicios_otros_deportes`, `pizarra_ia_revoca_grant_creditos_firma_vieja`, `cerrar_rls_enrollments_staff_manage`): comprobar a mano con `pg_policies`/`pg_proc` | Las 6 confirmadas |
+| 27 | 🟡 P2 | Mantener este documento: de ahora en adelante una migración nueva se aplica por una vía que deje registro (`apply_migration` o CLI), no por el editor | `migrations:pendientes` sin falsos positivos |
+
+**Plan de cierre, en orden** (cada paso se cierra con su número «antes y después»):
+1. **#16** — dejar el árbol limpio y publicado.
+2. **#18 y #19 y #20** — dinero que hoy no se cobra o se cobra mal: Besser primero, luego Monster.
+3. **#17** — el pago en línea de Dynasty.
+4. **#21** — decisión de Dreamers, con fecha dura el 01-nov.
+5. **#22 y #25** — seguridad y comprobantes.
+6. **#23 y #24** — pulido del reporte y datos de Dynasty.
+7. Solo después de cerrar 16–22, se retoma el orden inmediato de v2.37 (Comunicaciones F0/F1 y prueba con 5 personas).
 
 **Cambios v2.36 → v2.37** (2026-10-14, tarde). Tres cosas: (a) cómo quedó la caída de Disk IO; (b) qué le falta a Besser para conectar su WhatsApp; (c) **el track V2: cómo se ejecuta el rediseño, en qué orden y con qué compuerta**. Este bloque y el de v2.36 mandan juntos sobre §4. Los ítems nuevos se suman a la cola v2.36 con sus números.
 

@@ -266,7 +266,7 @@ export default function MyChildrenPage() {
               </div>
 
               <div className="space-y-3">
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <Link to={`/academic-progress?childId=${child.id}`} className="flex-1">
                     <Button variant="outline" className="w-full h-11 rounded-xl border-border/60 hover:border-primary/40 hover:bg-primary/5 hover:text-primary transition-all group/btn shadow-sm font-bold text-xs uppercase tracking-wider">
                       <Trophy className="w-4 h-4 mr-2 group-hover/btn:scale-110 transition-transform" />
@@ -277,6 +277,12 @@ export default function MyChildrenPage() {
                     <Button variant="outline" className="w-full h-11 rounded-xl border-border/60 hover:border-primary/40 hover:bg-primary/5 hover:text-primary transition-all group/btn shadow-sm font-bold text-xs uppercase tracking-wider">
                       <Calendar className="w-4 h-4 mr-2 group-hover/btn:scale-110 transition-transform" />
                       Asistencia
+                    </Button>
+                  </Link>
+                  <Link to={`/children/${child.id}/partidos`} className="flex-1">
+                    <Button variant="outline" className="w-full h-11 rounded-xl border-border/60 hover:border-primary/40 hover:bg-primary/5 hover:text-primary transition-all group/btn shadow-sm font-bold text-xs uppercase tracking-wider">
+                      <FileText className="w-4 h-4 mr-2 group-hover/btn:scale-110 transition-transform" />
+                      Partidos
                     </Button>
                   </Link>
                   <Link to={`/children/${child.id}/reports`} className="flex-1">
