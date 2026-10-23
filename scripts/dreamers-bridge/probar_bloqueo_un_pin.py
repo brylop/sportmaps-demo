@@ -154,7 +154,7 @@ def main():
 
         resp = input(f"\nSe va a DESHABILITAR a '{u.name}' (PIN {u.user_id}) en {device['name']} "
                      f"durante la prueba. Escriba SI para continuar: ").strip()
-        if resp != "SI":
+        if resp.strip().lower() not in ("si", "sí", "s"):
             log("Cancelado por el usuario. No se hizo nada.")
             return 1
 
