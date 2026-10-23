@@ -665,7 +665,8 @@ export function OfferingsManagement() {
             // "Máx. sesiones" no se limpia cuando el plan es por horas: puede
             // quedar como etiqueta informativa ("480 min ≈ 4 clases de 2h"), no
             // es un tope aparte — el único límite real es included_minutes_per_period.
-            max_sessions: newPlan.max_sessions ? parseInt(newPlan.max_sessions) : null,
+            // 0 o vacío = sin tope (∞): el BFF exige un entero positivo, así que 0 se manda como null.
+            max_sessions: Number.parseInt(newPlan.max_sessions, 10) > 0 ? Number.parseInt(newPlan.max_sessions, 10) : null,
             included_minutes_per_period: newPlan.is_hours_plan
                 ? (parseInt(newPlan.included_minutes_per_period) || null)
                 : null,
@@ -1323,7 +1324,7 @@ export function OfferingsManagement() {
                                 <p className="text-[10px] text-muted-foreground">
                                     {newPlan.is_hours_plan
                                         ? 'Con banco de horas activo, esto es solo una etiqueta ("480 min ≈ 4 clases de 2h") — no bloquea nada, el único tope real son los minutos.'
-                                        : 'Vacío = ilimitado'}
+                                        : 'Vacío o 0 = ilimitado'}
                                 </p>
                             </div>
                             <div className="space-y-2">
