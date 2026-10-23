@@ -28,6 +28,7 @@ export function borradorDeVentaDeHoras(s?: ChargeSuggestions | null, horas = 1):
     const enr = lista.find((e) => e.is_primary) ?? lista[0] ?? null;
     return {
         horas_modo: 'adelantado',
+        horas_usadas: null,
         extra_hours: horas,
         overage_charge_id: null,
         enrollment_id: enr?.enrollment_id ?? null,
@@ -36,14 +37,28 @@ export function borradorDeVentaDeHoras(s?: ChargeSuggestions | null, horas = 1):
     };
 }
 
-/** «Ya las usó»: solo se cobra; no hay horas que sumar ni inscripción a la que sumarlas. */
-export function borradorDeHorasUsadas(): Partial<NewLineDraft> {
+/** Detalle de las horas consumidas: «Hora adicional consumida · 2 h». */
+export function conceptoHorasUsadas(horas: number): string {
+    return `${CONCEPTO_HORAS_USADAS} · ${formatHoras(horas)} h`;
+}
+
+/** Tarifa por hora del plan con banco (principal primero): la que se usa para valorar horas ya consumidas. */
+export function tarifaDeHorasUsadas(s?: ChargeSuggestions | null): EnrollmentOption | null {
+    const lista = inscripcionesConHoras(s);
+    return lista.find((e) => e.is_primary && e.hourly_rate != null) ?? lista.find((e) => e.hourly_rate != null) ?? null;
+}
+
+/** «Ya las usó»: solo se cobra; no hay horas que sumar ni inscripción a la que sumarlas. Arranca en 1 hora con su valor. */
+export function borradorDeHorasUsadas(s?: ChargeSuggestions | null, horas = 1): Partial<NewLineDraft> {
+    const plan = tarifaDeHorasUsadas(s);
     return {
         horas_modo: 'usadas',
+        horas_usadas: horas,
         extra_hours: null,
         enrollment_id: null,
         overage_charge_id: null,
-        concept: CONCEPTO_HORAS_USADAS,
+        concept: conceptoHorasUsadas(horas),
+        ...(plan ? { amount: montoDeHoras(horas, plan.hourly_rate) ?? null } : {}),
     };
 }
 
@@ -64,6 +79,8 @@ export function HorasAdicionalesLine({ line: l, suggestions, onPatch }: Props) {
     const usadas = l.horas_modo === 'usadas';
     const enr = conHoras.find((e) => e.enrollment_id === l.enrollment_id) ?? null;
     const tarifa = enr?.hourly_rate ?? null;
+    const planUsadas = tarifaDeHorasUsadas(suggestions);
+    const tarifaUsadas = planUsadas?.hourly_rate ?? null;
 
     // Sin banco de horas no hay nada que sumar: la línea pasa sola a «Ya las usó» (cobro libre) y limpia
     // cualquier resto de una venta (inscripción o horas del atleta anterior).
@@ -71,7 +88,7 @@ export function HorasAdicionalesLine({ line: l, suggestions, onPatch }: Props) {
         if (!sinBanco) return;
         if (!usadas || l.extra_hours != null || l.enrollment_id) {
             onPatch({
-                ...borradorDeHorasUsadas(),
+                ...borradorDeHorasUsadas(suggestions),
                 // Si ya traía un detalle propio (el usuario lo escribió), no se pisa.
                 ...(usadas && l.concept.trim() ? { concept: l.concept } : {}),
             });
@@ -95,6 +112,17 @@ export function HorasAdicionalesLine({ line: l, suggestions, onPatch }: Props) {
         onPatch({ extra_hours: h, concept: conceptoHorasAdicionales(h), ...(sugerido != null ? { amount: sugerido } : {}) });
     };
 
+    const cambiarHorasUsadas = (h: number) => {
+        const sugerido = montoDeHoras(h, tarifaUsadas);
+        // El detalle solo se reescribe si es el automático: uno escrito por el usuario se respeta.
+        const automatico = !l.concept.trim() || l.concept.startsWith(CONCEPTO_HORAS_USADAS);
+        onPatch({
+            horas_usadas: h,
+            ...(automatico ? { concept: conceptoHorasUsadas(h) } : {}),
+            ...(sugerido != null ? { amount: sugerido } : {}),
+        });
+    };
+
     return (
         <div className="space-y-2" data-testid="cyp-horas-adicionales">
             {sinBanco ? (
@@ -106,7 +134,7 @@ export function HorasAdicionalesLine({ line: l, suggestions, onPatch }: Props) {
                 <div className="inline-flex flex-wrap rounded-lg border p-0.5 text-xs" role="group" aria-label="Qué son estas horas">
                     <Button
                         type="button" size="sm" variant={usadas ? 'secondary' : 'ghost'} className="h-7 text-xs" aria-pressed={usadas}
-                        onClick={() => onPatch(borradorDeHorasUsadas())}
+                        onClick={() => onPatch(borradorDeHorasUsadas(suggestions))}
                     >
                         Ya las usó · solo cobrar
                     </Button>
@@ -136,6 +164,44 @@ export function HorasAdicionalesLine({ line: l, suggestions, onPatch }: Props) {
                                 {excedentes.map((o) => <SelectItem key={o.id} value={o.id}>{o.period_label} — {formatPesos(o.amount)}</SelectItem>)}
                             </SelectContent>
                         </Select>
+                    )}
+                    {!l.overage_charge_id && (
+                        <>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs text-muted-foreground">Horas usadas</span>
+                                <Button
+                                    type="button" variant="outline" size="icon" className="h-9 w-9" aria-label="Una hora usada menos"
+                                    onClick={() => cambiarHorasUsadas(pasoDeHoras(l.horas_usadas ?? 1, -1))}
+                                >
+                                    <Minus className="h-4 w-4" />
+                                </Button>
+                                <Input
+                                    aria-label="Horas usadas"
+                                    type="number" inputMode="decimal" step={0.25} min={0.25} max={24}
+                                    className="h-9 w-24 text-sm tabular-nums text-center"
+                                    value={l.horas_usadas ?? ''}
+                                    onChange={(e) => {
+                                        const v = e.target.value === '' ? null : Number(e.target.value);
+                                        if (v == null || Number.isNaN(v)) { onPatch({ horas_usadas: null }); return; }
+                                        cambiarHorasUsadas(v);
+                                    }}
+                                />
+                                <Button
+                                    type="button" variant="outline" size="icon" className="h-9 w-9" aria-label="Una hora usada más"
+                                    onClick={() => cambiarHorasUsadas(pasoDeHoras(l.horas_usadas ?? 0, 1))}
+                                >
+                                    <Plus className="h-4 w-4" />
+                                </Button>
+                                <span className="text-xs text-muted-foreground tabular-nums" data-testid="cyp-horas-usadas-resumen">
+                                    {l.horas_usadas && l.horas_usadas > 0 && tarifaUsadas != null && l.amount != null ? `= ${formatPesos(l.amount)}` : ''}
+                                </span>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground" data-testid="cyp-horas-usadas-tarifa">
+                                {tarifaUsadas != null
+                                    ? <>Tarifa {formatPesos(tarifaUsadas)} por hora{planUsadas?.plan_name ? ` (plan ${planUsadas.plan_name} ÷ sus horas)` : ''}. Puedes cambiar el valor.</>
+                                    : 'Este atleta no tiene tarifa por hora calculada: escribe el valor.'}
+                            </p>
+                        </>
                     )}
                     <p className="text-[11px] text-muted-foreground" data-testid="cyp-horas-usadas-nota">
                         Solo cobra lo que ya usó: <b>el banco de horas no cambia</b>.
