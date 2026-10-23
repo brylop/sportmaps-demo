@@ -55,6 +55,19 @@
 6. **#23 y #24** — pulido del reporte y datos de Dynasty.
 7. Solo después de cerrar 16–22, se retoma el orden inmediato de v2.37 (Comunicaciones F0/F1 y prueba con 5 personas).
 
+**Estado de la cola de cierre al 23-oct, tarde** (informes en `docs/cierre-2026-10-23/`):
+
+| # | Estado | Qué quedó |
+|---|---|---|
+| 16 | ✅ Hecho | Commit `1c77e179` (sin push). |
+| 18 | 🟡 Parcial | Sin pagador: de 21 ($6.840.000) a 18 ($6.320.000). Se asignó el acudiente a 3 cobros de 2 personas con cuenta. Los 18 restantes son de 12 deportistas sin cuenta (`unregistered_athletes`, no es un defecto del generador): se cobran por WhatsApp/llamada o se invita a registrarse. Falta confirmar con Besser que siguen activos y revisar el cobro de $140.000 de Dilan Samuel Gómez. |
+| 19 | ✅ Aplicado | Becas en Monster: Deivis Valle y cuatro profes que entrenan como atletas (Julián Torres, Tatiana Díaz, Ana Forero, Sebastián Hurtado) en cuota 0 con su cobro de octubre anulado; Laura Ladino al 50 % ($72.500). **Faltan crear** Samuel López, Miguel Hernández, Felipe Sandoval, María José Vásquez, Paola Ramírez e Isabella Silva (equipo y datos por definir) y Felipe Sossa, que es solo staff. «Profe becado» = profe que también entrena como atleta. |
+| 20 | 🔁 Reescrito | **El planteamiento estaba mal:** las 145 inscripciones sí tienen monto. El problema real es que **Monster no tiene cuenta de recaudo cargada** y hay cobros de octubre emitidos sin dónde pagar: tras las becas quedan 140 pendientes por $20.737.500, 0 pagados. Nuevo #20: cargar la cuenta de recaudo y decidir qué se hace con los cobros de octubre antes del corte del 1-nov (noviembre emitiría otros 140). |
+| 21 | 🟡 Ficha lista | Los «95 PIN» eran 102 órdenes sobre 3 códigos (6-oct), sin desbloqueos posteriores. La plataforma solo ve 5 niñas activas; la operación está en Nex (plan vence el **25-oct**). Ficha de decisión en `21-dreamers-decision-1-nov.md`. |
+| 22 | ✅ Aplicado | `get_school_athletes(uuid, uuid)` con gate de staff (`20261023093127`). Probado antes/después en Besser: el padre pasó de 82 filas con 71 correos a error 42501. La de 1 argumento solo la ejecuta `service_role` y no se tocó. Nota: el coach de Besser ve los 71 correos porque el enmascarado de contacto no está activo allí. |
+| 25 | 🟡 Causa cerrada | Un BFF local con código viejo y otra llave tomó la cola; ya no ocurre desde el 13-oct (`e63b36d6`). 0 mensajes perdidos por retraso; el único hueco (13,7 h) es la caída de Disk IO. **Quedan 4 comprobantes de Dynasty por reprocesar antes del 09-nov** (SQL listo en el informe, sin ejecutar) y 4 de octubre-3 a 5 que la familia debe reenviar. |
+| 17 | 🟡 Código listo, falta el panel de Wompi | Se quitó el respaldo `VITE_WOMPI_PUBLIC_KEY` de `wompi.ts` (falla claro si la escuela no tiene llave propia); tsc, eslint y 14/14 pruebas del flujo en verde. Wompi **no ha llamado al webhook** (último evento de cualquier escuela: 07-oct): el problema es que falta registrar la URL de eventos y un pago real. A cargo del usuario: URL `https://sportmaps-bff-prod.onrender.com/api/v1/webhooks/wompi/webhook` (el `/webhook` final es obligatorio), evento `transaction.updated`, mismo secreto de eventos en el panel y en SportMaps, y un pago real de monto bajo. Al publicar, borrar `VITE_WOMPI_PUBLIC_KEY` de Vercel. Ningún código pasa el estado a `connected` (cosmético). |
+
 **Cambios v2.36 → v2.37** (2026-10-14, tarde). Tres cosas: (a) cómo quedó la caída de Disk IO; (b) qué le falta a Besser para conectar su WhatsApp; (c) **el track V2: cómo se ejecuta el rediseño, en qué orden y con qué compuerta**. Este bloque y el de v2.36 mandan juntos sobre §4. Los ítems nuevos se suman a la cola v2.36 con sus números.
 
 *Caída del 14-oct (Disk IO):*
