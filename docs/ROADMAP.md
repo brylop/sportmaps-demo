@@ -46,6 +46,39 @@
 | 26 | 🟡 P2 | Seis migraciones sin forma de verificar por existencia (`indices_duplicados_y_parciales`, `rol_facility_manager`, `acuerdo_monster_volley`, `plantillas_ejercicios_otros_deportes`, `pizarra_ia_revoca_grant_creditos_firma_vieja`, `cerrar_rls_enrollments_staff_manage`): comprobar a mano con `pg_policies`/`pg_proc` | Las 6 confirmadas |
 | 27 | 🟡 P2 | Mantener este documento: de ahora en adelante una migración nueva se aplica por una vía que deje registro (`apply_migration` o CLI), no por el editor | `migrations:pendientes` sin falsos positivos |
 
+**Novedades del 23-oct, noche (reemplazan lo dicho arriba donde choquen):**
+- **#21 Dreamers: en pausa por decisión del usuario.** Siguen en pruebas con Dreamers y la dueña va a cambiar el software que usa. No se decide nada de PIN, Nex ni facturación hasta que ella defina. La fecha del 25-oct de Nex y la del 01-nov dejan de ser urgentes para SportMaps.
+- **#25 Comprobantes de Dynasty: el reproceso falló.** Se devolvieron las 4 filas a `pending` y el worker las tomó, pero **Meta responde que los archivos ya no existen**. No son recuperables: las 4 familias deben reenviar el comprobante. Queda el endurecimiento opcional (`locked_by` y compuerta de la llave).
+- **#19 Monster:** el usuario confirmó que la lista de becados estaba completa. Se crearon las 6 fichas que faltaban (Samuel López, Miguel Hernández, Felipe Sandoval, María José Vasquez, Paola Ramirez, Isabella Silva) como `unregistered_athletes` sin equipo, marcadas `beca=true` en `intake_form_data`. **No tienen inscripción, así que todavía no hay beca aplicada**: falta el equipo de cada una. Felipe Sossa sigue siendo solo personal.
+- **Asistentes de Monster:** Tatiana Díaz, Ana Sofía Forero y Julián Torres quedaron cargados como coach con su equipo y su invitación. Los 4 correos de entrenadores se reenviaron con el enlace correcto (el primer envío salió con `localhost`; ver la lección en memoria).
+- **#17 Prueba de pago de Dynasty:** la cuenta de pruebas del usuario (Brayan Steven López Romero, «Hijo Pruebas») tiene un cobro de $180.000 vencido y **su enlace de pago venció el 22-oct a las 7:19 a. m.**; por eso no sale el botón. La mora expira los enlaces pendientes. Para probar hace falta un cobro nuevo de monto bajo o regenerar el enlace.
+
+**Frentes nuevos (23-oct, noche), decididos o por decidir:**
+
+| # | Crit. | Qué | Estado |
+|---|---|---|---|
+| 29 | 🟠 P1 | **Código único de escuela, regenerable, para todos los roles.** En 60 días se registraron 184 padres y atletas y 39 (21 %) quedaron sin escuela; solo 12 tienen pista (Dynasty 8, Dreamers 3, Besser 1) y 27 no se pueden ubicar; 13 entraron con Google. El registro no pide ningún código (`code` es un parámetro oculto que nada resuelve). Diseño acordado: código corto único por escuela, campo «Código de tu escuela» tras iniciar sesión (cubre Google) y en «Mi cuenta»; la persona entra **«por clasificar»** (sin equipo, categoría ni cobro) y el administrador aprueba el rol y asigna categoría y valor; los entrenadores y demás roles de staff nunca reciben permisos por el solo código; vincular con la ficha existente para no duplicar | Decisiones tomadas; falta spec y construcción |
+| 30 | 🟠 P1 | **Documentos y firmas para todas las escuelas.** Hoy hay dos caminos: la familia sube solo 2 tipos (identidad y EPS) y quedan solo en almacenamiento, sin fila; la escuela sube los 10 tipos de Monster a `athlete_documents` (1.009 documentos, 1 sola escuela, 0 verificados) y solo el administrador puede escribir. Las firmas son imágenes subidas, sin evidencia. Propuesta: catálogo de requisitos configurable por escuela, la familia sube todo desde la app, revisión con verificado o rechazo, lista de pendientes y aviso, firma en pantalla con evidencia (fecha, texto aceptado, red y dispositivo) y firma del documento por enlace de un solo uso | Esperando 4 decisiones: validez (firma simple u OTP), quién firma por el menor, quién configura los requisitos y consentimiento de datos sensibles |
+
+**Plan de ejecución de #29 y #30** (specs escritas el 23-oct con agentes y revisión de auditoría y pruebas; construir **todo de corrido** por frente: DB + BFF + frontend + pruebas, sin ramas por fase salvo que el usuario las pida):
+
+| Documento | Qué cubre |
+|---|---|
+| [`specs/codigo-unico-de-escuela.md`](specs/codigo-unico-de-escuela.md) | #29: código de 8 caracteres único (incluido el historial), 3 tablas, 7 RPC, solicitud «por clasificar» **aparte de `school_members`**, bandeja del administrador, límites de intentos por el BFF. 10 puntos «A CONFIRMAR» |
+| [`specs/documentos-y-firmas.md`](specs/documentos-y-firmas.md) | #30: producto, roles, catálogo por escuela, flujos de familia y administrador, estados, dos formas de firmar, avisos, fases F0–F4. Línea base: 1.009 documentos, 144 deportistas, 1 escuela de 371, 0 verificados |
+| [`specs/documentos-y-firmas-datos-y-auditoria.md`](specs/documentos-y-firmas-datos-y-auditoria.md) | Diseño de datos, policies, invariantes I8–I15 y 20 pruebas negativas |
+| [`specs/documentos-y-firmas-firma-y-legal.md`](specs/documentos-y-firmas-firma-y-legal.md) | Firma electrónica simple reforzada (enlace de un solo uso + código + firma dibujada + PDF con hash, evidencia solo-insertar). **5 puntos a validar con abogado** |
+| [`specs/plan-de-pruebas-codigo-escuela-y-documentos.md`](specs/plan-de-pruebas-codigo-escuela-y-documentos.md) | Matriz por 9 roles, concurrencia, seguridad, datos antes/después, UI celular, e2e y auditoría a los 7 días. Lo destructivo corre en el gemelo local |
+
+*Hallazgos de la auditoría de #30 (sobre lo que ya está vivo):*
+1. **El bucket `identity-documents` no tiene límite de tamaño ni de tipo**, y sus policies de escritura solo exigen que el segundo segmento de la ruta sea el `auth.uid()`: cualquier autenticado sube, reemplaza y borra cualquier archivo dentro de su propia carpeta.
+2. **Los 70 archivos que suben las familias (42 padres) no tienen fila en la base**: sin estado ni revisión, el tipo se deduce del prefijo del nombre.
+3. **La familia no puede leer los 1.009 documentos de Monster** que la escuela cargó por ella: siguen en `unregistered_athletes/<id de la ficha>/` y no hay policy de lectura para ella.
+4. `athlete_documents.uploaded_by` es nulo en todos los documentos, y la policy `school_staff_manage_athlete_documents` es `FOR ALL` para `public`: debe reemplazarse por policies por comando. (`is_school_admin()` **sí** incluye `school_admin`; coach y staff no leen documentos, y es lo correcto.)
+5. El código de reservas usa `Math.random()`: para firmas debe ser `crypto.randomInt`.
+
+*Orden y esfuerzo:* 8 pasos, unos 11 días con #29 y la spec de #30 en paralelo; ninguna fase cierra sin 0 violaciones críticas en `seguridad:invariantes`, cero residuos en la base, rollback ensayado y el número de antes y de después. **Decisiones abiertas del usuario antes de construir #30:** validez de la firma (simple u OTP), quién firma por el menor, si «completo» exige verificado, desde cuándo vence el EPS, si el coach ve el estado, retención de evidencias y vencimiento del enlace sin cuenta.
+
 **Plan de cierre, en orden** (cada paso se cierra con su número «antes y después»):
 1. **#16** — dejar el árbol limpio y publicado.
 2. **#18 y #19 y #20** — dinero que hoy no se cobra o se cobra mal: Besser primero, luego Monster.
