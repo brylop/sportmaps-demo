@@ -82,6 +82,26 @@ def escribir_privilegio(conn, u, privilegio):
         )
 
 
+def huella_de_datos(u):
+    """Lo que NO debe cambiar al deshabilitar/habilitar (se compara; la clave no se imprime)."""
+    return (str(u.name), str(u.password or ""), int(u.card or 0), str(u.group_id))
+
+
+def comparar_datos(antes, u_despues, momento):
+    if u_despues is None:
+        log(f"!!! {momento}: el usuario ya no aparece en el lector !!!")
+        return False
+    ahora = huella_de_datos(u_despues)
+    nombres = ("nombre", "clave", "tarjeta", "grupo")
+    cambiados = [n for n, a, b in zip(nombres, antes, ahora) if a != b]
+    if cambiados:
+        log(f"!!! {momento}: CAMBIARON estos datos del usuario: {', '.join(cambiados)} "
+            f"(la clave y demás no se muestran). Avise a soporte con este registro. !!!")
+        return False
+    log(f"{momento}: nombre, clave, tarjeta y grupo intactos.")
+    return True
+
+
 def describir(privilegio):
     return "DESHABILITADO" if privilegio & 1 else "habilitado"
 
@@ -122,6 +142,7 @@ def main():
             log(f"El PIN {pin} NO existe en este lector. No se hizo nada.")
             return 1
         original = u.privilege
+        datos_originales = huella_de_datos(u)
         log(f"PIN {u.user_id} | uid={u.uid} | nombre='{u.name}' | privilegio={u.privilege} ({describir(u.privilege)}).")
 
         if (u.privilege & 0xFE) != 0:
@@ -146,6 +167,7 @@ def main():
             return 2
         deshabilitado_por_mi = True
         log("OK: el lector guardó el cambio. El usuario figura DESHABILITADO.")
+        comparar_datos(datos_originales, despues, "Tras deshabilitar")
 
         print("\n" + "=" * 70)
         print(f" AHORA: pida a '{u.name}' que marque (huella o rostro) en el {device['name']}.")
@@ -170,6 +192,7 @@ def main():
                 verif = leer_usuario(conn, pin)
                 if verif is not None and not (verif.privilege & 1):
                     log(f"HABILITADO de nuevo y verificado (privilegio={verif.privilege}).")
+                    comparar_datos(datos_originales, verif, "Tras habilitar")
                 else:
                     log("!!! NO SE PUDO VOLVER A HABILITAR. EL USUARIO PODRÍA SEGUIR DESHABILITADO !!!")
                     log(f"    Habilítelo a mano en el equipo: Menú > Usuarios > buscar PIN {pin} > "
