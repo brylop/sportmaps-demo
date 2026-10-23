@@ -170,13 +170,18 @@ def main():
         comparar_datos(datos_originales, despues, "Tras deshabilitar")
 
         print("\n" + "=" * 70)
-        print(f" AHORA: pida a '{u.name}' que marque (huella o rostro) en el {device['name']}.")
-        print(" Lo ESPERADO: el lector la RECHAZA (no abre / no la reconoce).")
-        print(" Anote qué pasó. Cuando termine, vuelva aquí y pulse Enter para HABILITARLA.")
+        print(f" AHORA: dos marcaciones de '{u.name}' en el {device['name']}, UNA POR UNA:")
+        print("   1) SOLO con la HUELLA (sin escribir el código).")
+        print("   2) SOLO escribiendo el CÓDIGO (PIN) en el teclado, sin poner la huella.")
+        print(" Lo ESPERADO en las dos: el lector la RECHAZA (no abre / no la reconoce).")
+        print(" Anote qué pasó en cada una. Después vuelva aquí.")
         print("=" * 70)
-        resultado = input("¿Qué pasó al marcar? (r = la rechazó, a = la dejó pasar, n = no se probó): ").strip().lower()
-        log(f"Resultado informado de la marcación con el usuario deshabilitado: '{resultado}' "
-            f"(r = rechazada, a = pasó igual, n = no se probó).")
+        print("Respuestas: r = la rechazó | a = la dejó pasar | n = no se probó")
+        huella = input("1) ¿Qué pasó con la HUELLA sola? [r/a/n]: ").strip().lower()
+        log(f"Marcación SOLO con huella, usuario deshabilitado: '{huella}'.")
+        codigo = input("2) ¿Qué pasó escribiendo solo el CÓDIGO (PIN)? [r/a/n]: ").strip().lower()
+        log(f"Marcación SOLO con código (PIN), usuario deshabilitado: '{codigo}'.")
+        log(f"RESUMEN: huella={huella} | código={codigo} (r = rechazada, a = pasó igual, n = no se probó).")
         return 0
     except KeyboardInterrupt:
         log("Interrumpido (Ctrl+C): se va a volver a habilitar al usuario.")
