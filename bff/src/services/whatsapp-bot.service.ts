@@ -63,6 +63,9 @@ import {
 } from './whatsapp-desconocido-reglas';
 import { resolverRespuestaDeCobro } from './whatsapp-respuesta-de-cobro.service';
 import {
+    bienvenidaHabilitada, esSaludoDeBienvenida, textoDeBienvenida, PASO_BIENVENIDA_DESCONOCIDO, BIENVENIDA_VENTANA_HORAS,
+} from './whatsapp-bienvenida';
+import {
     botEncendido, debeAtender, temaEscolar, preguntaPrecioComoProspecto,
     ajustesDeAtencion, puertaDeProspecto, interesesDeProspecto, buscaParaAdulto, DIAS_MARCA_PROSPECTO,
     soloSaludoOCortesia, intencionDeProspecto,
@@ -2198,7 +2201,44 @@ export type ResultadoDesconocido =
     | 'pregunta_de_comprobante'
     | 'llegada_clase'
     | 'consentimiento_sin_cuenta'
+    | 'bienvenida'
     | 'frenado' | 'silencio';
+
+/**
+ * Saludo suelto de un desconocido a quien nadie de la escuela le ha escrito: una frase de
+ * bienvenida, una vez cada 24 h. true = se mandó. Nunca lanza.
+ */
+async function darBienvenidaAlDesconocido(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    text: string,
+    botonId: string | null,
+): Promise<boolean> {
+    try {
+        if (botonId || !bienvenidaHabilitada(integration.school_id)) return false;
+        const escuela = await nombreDeEscuela(integration.school_id);
+        const equipo = await vocativosDeEscuela(integration.school_id);
+        if (!esSaludoDeBienvenida(text, { nombreEscuela: escuela, equipo })) return false;
+        // Una persona de la escuela le escribió (30 días) o está atendiendo: la conversación es suya.
+        if (await escuelaLeEscribioEnDias(conversationId, 30)) return false;
+        if (humanoReciente(await mensajesRecientes(conversationId), VENTANA_SALUDO_TRAS_HUMANO_MIN)) return false;
+        const { data: conv } = await supabase.from('whatsapp_conversations')
+            .select('tomada_hasta').eq('id', conversationId).maybeSingle();
+        const tomada = (conv as any)?.tomada_hasta;
+        if (tomada && new Date(tomada).getTime() > Date.now()) return false;
+        if (!(await reservarPasoUnaVez(conversationId, PASO_BIENVENIDA_DESCONOCIDO, BIENVENIDA_VENTANA_HORAS))) return false;
+
+        const saludo = await saludoDePresentacion(conversationId, escuela);
+        await deliver(integration, conversationId, contactWaId,
+            (saludo ? `${saludo}\n\n` : '') + textoDeBienvenida(),
+            { step: PASO_BIENVENIDA_DESCONOCIDO });
+        return true;
+    } catch (err) {
+        console.error('[WA bienvenida] no se pudo dar la bienvenida:', err instanceof Error ? err.message : err);
+        return false;
+    }
+}
 
 /** step de la respuesta al botón del consentimiento desde un número que no es del pagador. */
 export const PASO_CONSENTIMIENTO_SIN_CUENTA = 'consentimiento_sin_cuenta';
@@ -2388,7 +2428,13 @@ export async function atenderDesconocido(
     //    seguimiento de una conversación ya marcada como prospecto.
     const tema = temaEscolar(text);
     const prospecto = await puertaDeProspectoEn(integration, conversationId, text);
-    if (!tema && !prospecto) return 'silencio';
+    if (!tema && !prospecto) {
+        // Bienvenida al saludo suelto del desconocido (apagada salvo en las escuelas de
+        // `WA_BIENVENIDA_DESCONOCIDOS_SCHOOL_IDS`): nadie de la escuela le ha hablado y
+        // escribió solo «Hola». Ver whatsapp-bienvenida.ts.
+        if (await darBienvenidaAlDesconocido(integration, conversationId, contactWaId, text, botonId)) return 'bienvenida';
+        return 'silencio';
+    }
 
     // El lead queda registrado ANTES de contestar: si algo falla después
     // (ventana, Meta, la escuela atendiendo) igual no se pierde.
