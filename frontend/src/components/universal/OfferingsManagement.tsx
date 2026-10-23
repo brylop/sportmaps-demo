@@ -359,9 +359,9 @@ function SportSearchCombobox({
                         const sport = allSports.find((s: any) => s.nombre === name);
                         const visual = getSportVisual(sport?.nombre?.toLowerCase() || 'default');
                         return (
-                            <div key={name} className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[#248223]/30 bg-[#248223]/5 shadow-sm animate-in fade-in zoom-in-95">
+                            <div key={name} className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-primary/30 bg-primary/10 shadow-sm animate-in fade-in zoom-in-95">
                                 <span className="text-base">{visual.icon}</span>
-                                <span className="text-xs font-bold text-[#f5f7f2]">{name}</span>
+                                <span className="text-xs font-bold text-foreground">{name}</span>
                                 <button
                                     type="button"
                                     onClick={handleRemove}
@@ -376,7 +376,7 @@ function SportSearchCombobox({
             )}
 
             <div className="relative group">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#4a5246] group-focus-within:text-[#2ea82d] transition-colors" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
                 <Input
                     placeholder={values.length > 0 ? 'Cambiar deporte...' : 'Buscar deporte (ej: Fútbol, Tenis)...'}
                     value={query}
@@ -385,11 +385,11 @@ function SportSearchCombobox({
                         setIsOpen(e.target.value.trim().length > 0); 
                     }}
                     onFocus={() => { if (query.trim().length > 0) setIsOpen(true); }}
-                    className="pl-10 h-11 bg-[#0f2614] border-white/5 rounded-xl focus:border-[#248223] focus:ring-4 focus:ring-[#248223]/10 transition-all text-sm"
+                    className="pl-10 h-11 rounded-xl text-sm transition-all focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-primary/15"
                 />
                 
                 {isOpen && results.length > 0 && (
-                    <div className="absolute top-full left-0 right-0 mt-2 bg-[#0a1a0d] border border-white/10 rounded-xl shadow-2xl z-[100] overflow-hidden animate-in fade-in slide-in-from-top-2">
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-popover text-popover-foreground border border-border rounded-xl shadow-lg z-[100] overflow-hidden animate-in fade-in slide-in-from-top-2">
                         <div className="max-h-60 overflow-y-auto py-1">
                             {results.map((sport: any) => {
                                 const visual = getSportVisual(sport.nombre.toLowerCase());
@@ -397,15 +397,15 @@ function SportSearchCombobox({
                                     <button
                                         key={sport.id}
                                         type="button"
-                                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#248223]/10 text-left transition-colors border-b border-white/5 last:border-0"
+                                        className="group/item w-full flex items-center gap-3 px-4 py-3 hover:bg-accent focus-visible:bg-accent text-left transition-colors border-b border-border/60 last:border-0"
                                         onClick={() => handleAdd(sport.nombre)}
                                     >
                                         <span className="text-xl">{visual.icon}</span>
                                         <div className="flex-1 min-w-0">
-                                            <p className="text-sm font-bold text-[#f5f7f2] truncate">{sport.nombre}</p>
-                                            <p className="text-[10px] text-[#8a9186] truncate">{sport.federacion_internacional || sport.federacion}</p>
+                                            <p className="text-sm font-semibold text-foreground truncate">{sport.nombre}</p>
+                                            <p className="text-xs text-muted-foreground truncate">{sport.federacion_internacional || sport.federacion}</p>
                                         </div>
-                                        <ArrowRight className="w-3 h-3 text-[#4a5246] opacity-0 group-hover:opacity-100 transition-opacity" />
+                                        <ArrowRight className="w-3 h-3 text-muted-foreground opacity-0 group-hover/item:opacity-100 transition-opacity" />
                                     </button>
                                 );
                             })}
@@ -414,8 +414,8 @@ function SportSearchCombobox({
                 )}
 
                 {isOpen && query.trim() && results.length === 0 && (
-                    <div className="absolute top-full left-0 right-0 mt-2 bg-[#0a1a0d] border border-white/10 rounded-xl p-6 text-center z-[100] animate-in fade-in slide-in-from-top-2">
-                        <p className="text-xs text-[#8a9186]">No se encontraron resultados para "{query}"</p>
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-popover text-popover-foreground border border-border rounded-xl p-6 text-center z-[100] animate-in fade-in slide-in-from-top-2">
+                        <p className="text-xs text-muted-foreground">No se encontraron resultados para "{query}"</p>
                     </div>
                 )}
             </div>
@@ -1107,7 +1107,7 @@ export function OfferingsManagement() {
                                                     key={cat}
                                                     type="button"
                                                     onClick={() => setNewPlan(prev => ({ ...prev, name: cat }))}
-                                                    className="px-2 py-0.5 text-[10px] rounded-full border border-white/5 bg-white/5 hover:bg-[#248223]/20 hover:border-[#248223]/30 transition-all text-[#8a9186] hover:text-[#f5f7f2]"
+                                                    className="px-2 py-0.5 text-[10px] rounded-full border border-border bg-muted/50 hover:bg-primary/10 hover:border-primary/30 transition-all text-muted-foreground hover:text-foreground"
                                                 >
                                                     {cat}
                                                 </button>
