@@ -34,7 +34,7 @@ describe('borradores', () => {
     });
     it('«Ya las usó» no lleva horas ni inscripción y trae el detalle por defecto', () => {
         expect(borradorDeHorasUsadas()).toMatchObject({
-            horas_modo: 'usadas', extra_hours: null, enrollment_id: null, overage_charge_id: null, concept: 'Hora adicional consumida',
+            horas_modo: 'usadas', extra_hours: null, enrollment_id: null, overage_charge_id: null, concept: 'Hora adicional consumida · 1 h',
         });
     });
 });
@@ -62,7 +62,7 @@ describe('<HorasAdicionalesLine /> elegir qué son las horas', () => {
         render(<HorasAdicionalesLine line={adelantada()} suggestions={sugerencias()} onPatch={onPatch} />);
         fireEvent.click(screen.getByText(/Ya las usó/));
         expect(onPatch).toHaveBeenCalledWith(expect.objectContaining({
-            horas_modo: 'usadas', extra_hours: null, enrollment_id: null, concept: 'Hora adicional consumida',
+            horas_modo: 'usadas', extra_hours: null, enrollment_id: null, concept: 'Hora adicional consumida · 1 h',
         }));
     });
 
@@ -167,7 +167,7 @@ describe('<HorasAdicionalesLine /> atleta SIN banco de horas (caso Zoe, PGP8x1)'
         const onPatch = vi.fn();
         render(<HorasAdicionalesLine line={sinElegir()} suggestions={sinBanco()} onPatch={onPatch} />);
         expect(onPatch).toHaveBeenCalledWith(expect.objectContaining({
-            horas_modo: 'usadas', extra_hours: null, enrollment_id: null, concept: 'Hora adicional consumida',
+            horas_modo: 'usadas', extra_hours: null, enrollment_id: null, concept: 'Hora adicional consumida · 1 h',
         }));
     });
 
@@ -188,5 +188,49 @@ describe('<HorasAdicionalesLine /> atleta SIN banco de horas (caso Zoe, PGP8x1)'
         render(<HorasAdicionalesLine line={sinElegir()} suggestions={null} onPatch={onPatch} />);
         expect(onPatch).not.toHaveBeenCalled();
         expect(screen.queryByTestId('cyp-horas-sin-banco')).toBeNull();
+    });
+});
+
+describe('«Ya las usó» con plan con banco: horas × tarifa', () => {
+    const usadasConPlan = (over: Partial<NewLineDraft> = {}) =>
+        newLineDraft({ category: 'excedente', due_date: '2026-10-30', ...borradorDeHorasUsadas(sugerencias()), ...over });
+
+    it('arranca en 1 hora con el valor de la tarifa y el detalle con las horas', () => {
+        expect(borradorDeHorasUsadas(sugerencias())).toMatchObject({
+            horas_modo: 'usadas', horas_usadas: 1, extra_hours: null, enrollment_id: null, amount: 32_250, concept: 'Hora adicional consumida · 1 h',
+        });
+    });
+
+    it('muestra el contador de horas y la tarifa', () => {
+        render(<HorasAdicionalesLine line={usadasConPlan()} suggestions={sugerencias()} onPatch={vi.fn()} />);
+        expect((screen.getByLabelText('Horas usadas') as HTMLInputElement).value).toBe('1');
+        expect(screen.getByTestId('cyp-horas-usadas-tarifa').textContent).toContain('32.250');
+        expect(screen.getByTestId('cyp-horas-usadas-resumen').textContent).toContain('32.250');
+    });
+
+    it('«+» pasa a 2 horas, recalcula el valor y el detalle, y nunca manda extra_hours', () => {
+        const onPatch = vi.fn();
+        render(<HorasAdicionalesLine line={usadasConPlan()} suggestions={sugerencias()} onPatch={onPatch} />);
+        fireEvent.click(screen.getByLabelText('Una hora usada más'));
+        expect(onPatch).toHaveBeenCalledWith({ horas_usadas: 2, concept: 'Hora adicional consumida · 2 h', amount: 64_500 });
+    });
+
+    it('un detalle escrito por el usuario no se pisa al cambiar las horas', () => {
+        const onPatch = vi.fn();
+        render(<HorasAdicionalesLine line={usadasConPlan({ concept: 'Hora de septiembre — Zoe' })} suggestions={sugerencias()} onPatch={onPatch} />);
+        fireEvent.click(screen.getByLabelText('Una hora usada más'));
+        expect(onPatch).toHaveBeenCalledWith({ horas_usadas: 2, amount: 64_500 });
+    });
+
+    it('con 1,5 horas el valor es 48.375', () => {
+        const onPatch = vi.fn();
+        render(<HorasAdicionalesLine line={usadasConPlan()} suggestions={sugerencias()} onPatch={onPatch} />);
+        fireEvent.change(screen.getByLabelText('Horas usadas'), { target: { value: '1.5' } });
+        expect(onPatch).toHaveBeenCalledWith({ horas_usadas: 1.5, concept: 'Hora adicional consumida · 1,5 h', amount: 48_375 });
+    });
+
+    it('con un excedente del período elegido no muestra el contador (manda el valor del excedente)', () => {
+        render(<HorasAdicionalesLine line={usadasConPlan({ overage_charge_id: 'ov-1' })} suggestions={sugerencias({ overages: [{ id: 'ov-1', period_label: 'sep 2026', amount: 50_000 }] })} onPatch={vi.fn()} />);
+        expect(screen.queryByLabelText('Horas usadas')).toBeNull();
     });
 });

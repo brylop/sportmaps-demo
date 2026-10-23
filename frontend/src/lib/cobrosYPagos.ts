@@ -249,6 +249,8 @@ export interface NewLineDraft {
      * 'adelantado' = las paga antes de usarlas y se suman al banco. null = sin elegir todavía.
      */
     horas_modo: 'usadas' | 'adelantado' | null;
+    /** «Ya las usó»: cuántas horas se cobran (solo informativo y para calcular el valor; NUNCA viaja como extra_hours). */
+    horas_usadas: number | null;
     discount: DiscountDraft | null;
     /** «No cobrar» (exoneración, §6.5). */
     exonerate: { reason_text: string } | null;
@@ -300,6 +302,7 @@ export function newLineDraft(partial: Partial<NewLineDraft> & Pick<NewLineDraft,
         overage_charge_id: null,
         extra_hours: null,
         horas_modo: null,
+        horas_usadas: null,
         discount: null,
         exonerate: null,
         pay: true,
