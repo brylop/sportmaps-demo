@@ -166,6 +166,11 @@ BRIDGE_API_KEY = os.environ.get("SPORTMAPS_BRIDGE_API_KEY", "CAMBIAR_ESTA_LLAVE"
 # necesita que TODO le llegue por acá, nada le llega nativo nunca.
 COMMAND_TYPES = "open_door,set_group,disable_user,enable_user"
 
+# Version de este bridge: viaja en el auth y el heartbeat del WebSocket y en cada ack de
+# comando, para que la base sepa QUE codigo corrio (2026-10-23: no habia forma de saber
+# si el PC de Dreamers tenia la version con comandos o una de una sola via).
+BRIDGE_VERSION = "dreamers-ws-2026-10-23.1"
+
 DOOR_PULSE_DECISECONDS = int(os.environ.get("SPORTMAPS_BRIDGE_PULSE_DECISECONDS", "2"))
 DEVICE_BY_SERIAL = {d["serial_number"]: d for d in DEVICES}
 
@@ -308,6 +313,26 @@ def watchdog_loop():
                 os._exit(3)  # salida dura: un hilo colgado en un socket no deja cerrar con sys.exit
 
 
+# pyzk 0.9 (zk/base.py:867): set_user() recorta `privilege` a USER_DEFAULT (0) o USER_ADMIN (14);
+# cualquier otro valor se manda como 0. Por eso el bit 0 («deshabilitado», privilegio impar)
+# NUNCA llego al lector: los 101 disable_user «executed» de septiembre-octubre no bloquearon a
+# nadie (los 2 `failed` del 2026-10-06 17:00 dicen «privilege antes=0 despues=0»). Se
+# iguala USER_DEFAULT al privilegio pedido SOLO durante la llamada, con un candado propio
+# (const es global del modulo); el resto de hilos nunca llama a set_user.
+PRIVILEGE_PATCH_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def pyzk_allow_privilege(privilege):
+    with PRIVILEGE_PATCH_LOCK:
+        original = const.USER_DEFAULT
+        const.USER_DEFAULT = int(privilege)
+        try:
+            yield
+        finally:
+            const.USER_DEFAULT = original
+
+
 @contextlib.contextmanager
 def device_access(serial_number):
     """
@@ -422,7 +447,7 @@ def send_heartbeat(serial_number):
 def ack_door_command(command_id, success, error_message=None):
     url = f"{BACKEND_BASE_URL}/bridge/door-commands/{command_id}/ack"
     headers = {"X-Bridge-Api-Key": BRIDGE_API_KEY}
-    payload = {"success": success, "school_id": SCHOOL_ID}
+    payload = {"success": success, "school_id": SCHOOL_ID, "bridge_version": BRIDGE_VERSION}
     if error_message:
         payload["error_message"] = error_message[:500]
     try:
@@ -468,15 +493,18 @@ def set_group_physically(device, pin, group):
             if existing is None:
                 raise Exception(f"PIN {pin} no esta enrolado localmente en este lector")
 
-            conn.set_user(
-                uid=existing.uid,
-                name=existing.name,
-                privilege=existing.privilege,
-                password=existing.password,
-                group_id=str(group),
-                user_id=existing.user_id,
-                card=existing.card,
-            )
+            # Conserva el privilegio tal cual (incluido el bit 0): sin el parche, pyzk
+            # recortaba un 1 («deshabilitado») a 0 y mover de grupo HABILITABA al usuario.
+            with pyzk_allow_privilege(existing.privilege):
+                conn.set_user(
+                    uid=existing.uid,
+                    name=existing.name,
+                    privilege=existing.privilege,
+                    password=existing.password,
+                    group_id=str(group),
+                    user_id=existing.user_id,
+                    card=existing.card,
+                )
             log(f"[{device['name']}] PIN {pin} movido a grupo {group}.")
         finally:
             if conn:
@@ -502,18 +530,33 @@ def set_enabled_physically(device, pin, enabled):
             if existing is None:
                 raise Exception(f"PIN {pin} no esta enrolado localmente en este lector")
 
+            # Un administrador del equipo (privilegio con nivel != 0: 2, 6, 14) NO se deshabilita
+            # desde aqui: con el parche el bit 0 ahora SI llega, y deshabilitar al admin
+            # (p. ej. la duena en PIN 1/2) la dejaria sin acceso al menu del lector.
+            if not enabled and (existing.privilege & 0xFE) != 0:
+                raise Exception(
+                    f"PIN {pin} es administrador del equipo (privilege={existing.privilege}): "
+                    f"no se deshabilita desde el bridge."
+                )
+
             # Bit 0 de privilege: 1 = deshabilitado, 0 = habilitado.
+            ya_deshabilitado = bool(existing.privilege & 1)
+            if ya_deshabilitado == (not enabled):
+                log(f"[{device['name']}] PIN {pin} ya estaba {'habilitado' if enabled else 'deshabilitado'} "
+                    f"(privilege={existing.privilege}): no se escribe nada.")
+                return
             new_privilege = (existing.privilege & 0xFE) if enabled else (existing.privilege | 1)
 
-            conn.set_user(
-                uid=existing.uid,
-                name=existing.name,
-                privilege=new_privilege,
-                password=existing.password,
-                group_id=existing.group_id,
-                user_id=existing.user_id,
-                card=existing.card,
-            )
+            with pyzk_allow_privilege(new_privilege):
+                conn.set_user(
+                    uid=existing.uid,
+                    name=existing.name,
+                    privilege=new_privilege,
+                    password=existing.password,
+                    group_id=existing.group_id,
+                    user_id=existing.user_id,
+                    card=existing.card,
+                )
             # Verificacion por lectura: "set_user no dio error" no prueba que el
             # lector haya guardado el cambio (2026-10-06: ordenes `executed` y la
             # persona igual pasaba). Se relee el usuario y se compara el bit 0; si no
@@ -582,7 +625,7 @@ def process_command(cmd):
 # ------------------------------------------------------------------
 
 def ws_heartbeat_message():
-    msg = {"type": "heartbeat"}
+    msg = {"type": "heartbeat", "bridge_version": BRIDGE_VERSION}
     if SERVER_DEVICE_HEARTBEAT.is_set():
         now = time.monotonic()
         msg["devices"] = [s for s, t in list(LIVE_ALIVE.items()) if now - t <= LIVE_ALIVE_MAX_AGE_SECONDS]
@@ -596,6 +639,7 @@ async def handle_connection():
             "school_id": SCHOOL_ID,
             "api_key": BRIDGE_API_KEY,
             "command_types": COMMAND_TYPES,
+            "bridge_version": BRIDGE_VERSION,
         }))
         auth_raw = await asyncio.wait_for(ws.recv(), timeout=REQUEST_TIMEOUT)
         auth_resp = json.loads(auth_raw)
@@ -846,6 +890,7 @@ def catchup_sweep_loop(state):
 
 def main():
     log("=== Puente ZKTeco -> SportMaps (Dreamers Gymnastics) ===")
+    log(f"Version del bridge: {BRIDGE_VERSION}")
     log(f"Backend: {BACKEND_BASE_URL}")
     log(f"School ID: {SCHOOL_ID}")
     log(f"Captura de asistencia: en vivo (live_capture) + barrido de respaldo cada "
