@@ -224,7 +224,7 @@ function SchedulePicker({
               className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all ${
                 selectedDay === i
                   ? 'bg-primary text-primary-foreground border-primary shadow-sm'
-                  : 'border-border/50 text-muted-foreground hover:border-primary/40 hover:text-foreground'
+                  : 'border-border text-muted-foreground hover:border-primary/50 hover:text-foreground hover:bg-primary/5'
               }`}
             >
               {label}
@@ -261,19 +261,19 @@ function SchedulePicker({
 
       {/* Slots configurados */}
       {value.length > 0 && (
-        <div className="rounded-lg border border-border/50 divide-y divide-border/30 overflow-hidden">
+        <div className="rounded-lg border border-border divide-y divide-border/60 overflow-hidden">
           {Object.entries(grouped)
             .sort(([a], [b]) => Number(a) - Number(b))
             .map(([day, times]) => (
               <div key={day} className="px-3 py-2 flex items-center gap-3">
-                <span className="text-[11px] font-black text-muted-foreground w-8 shrink-0">
+                <span className="text-xs font-bold text-foreground/70 w-9 shrink-0">
                   {DAY_LABELS[Number(day)]}
                 </span>
                 <div className="flex flex-wrap gap-1.5 flex-1">
                   {times.sort().map(time => (
                     <span
                       key={time}
-                      className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold border border-primary/20"
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold border border-primary/25"
                     >
                       {format12h(time)}
                       <button
@@ -292,7 +292,7 @@ function SchedulePicker({
       )}
 
       {value.length === 0 && (
-        <p className="text-[10px] text-muted-foreground text-center py-2 border border-dashed border-border/40 rounded-lg">
+        <p className="text-xs text-muted-foreground text-center py-2.5 border border-dashed border-border rounded-lg bg-muted/30">
           Agrega al menos un horario
         </p>
       )}
