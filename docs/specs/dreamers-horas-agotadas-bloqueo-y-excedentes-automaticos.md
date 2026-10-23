@@ -27,6 +27,35 @@
 
 **Prueba de aceptación (con una niña de prueba, PIN conocido):** agotar el saldo → ≤15 min `disable_user` ejecutado → el lector niega → «Habilitar hoy» deja pasar y no se re-bloquea ese día → comprar 2 h y pagar → ≤15 min `enable_user` → nadie más cambia de estado. Verificar `device_commands` en cada paso.
 
+### 2.1 Avisos de saldo: varios mensajes antes y después (por correo y por la app)
+
+**Disparador:** la ENTRADA por el torniquete (el mismo evento que ya alimenta `trackHourBankVisit` en `bff/src/routes/access-adms.ts`) y la SALIDA (cuando se cierra la visita y se descuenta). No hace falta un job nuevo: el saldo se lee justo después de descontar.
+
+**Escalera de avisos (cada escalón sale UNA sola vez por período y por atleta):**
+
+| Saldo restante | Cuándo | Mensaje |
+|---|---|---|
+| 50 % | al cerrar la visita (salida) | «Llevas la mitad de tus horas del mes. Te quedan X h.» |
+| 20 % | **al ENTRAR** y de nuevo al salir | «Hoy entraste con 20 % o menos: te quedan X h. Piensa en comprar más.» |
+| 10 % | al entrar | «Quedan X h: alcanzan para una clase más.» |
+| 0 % | al salir | «Se acabaron tus horas de este período. Para volver a entrar: comprar horas o esperar el día 1.» |
+| Previo al bloqueo | el día antes (cron, solo si el bloqueo está encendido) | «Mañana no podrás entrar si no renuevas.» |
+| Después | tras bloquear | «Estás bloqueado por horas. Así vuelves a entrar: …» (con el enlace) |
+
+**Canales (en este orden, sin duplicar):**
+1. **App / push** (Despachador, ya existe; es solo push + in-app): inmediato, sin costo.
+2. **Correo** (Resend; Pro 50 k/mes, 100 por llamada): para el acudiente con correo, un solo correo por escalón. Plantilla corta con el saldo, un botón «Comprar horas» y el historial del mes.
+3. WhatsApp: solo si la escuela tiene el canal (Dreamers hoy NO lo tiene), siempre por la cola de WhatsApp propia con sus plantillas.
+
+**Cómo mejorar sin molestar:**
+- Una sola notificación por escalón y período (llave `atleta + período + escalón`); un reintento de lector no la repite.
+- Agrupar a los hermanos: un solo mensaje por acudiente con el saldo de cada hija, no uno por niña.
+- Si el acudiente ya recibió un aviso hoy, el siguiente va a la app y no al correo.
+- Horario: los avisos de entrada llegan en el momento; los resúmenes por correo, de 8 a. m. a 8 p. m.
+- Cada mensaje dice cuántas horas usó en la visita, cuántas le quedan y cuándo se renuevan.
+- La escuela elige los escalones y canales (`school_settings`: `hour_bank_low_balance_notice_pct` y una lista de escalones), con un interruptor para apagar el correo.
+- Si el atleta es adulto, el aviso va a él; si es menor, al acudiente vinculado (sin acudiente vinculado, solo a la escuela).
+
 ## 3. Excedentes automáticos (capas, cada una con su interruptor)
 
 1. **Aviso antes de pasarse** (20 % y 0 %): in-app + push, WhatsApp si hay canal. Sin tocar dinero.
