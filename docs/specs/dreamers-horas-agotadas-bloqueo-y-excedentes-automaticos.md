@@ -163,6 +163,17 @@ A y C comparten el helper de saldo: lo escribe A y C lo consume; la firma se acu
 - El correo apuntaba a «Comprar horas», que es la capa 5 (fuera de fase); ahora «Pedir más horas».
 - Nuevo: resumen inicial, modo sombra, prueba de aceptación de 10 pasos, orden de agentes (D primero) con los ajustes en una sola mano, todas las decisiones con propuesta (nuevas: modelo, qué abre la puerta, reservas, varias inscripciones, avisos desde el deploy), motivo del bloqueo en el admin, y riesgos de salida, comando perdido y zona horaria.
 
+## ⚠️ RESULTADO DE LA PRUEBA A (2026-10-23 17:52, lector real) — EL BLOQUEO POR BIT NO FUNCIONA EN ESTE MB360
+
+Con el parche de privilegio, en el LECTOR ENTRADA (CEZU222860004, MB360/ID, firmware Ver 6.60 Sep 19 2019) se deshabilitó al PIN 12 (usuario normal, privilegio 0 → 1): **el lector guardó el cambio** (relectura `privilegio=1`, «OK: el lector guardó el cambio») pero al marcar **la dejó pasar igual**. Es decir: el MB360 almacena el bit pero **no lo usa para negar la verificación**. Por tanto `disable_user` (con o sin parche de pyzk) **no puede bloquear en estos lectores**, y el §2 («segunda señal en el job de reconciliación → `disable_user`») queda **invalidado como mecanismo de bloqueo** hasta resolver cómo se niega la entrada. Lo ya construido (versión en ack/heartbeat, protección de administradores, relectura, correcciones de `set_group`) sigue siendo útil; lo que no sirve es confiar en `disable_user` para cerrar la puerta.
+
+Ya se había visto algo parecido con `set_group` (el spec de mayo/septiembre: «MB360 sin grupos», comando «inútil»). Mecanismos por evaluar (ninguno probado):
+1. **Menú del equipo:** revisar si el MB360 tiene Control de acceso (zonas horarias, grupos de acceso, «usar horario del grupo»). Si lo tiene, un grupo con horario cerrado + `group_id` sí podría negar. Se necesita una foto del menú de cada lector.
+2. **Borrar las plantillas biométricas** del usuario y restaurarlas al pagar/renovar (`get_templates` / `save_user_template` en pyzk; las huellas se restauran, los rostros no). Riesgo alto: depende de qué usan las niñas (huella, rostro, clave).
+3. **Modo de verificación por usuario** (menú del equipo): un modo que la persona no pueda cumplir. No se puede fijar por SDK en pyzk 0.9.
+4. **Cambiar la arquitectura de la puerta:** que el lector no abra el torniquete por sí solo y que el bridge pulse la puerta (`open_door`, como en GYM RM) solo a quien SportMaps autorice. Es lo más robusto y lo más caro (cableado/relé y latencia).
+Hasta decidirlo: **nada de lo que dependa del bloqueo físico (mora, horas agotadas) debe encenderse**; lo que sí puede avanzar es la escalera de avisos por app y correo (§2.1) y los excedentes automáticos (§3), que no dependen del lector.
+
 ## Verificado (2026-10-23): base viva, código y bridge — CAMBIA EL ORDEN
 
 **Orden nuevo: primero el bridge y el estado real de los lectores; el bloqueo por horas, después.**
