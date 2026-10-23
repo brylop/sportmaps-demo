@@ -193,7 +193,9 @@ export function HorasAdicionalesLine({ line: l, suggestions, onPatch }: Props) {
                                     <Plus className="h-4 w-4" />
                                 </Button>
                                 <span className="text-xs text-muted-foreground tabular-nums" data-testid="cyp-horas-usadas-resumen">
-                                    {l.horas_usadas && l.horas_usadas > 0 && tarifaUsadas != null && l.amount != null ? `= ${formatPesos(l.amount)}` : ''}
+                                    {l.horas_usadas && l.horas_usadas > 0 && l.amount != null
+                                        ? `${tarifaUsadas != null ? `${formatHoras(l.horas_usadas)} h × ${formatPesos(tarifaUsadas)} ` : ''}= ${formatPesos(l.amount)}`
+                                        : ''}
                                 </span>
                             </div>
                             <p className="text-[11px] text-muted-foreground" data-testid="cyp-horas-usadas-tarifa">
@@ -257,10 +259,17 @@ export function HorasAdicionalesLine({ line: l, suggestions, onPatch }: Props) {
                             <Plus className="h-4 w-4" />
                         </Button>
                         <span className="text-xs text-muted-foreground tabular-nums" data-testid="cyp-horas-resumen">
-                            {l.extra_hours && l.extra_hours > 0 ? `= ${formatHoras(l.extra_hours)} h` : ''}
+                            {l.extra_hours && l.extra_hours > 0
+                                ? `${formatHoras(l.extra_hours)} h${tarifa != null ? ` × ${formatPesos(tarifa)}` : ''}${l.amount != null ? ` = ${formatPesos(l.amount)}` : ''}`
+                                : ''}
                         </span>
                     </div>
 
+                    {l.extra_hours != null && l.extra_hours > 0 && (l.amount == null || l.amount <= 0) && (
+                        <p className="text-xs font-medium text-amber-700 dark:text-amber-400" data-testid="cyp-horas-sin-valor">
+                            Falta el valor: escríbelo en «Valor»{tarifa != null ? ` (sugerido ${formatPesos(montoDeHoras(l.extra_hours, tarifa) ?? 0)})` : ''}.
+                        </p>
+                    )}
                     <p className="text-[11px] text-muted-foreground" data-testid="cyp-horas-tarifa">
                         {tarifa != null
                             ? <>Tarifa {formatPesos(tarifa)} por hora{enr?.plan_name ? ` (plan ${enr.plan_name} ÷ sus horas)` : ''}. Puedes cambiar el valor.</>

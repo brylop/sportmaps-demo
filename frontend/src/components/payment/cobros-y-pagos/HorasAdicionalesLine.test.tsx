@@ -94,6 +94,26 @@ describe('<HorasAdicionalesLine /> «Por adelantado»', () => {
         expect(screen.getByText(/Por adelantado/).closest('button')!.getAttribute('aria-pressed')).toBe('true');
     });
 
+    it('junto a las horas se ve la cuenta: «2 h × tarifa = valor»', () => {
+        render(<HorasAdicionalesLine line={adelantada({ extra_hours: 2, amount: 64_500 })} suggestions={sugerencias()} onPatch={vi.fn()} />);
+        const t = screen.getByTestId('cyp-horas-resumen').textContent ?? '';
+        expect(t).toContain('2 h');
+        expect(t).toContain('32.250');
+        expect(t).toContain('64.500');
+    });
+
+    it('con 3 horas la cuenta suma las 3 (3 × 32.250 = 96.750)', () => {
+        render(<HorasAdicionalesLine line={adelantada({ extra_hours: 3, amount: 96_750 })} suggestions={sugerencias()} onPatch={vi.fn()} />);
+        expect(screen.getByTestId('cyp-horas-resumen').textContent).toContain('96.750');
+    });
+
+    it('si las horas quedaron sin valor avisa en vez de callar', () => {
+        render(<HorasAdicionalesLine line={adelantada({ extra_hours: 2, amount: null })} suggestions={sugerencias()} onPatch={vi.fn()} />);
+        const aviso = screen.getByTestId('cyp-horas-sin-valor').textContent ?? '';
+        expect(aviso).toContain('Falta el valor');
+        expect(aviso).toContain('64.500');
+    });
+
     it('«+» pasa a 2 horas y recalcula el valor con la tarifa y el concepto', () => {
         const onPatch = vi.fn();
         render(<HorasAdicionalesLine line={adelantada()} suggestions={sugerencias()} onPatch={onPatch} />);
