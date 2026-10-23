@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Dreamers Gymnastics — La adaptación de SportMaps</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{--verde:#1c5c34;--verde-osc:#123416;--naranja:#ff8833;--durazno:#fff3e8;--durazno-l:#ffb877;--menta:#eaf7ee;--menta-l:#79c98f;--gris:#5b6470;--linea:#e3e7e4}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Inter,system-ui,sans-serif;color:#1b2430;font-size:12.5px;line-height:1.5;background:#fff}
+  .page{width:816px;height:1056px;position:relative;overflow:hidden;page-break-after:always;padding:56px 60px 70px}
+  .page:last-child{page-break-after:auto}
+  h1,h2,h3,.baloo{font-family:'Baloo 2',sans-serif}
+  .foot{position:absolute;left:60px;right:60px;bottom:26px;border-top:1px solid var(--linea);padding-top:8px;display:flex;justify-content:space-between;color:var(--gris);font-size:10.5px}
+  /* portada */
+  .cover{background:radial-gradient(120% 90% at 15% 95%,#2a7a3f,transparent 55%),linear-gradient(155deg,#123416,#0f2614 45%,#0c1f10);color:#fff;padding:64px 64px}
+  .cover .brand{font-family:'Baloo 2';font-weight:800;font-size:22px;letter-spacing:.2px;display:flex;align-items:center;gap:10px}
+  .cover .pin{width:26px;height:26px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#4fd17a;display:inline-block}
+  .cover h1{font-size:50px;line-height:1.05;margin:150px 0 14px;font-weight:800}
+  .cover .sub{font-size:17px;max-width:560px;color:#d6efdc}
+  .pills{margin-top:30px;display:flex;gap:10px;flex-wrap:wrap}
+  .pill{border:1px solid rgba(255,255,255,.35);border-radius:999px;padding:6px 14px;font-size:12px;color:#eaf7ee}
+  .cover .meta{position:absolute;left:64px;bottom:60px;color:#b9dfc3;font-size:12px}
+  /* capítulos */
+  .chap{display:flex;align-items:center;gap:14px;margin-bottom:6px}
+  .chap .n{background:var(--verde);color:#fff;width:42px;height:42px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-family:'Baloo 2';font-weight:800;font-size:21px}
+  .chap h2{margin:0;font-size:27px;color:var(--verde-osc);font-weight:800}
+  .crumb{color:var(--gris);font-size:11.5px;margin:2px 0 8px 56px}
+  .rule{height:3px;background:var(--verde);border-radius:2px;margin:6px 0 16px}
+  p{margin:0 0 9px}
+  b{font-weight:700;color:#10301a}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .card{border:1px solid var(--linea);border-radius:12px;padding:12px 14px;background:#fff}
+  .card h3{margin:0 0 4px;font-size:15px;color:var(--verde)}
+  .card p{margin:0;font-size:12px}
+  .step{display:flex;gap:12px;margin:0 0 11px}
+  .step .b{flex:none;width:28px;height:28px;border-radius:50%;background:var(--naranja);color:#fff;font-family:'Baloo 2';font-weight:800;display:flex;align-items:center;justify-content:center;font-size:15px;margin-top:1px}
+  .step .t{flex:1}
+  .step .t .h{font-weight:700;color:#10301a;margin-bottom:1px}
+  .call{border-radius:10px;padding:10px 14px;margin:12px 0;font-size:12px}
+  .call .tag{font-family:'Baloo 2';font-weight:700;font-size:11px;letter-spacing:.6px;text-transform:uppercase;margin-bottom:2px}
+  .call.tip{background:var(--menta);border:1px solid var(--menta-l)} .call.tip .tag{color:#1c5c34}
+  .call.warn{background:var(--durazno);border:1px solid var(--durazno-l)} .call.warn .tag{color:#b8560c}
+  table{width:100%;border-collapse:collapse;font-size:11.5px;margin:6px 0 10px}
+  th{background:var(--verde);color:#fff;text-align:left;padding:6px 9px;font-weight:600}
+  td{padding:6px 9px;border-bottom:1px solid var(--linea);vertical-align:top}
+  tr:nth-child(even) td{background:#f7faf8}
+  .ok{color:#1c7a3d;font-weight:700} .wait{color:#b8560c;font-weight:700} .off{color:#7a838f;font-weight:700}
+  ul{margin:4px 0 10px;padding-left:18px} li{margin:2px 0}
+  .stat{display:flex;gap:10px;margin:8px 0 12px}
+  .stat .s{flex:1;background:#123420;color:#fff;border-radius:12px;padding:12px 14px}
+  .stat .s .v{font-family:'Baloo 2';font-weight:800;font-size:28px;color:#4fd17a;line-height:1}
+  .stat .s .l{font-size:11px;color:#cfe7d5;margin-top:4px}
+  .tl td:first-child{white-space:nowrap;font-weight:600;color:var(--verde);width:86px}
+</style>
+</head>
+<body>
+
+<!-- PORTADA -->
+<section class="page cover">
+  <div class="brand"><span class="pin"></span>SportMaps</div>
+  <h1>Dreamers Gymnastics<br>así quedó adaptada su operación</h1>
+  <div class="sub">Todo lo que se construyó y configuró en SportMaps para el modelo de Dreamers: planes por horas, torniquete, ciclo de cobro del 1 al 5, niveles y pagos.</div>
+  <div class="pills"><span class="pill">Banco de horas</span><span class="pill">Torniquete ZKTeco</span><span class="pill">Cobro del 1 al 5</span><span class="pill">Niveles y progresión</span><span class="pill">Cobros y pagos</span></div>
+  <div class="meta">Resumen al 23 de octubre de 2026 · Escuela en fase de pruebas</div>
+</section>
+
+<!-- 1. RESUMEN -->
+<section class="page">
+  <div class="chap"><div class="n">1</div><h2>La idea en una página</h2></div>
+  <div class="crumb">Qué se hizo y por qué</div><div class="rule"></div>
+  <p>Dreamers no vende «clases»: vende <b>horas por mes</b>. Una mensualidad trae un paquete de horas que la deportista reparte entre sus visitas, y todo se paga entre el <b>1 y el 5</b> de cada mes. SportMaps no funcionaba así, por eso se adaptó pieza por pieza, <b>sin cambiar nada para las demás escuelas</b>: cada regla de Dreamers vive detrás de un interruptor propio de la escuela.</p>
+  <div class="stat">
+    <div class="s"><div class="v">6</div><div class="l">adaptaciones principales</div></div>
+    <div class="s"><div class="v">20+</div><div class="l">entregas de software hechas para Dreamers</div></div>
+    <div class="s"><div class="v">23</div><div class="l">planes con inscripción y seguro</div></div>
+    <div class="s"><div class="v">2</div><div class="l">manuales listos (administración y familias)</div></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>1 · Banco de horas</h3><p>El plan se mide en minutos. El torniquete descuenta lo que de verdad se usó.</p></div>
+    <div class="card"><h3>2 · Ciclo de cobro 1–5</h3><p>Mes calendario, vence el día 5, mora del 5 % desde el día 6.</p></div>
+    <div class="card"><h3>3 · Inscripción y seguro</h3><p>$120.000 y $150.000 se cobran solos al hacer el alta.</p></div>
+    <div class="card"><h3>4 · Torniquete</h3><p>El ID del lector queda unido a la deportista desde el registro, y la mora bloquea el acceso.</p></div>
+    <div class="card"><h3>5 · Niveles y progresión</h3><p>Planes por bloque de 2, 3 o 4 horas, días permitidos y aviso de ascenso por puntaje.</p></div>
+    <div class="card"><h3>6 · Cobros y pagos</h3><p>Una sola pantalla para cobrar, vender horas por adelantado y evitar cobros repetidos.</p></div>
+  </div>
+  <div class="call tip"><div class="tag">Dónde estamos</div>Todo lo anterior está construido y funcionando. Dreamers sigue en <b>fase de pruebas</b>: hoy hay 5 deportistas de prueba cargadas y la dueña está evaluando si cambia el software que usa hoy. Nada de esto obliga a cambiar nada hasta que ella decida.</div>
+  <div class="foot"><span>SportMaps · Dreamers Gymnastics</span><span>Página 2 de 7</span></div>
+</section>
+
+<!-- 2. BANCO DE HORAS -->
+<section class="page">
+  <div class="chap"><div class="n">2</div><h2>Banco de horas</h2></div>
+  <div class="crumb">El plan cuenta minutos, no clases</div><div class="rule"></div>
+  <p>Una mensualidad trae, por ejemplo, <b>8 horas al mes</b>. La deportista las reparte como quiera: 2 horas un día, 3 otro, 4 seguidas. Mientras no se pase del mes, no hay problema.</p>
+  <div class="step"><div class="b">1</div><div class="t"><div class="h">Agendar no descuenta</div>Al reservar solo se revisa que el bloque (de 2 horas) quepa en el saldo. Si no alcanza, el sistema no deja reservar y la familia habla con administración.</div></div>
+  <div class="step"><div class="b">2</div><div class="t"><div class="h">El torniquete manda</div>La entrada arranca el reloj y la salida lo cierra. Se descuentan los <b>minutos reales</b>, no las 2 horas que se reservaron. Se redondea a hora entera hacia arriba.</div></div>
+  <div class="step"><div class="b">3</div><div class="t"><div class="h">Reentradas cortas cuentan como la misma visita</div>Si sale y vuelve dentro de la ventana de gracia, es una sola visita. Cada entrada y salida igual queda visible en el detalle.</div></div>
+  <div class="step"><div class="b">4</div><div class="t"><div class="h">Visitas abiertas se cierran solas</div>Si alguien olvida marcar la salida, el sistema cierra la visita a la hora de cierre de la sede (con un tope de seguridad) y la deja «por revisar», sin descontar en firme.</div></div>
+  <div class="step"><div class="b">5</div><div class="t"><div class="h">Cada mes empieza de cero</div>Las horas que no se usan se pierden y no se acumulan. Las excepciones las resuelve administración.</div></div>
+  <h3 style="margin:14px 0 4px;color:var(--verde)">Horas de más y horas por adelantado</h3>
+  <ul>
+    <li><b>Horas de más:</b> si la deportista se pasa del paquete, el sistema <b>sugiere</b> un cobro (nunca lo cobra solo). Vence 5 días después de confirmado.</li>
+    <li><b>Horas adicionales por adelantado</b> <span style="color:var(--gris)">(nuevo, 21 de octubre):</span> una familia puede comprar 2 horas antes de usarlas y quedan sumadas al banco. El valor de la hora es el precio del plan dividido entre sus horas incluidas.</li>
+    <li>Si la deportista <b>ya las usó</b>, se registra el cobro con las horas y la tarifa del plan; el sistema calcula el valor.</li>
+  </ul>
+  <div class="call warn"><div class="tag">Importante</div>Solo la escuela decide si usa banco de horas. Si el interruptor está apagado, ningún plan lo activa por su cuenta (se corrigió el 15 de septiembre porque una escuela de prueba lo había activado sin que nadie lo decidiera).</div>
+  <div class="foot"><span>SportMaps · Dreamers Gymnastics</span><span>Página 3 de 7</span></div>
+</section>
+
+<!-- 3. COBRO 1-5 -->
+<section class="page">
+  <div class="chap"><div class="n">3</div><h2>Ciclo de cobro del 1 al 5</h2></div>
+  <div class="crumb">Reglas acordadas con la dueña el 5 de octubre</div><div class="rule"></div>
+  <table>
+    <tr><th style="width:150px">Regla</th><th>Cómo funciona</th></tr>
+    <tr><td><b>Mes calendario</b></td><td>El plan vence el último día del mes. El día 1 todas aparecen por renovar y durante el 1–5 entran normal (cobro pendiente, no vencido).</td></tr>
+    <tr><td><b>Vence el día 5</b></td><td>Corte el 5 y gracia 0. El <b>día 6 a las 2:00 a. m.</b> todo cobro sin pagar pasa a vencido y sube el <b>5 %</b>.</td></tr>
+    <tr><td><b>Primer cobro sin recargo</b></td><td>El cobro del primer mes no lleva mora (se agregó el 11 de octubre). Vence en el corte del mes siguiente.</td></tr>
+    <tr><td><b>Alta a mitad de mes</b></td><td>Se paga el mes completo y se tienen todas las horas hasta fin de mes. No hay proporcional.</td></tr>
+    <tr><td><b>Cambio de plan</b></td><td>Antes de pagar: se cambia el plan y el cobro; las horas ya usadas se trasladan. Después de pagar: el banco pasa a las horas del plan nuevo y lo consumido se conserva; el sistema avisa «ya pagó $X, ¿pago parcial o completo?».</td></tr>
+    <tr><td><b>Comprobante en revisión</b></td><td>Cuenta como pagado mientras la escuela lo revisa, para no dejar sin entrar a quien ya pagó. Si se rechaza, vuelve a contar como deuda.</td></tr>
+    <tr><td><b>Sin cancelación por mora</b></td><td>No se cancelan inscripciones por mora: el plan queda vencido y, si se activa, bloqueado. Es decisión de la escuela.</td></tr>
+    <tr><td><b>Dueños fuera de los cobros</b></td><td>Las cuentas de dueños no generan cobros, mora, bloqueo ni banco de horas.</td></tr>
+  </table>
+  <h3 style="margin:12px 0 4px;color:var(--verde)">Inscripción y seguro en el alta</h3>
+  <p>Al dar de alta a una deportista, el sistema cobra <b>solo</b> la inscripción de <b>$120.000</b> y el seguro de accidentes de <b>$150.000</b> (el seguro se cobra una vez por año). Quedó cargado en <b>23 planes</b>; los planes sueltos de inscripción y seguro se desactivaron para no duplicar. El cambio de plan no vuelve a cobrar la inscripción.</p>
+  <div class="call tip"><div class="tag">Para tener en cuenta</div>Las listas de deportistas ahora respetan los días de gracia: ya no aparece «Vencido» el día siguiente si el cobro sigue dentro de la gracia de la escuela (corregido el 21 de octubre).</div>
+  <div class="call warn"><div class="tag">Configuración hoy</div>Lo acordado el 5 de octubre fue corte el 5 y gracia 0. El 13 de octubre la cuenta de la escuela guardó corte 1 y gracia 5, y dejó apagada la generación automática de cobros. Hay que confirmar cuál es la regla definitiva antes del cierre de mes.</div>
+  <div class="foot"><span>SportMaps · Dreamers Gymnastics</span><span>Página 4 de 7</span></div>
+</section>
+
+<!-- 4. TORNIQUETE -->
+<section class="page">
+  <div class="chap"><div class="n">4</div><h2>Torniquete y control de acceso</h2></div>
+  <div class="crumb">Lectores ZKTeco conectados a SportMaps</div><div class="rule"></div>
+  <div class="step"><div class="b">1</div><div class="t"><div class="h">El torniquete le habla a SportMaps</div>Cada marcación llega con el ID del lector. SportMaps lo cruza con la persona y abre o niega. Un equipo local en la sede mantiene la conexión y se formalizó como tarea programada.</div></div>
+  <div class="step"><div class="b">2</div><div class="t"><div class="h">El ID queda asociado desde el registro</div>Solo para Dreamers, el campo «Dorsal» se reemplazó por el <b>ID del torniquete</b> (pedido de la dueña el 13 de octubre). Así no hace falta enrolar después. Es opcional, único por escuela y solo lo cambia administración.</div></div>
+  <div class="step"><div class="b">3</div><div class="t"><div class="h">Bloqueo automático por mora</div>Cada 15 minutos el sistema revisa a quien tenga una mensualidad vencida y deshabilita su ID en los lectores (menores incluidos). Al pagar, se habilita solo en máximo 15 minutos. El plan queda vencido y bloqueado, <b>no se cancela</b>.</div></div>
+  <div class="step"><div class="b">4</div><div class="t"><div class="h">Excepción de un día</div>Administración puede habilitar a alguien a mano desde Control de acceso y no se vuelve a bloquear ese día (se corrigió un error que la deshacía a los 15 minutos).</div></div>
+  <div class="step"><div class="b">5</div><div class="t"><div class="h">Día no permitido: registrar y avisar</div>Si un plan solo permite ciertos días y alguien entra otro, el torniquete la deja pasar, lo registra y avisa a la dueña una vez por deportista por día. No bloquea.</div></div>
+  <div class="call warn"><div class="tag">Pendiente de revisar en el aparato</div>El 6 de octubre se probó el bloqueo con una deportista de prueba y salieron órdenes de bloqueo para 3 identificadores. Desde entonces no se enviaron desbloqueos. Conviene mirar en el lector cuáles siguen deshabilitados y habilitarlos si corresponde. El bloqueo automático hoy está <b>apagado</b>; se enciende al final, tras probarlo con una deportista.</div>
+  <h3 style="margin:12px 0 4px;color:var(--verde)">Reservar y comprar</h3>
+  <ul>
+    <li>Reservar clase fallaba para las familias de Dreamers cuando una sesión no traía hora; ya se ignora.</li>
+    <li>Comprar un artículo mostraba un aviso falso de «pago pendiente»; se corrigió.</li>
+  </ul>
+  <div class="foot"><span>SportMaps · Dreamers Gymnastics</span><span>Página 5 de 7</span></div>
+</section>
+
+<!-- 5. NIVELES Y PAGOS -->
+<section class="page">
+  <div class="chap"><div class="n">5</div><h2>Niveles, progresión y pagos</h2></div>
+  <div class="crumb">Cómo se arma el plan y cómo se cobra</div><div class="rule"></div>
+  <h3 style="margin:0 0 4px;color:var(--verde)">Niveles por horas</h3>
+  <p>Cada plan tiene su <b>bloque de sesión</b> (2, 3 o 4 horas por clase) y sus <b>días por semana</b>, y entre varios arman el paquete total del mes. Ejemplo: bloque de 3 horas con 8 clases = 24 horas.</p>
+  <h3 style="margin:10px 0 4px;color:var(--verde)">Progresión competitiva</h3>
+  <ul>
+    <li>Se cargan los <b>puntajes de competencia</b> y el nivel de cada competencia (club, regional, nacional, federación).</li>
+    <li>Cada plan destino define cuántos puntos pide para entrar. La escuela los actualiza cada año.</li>
+    <li>Cuando una deportista cumple el umbral, el sistema <b>avisa a la dueña</b>. Nunca sube de nivel por su cuenta: <b>sugerido, nunca automático</b>.</li>
+  </ul>
+  <h3 style="margin:10px 0 4px;color:var(--verde)">Cobros y pagos en una sola pantalla</h3>
+  <table>
+    <tr><th style="width:190px">Mejora</th><th>Qué resuelve</th></tr>
+    <tr><td><b>Una sola ventana de cobro</b></td><td>Mensualidad, inscripción, seguro, horas y artículos se cobran desde el mismo lugar.</td></tr>
+    <tr><td><b>Aviso de cobro repetido</b></td><td>Si el mismo cobro ya se registró desde otra pantalla hace poco, el sistema pregunta antes de duplicarlo.</td></tr>
+    <tr><td><b>Comprobante menor al total</b></td><td>Si se venden horas por adelantado con un comprobante menor al total, el sistema no lo deja pasar y ofrece «Separar las horas».</td></tr>
+    <tr><td><b>Doble clic</b></td><td>Se bloquea el segundo clic al confirmar, para no cobrar dos veces.</td></tr>
+    <tr><td><b>Efectivo y comprobante</b></td><td>«Efectivo» ya no vuelve solo a «Transferencia» y la lectura del comprobante ya no pisa el enlace del archivo.</td></tr>
+    <tr><td><b>+ Horas adicionales</b></td><td>Atajo junto a «+ Agregar cobro» para vender horas en un paso. Solo la dueña, y solo a deportistas con banco de horas.</td></tr>
+  </table>
+  <div class="call tip"><div class="tag">Valor de la hora</div>Se preparó una hoja con el <b>valor de la hora de cada plan</b> (precio del plan ÷ horas incluidas) y Dreamers la devolvió con las horas. Con ella la venta de horas adicionales sale con la tarifa correcta de cada plan.</div>
+  <div class="foot"><span>SportMaps · Dreamers Gymnastics</span><span>Página 6 de 7</span></div>
+</section>
+
+<!-- 6. LINEA DE TIEMPO + ESTADO -->
+<section class="page">
+  <div class="chap"><div class="n">6</div><h2>Línea de tiempo y estado</h2></div>
+  <div class="crumb">De agosto a hoy</div><div class="rule"></div>
+  <table class="tl">
+    <tr><th>Fecha</th><th>Qué se entregó</th></tr>
+    <tr><td>21 ago</td><td>Banco de horas por torniquete; conexión del equipo local con los lectores como tarea programada.</td></tr>
+    <tr><td>27 ago</td><td>Planes por horas y cobro de inscripción; la reserva respeta el bloque de sesión del plan.</td></tr>
+    <tr><td>5 sep</td><td>Comando de grupos para el equipo local del torniquete.</td></tr>
+    <tr><td>5 oct</td><td>Reglas completas: inscripción y seguro, comprobante en revisión, cargo por horas de más, niveles y días permitidos.</td></tr>
+    <tr><td>6 oct</td><td>Bloqueo por mora probado con una deportista de prueba.</td></tr>
+    <tr><td>11 oct</td><td>Primer cobro sin recargo, descuento guardado y registro manual de pagos en bloque.</td></tr>
+    <tr><td>13–14 oct</td><td>Copia de pruebas de Dreamers en un entorno aparte; ID del torniquete en el registro; manuales de administración y de familias.</td></tr>
+    <tr><td>21–22 oct</td><td>Horas adicionales por adelantado, aviso de cobro repetido, bloqueo de comprobante menor al total, «Vencido» respeta la gracia y «Ya las usó» calcula el valor con la tarifa del plan.</td></tr>
+  </table>
+  <h3 style="margin:10px 0 4px;color:var(--verde)">Cómo se probó</h3>
+  <p>Todo se probó primero en una <b>copia aparte</b> de Dreamers (anonimizada: las menores aparecen como «Nombre QA»), para no tocar datos reales ni mandar mensajes de verdad. Existen dos manuales listos: <b>Administración</b> y <b>Familias</b>.</p>
+  <h3 style="margin:10px 0 4px;color:var(--verde)">Estado hoy</h3>
+  <table>
+    <tr><th>Pieza</th><th style="width:110px">Estado</th><th>Nota</th></tr>
+    <tr><td>Banco de horas y torniquete</td><td class="ok">Funcionando</td><td>Sobre 5 deportistas de prueba.</td></tr>
+    <tr><td>Inscripción y seguro en el alta</td><td class="ok">Funcionando</td><td>23 planes cargados.</td></tr>
+    <tr><td>Horas adicionales por adelantado</td><td class="ok">Funcionando</td><td>Ya aplicado en la base.</td></tr>
+    <tr><td>Bloqueo automático por mora</td><td class="off">Apagado</td><td>Se enciende al final, tras probarlo.</td></tr>
+    <tr><td>Generación automática de cobros</td><td class="wait">Por confirmar</td><td>Quedó apagada el 13 de octubre.</td></tr>
+    <tr><td>Datos de niveles</td><td class="wait">Por cargar</td><td>Días y umbrales por plan; el plan «PGR6x2» necesita su bloque.</td></tr>
+  </table>
+  <div class="call warn"><div class="tag">Lo que decide la dueña</div>Antes del cierre de mes: la regla definitiva de corte y gracia, si se vuelve a encender la generación automática de cobros, y qué hacer con los identificadores del lector que quedaron deshabilitados. Mientras Dreamers siga en pruebas, nada de esto cambia su operación real.</div>
+  <div class="foot"><span>SportMaps · Dreamers Gymnastics</span><span>Página 7 de 7</span></div>
+</section>
+
+</body>
+</html>
