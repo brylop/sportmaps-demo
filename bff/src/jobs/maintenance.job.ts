@@ -38,6 +38,7 @@ import { anularCobrosSueltosVencidos } from '../services/ventas-servicios.servic
 import { runRecordatorioCortesia } from '../services/recordatorio-cortesia.service';
 import { runCortesiaVencida } from '../services/cortesia-vencida.service';
 import { runSeguimientoNocheCortesia, detectarInscripcionesDeLeads } from '../services/prospecto-ciclo-clase.service';
+import { runPlanChangeDetector } from './plan-change-detector.job';
 
 /** Último aviso de factura atascada por dueño (memoria del proceso; se reinicia con el deploy). */
 const ultimoAvisoFacturaAtascada = new Map<string, number>();
@@ -1006,4 +1007,26 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Ciclo de la clase de cortesía registrado (seguimiento 20:00-21:45 COT; cruce de inscripciones 21:30 COT).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Detector de cambio de plan: la familia paga el valor de otro plan sin avisar.
+    // Cambia el plan solo con dos periodos seguidos al mismo valor de UN único plan;
+    // si no, avisa a la dueña una vez. Solo para las escuelas de
+    // PLAN_CHANGE_AUTO_SCHOOL_IDS (vacía = no hace nada). Kill-switch:
+    // DISABLE_PLAN_CHANGE_DETECTOR=true.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('20 9 * * *', async () => {
+        if (process.env.DISABLE_PLAN_CHANGE_DETECTOR === 'true') return;
+        try {
+            const r = await runPlanChangeDetector();
+            if (r.cambiados > 0 || r.avisados > 0 || r.errores > 0) {
+                console.log(`[CRON] Cambio de plan: revisados=${r.revisados} cambiados=${r.cambiados} avisados=${r.avisados} errores=${r.errores}`);
+            }
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en el detector de cambio de plan:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Detector de cambio de plan registrado (09:20 COT, solo escuelas de PLAN_CHANGE_AUTO_SCHOOL_IDS).');
 }

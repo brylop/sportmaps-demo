@@ -4,12 +4,11 @@
 
 import { supabase } from '@/integrations/supabase/client';
 
-const WOMPI_PUBLIC_KEY = import.meta.env.VITE_WOMPI_PUBLIC_KEY;
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
-if (!WOMPI_PUBLIC_KEY) {
-    console.error('❌ VITE_WOMPI_PUBLIC_KEY no configurado. Agrega la variable de entorno.');
-}
+// Ya no hay llave pública de build (VITE_WOMPI_PUBLIC_KEY): era UNA sola y apuntaba a UN
+// comercio, así que cualquier escuela sin llave propia terminaba cobrándole a ese comercio.
+// La llave sale siempre del BFF (create-session) y es la del comercio de la escuela.
 
 /**
  * Genera una referencia única para iniciar un checkout de Wompi.
@@ -45,8 +44,8 @@ export interface WompiCheckoutConfig {
      */
     signature?: string | null;
     /**
-     * Public key del comercio que cobra, resuelta por el BFF. Si viene, manda sobre
-     * VITE_WOMPI_PUBLIC_KEY — que es una sola llave de build y apunta a un único comercio.
+     * Public key del comercio que cobra, resuelta por el BFF. OBLIGATORIA en la práctica:
+     * si no viene, el checkout no abre (no hay llave de respaldo en el cliente).
      */
     publicKey?: string | null;
 }
@@ -142,12 +141,14 @@ export async function openWompiCheckout(
         publicKey: publicKeyFromBff,
     } = config;
 
-    // La public key del BFF manda: identifica al comercio que realmente cobra. La de build
-    // (VITE_WOMPI_PUBLIC_KEY) es una sola y apunta a un único comercio, así que solo sirve
-    // como fallback del camino legacy.
-    const effectivePublicKey = publicKeyFromBff || WOMPI_PUBLIC_KEY;
+    // La public key del BFF es la ÚNICA fuente: identifica al comercio que realmente cobra.
+    // Sin ella no se abre el Widget (nunca se cae a otro comercio).
+    const effectivePublicKey = publicKeyFromBff;
     if (!effectivePublicKey) {
-        console.error('❌ Sin public key de Wompi: no la devolvió el BFF ni está VITE_WOMPI_PUBLIC_KEY.');
+        console.error(
+            `❌ Checkout Wompi bloqueado: la escuela${schoolId ? ` ${schoolId}` : ''} no tiene llave pública ` +
+            'propia (el BFF no devolvió publicKey). Conectar su cuenta de Wompi en Configuración → Pasarela de pago.',
+        );
         return null;
     }
 
@@ -246,30 +247,30 @@ export async function openWompiCheckout(
 /**
  * Verifica el status de una transacción vía API de Wompi.
  * Útil para polling desde la página /payment-result.
- * Usa sandbox o producción según la PUBLIC_KEY configurada.
+ * Sin llave de build no se sabe de antemano si la transacción es de pruebas o de
+ * producción (depende del comercio de cada escuela): se consulta producción y, si no la
+ * conoce, sandbox. La consulta es pública y de solo lectura, no usa ninguna llave.
  */
 export async function checkTransactionStatus(transactionId: string): Promise<WompiTransactionResult | null> {
-    // Detectar entorno por la public key
-    const isSandbox = WOMPI_PUBLIC_KEY?.startsWith('pub_test_') ?? true;
-    const baseUrl = isSandbox
-        ? 'https://sandbox.wompi.co/v1'
-        : 'https://production.wompi.co/v1';
+    const bases = ['https://production.wompi.co/v1', 'https://sandbox.wompi.co/v1'];
 
-    try {
-        const response = await fetch(`${baseUrl}/transactions/${transactionId}`);
-        if (!response.ok) return null;
-        const data = await response.json();
-        return {
-            id: data.data.id,
-            status: data.data.status,
-            reference: data.data.reference,
-            amountInCents: data.data.amount_in_cents,
-            currency: data.data.currency,
-            paymentMethodType: data.data.payment_method_type || 'UNKNOWN',
-            createdAt: data.data.created_at,
-        };
-    } catch (error) {
-        console.error('Error verificando status de transacción:', error);
-        return null;
+    for (const baseUrl of bases) {
+        try {
+            const response = await fetch(`${baseUrl}/transactions/${encodeURIComponent(transactionId)}`);
+            if (!response.ok) continue;
+            const data = await response.json();
+            return {
+                id: data.data.id,
+                status: data.data.status,
+                reference: data.data.reference,
+                amountInCents: data.data.amount_in_cents,
+                currency: data.data.currency,
+                paymentMethodType: data.data.payment_method_type || 'UNKNOWN',
+                createdAt: data.data.created_at,
+            };
+        } catch (error) {
+            console.error('Error verificando status de transacción:', error);
+        }
     }
+    return null;
 }

@@ -87,6 +87,9 @@ services:
         value: "22"
       - key: NODE_ENV
         value: production
+      - key: PLAN_CHANGE_AUTO_SCHOOL_IDS
+        # Ids de escuela (coma-separados) con cambio de plan automático. Vacío = apagado.
+        sync: false
       - key: SUPABASE_URL
         value: https://luebjarufsiadojhvxgi.supabase.co
       - key: SUPABASE_SERVICE_ROLE_KEY

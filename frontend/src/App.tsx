@@ -102,6 +102,7 @@ const MyChildrenPage = lazy(() => import("./pages/MyChildrenPage"));
 const ChildProgressPage = lazy(() => import("./pages/ChildProgressPage"));
 const ChildAttendancePage = lazy(() => import("./pages/ChildAttendancePage"));
 const ChildReportsPage = lazy(() => import("./pages/ChildReportsPage"));
+const ChildMatchReportsPage = lazy(() => import("./pages/ChildMatchReportsPage"));
 const ChildReportDetailPage = lazy(() => import("./pages/ChildReportDetailPage"));
 const ChildPostTrainingReportPage = lazy(() => import("./pages/ChildPostTrainingReportPage"));
 const AcademicProgressPage = lazy(() => import("./pages/AcademicProgressPage"));
@@ -544,6 +545,11 @@ const App = () => (
                       <Route path="children/:id/attendance" element={
                         <ProtectedRoute allowedRoles={['parent']}>
                           <AttendancePage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="children/:id/partidos" element={
+                        <ProtectedRoute allowedRoles={['parent']}>
+                          <ChildMatchReportsPage />
                         </ProtectedRoute>
                       } />
                       <Route path="children/:id/reports" element={
