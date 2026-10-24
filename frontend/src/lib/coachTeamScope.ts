@@ -14,6 +14,7 @@
  * ofrezca botones que van a fallar ni liste lo que no corresponde.
  */
 import { supabase } from '@/integrations/supabase/client';
+import { modalityToSave } from '@/lib/sports/footballModality';
 
 /** Roles que administran la escuela (mismo criterio que user_admin_school_ids()). */
 export const SCHOOL_ADMIN_ROLES = ['owner', 'school', 'admin', 'school_admin', 'super_admin'] as const;
@@ -54,6 +55,8 @@ export interface TeamFormValues {
     name: string;
     description: string;
     sport: string;
+    /** '11' | '7' | '5' | '' — solo cuenta si el deporte es Fútbol. */
+    sport_modality?: string;
     level: string;
     max_students: number | '';
     location: string;
@@ -85,6 +88,7 @@ export function buildTeamWritePayload(form: TeamFormValues, ctx: TeamWriteCtx) {
         name: form.name,
         description: form.description,
         sport: form.sport,
+        sport_modality: modalityToSave(form.sport, form.sport_modality),
         level: form.level,
         max_students: form.max_students === '' ? null : Number(form.max_students),
         location: form.location,

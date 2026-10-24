@@ -300,3 +300,25 @@ describe('equipo SIN deporte: vale el nombre o la categoría', () => {
     expect(teamBoardAccess({ sport: 'Natación', name: 'Tenis Sub 12' })).toMatchObject({ hasTacticalBoard: false });
   });
 });
+
+describe('teams.sport_modality manda sobre el nombre', () => {
+  it('Fútbol + modalidad 7 / 5 / 11 → su cancha, aunque el nombre no diga nada', () => {
+    expect(boardSportFromTeam({ sport: 'Fútbol', name: 'Sub 10', sport_modality: '7' })).toBe('futbol7');
+    expect(boardSportFromTeam({ sport: 'Fútbol', name: 'Sub 8', sport_modality: '5' })).toBe('futbol5');
+    expect(boardSportFromTeam({ sport: 'Fútbol', name: 'F7 Sub 10', sport_modality: '11' })).toBe('futbol');
+  });
+  it('sin modalidad (NULL o valor raro) se deduce del nombre, como antes', () => {
+    expect(boardSportFromTeam({ sport: 'Fútbol', name: 'F7 Sub 10', sport_modality: null })).toBe('futbol7');
+    expect(boardSportFromTeam({ sport: 'Fútbol', name: 'Sub 10', sport_modality: '9' })).toBe('futbol');
+  });
+  it('en otro deporte la modalidad no hace nada', () => {
+    expect(boardSportFromTeam({ sport: 'Voleibol', name: 'Sub 14', sport_modality: '7' })).toBe('voleibol');
+    expect(boardSportFromTeam({ sport: 'Natación', name: 'Sub 14', sport_modality: '7' })).toBe('generico');
+  });
+  it('Futsal en el nombre gana a la modalidad', () => {
+    expect(boardSportFromTeam({ sport: 'Fútbol', name: 'Futsal Sub 12', sport_modality: '7' })).toBe('futsal');
+  });
+  it('la modalidad es de fútbol: teamBoardAccess la respeta y sigue siendo fútbol', () => {
+    expect(teamBoardAccess({ sport: 'Fútbol', name: 'Sub 10', sport_modality: '5' })).toMatchObject({ sport: 'futbol5', hasTacticalBoard: true, isFootball: true });
+  });
+});

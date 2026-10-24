@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 803,
-  "head": "20261023194135",
+  "count": 804,
+  "head": "20261023202219",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -806,6 +806,7 @@
     {"v":"20261022110155","file":"20261022110155_pizarra_admin_edita_tablero.sql","sha256":"b1ba38da658654a9a2a89e1635eb70beed84d6c98feaf2442968fad7006559cb","added":"2026-10-22","by":"Brayan Steven Lopez"},
     {"v":"20261022110209","file":"20261022110209_reporte_partido_entrenador_admin_familia.sql","sha256":"a0fceefd2c507859ca0f8b4ddd611aa9a4fceb197b38ee871962049dfd2ec879","added":"2026-10-22","by":"Brayan Steven Lopez"},
     {"v":"20261023093127","file":"20261023093127_get_school_athletes_gate_staff.sql","sha256":"ed553d225bc37ef9a3f01d1c9dd757fafec1f2296f96111d07f4f4908889d961","added":"2026-10-23","by":"Brayan Steven Lopez"},
-    {"v":"20261023194135","file":"20261023194135_horas_avisos_de_saldo_y_excedentes_automaticos.sql","sha256":"5058143399a1b726a4d5512b85badbd9d5191fc9035168c74f6dccc7ba8fe620","added":"2026-10-24","by":"Brayan Steven Lopez"}
+    {"v":"20261023194135","file":"20261023194135_horas_avisos_de_saldo_y_excedentes_automaticos.sql","sha256":"5058143399a1b726a4d5512b85badbd9d5191fc9035168c74f6dccc7ba8fe620","added":"2026-10-24","by":"Brayan Steven Lopez"},
+    {"v":"20261023202219","file":"20261023202219_teams_sport_modality.sql","sha256":"ebadcf39c362536327b8c0be3b3401827ee736729647446ae4f996f0ae65902d","added":"2026-10-24","by":"Brayan Steven Lopez"}
   ]
 }

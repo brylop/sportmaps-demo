@@ -363,6 +363,8 @@ export interface TeamSportInput {
   sport?: string | null;
   name?: string | null;
   category_name?: string | null;
+  /** teams.sport_modality: '11' | '7' | '5' (solo fútbol). Manda sobre el nombre. */
+  sport_modality?: string | null;
 }
 
 /** Modalidad 7 / 5 / 11 escrita explícitamente ("F7", "Fútbol 7", "7 vs 7",
@@ -415,7 +417,11 @@ export function boardSportFromTeam(team: TeamSportInput | null | undefined): Boa
   if (!FOOTBALL_BOARD_SPORTS.includes(base)) return base;
   // Fútbol: ¿el equipo/categoría dice futsal (deporte "Fútbol", equipo "Futsal Sub 12")?
   if (boardFamilyByKeyword(normalizeSportText(extra)) === 'futsal') return 'futsal';
-  const size = footballSize(sportText) ?? footballSize(extra);
+  // La modalidad declarada en el equipo manda; sin ella, se deduce del texto.
+  const declared = team.sport_modality === '7' || team.sport_modality === '5' || team.sport_modality === '11'
+    ? (Number(team.sport_modality) as 7 | 5 | 11)
+    : null;
+  const size = declared ?? footballSize(sportText) ?? footballSize(extra);
   if (size === 7) return 'futbol7';
   if (size === 5) return 'futbol5';
   if (size === 11) return 'futbol';
