@@ -19,6 +19,7 @@ import { runTeamReportsCycle } from './team-reports.job';
 import { runHourBankAutoclose } from './hour-bank-autoclose.job';
 import { runHourBankOverageSuggestions } from './hour-bank-overage.job';
 import { runAccessAutoBlockCycle } from './access-auto-block.job';
+import { runHourBankBalanceNotices } from '../services/hour-bank-balance-notices.service';
 import { runSaasBillingCycle } from './saas-billing-cycle.job';
 import { runBridgeHeartbeatCheck } from './bridge-heartbeat-check.job';
 import { runAccountDeletionCycle } from './account-deletion.job';
@@ -796,6 +797,24 @@ export function initMaintenanceJobs() {
     });
 
     console.log('[CRON] Bloqueo automático por mora registrado (cada 15 min).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Avisos de saldo del banco de horas (escalera 50/20/10/0 %, push + correo).
+    // Plan: docs/specs/dreamers-horas-agotadas-bloqueo-y-excedentes-automaticos.md §2.1.
+    // No-op para toda escuela sin escalones configurados (default '{}') y mientras la
+    // migración 20261023194135 no esté aplicada. Solo manda de 8:00 a 19:59 hora Colombia.
+    // Nunca cobra ni bloquea nada.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('*/15 * * * *', async () => {
+        try {
+            await runHourBankBalanceNotices();
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en avisos de saldo de horas:', err?.message || err);
+        }
+    });
+
+    console.log('[CRON] Avisos de saldo de horas registrados (cada 15 min).');
 
     // ────────────────────────────────────────────────────────────────────────
     // Ciclo diario de facturación SaaS SportMaps → escuelas (Fase 1). Llama a

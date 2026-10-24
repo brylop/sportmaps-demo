@@ -535,6 +535,40 @@ export const BrandedEmailTemplates = {
 
     // ── Intento de pago online rechazado (Wompi/MercadoPago) ─────────────────
     /** El banco rechazó el intento → acudiente: puede reintentar ya mismo. */
+    /**
+     * Saldo del banco de horas (escalera de avisos). UN correo por acudiente con TODAS las
+     * hijas que cruzaron un escalón en esta corrida (hermanas = un solo mensaje).
+     * Plan: docs/specs/dreamers-horas-agotadas-bloqueo-y-excedentes-automaticos.md §2.1.
+     */
+    hourBankBalance: async (params: {
+        recipientName: string;
+        items: { athlete: string; title: string; body: string; severity: 'info' | 'aviso' | 'critico' }[];
+        link: string;
+        schoolId: string | null;
+    }): Promise<{ subject: string; html: string }> => {
+        const branding = await resolveSchoolBranding(params.schoolId);
+        const one = params.items.length === 1 ? params.items[0] : null;
+        const color = (sev: string) => (sev === 'critico' ? '#b91c1c' : sev === 'aviso' ? '#b45309' : '#166534');
+        const bloques = params.items.map((it) => `
+            <div style="border-left: 4px solid ${color(it.severity)}; padding: 4px 0 4px 12px; margin: 14px 0;">
+                <p style="margin: 0 0 4px; font-weight: 700;">${escapeHtml(it.title)}</p>
+                <p style="margin: 0;">${escapeHtml(it.body)}</p>
+            </div>`).join('');
+        return {
+            subject: one
+                ? `${one.title} — ${branding.schoolName.replace(/&amp;/g, '&')}`
+                : `Saldo de horas de tus deportistas — ${branding.schoolName.replace(/&amp;/g, '&')}`,
+            html: buildBrandedEmail({
+                branding,
+                title: 'Saldo de horas',
+                greeting: `Hola ${escapeHtml(params.recipientName)},`,
+                bodyHtml: `<p>Así va el banco de horas de este mes:</p>${bloques}`,
+                cta: { label: 'Ver el saldo', url: params.link },
+                closingHtml: 'Si necesitas más horas, escríbele a la escuela.',
+            }),
+        };
+    },
+
     paymentAttemptFailed: async (params: {
         parentName: string; concept: string; amount: string; bankReason: string | null;
         link: string; schoolId: string | null;
