@@ -65,6 +65,7 @@ import { initMaintenanceJobs } from './jobs/maintenance.job';
 import { debenCorrerLosCrons } from './jobs/crons-solo-en-render';
 import organizerRouter from './routes/organizers.route';
 import eventsRouter from './routes/events.route';
+import tournamentLiveRouter from './routes/tournament-live.route';
 import templatesRouter from './routes/templates';
 import pollsRouter from './routes/polls';
 import schoolDelegationsRouter from './routes/school-delegations.route';
@@ -434,6 +435,8 @@ app.use('/api/v1/admin', generalLimiter, adminPayoutsRouter);
 app.use('/api/v1/system', systemRouter);
 app.use('/api/v1/organizer', generalLimiter, organizerRouter);
 app.use('/api/v1/events', generalLimiter, eventsRouter);
+// Torneos en vivo: límites propios (varias familias comparten la wifi del coliseo; la carga la contiene la caché de 5 s).
+app.use('/api/v1/tournament-live', tournamentLiveRouter);
 app.use('/api/v1/school/delegations', generalLimiter, schoolDelegationsRouter);
 app.use('/api/v1/school', generalLimiter, schoolPerformanceRouter);
 app.use('/api/v1/school', generalLimiter, schoolCompetitionResultsRouter);

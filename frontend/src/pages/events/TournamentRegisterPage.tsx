@@ -97,7 +97,7 @@ export default function TournamentRegisterPage() {
             });
             toast({
                 title: 'Inscripción registrada',
-                description: esGratis ? 'Quedaste inscrito. El torneo es gratis.' : 'Ya podés pagar la inscripción.',
+                description: esGratis ? 'Quedaste inscrito. El torneo es gratis.' : 'Ya puedes pagar la inscripción.',
             });
             const refreshed = await getForParticipant(eventId);
             setTournament(refreshed);

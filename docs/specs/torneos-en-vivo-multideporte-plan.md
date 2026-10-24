@@ -5,6 +5,19 @@
 
 ---
 
+## Estado de implementación (2026-10-24)
+
+El usuario pidió construir **todo de una** (los tres formatos independientes, partidos y sorteo configurables, anotador, página pública y pruebas) para probar y descartar. Se construyó:
+
+- **Migración única `20261024084549_torneos_en_vivo_formatos`** (aplicada): reemplaza el plan de M1+M2 por una sola. Agrega `events.live_enabled/scoring_config/format_config/stream_url`; `tournament_matches` (`live`, `stage`, `group_label`, `home_ref/away_ref`, `court`, `version`, `live_state`, anotador); `tournament_match_log`, `tournament_scorekeepers` y la RPC `apply_tournament_match_action` (todo cerrado a `anon` y `authenticated`). **No se creó `tournament_match_sets`**: los sets se derivan de la secuencia de puntos guardada en `live_state`.
+- **Motores puros** en `bff/src/services/tournament/`: `scoring.shared.ts` (goles y sets; copia en `frontend/src/lib/tournamentScoring.ts` con prueba de paridad), `standings.shared.ts`, `fixtures.shared.ts` (liga, copa y grupos + fase final; sorteo aleatorio con semilla o manual; partidos por equipo; ida y vuelta; tercer puesto; canchas y horas).
+- **Servicio y rutas**: `tournament-live.service.ts` y `routes/tournament-live.route.ts` (`/api/v1/tournament-live`): ajustes, calendario por formato, acción única con versión + log + idempotencia, anotador por token, lectura pública con caché de 5 s y ETag. Interruptor global `TOURNAMENT_LIVE_DISABLED=true`.
+- **Rutas heredadas** (`events.route.ts`) delegan al motor: `PATCH /matches/:matchId` (con `scoring_config` o sin él), generate-fixtures, standings y public-results. Cambio de comportamiento: **un empate en eliminatoria se rechaza** (antes se guardaba y no avanzaba a nadie).
+- **Formatos independientes**: cada categoría puede usar uno distinto (`stage` por partido); `competition_format` del torneo guarda el último usado.
+- **Pruebas**: motores (75), servicio con base simulada (33: torneo completo grupos → fase final → final, idempotencia, conflictos, anotadores, privacidad pública, carga), rutas HTTP (8) y `scripts/torneos-carga.mjs` (carga real; correr solo con torneo de prueba y fuera de horario).
+
+Pendiente de decisión del cliente: torneo real de Monster, fecha, canchas y reglamento por categoría (§10).
+
 ## Resumen
 
 - **Primera entrega concreta: vóley en vivo para un torneo real de Monster's Volley.** «Todos los deportes» es la arquitectura (modelos de marcador), no la primera entrega.
