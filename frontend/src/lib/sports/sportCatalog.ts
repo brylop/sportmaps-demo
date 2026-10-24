@@ -158,7 +158,7 @@ export const SPORT_CATALOG: readonly SportEntry[] = [
   { key: 'muay_thai', label: 'Muay thai', boardLevel: 'ninguna', aliases: ['muay thai', 'muaythai'] },
   { key: 'taekwondo', label: 'Taekwondo', boardLevel: 'ninguna', aliases: ['taekwondo', 'tae kwon do'] },
   { key: 'judo', label: 'Judo', boardLevel: 'ninguna', aliases: ['judo'] },
-  { key: 'jiujitsu', label: 'Jiu-jitsu', boardLevel: 'ninguna', aliases: ['jiujitsu', 'jiu jitsu', 'brazilian jiu jitsu', 'bjj'] },
+  { key: 'jiujitsu', label: 'Jiu-jitsu', boardLevel: 'ninguna', aliases: ['jiujitsu', 'jiu jitsu', 'ju jitsu', 'jujitsu', 'brazilian jiu jitsu', 'bjj'] },
   { key: 'hapkido', label: 'Hapkido', boardLevel: 'ninguna', aliases: ['hapkido'] },
   { key: 'wushu', label: 'Wushu', boardLevel: 'ninguna', aliases: ['wushu', 'kung fu'] },
   { key: 'sambo', label: 'Sambo', boardLevel: 'ninguna', aliases: ['sambo'] },
@@ -181,7 +181,7 @@ export const SPORT_CATALOG: readonly SportEntry[] = [
   { key: 'vela', label: 'Vela', boardLevel: 'ninguna', aliases: ['vela'] },
   { key: 'surf', label: 'Surf', boardLevel: 'ninguna', aliases: ['surf'] },
   { key: 'esqui_nautico', label: 'Esquí náutico', boardLevel: 'ninguna', aliases: ['esqui nautico', 'wakeboard'] },
-  { key: 'ciclismo', label: 'Ciclismo', boardLevel: 'ninguna', aliases: ['ciclismo', 'bmx', 'bmx race', 'ciclomontanismo'] },
+  { key: 'ciclismo', label: 'Ciclismo', boardLevel: 'ninguna', aliases: ['ciclismo', 'bmx', 'bmx race', 'ciclomontanismo', 'mountain bike', 'mtb', 'bicicleta de montana'] },
   { key: 'tenis_mesa', label: 'Tenis de mesa', boardLevel: 'ninguna', aliases: ['tenis de mesa', 'ping pong'] },
   { key: 'squash', label: 'Squash', boardLevel: 'ninguna', aliases: ['squash'] },
   { key: 'racquetball', label: 'Ráquetbol', boardLevel: 'ninguna', aliases: ['racquetball', 'raquetbol'] },
@@ -192,7 +192,7 @@ export const SPORT_CATALOG: readonly SportEntry[] = [
   { key: 'hockey', label: 'Hockey', boardLevel: 'ninguna', aliases: ['hockey', 'hockey sobre hielo'] },
   { key: 'escalada', label: 'Escalada', boardLevel: 'ninguna', aliases: ['escalada', 'escalada deportiva'] },
   { key: 'skateboarding', label: 'Skateboarding', boardLevel: 'ninguna', aliases: ['skateboarding', 'skate'] },
-  { key: 'danza', label: 'Danza y baile deportivo', boardLevel: 'ninguna', aliases: ['danza', 'baile deportivo', 'danza y baile deportivo'] },
+  { key: 'danza', label: 'Danza y baile deportivo', boardLevel: 'ninguna', aliases: ['danza', 'baile', 'baile deportivo', 'danza y baile deportivo'] },
   { key: 'ajedrez', label: 'Ajedrez', boardLevel: 'ninguna', aliases: ['ajedrez'] },
   { key: 'bolos', label: 'Bolos', boardLevel: 'ninguna', aliases: ['bolos', 'bowling'] },
   { key: 'billar', label: 'Billar', boardLevel: 'ninguna', aliases: ['billar'] },
@@ -208,6 +208,16 @@ export const SPORT_CATALOG: readonly SportEntry[] = [
   { key: 'paintball', label: 'Paintball', boardLevel: 'ninguna', aliases: ['paintball', 'paint ball'] },
   { key: 'bridge', label: 'Bridge', boardLevel: 'ninguna', aliases: ['bridge'] },
   { key: 'multideporte', label: 'Multideporte', boardLevel: 'ninguna', aliases: ['multideporte', 'polideportivo', 'varios deportes'] },
+  // Estaban en la lista que escoge el usuario pero sin mapear. Frontón DEBE ir
+  // aquí: su nombre trae «(Handball Mural)» y el «contiene» lo mandaba a la
+  // pizarra de balonmano, que es otro juego.
+  { key: 'fronton', label: 'Frontón (Handball Mural)', boardLevel: 'ninguna', aliases: ['fronton', 'handball mural', 'pelota vasca', 'pelota mano', 'pelota paleta'] },
+  { key: 'pentatlon', label: 'Pentatlón moderno', boardLevel: 'ninguna', aliases: ['pentatlon moderno', 'pentatlon'] },
+  { key: 'polo', label: 'Polo', boardLevel: 'ninguna', aliases: ['polo', 'polo ecuestre'] },
+  { key: 'goalball', label: 'Goalball', boardLevel: 'ninguna', aliases: ['goalball'] },
+  { key: 'esports', label: 'Deportes electrónicos (Esports)', boardLevel: 'ninguna', aliases: ['deportes electronicos', 'esports', 'e sports', 'videojuegos'] },
+  { key: 'breaking', label: 'Breakdance (Breaking)', boardLevel: 'ninguna', aliases: ['breakdance', 'breaking', 'break dance'] },
+  { key: 'parkour', label: 'Parkour / Freerunning', boardLevel: 'ninguna', aliases: ['parkour', 'freerunning', 'free running'] },
 ];
 
 // ─── Normalización ──────────────────────────────────────────────────────────
@@ -389,8 +399,18 @@ export function boardSportFromTeam(team: TeamSportInput | null | undefined): Boa
     base = r.tacticalSport ?? null;
     if (!base) return 'generico';
   } else {
-    base = boardFamilyByKeyword(normalizeSportText(extra));
-    if (!base) return 'futbol';
+    // Sin deporte: primero el catálogo sobre el nombre/categoría («Tenis Sub 12»
+    // → tenis, «Pádel» → pádel); si no lo reconoce, la palabra clave de siempre.
+    const fromName = extra ? resolveSport(extra) : null;
+    // El fútbol sin deporte escrito se queda como antes de M1 (lo fija
+    // sportFromTeamLegacy.test.ts): aquí solo se infieren los demás deportes.
+    if (fromName && fromName.match !== 'ninguno' && !isFootballFamily(fromName)) {
+      if (!fromName.tacticalSport) return 'generico';
+      base = fromName.tacticalSport;
+    } else {
+      base = boardFamilyByKeyword(normalizeSportText(extra));
+      if (!base) return 'futbol';
+    }
   }
   if (!FOOTBALL_BOARD_SPORTS.includes(base)) return base;
   // Fútbol: ¿el equipo/categoría dice futsal (deporte "Fútbol", equipo "Futsal Sub 12")?
@@ -401,6 +421,9 @@ export function boardSportFromTeam(team: TeamSportInput | null | undefined): Boa
   if (size === 11) return 'futbol';
   return base;
 }
+
+const isFootballFamily = (r: ResolvedSport) =>
+  r.key.startsWith('futbol') && r.key !== 'futbol_americano';
 
 /** Lo que una pantalla necesita saber del equipo para la pizarra (D3). */
 export interface TeamBoardAccess {
@@ -415,7 +438,13 @@ export interface TeamBoardAccess {
 }
 
 export function teamBoardAccess(team: TeamSportInput | null | undefined): TeamBoardAccess {
-  const r = resolveSport(team?.sport);
+  let r = resolveSport(team?.sport);
+  if (team && !softNorm(team.sport)) {
+    // Mismo criterio que boardSportFromTeam: sin deporte, vale el nombre/categoría.
+    const extra = `${softNorm(team.name)} ${softNorm(team.category_name)}`.trim();
+    const fromName = extra ? resolveSport(extra) : null;
+    if (fromName && fromName.match !== 'ninguno' && !isFootballFamily(fromName)) r = fromName;
+  }
   return {
     sport: boardSportFromTeam(team),
     hasTacticalBoard: hasTacticalBoard(r),
