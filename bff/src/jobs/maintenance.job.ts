@@ -20,6 +20,7 @@ import { runHourBankAutoclose } from './hour-bank-autoclose.job';
 import { runHourBankOverageSuggestions } from './hour-bank-overage.job';
 import { runAccessAutoBlockCycle } from './access-auto-block.job';
 import { runHourBankBalanceNotices } from '../services/hour-bank-balance-notices.service';
+import { runHourBankOverageAutoConfirm } from '../services/hour-bank-overage-auto.service';
 import { runSaasBillingCycle } from './saas-billing-cycle.job';
 import { runBridgeHeartbeatCheck } from './bridge-heartbeat-check.job';
 import { runAccountDeletionCycle } from './account-deletion.job';
@@ -778,6 +779,20 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Cargos por horas de más del banco de horas registrado para las 03:00 COT.');
+
+    // Confirmación AUTOMÁTICA de excedentes bajo tope (08:00 COT, para que la familia reciba el aviso
+    // del cobro de día). Solo escuelas con al menos un tope definido (default NULL = apagado); lo que
+    // supere un tope, las inscripciones no activas y lo del dueño siguen `suggested` para decidir a mano.
+    cron.schedule('0 8 * * *', async () => {
+        try {
+            await runHourBankOverageAutoConfirm();
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en la confirmación automática de excedentes:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Confirmación automática de excedentes de horas registrada para las 08:00 COT.');
 
     // ────────────────────────────────────────────────────────────────────────
     // Bloqueo automático por mora (school_settings.access_auto_block_overdue_enabled,
