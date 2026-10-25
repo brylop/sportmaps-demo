@@ -75,6 +75,9 @@ const EventIndividualRegisterPage = lazy(() => import("./pages/events/EventIndiv
 const MyEventRegistrationsPage = lazy(() => import("./pages/events/MyEventRegistrationsPage"));
 const TournamentRegisterPage = lazy(() => import("./pages/events/TournamentRegisterPage"));
 const TournamentResultsPage = lazy(() => import("./pages/events/TournamentResultsPage"));
+const TournamentLivePage = lazy(() => import("./pages/events/TournamentLivePage"));
+const TournamentTvPage = lazy(() => import("./pages/events/TournamentTvPage"));
+const TournamentScorerPage = lazy(() => import("./pages/events/TournamentScorerPage"));
 
 // ─── Polls (lazy) ────────────────────────────────────────────────────────────
 const PollsPage = lazy(() => import("./pages/polls/PollsPage"));
@@ -414,6 +417,9 @@ const App = () => (
                     <Route path="/event/:eventId/register" element={<EventIndividualRegisterPage />} />
                     <Route path="/my-event-registrations" element={<MyEventRegistrationsPage />} />
                     <Route path="/tournaments/:eventId/results" element={<TournamentResultsPage />} />
+                    <Route path="/torneo/:slug/en-vivo" element={<TournamentLivePage />} />
+                    <Route path="/torneo/:slug/tv" element={<TournamentTvPage />} />
+                    <Route path="/anotador/:token" element={<TournamentScorerPage />} />
                     <Route path="/s/:slug" element={<PublicSchoolPage />} />
                     <Route path="/polls/v/:pollId" element={<PublicPollPage />} />
 

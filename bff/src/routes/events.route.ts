@@ -4,6 +4,10 @@ import { supabase } from '../config/supabase';
 import { todayInZone } from '../utils/businessDate';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { userClient } from '../utils/userClient';
+import {
+    LiveError, buildCategoryStandings, generateCategoryFixtures, loadEvent, performMatchAction, toMatchDto, loadMatches,
+} from '../services/tournament/tournament-live.service';
+import { resolveConfig } from '../services/tournament/scoring.shared';
 
 const router = Router();
 
@@ -1411,97 +1415,25 @@ router.post('/school-tournaments/:id/enroll', requireAuth, requireRole('school',
     }
 });
 
-// ── Resultados de torneo (Liga) ──────────────────────────────────────────────
-// Round-robin (método del círculo). Devuelve jornadas → pares [local, visitante].
-function roundRobinRounds(ids: string[]): Array<Array<[string, string]>> {
-    const teams: (string | null)[] = [...ids];
-    if (teams.length % 2 !== 0) teams.push(null); // bye
-    const n = teams.length;
-    const rounds: Array<Array<[string, string]>> = [];
-    for (let r = 0; r < n - 1; r++) {
-        const pairs: Array<[string, string]> = [];
-        for (let i = 0; i < n / 2; i++) {
-            const a = teams[i], b = teams[n - 1 - i];
-            if (a && b) pairs.push(r % 2 === 0 ? [a, b] : [b, a]); // alterna localía
-        }
-        rounds.push(pairs);
-        teams.splice(1, 0, teams.pop()!); // rota dejando el primero fijo
-    }
-    return rounds;
-}
-
-// Copa: avanza el ganador de (round,slot) a la ronda siguiente (slot padre = ceil(slot/2); local si slot impar).
-async function advanceWinner(eventId: string, catId: string, round: number, slot: number, winnerId: string) {
-    const parentSlot = Math.ceil(slot / 2);
-    const isHome = slot % 2 === 1;
-    const { data: parent } = await supabase.from('tournament_matches')
-        .select('id').eq('event_id', eventId).eq('category_id', catId).eq('round', round + 1).eq('slot', parentSlot).maybeSingle();
-    if (!parent) return;
-    await supabase.from('tournament_matches')
-        .update(isHome ? { home_team_id: winnerId } : { away_team_id: winnerId })
-        .eq('id', parent.id);
-}
-// Copa: los partidos de ronda 1 con un solo equipo (bye) avanzan automáticamente.
-async function advanceByes(eventId: string, catId: string) {
-    const { data: r1 } = await supabase.from('tournament_matches')
-        .select('id, slot, home_team_id, away_team_id').eq('event_id', eventId).eq('category_id', catId).eq('round', 1);
-    for (const m of (r1 || [])) {
-        const h = m.home_team_id as string | null, a = m.away_team_id as string | null;
-        if (h && !a) { await supabase.from('tournament_matches').update({ status: 'walkover', home_score: 1, away_score: 0 }).eq('id', m.id); await advanceWinner(eventId, catId, 1, m.slot, h); }
-        else if (!h && a) { await supabase.from('tournament_matches').update({ status: 'walkover', home_score: 0, away_score: 1 }).eq('id', m.id); await advanceWinner(eventId, catId, 1, m.slot, a); }
-    }
-}
+// ── Resultados de torneo (Liga / Copa / Grupos) ──────────────────────────────
+// Calendario, marcador y tabla viven en services/tournament/* (motores puros + una sola vía de
+// escritura con versión y log). Estas rutas se mantienen por compatibilidad y delegan.
 
 // POST /api/v1/events/school-tournaments/:id/categories/:catId/generate-fixtures
+// body: { format: 'liga'|'copa'|'grupos', config?: FormatConfig }  (ver fixtures.shared.ts)
 router.post('/school-tournaments/:id/categories/:catId/generate-fixtures', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
     try {
         const schoolId = req.schoolId;
         if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
         const eventId = String(req.params.id);
-        const catId = String(req.params.catId);
         if (!(await assertOwnedSchoolTournament(eventId, schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
-
-        const { data: teams } = await supabase
-            .from('event_teams')
-            .select('id')
-            .eq('event_id', eventId).eq('category_id', catId)
-            .neq('status', 'rejected');
-        const ids = (teams || []).map((t) => t.id);
-        if (ids.length < 2) return res.status(400).json({ error: 'Se necesitan al menos 2 equipos en la categoría.' });
-
-        const format = (req.body?.format as string) === 'copa' ? 'copa' : 'liga';
-        // Borrar partidos aún no jugados de esta categoría (regenerar)
-        await supabase.from('tournament_matches').delete().eq('event_id', eventId).eq('category_id', catId).eq('status', 'scheduled');
-
-        const rows: any[] = [];
-        if (format === 'liga') {
-            const rounds = roundRobinRounds(ids);
-            rounds.forEach((pairs, ri) => pairs.forEach((pair, si) => rows.push({
-                event_id: eventId, category_id: catId, round: ri + 1, slot: si + 1,
-                home_team_id: pair[0], away_team_id: pair[1], status: 'scheduled',
-            })));
-        } else {
-            // Copa: eliminación simple. Sembrar a potencia de 2 con byes (1vsN, 2vsN-1…).
-            let size = 1; while (size < ids.length) size *= 2;
-            const seeded: (string | null)[] = [...ids];
-            while (seeded.length < size) seeded.push(null);
-            const totalRounds = Math.round(Math.log2(size));
-            for (let i = 0; i < size / 2; i++) {
-                rows.push({ event_id: eventId, category_id: catId, round: 1, slot: i + 1, home_team_id: seeded[i], away_team_id: seeded[size - 1 - i], status: 'scheduled' });
-            }
-            for (let r = 2; r <= totalRounds; r++) {
-                const count = size / Math.pow(2, r);
-                for (let s = 0; s < count; s++) rows.push({ event_id: eventId, category_id: catId, round: r, slot: s + 1, home_team_id: null, away_team_id: null, status: 'scheduled' });
-            }
-        }
-        if (rows.length > 0) {
-            const { error } = await supabase.from('tournament_matches').insert(rows);
-            if (error) { req.log?.error({ err: error }, 'Error generando fixtures'); return res.status(500).json({ error: 'Error al generar el calendario' }); }
-        }
-        await supabase.from('events').update({ competition_format: format, updated_at: new Date().toISOString() }).eq('id', eventId);
-        if (format === 'copa') await advanceByes(eventId, catId);
-        return res.status(201).json({ matches: rows.length, format });
+        const ev = await loadEvent(eventId);
+        if (!ev) return res.status(404).json({ error: 'Torneo no encontrado' });
+        const format = ['liga', 'copa', 'grupos'].includes(req.body?.format) ? req.body.format : 'liga';
+        const out = await generateCategoryFixtures(ev, String(req.params.catId), format, req.body?.config ?? {});
+        return res.status(201).json(out);
     } catch (err: any) {
+        if (err instanceof LiveError) return res.status(err.status).json({ error: err.message, code: err.code });
         req.log?.error({ err }, 'Error inesperado generando fixtures');
         return res.status(500).json({ error: 'Error interno del servidor' });
     }
@@ -1514,21 +1446,19 @@ router.get('/school-tournaments/:id/matches', requireAuth, requireRole('school',
         if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
         const eventId = String(req.params.id);
         if (!(await assertOwnedSchoolTournament(eventId, schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
-
-        let q = supabase.from('tournament_matches')
-            .select('id, category_id, round, slot, home_team_id, away_team_id, home_score, away_score, status, scheduled_at, home:home_team_id(team_name), away:away_team_id(team_name)')
-            .eq('event_id', eventId).order('round').order('slot');
-        if (req.query.category_id) q = q.eq('category_id', String(req.query.category_id));
-        const { data, error } = await q;
-        if (error) return res.status(500).json({ error: 'Error al listar partidos' });
-        return res.status(200).json(data || []);
+        const ev = await loadEvent(eventId);
+        if (!ev) return res.status(404).json({ error: 'Torneo no encontrado' });
+        const rows = await loadMatches(eventId, req.query.category_id ? String(req.query.category_id) : null);
+        return res.status(200).json(rows.map((m) => toMatchDto(m, resolveConfig(ev.scoring_config, m.category_id))));
     } catch (err: any) {
         req.log?.error({ err }, 'Error inesperado listando partidos');
         return res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
-// PATCH /api/v1/events/school-tournaments/:id/matches/:matchId — cargar resultado
+// PATCH /api/v1/events/school-tournaments/:id/matches/:matchId — cargar resultado final.
+// Delega a la vía única del motor (versión, log, avance de copa/grupos y aviso a las familias).
+// body: { home_score, away_score, goals? }  ó, con marcador por sets, { sets: [[25,23],[20,25],[15,12]] }
 router.patch('/school-tournaments/:id/matches/:matchId', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
     try {
         const schoolId = req.schoolId;
@@ -1536,31 +1466,29 @@ router.patch('/school-tournaments/:id/matches/:matchId', requireAuth, requireRol
         const eventId = String(req.params.id);
         const matchId = String(req.params.matchId);
         if (!(await assertOwnedSchoolTournament(eventId, schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+        const ev = await loadEvent(eventId);
+        if (!ev) return res.status(404).json({ error: 'Torneo no encontrado' });
 
-        const hs = Number(req.body?.home_score);
-        const as = Number(req.body?.away_score);
-        if (!Number.isInteger(hs) || !Number.isInteger(as) || hs < 0 || as < 0) return res.status(400).json({ error: 'Marcador inválido' });
+        const { data: mrow } = await supabase.from('tournament_matches').select('category_id, home_team_id, away_team_id').eq('id', matchId).eq('event_id', eventId).maybeSingle();
+        if (!mrow) return res.status(404).json({ error: 'Partido no encontrado' });
+        const cfg = resolveConfig(ev.scoring_config, (mrow as any).category_id);
 
-        const { data: match } = await supabase.from('tournament_matches')
-            .select('id, round, slot, category_id, home_team_id, away_team_id')
-            .eq('id', matchId).eq('event_id', eventId).maybeSingle();
-        if (!match) return res.status(404).json({ error: 'Partido no encontrado' });
-
-        const { data, error } = await supabase.from('tournament_matches')
-            .update({ home_score: hs, away_score: as, status: 'played', updated_at: new Date().toISOString() })
-            .eq('id', matchId).select().single();
-        if (error) return res.status(500).json({ error: 'Error al guardar el resultado' });
-
-        // Copa: avanzar al ganador a la ronda siguiente (empates no avanzan)
-        const { data: evFmt } = await supabase.from('events').select('competition_format').eq('id', eventId).single();
-        if (evFmt?.competition_format === 'copa' && hs !== as && match.category_id) {
-            const winner = hs > as ? match.home_team_id : match.away_team_id;
-            if (winner) await advanceWinner(eventId, String(match.category_id), match.round, match.slot, winner as string);
+        let action: any;
+        if (cfg.model === 'sets') {
+            if (!Array.isArray(req.body?.sets)) return res.status(400).json({ error: 'Marcador inválido: indica el marcador de cada set' });
+            action = { type: 'correct', sets: req.body.sets };
+        } else {
+            const hs = Number(req.body?.home_score);
+            const as = Number(req.body?.away_score);
+            if (!Number.isInteger(hs) || !Number.isInteger(as) || hs < 0 || as < 0) return res.status(400).json({ error: 'Marcador inválido' });
+            action = { type: 'correct', home: hs, away: as };
         }
 
-        // Goles opcionales: [{ team_id, member_id?, minute? }]
+        const out = await performMatchAction(ev, matchId, { type: 'user', id: req.user!.id, label: 'Administración' }, { action });
+
+        // Goles opcionales (fútbol): [{ team_id, member_id?, minute? }] — tournament_match_events no se toca.
         const goals = Array.isArray(req.body?.goals) ? req.body.goals : [];
-        if (goals.length > 0) {
+        if (goals.length > 0 && cfg.model === 'goals') {
             await supabase.from('tournament_match_events').delete().eq('match_id', matchId).eq('type', 'goal');
             const rows = goals.filter((g: any) => g.team_id).map((g: any) => ({
                 match_id: matchId, event_id: eventId, team_id: g.team_id,
@@ -1568,17 +1496,9 @@ router.patch('/school-tournaments/:id/matches/:matchId', requireAuth, requireRol
             }));
             if (rows.length > 0) await supabase.from('tournament_match_events').insert(rows);
         }
-
-        const resultTeamIds = [match.home_team_id, match.away_team_id].filter(Boolean) as string[];
-        notifyTeamMembers(resultTeamIds, {
-            title: '📣 Resultado del partido',
-            message: `${hs} - ${as} — ya podés verlo y compartirlo.`,
-            link: `/tournaments/${eventId}/results`,
-            data: { eventId, matchId },
-        }).catch((err) => req.log?.warn({ err }, 'Error notificando resultado de partido'));
-
-        return res.status(200).json(data);
+        return res.status(200).json(out.match);
     } catch (err: any) {
+        if (err instanceof LiveError) return res.status(err.status).json({ error: err.message, code: err.code });
         req.log?.error({ err }, 'Error inesperado guardando resultado');
         return res.status(500).json({ error: 'Error interno del servidor' });
     }
@@ -1614,7 +1534,7 @@ router.get('/school-tournaments/:id/matches/:matchId/rosters', requireAuth, requ
     }
 });
 
-// GET /api/v1/events/school-tournaments/:id/standings?category_id= — tabla + goleadores
+// GET /api/v1/events/school-tournaments/:id/standings?category_id= — tabla (por grupos si el formato lo es) + goleadores
 router.get('/school-tournaments/:id/standings', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
     try {
         const schoolId = req.schoolId;
@@ -1622,33 +1542,13 @@ router.get('/school-tournaments/:id/standings', requireAuth, requireRole('school
         const eventId = String(req.params.id);
         const catId = req.query.category_id ? String(req.query.category_id) : null;
         if (!(await assertOwnedSchoolTournament(eventId, schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+        const ev = await loadEvent(eventId);
+        if (!ev) return res.status(404).json({ error: 'Torneo no encontrado' });
 
-        // Equipos de la categoría
-        let teamsQ = supabase.from('event_teams').select('id, team_name').eq('event_id', eventId).neq('status', 'rejected');
-        if (catId) teamsQ = teamsQ.eq('category_id', catId);
-        const { data: teams } = await teamsQ;
-        const table: Record<string, any> = {};
-        (teams || []).forEach((t) => { table[t.id] = { team_id: t.id, team_name: t.team_name, P: 0, W: 0, D: 0, L: 0, GF: 0, GA: 0, GD: 0, Pts: 0 }; });
-
-        // Partidos jugados
-        let mQ = supabase.from('tournament_matches').select('home_team_id, away_team_id, home_score, away_score').eq('event_id', eventId).eq('status', 'played');
-        if (catId) mQ = mQ.eq('category_id', catId);
-        const { data: matches } = await mQ;
-        (matches || []).forEach((m) => {
-            const h = table[m.home_team_id!], a = table[m.away_team_id!];
-            if (!h || !a) return;
-            const hs = Number(m.home_score), as = Number(m.away_score);
-            h.P++; a.P++; h.GF += hs; h.GA += as; a.GF += as; a.GA += hs;
-            if (hs > as) { h.W++; a.L++; h.Pts += 3; }
-            else if (hs < as) { a.W++; h.L++; a.Pts += 3; }
-            else { h.D++; a.D++; h.Pts++; a.Pts++; }
-        });
-        const standings = Object.values(table).map((r: any) => ({ ...r, GD: r.GF - r.GA }))
-            .sort((a: any, b: any) => b.Pts - a.Pts || b.GD - a.GD || b.GF - a.GF);
+        const table = await buildCategoryStandings(ev, catId);
 
         // Goleadores
-        let gQ = supabase.from('tournament_match_events').select('member_id, team_id, scorer:member_id(full_name)').eq('event_id', eventId).eq('type', 'goal');
-        if (catId) gQ = gQ; // los goles ya cuelgan del evento; filtrar por categoría requeriría join a match — se omite en MVP
+        const gQ = supabase.from('tournament_match_events').select('member_id, team_id, scorer:member_id(full_name)').eq('event_id', eventId).eq('type', 'goal');
         const { data: goals } = await gQ;
         const scorerMap: Record<string, any> = {};
         (goals || []).forEach((g: any) => {
@@ -1658,7 +1558,7 @@ router.get('/school-tournaments/:id/standings', requireAuth, requireRole('school
         });
         const scorers = Object.values(scorerMap).sort((a: any, b: any) => b.goals - a.goals).slice(0, 20);
 
-        return res.status(200).json({ standings, scorers });
+        return res.status(200).json({ ...table, scorers });
     } catch (err: any) {
         req.log?.error({ err }, 'Error inesperado calculando tabla');
         return res.status(500).json({ error: 'Error interno del servidor' });
@@ -1667,8 +1567,7 @@ router.get('/school-tournaments/:id/standings', requireAuth, requireRole('school
 
 // GET /api/v1/events/school-tournaments/:id/public-results — SIN LOGIN, para compartir
 // por correo/WhatsApp (link abierto, mismo patrón que /event/:slug público).
-// Solo lectura de datos ya públicos por diseño (tabla de posiciones y goleadores);
-// no expone nada de pagos ni datos de contacto.
+// Solo lectura de datos ya públicos por diseño (tabla de posiciones); no expone nada de pagos ni datos de contacto.
 router.get('/school-tournaments/:id/public-results', async (req: AuthenticatedRequest, res: Response) => {
     try {
         const eventId = String(req.params.id);
@@ -1676,36 +1575,20 @@ router.get('/school-tournaments/:id/public-results', async (req: AuthenticatedRe
 
         const { data: ev } = await supabase
             .from('events')
-            .select('id, title, sport, city, event_date, tournament_scope, school:school_id(name)')
+            .select('id, title, sport, city, event_date, tournament_scope, slug, school:school_id(name)')
             .eq('id', eventId)
             .maybeSingle();
         if (!ev) return res.status(404).json({ error: 'Torneo no encontrado' });
 
-        let teamsQ = supabase.from('event_teams').select('id, team_name').eq('event_id', eventId).neq('status', 'rejected');
-        if (catId) teamsQ = teamsQ.eq('category_id', catId);
-        const { data: teams } = await teamsQ;
-        const table: Record<string, any> = {};
-        (teams || []).forEach((t) => { table[t.id] = { team_id: t.id, team_name: t.team_name, P: 0, W: 0, D: 0, L: 0, GF: 0, GA: 0, GD: 0, Pts: 0 }; });
-
-        let mQ = supabase.from('tournament_matches').select('home_team_id, away_team_id, home_score, away_score').eq('event_id', eventId).eq('status', 'played');
-        if (catId) mQ = mQ.eq('category_id', catId);
-        const { data: matches } = await mQ;
-        (matches || []).forEach((m) => {
-            const h = table[m.home_team_id!], a = table[m.away_team_id!];
-            if (!h || !a) return;
-            const hs = Number(m.home_score), as = Number(m.away_score);
-            h.P++; a.P++; h.GF += hs; h.GA += as; a.GF += as; a.GA += hs;
-            if (hs > as) { h.W++; a.L++; h.Pts += 3; }
-            else if (hs < as) { a.W++; h.L++; a.Pts += 3; }
-            else { h.D++; a.D++; h.Pts++; a.Pts++; }
-        });
-        const standings = Object.values(table).map((r: any) => ({ ...r, GD: r.GF - r.GA }))
-            .sort((a: any, b: any) => b.Pts - a.Pts || b.GD - a.GD || b.GF - a.GF);
+        const live = await loadEvent(eventId);
+        const table = live ? await buildCategoryStandings(live, catId) : { model: 'goals' as const, standings: [] as any[] };
+        const flat = table.standings.length > 0 ? table.standings : Object.values((table as any).groups ?? {}).flat();
 
         return res.status(200).json({
-            title: ev.title, sport: ev.sport, city: ev.city, event_date: ev.event_date,
+            title: ev.title, sport: ev.sport, city: ev.city, event_date: ev.event_date, slug: (ev as any).slug ?? null,
             school_name: (ev as any).school?.name ?? null,
-            standings,
+            standings: flat,
+            ...(table as any).groups ? { groups: (table as any).groups } : {},
         });
     } catch (err: any) {
         req.log?.error({ err }, 'Error inesperado obteniendo resultados públicos');

@@ -102,7 +102,7 @@ describe('Conversaciones · hilo', () => {
         expect(within(hilo).getByText('Transcripción:')).toBeInTheDocument();
         expect(within(hilo).getByRole('button', { name: /Escuchar nota de voz/ })).toBeInTheDocument();
         const compositor = within(hilo).getByTestId('compositor');
-        expect(within(compositor).getByText('Ventana de 24 horas cerrada')).toBeInTheDocument();
+        expect(within(compositor).getByText('Pasó más de un día sin que escriba')).toBeInTheDocument();
         fireEvent.click(within(compositor).getByRole('button', { name: /Enviar mensaje aprobado/ }));
         await waitFor(() => expect(bff.get).toHaveBeenCalledWith('/api/v1/whatsapp/s1/conversaciones/c/plantillas'));
     });

@@ -36,6 +36,8 @@ import {
 import { SPORTS_LIST } from '@/lib/constants/sportsCatalog';
 import { emailClient } from '@/lib/email-client';
 import { esNombreDePagoUnico, PAGO_UNICO_NO_ES_PLAN_MSG } from '@/lib/school/pagosUnicos';
+import { FootballModalitySelect } from '@/components/teams/FootballModalitySelect';
+import { modalityToSave } from '@/lib/sports/footballModality';
 
 type BusinessModel = 'teams' | 'plans' | 'both';
 type StepId = 'branch' | 'model' | 'team' | 'plan' | 'coach' | 'student' | 'payments';
@@ -182,6 +184,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
   // Team form
   const [teamName, setTeamName] = useState('');
   const [teamSport, setTeamSport] = useState('');
+  const [teamModality, setTeamModality] = useState('');
   const [teamPrice, setTeamPrice] = useState('150000');
 
   // Plan form (mensualidad / paquete)
@@ -245,7 +248,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
     if (!schoolId) return;
     const { data } = await supabase
       .from('teams')
-      .select('id, name, sport, price_monthly')
+      .select('id, name, sport, sport_modality, price_monthly')
       .eq('school_id', schoolId)
       .order('created_at', { ascending: true })
       .limit(1)
@@ -255,6 +258,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
       setExistingTeamId(data.id);
       setTeamName(data.name || '');
       setTeamSport(data.sport || '');
+      setTeamModality(data.sport_modality || '');
       setTeamPrice(String(data.price_monthly || '150000'));
     }
   };
@@ -517,6 +521,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
           .update({
             name: teamName.trim(),
             sport: teamSport,
+            sport_modality: modalityToSave(teamSport, teamModality),
             price_monthly: Number(teamPrice) || 150000,
             branch_id: branch?.id || null,
           })
@@ -532,6 +537,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
             school_id: schoolId,
             name: teamName.trim(),
             sport: teamSport,
+            sport_modality: modalityToSave(teamSport, teamModality),
             price_monthly: Number(teamPrice) || 150000,
             branch_id: branch?.id || null,
             status: 'active',
@@ -834,7 +840,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Deporte *</Label>
-                <Select value={teamSport} onValueChange={setTeamSport}>
+                <Select value={teamSport} onValueChange={(v) => { setTeamSport(v); setTeamModality(''); }}>
                   <SelectTrigger>
                     <SelectValue placeholder="Seleccionar" />
                   </SelectTrigger>
@@ -855,6 +861,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
                 />
               </div>
             </div>
+            <FootballModalitySelect sport={teamSport} value={teamModality} onChange={setTeamModality} />
             <Button onClick={handleCreateTeam} disabled={saving} className="w-full">
               {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trophy className="h-4 w-4 mr-2" />}
               Crear Equipo

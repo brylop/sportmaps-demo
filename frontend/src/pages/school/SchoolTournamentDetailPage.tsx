@@ -14,6 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ArrowLeft, Trophy, Share2, Rocket, Link2, AlertCircle, Plus, Trash2, Save, UserPlus } from 'lucide-react';
 import { getIndividualRegistrations, assignTeams, IndividualRegistration } from '@/lib/api/tournaments';
 import { RegisterAthleteDialog } from '@/components/school/RegisterAthleteDialog';
+import { TournamentResultsPanel } from '@/components/tournaments/TournamentResultsPanel';
 import { CobroTorneoFields } from '@/components/school/CobroTorneoFields';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { mediosDeCobroDeLaEscuela, soloEfectivo } from '@/lib/tournaments/mediosDeCobro';
@@ -89,16 +90,6 @@ export default function SchoolTournamentDetailPage() {
   const [creatingTeam, setCreatingTeam] = useState<string | null>(null);
 
   // resultados (liga)
-  const [resCatId, setResCatId] = useState<string>('');
-  const [matches, setMatches] = useState<any[]>([]);
-  const [standings, setStandings] = useState<any[]>([]);
-  const [scorers, setScorers] = useState<any[]>([]);
-  const [scoreEdits, setScoreEdits] = useState<Record<string, { h: string; a: string }>>({});
-  const [genFormat, setGenFormat] = useState<'liga' | 'copa'>('liga');
-  const [openGoals, setOpenGoals] = useState<string | null>(null);
-  const [rosters, setRosters] = useState<Record<string, any>>({});
-  const [goalDraft, setGoalDraft] = useState<Record<string, Array<{ team_id: string; member_id: string; name: string }>>>({});
-  const [goalSel, setGoalSel] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -195,52 +186,6 @@ export default function SchoolTournamentDetailPage() {
     try {
       await bffClient.patch(`/api/v1/events/school-tournaments/${id}/delegations/${d.id}/payments/${payId}`, { action });
       toast({ title: action === 'verify' ? 'Pago verificado' : 'Pago rechazado' }); await loadDelegations();
-    } catch (e: any) { toast({ title: 'Error', description: e?.message, variant: 'destructive' }); }
-  };
-
-  const loadResults = useCallback(async (catId: string) => {
-    if (!catId) return;
-    try {
-      const [m, s] = await Promise.all([
-        bffClient.get<any[]>(`/api/v1/events/school-tournaments/${id}/matches?category_id=${catId}`),
-        bffClient.get<{ standings: any[]; scorers: any[] }>(`/api/v1/events/school-tournaments/${id}/standings?category_id=${catId}`),
-      ]);
-      setMatches(m); setStandings(s.standings || []); setScorers(s.scorers || []);
-    } catch (e: any) { toast({ title: 'Error', description: e?.message, variant: 'destructive' }); }
-  }, [id, toast]);
-
-  const genFixtures = async (catId: string) => {
-    try {
-      const r = await bffClient.post<{ matches: number }>(`/api/v1/events/school-tournaments/${id}/categories/${catId}/generate-fixtures`, { format: genFormat });
-      toast({ title: 'Calendario generado', description: `${r.matches} partidos (${genFormat}).` });
-      await loadResults(catId);
-    } catch (e: any) { toast({ title: 'No se pudo generar', description: e?.message, variant: 'destructive' }); }
-  };
-  const toggleGoals = async (matchId: string) => {
-    if (openGoals === matchId) { setOpenGoals(null); return; }
-    setOpenGoals(matchId);
-    if (!rosters[matchId]) {
-      try {
-        const r = await bffClient.get<any>(`/api/v1/events/school-tournaments/${id}/matches/${matchId}/rosters`);
-        setRosters((p) => ({ ...p, [matchId]: r }));
-      } catch (e: any) { toast({ title: 'Error', description: e?.message, variant: 'destructive' }); }
-    }
-  };
-  const addGoal = (matchId: string, team_id: string, member_id: string, name: string) => {
-    if (!team_id || !member_id) return;
-    setGoalDraft((p) => ({ ...p, [matchId]: [...(p[matchId] || []), { team_id, member_id, name }] }));
-  };
-  const saveResult = async (matchId: string) => {
-    const ed = scoreEdits[matchId];
-    if (!ed || ed.h === '' || ed.a === '') { toast({ title: 'Ingresa el marcador', variant: 'destructive' }); return; }
-    try {
-      await bffClient.patch(`/api/v1/events/school-tournaments/${id}/matches/${matchId}`, {
-        home_score: Number(ed.h), away_score: Number(ed.a),
-        goals: (goalDraft[matchId] || []).map((g) => ({ team_id: g.team_id, member_id: g.member_id })),
-      });
-      toast({ title: 'Resultado guardado' });
-      setOpenGoals(null); setGoalDraft((p) => ({ ...p, [matchId]: [] }));
-      await loadResults(resCatId);
     } catch (e: any) { toast({ title: 'Error', description: e?.message, variant: 'destructive' }); }
   };
 
@@ -353,10 +298,6 @@ export default function SchoolTournamentDetailPage() {
         if (v === 'inscritos') {
           if (isInternal && !regsLoaded) void loadIndividualRegistrations();
           if (!isInternal && !delsLoaded) void loadDelegations();
-        }
-        if (v === 'resultados') {
-          const c = resCatId || savedCats[0]?.id || '';
-          if (c) { setResCatId(c); void loadResults(c); }
         }
       }}>
         <TabsList>
@@ -620,128 +561,12 @@ export default function SchoolTournamentDetailPage() {
           )}
         </TabsContent>
 
-        {/* ─── RESULTADOS (Liga) ─── */}
-        <TabsContent value="resultados" className="mt-4 space-y-6">
-          {savedCats.length === 0 ? (
-            <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">
-              Primero agrega categorías (pestaña Categorías y Precios) para generar el calendario.
-            </CardContent></Card>
-          ) : (
-            <>
-              <div className="flex flex-wrap items-center gap-2">
-                <select className={selectCls + ' max-w-xs'} value={resCatId}
-                  onChange={(e) => { setResCatId(e.target.value); void loadResults(e.target.value); }}>
-                  {savedCats.map((c: any) => <option key={c.id} value={c.id}>{c.division} · {c.category} ({c.rama})</option>)}
-                </select>
-                <select className={selectCls + ' w-28'} value={genFormat} onChange={(e) => setGenFormat(e.target.value as 'liga' | 'copa')}>
-                  <option value="liga">Liga</option>
-                  <option value="copa">Copa</option>
-                </select>
-                <Button variant="outline" onClick={() => genFixtures(resCatId)}>Generar calendario</Button>
-              </div>
-
-              {/* Tabla de posiciones */}
-              <Card>
-                <CardHeader><CardTitle className="text-base">Tabla de posiciones</CardTitle></CardHeader>
-                <CardContent>
-                  {standings.length === 0 ? <p className="text-sm text-muted-foreground">Sin equipos/partidos aún.</p> : (
-                    <div className="overflow-x-auto rounded-md border">
-                      <Table>
-                        <TableHeader><TableRow>
-                          <TableHead>Equipo</TableHead><TableHead>PJ</TableHead><TableHead>G</TableHead><TableHead>E</TableHead><TableHead>P</TableHead>
-                          <TableHead>GF</TableHead><TableHead>GC</TableHead><TableHead>DG</TableHead><TableHead className="font-bold">Pts</TableHead>
-                        </TableRow></TableHeader>
-                        <TableBody>
-                          {standings.map((r: any, i: number) => (
-                            <TableRow key={r.team_id}>
-                              <TableCell className="font-medium">{i + 1}. {r.team_name}</TableCell>
-                              <TableCell>{r.P}</TableCell><TableCell>{r.W}</TableCell><TableCell>{r.D}</TableCell><TableCell>{r.L}</TableCell>
-                              <TableCell>{r.GF}</TableCell><TableCell>{r.GA}</TableCell><TableCell>{r.GD}</TableCell><TableCell className="font-bold">{r.Pts}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Goleadores */}
-              {scorers.length > 0 && (
-                <Card>
-                  <CardHeader><CardTitle className="text-base">Goleadores</CardTitle></CardHeader>
-                  <CardContent className="space-y-1 text-sm">
-                    {scorers.map((s: any, i: number) => (
-                      <div key={i} className="flex justify-between border-b py-1 last:border-0">
-                        <span>{i + 1}. {s.name}</span><span className="font-semibold">{s.goals}</span>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Partidos */}
-              <Card>
-                <CardHeader><CardTitle className="text-base">Partidos</CardTitle></CardHeader>
-                <CardContent className="space-y-2">
-                  {matches.length === 0 ? <p className="text-sm text-muted-foreground">Genera el calendario para ver los partidos.</p> : matches.map((m: any) => {
-                    const r = rosters[m.id];
-                    const draft = goalDraft[m.id] || [];
-                    return (
-                    <div key={m.id} className="space-y-2 rounded-md border p-2 text-sm">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant="outline">R{m.round}</Badge>
-                        <span className="flex-1 text-right">{m.home?.team_name ?? '—'}</span>
-                        <Input className="h-8 w-12 text-center" type="number" min={0}
-                          defaultValue={m.home_score ?? ''}
-                          onChange={(e) => setScoreEdits((p) => ({ ...p, [m.id]: { h: e.target.value, a: p[m.id]?.a ?? (m.away_score ?? '') } }))} />
-                        <span>-</span>
-                        <Input className="h-8 w-12 text-center" type="number" min={0}
-                          defaultValue={m.away_score ?? ''}
-                          onChange={(e) => setScoreEdits((p) => ({ ...p, [m.id]: { h: p[m.id]?.h ?? (m.home_score ?? ''), a: e.target.value } }))} />
-                        <span className="flex-1">{m.away?.team_name ?? '—'}</span>
-                        <Button size="sm" variant="ghost" onClick={() => toggleGoals(m.id)} title="Goleadores">⚽</Button>
-                        <Button size="sm" variant="ghost" onClick={() => saveResult(m.id)}>Guardar</Button>
-                        {m.status === 'played' && <Badge variant="secondary">jugado</Badge>}
-                      </div>
-                      {openGoals === m.id && (
-                        <div className="space-y-2 rounded bg-muted/40 p-2">
-                          {!r ? <span className="text-xs text-muted-foreground">Cargando jugadores…</span> : (
-                            <div className="grid gap-2 sm:grid-cols-2">
-                              {[r.home, r.away].map((tm: any, ti: number) => tm?.team_id ? (
-                                <div key={ti} className="space-y-1">
-                                  <div className="text-xs font-medium">{tm.team_name}</div>
-                                  <div className="flex gap-1">
-                                    <select className={selectCls + ' h-8'} value={goalSel[`${m.id}-${ti}`] ?? ''}
-                                      onChange={(e) => setGoalSel((p) => ({ ...p, [`${m.id}-${ti}`]: e.target.value }))}>
-                                      <option value="">— jugador —</option>
-                                      {(tm.members || []).map((mm: any) => <option key={mm.id} value={mm.id}>{mm.full_name}</option>)}
-                                    </select>
-                                    <Button size="sm" variant="outline" className="h-8" onClick={() => {
-                                      const sel = goalSel[`${m.id}-${ti}`];
-                                      const mm = (tm.members || []).find((x: any) => x.id === sel);
-                                      if (mm) addGoal(m.id, tm.team_id, mm.id, mm.full_name);
-                                    }}>+ gol</Button>
-                                  </div>
-                                </div>
-                              ) : null)}
-                            </div>
-                          )}
-                          {draft.length > 0 && (
-                            <div className="flex flex-wrap gap-1">
-                              {draft.map((g, gi) => <Badge key={gi} variant="secondary">⚽ {g.name}</Badge>)}
-                            </div>
-                          )}
-                          <p className="text-xs text-muted-foreground">Los goles se guardan al presionar "Guardar".</p>
-                        </div>
-                      )}
-                    </div>
-                    );
-                  })}
-                </CardContent>
-              </Card>
-            </>
-          )}
+        {/* ─── RESULTADOS: calendario por formato, tablas, cuadro y marcador en vivo ─── */}
+        <TabsContent value="resultados" className="mt-4">
+          <TournamentResultsPanel
+            eventId={id!}
+            categories={savedCats.map((c: any) => ({ id: c.id, division: c.division, category: c.category, rama: c.rama }))}
+          />
         </TabsContent>
       </Tabs>
     </div>

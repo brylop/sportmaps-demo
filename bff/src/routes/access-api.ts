@@ -3,6 +3,8 @@ import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, auditLog, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { invalidateDeviceCache, invalidateMappingCache, getHourBankSettings, computeHourBankBilledMinutes, formatHourBankMinutes } from './access-adms';
 import { getAccessBlockMechanism, buildBlockCommand, computeIsBlocked, athleteKey, BLOCK_COMMAND_TYPES } from '../utils/accessBlockMechanism';
+import { confirmarSugeridas } from '../services/hour-bank-overage-auto.service';
+import { normalizarEscalones } from '../services/hour-bank-balance-notices.shared';
 import { wakeSchool } from '../services/bridgeWsHub';
 import fs from 'fs';
 import path from 'path';
@@ -1112,13 +1114,19 @@ router.get('/hour-bank-overage-settings', requireAuth, async (req: Authenticated
     }
     const { data } = await supabase
       .from('school_settings')
-      .select('hours_plan_enabled, hour_bank_overage_charges_enabled, hours_billing_rounding')
+      .select('*')
       .eq('school_id', schoolId)
       .maybeSingle();
+    const d = (data ?? {}) as Record<string, any>;
     return res.json({
-      hours_plan_enabled: !!(data as any)?.hours_plan_enabled,
-      hour_bank_overage_charges_enabled: !!(data as any)?.hour_bank_overage_charges_enabled,
-      hours_billing_rounding: (data as any)?.hours_billing_rounding ?? 'none',
+      hours_plan_enabled: !!d.hours_plan_enabled,
+      hour_bank_overage_charges_enabled: !!d.hour_bank_overage_charges_enabled,
+      hours_billing_rounding: d.hours_billing_rounding ?? 'none',
+      // Confirmación automática de excedentes (NULL = apagada) y avisos de saldo ('{}' = sin avisos).
+      overage_auto_confirm_max_hours: d.hour_bank_overage_auto_confirm_max_hours == null ? null : Number(d.hour_bank_overage_auto_confirm_max_hours),
+      overage_auto_confirm_max_amount: d.hour_bank_overage_auto_confirm_max_amount == null ? null : Number(d.hour_bank_overage_auto_confirm_max_amount),
+      balance_notice_steps: normalizarEscalones(d.hour_bank_balance_notice_steps),
+      balance_notice_email_enabled: d.hour_bank_balance_notice_email_enabled !== false,
     });
   } catch (err: any) {
     return res.status(500).json({ error: 'Error al leer la configuración' });
@@ -1126,35 +1134,69 @@ router.get('/hour-bank-overage-settings', requireAuth, async (req: Authenticated
 });
 
 // ─── PATCH /api/v1/access/hour-bank-overage-settings ─────────────────────────
+// Campos (todos opcionales, al menos uno): enabled, overage_auto_confirm_max_hours,
+// overage_auto_confirm_max_amount (número > 0 o null = apagado), balance_notice_steps
+// (enteros 0..100; [] = sin avisos) y balance_notice_email_enabled.
 router.patch('/hour-bank-overage-settings', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { schoolId, role } = req;
     if (role !== 'owner') {
       return res.status(403).json({ error: 'Solo el owner de la escuela puede cambiar esta configuración' });
     }
-    const { enabled } = req.body as { enabled?: unknown };
-    if (typeof enabled !== 'boolean') {
-      return res.status(400).json({ error: 'enabled (boolean) es requerido' });
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const patch: Record<string, unknown> = {};
+
+    if ('enabled' in body) {
+      if (typeof body.enabled !== 'boolean') return res.status(400).json({ error: 'enabled debe ser true o false' });
+      patch.hour_bank_overage_charges_enabled = body.enabled;
+    }
+    for (const [campo, columna, etiqueta] of [
+      ['overage_auto_confirm_max_hours', 'hour_bank_overage_auto_confirm_max_hours', 'El tope de horas'],
+      ['overage_auto_confirm_max_amount', 'hour_bank_overage_auto_confirm_max_amount', 'El tope de valor'],
+    ] as const) {
+      if (!(campo in body)) continue;
+      const v = body[campo];
+      if (v === null) { patch[columna] = null; continue; }
+      const n = Number(v);
+      if (typeof v === 'boolean' || v === '' || !Number.isFinite(n) || n <= 0 || n > 100000000) {
+        return res.status(400).json({ error: `${etiqueta} debe ser un número mayor que 0, o null para apagarlo` });
+      }
+      patch[columna] = n;
+    }
+    if ('balance_notice_steps' in body) {
+      const raw = body.balance_notice_steps;
+      if (!Array.isArray(raw)) return res.status(400).json({ error: 'balance_notice_steps debe ser una lista de porcentajes' });
+      const limpio = normalizarEscalones(raw);
+      if (limpio.length !== new Set(raw.map((x) => Number(x))).size) {
+        return res.status(400).json({ error: 'Cada escalón debe ser un entero entre 0 y 100' });
+      }
+      patch.hour_bank_balance_notice_steps = limpio;
+    }
+    if ('balance_notice_email_enabled' in body) {
+      if (typeof body.balance_notice_email_enabled !== 'boolean') {
+        return res.status(400).json({ error: 'balance_notice_email_enabled debe ser true o false' });
+      }
+      patch.hour_bank_balance_notice_email_enabled = body.balance_notice_email_enabled;
+    }
+    if (Object.keys(patch).length === 0) {
+      return res.status(400).json({ error: 'No hay nada que guardar' });
     }
 
     const { data: before } = await supabase
       .from('school_settings')
-      .select('hour_bank_overage_charges_enabled')
+      .select('*')
       .eq('school_id', schoolId)
       .maybeSingle();
     if (!before) return res.status(404).json({ error: 'La escuela no tiene configuración' });
 
-    const { error } = await supabase
-      .from('school_settings')
-      .update({ hour_bank_overage_charges_enabled: enabled })
-      .eq('school_id', schoolId);
+    const { error } = await supabase.from('school_settings').update(patch).eq('school_id', schoolId);
     if (error) return res.status(500).json({ error: 'No se pudo guardar la configuración' });
 
-    await auditLog(req, 'hour_bank_overage_charges_toggled', 'school_settings', schoolId!,
-      { hour_bank_overage_charges_enabled: (before as any).hour_bank_overage_charges_enabled },
-      { hour_bank_overage_charges_enabled: enabled });
+    const antes: Record<string, unknown> = {};
+    for (const k of Object.keys(patch)) antes[k] = (before as any)[k] ?? null;
+    await auditLog(req, 'hour_bank_overage_settings_changed', 'school_settings', schoolId!, antes, patch);
 
-    return res.json({ success: true, hour_bank_overage_charges_enabled: enabled });
+    return res.json({ success: true, ...patch });
   } catch (err: any) {
     return res.status(500).json({ error: 'Error al guardar la configuración' });
   }
@@ -1224,6 +1266,27 @@ router.get('/hour-bank-overage-charges', requireAuth, async (req: AuthenticatedR
     return res.json({ charges });
   } catch (err: any) {
     return res.status(500).json({ error: 'Error al listar los cargos por horas de más' });
+  }
+});
+
+// ─── POST /api/v1/access/hour-bank-overage-charges/confirm-all ───────────────
+// «Cobrar todos»: confirma de una vez las sugeridas elegibles de la escuela. Se omiten (quedan
+// `suggested` para decidir a mano) las inscripciones no activas y lo del dueño. Idempotente.
+router.post('/hour-bank-overage-charges/confirm-all', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId, role } = req;
+    if (role !== 'owner') {
+      return res.status(403).json({ error: 'Solo el owner de la escuela puede confirmar cargos por horas de más' });
+    }
+    const { data: esc } = await supabase.from('schools').select('owner_id').eq('id', schoolId).maybeSingle();
+    const r = await confirmarSugeridas({
+      schoolId: schoolId!, actorId: req.user.id, ownerId: ((esc as any)?.owner_id as string | null) ?? null,
+      origen: 'manual', log: req.log as any,
+    });
+    return res.json({ success: true, confirmed: r.confirmados, skipped: r.omitidos, errors: r.errores, payment_ids: r.pagos });
+  } catch (err: any) {
+    req.log?.error({ err: err?.message || err }, 'Error en «Cobrar todos» de excedentes');
+    return res.status(500).json({ error: 'Error al confirmar los cargos' });
   }
 });
 

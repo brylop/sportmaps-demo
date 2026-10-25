@@ -26,6 +26,7 @@ interface TeamSportRow {
   id: string;
   name: string | null;
   sport: string | null;
+  sport_modality?: string | null;
   school_id: string | null;
 }
 
@@ -34,7 +35,7 @@ export const teamTacticalSportKey = (teamId: string | null | undefined) => ['tea
 export async function fetchTeamSportRow(teamId: string): Promise<TeamSportRow | null> {
   const { data, error } = await supabase
     .from('teams')
-    .select('id, name, sport, school_id')
+    .select('id, name, sport, sport_modality, school_id')
     .eq('id', teamId)
     .maybeSingle();
   if (error) return null;

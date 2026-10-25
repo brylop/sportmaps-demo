@@ -65,12 +65,12 @@ const isFalse = (v: unknown) => v === 'false' || v === '0';
  */
 export async function loadSchoolLibrarySports(schoolId: string): Promise<BoardSport[]> {
   const [teamsRes, schoolRes] = await Promise.all([
-    supabase.from('teams').select('sport, name, status').eq('school_id', schoolId),
+    supabase.from('teams').select('sport, sport_modality, name, status').eq('school_id', schoolId),
     supabase.from('schools').select('sports').eq('id', schoolId).maybeSingle(),
   ]);
   if (teamsRes.error) throw teamsRes.error;
   if (schoolRes.error) throw schoolRes.error;
-  const teams = ((teamsRes.data ?? []) as { sport: string | null; name: string | null; status: string | null }[])
+  const teams = ((teamsRes.data ?? []) as { sport: string | null; sport_modality: string | null; name: string | null; status: string | null }[])
     .filter((t) => t.status !== 'inactive');
   const schoolSports = (schoolRes.data as { sports?: unknown } | null)?.sports;
   return schoolBoardSports({

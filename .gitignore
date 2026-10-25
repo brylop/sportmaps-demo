@@ -251,3 +251,6 @@ scripts/qa-responsive/out/
 # Datos personales de menores/clientes: no versionar
 scripts/monster-volley-norte-import/data/
 docs/gym-rm-atletas-sin-plan-*.csv
+
+# Volcados reales de usuarios de los lectores (datos personales): no se commitean
+scripts/dreamers-bridge/usuarios_*.csv
