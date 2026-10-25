@@ -22118,6 +22118,7 @@ export type Database = {
           school_id: string | null
           season: string | null
           sport: string
+          sport_modality: string | null
           status: string | null
           student_count: number
           updated_at: string | null
@@ -22150,6 +22151,7 @@ export type Database = {
           school_id?: string | null
           season?: string | null
           sport: string
+          sport_modality?: string | null
           status?: string | null
           student_count?: number
           updated_at?: string | null
@@ -22182,6 +22184,7 @@ export type Database = {
           school_id?: string | null
           season?: string | null
           sport?: string
+          sport_modality?: string | null
           status?: string | null
           student_count?: number
           updated_at?: string | null
