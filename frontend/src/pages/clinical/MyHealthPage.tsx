@@ -19,6 +19,9 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { esAcudienteV2 } from '@/lib/vistaAcudiente';
 import { formatDayCO, todayColombia } from '@/lib/dateUtils';
 import {
   getMyHealthSummary, grantConsents, logExerciseDone, revokeConsent, unlogExerciseDone,
@@ -86,7 +89,7 @@ function PendingConsents({ patient }: { patient: HealthSummaryPatient }) {
           <div key={c.type} className="rounded-lg border p-3 space-y-2">
             <div className="flex items-center justify-between gap-2">
               <p className="font-medium text-sm">{c.title || CONSENT_LABEL[c.type]}</p>
-              <span className={c.required ? 'text-[11px] text-rose-600 dark:text-rose-400 font-medium' : 'text-[11px] text-muted-foreground'}>
+              <span className={c.required ? 'text-xs text-rose-600 dark:text-rose-400 font-medium' : 'text-xs text-muted-foreground'}>
                 {c.required ? 'Obligatoria' : 'Opcional'}
               </span>
             </div>
@@ -469,45 +472,76 @@ function PatientCard({ patient, today, days }: { patient: HealthSummaryPatient; 
 export default function MyHealthPage() {
   const today = todayColombia();
   const days = useMemo(() => lastNDaysColombia(14), []);
+  const { profile } = useAuth();
+  const { currentUserRole } = useSchoolContext();
+  // Acudiente V2: es «Salud de mis hijos» (así se llama en Más), en una columna.
+  const acudienteV2 = esAcudienteV2(currentUserRole ?? profile?.role);
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: SUMMARY_KEY,
     queryFn: getMyHealthSummary,
   });
 
   return (
-    <div className="container max-w-2xl mx-auto px-4 py-6 space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2"><HeartPulse className="w-6 h-6 text-primary" />Mi salud</h1>
-        <p className="text-sm text-muted-foreground">Tu plan con tu profesional de la salud: ejercicios, citas y recuperación.</p>
-      </div>
+    <div className={acudienteV2 ? 'mx-auto w-full max-w-page-narrow space-y-4 pb-6' : 'container max-w-2xl mx-auto px-4 py-6 space-y-4'}>
+      {acudienteV2 ? (
+        <header className="space-y-1">
+          <h1 className="text-2xl font-bold">Salud de mis hijos</h1>
+          <p className="text-base text-muted-foreground">El plan de cada uno con su profesional de salud: ejercicios, citas y recuperación.</p>
+        </header>
+      ) : (
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2"><HeartPulse className="w-6 h-6 text-primary" />Mi salud</h1>
+          <p className="text-sm text-muted-foreground">Tu plan con tu profesional de la salud: ejercicios, citas y recuperación.</p>
+        </div>
+      )}
 
       {isLoading && (
-        <div className="space-y-3">
+        <div className="space-y-3" aria-busy="true" aria-label="Cargando el plan de salud">
           <Skeleton className="h-28 w-full" />
           <Skeleton className="h-64 w-full" />
         </div>
       )}
 
       {error && !isLoading && (
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription className="flex flex-wrap items-center gap-2">
-            {clinicalErrorMessage(error)}
-            <Button size="sm" variant="outline" onClick={() => refetch()}>Reintentar</Button>
-          </AlertDescription>
-        </Alert>
+        acudienteV2 ? (
+          <div role="alert" className="space-y-3 rounded-xl border border-destructive/40 bg-destructive/5 p-4">
+            <p className="flex items-center gap-2 font-semibold text-destructive">
+              <AlertTriangle className="h-5 w-5 shrink-0" aria-hidden="true" />
+              No pudimos cargar la salud de tus hijos
+            </p>
+            <p className="text-sm text-muted-foreground">{clinicalErrorMessage(error)}</p>
+            <Button variant="outline" className="min-h-touch" onClick={() => refetch()}>Reintentar</Button>
+          </div>
+        ) : (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription className="flex flex-wrap items-center gap-2">
+              {clinicalErrorMessage(error)}
+              <Button size="sm" variant="outline" onClick={() => refetch()}>Reintentar</Button>
+            </AlertDescription>
+          </Alert>
+        )
       )}
 
       {!isLoading && !error && (data ?? []).length === 0 && (
-        <Card>
-          <CardContent className="py-10 text-center space-y-2">
-            <Stethoscope className="w-10 h-10 mx-auto text-muted-foreground" />
-            <p className="font-medium">Todavía no tienes un plan de salud</p>
+        acudienteV2 ? (
+          <div className="space-y-1 rounded-2xl border bg-card p-6 text-center">
+            <p className="font-semibold">Todavía no hay un plan de salud</p>
             <p className="text-sm text-muted-foreground">
-              Cuando un profesional de la salud te atienda en SportMaps, aquí verás tu plan, tus ejercicios, tus citas y cómo va la recuperación.
+              Cuando un profesional de salud atienda a uno de tus hijos en SportMaps, aquí verás su plan, sus ejercicios y sus citas.
             </p>
-          </CardContent>
-        </Card>
+          </div>
+        ) : (
+          <Card>
+            <CardContent className="py-10 text-center space-y-2">
+              <Stethoscope className="w-10 h-10 mx-auto text-muted-foreground" />
+              <p className="font-medium">Todavía no tienes un plan de salud</p>
+              <p className="text-sm text-muted-foreground">
+                Cuando un profesional de la salud te atienda en SportMaps, aquí verás tu plan, tus ejercicios, tus citas y cómo va la recuperación.
+              </p>
+            </CardContent>
+          </Card>
+        )
       )}
 
       {(data ?? []).map((p) => <PatientCard key={p.patient_id} patient={p} today={today} days={days} />)}

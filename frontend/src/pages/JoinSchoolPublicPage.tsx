@@ -727,7 +727,7 @@ export default function JoinSchoolPublicPage() {
                   {(prefilled.name || prefilled.email || prefilled.phone) && (
                     <p className="text-[11px] text-muted-foreground -mt-1 flex items-center gap-1">
                       <ShieldCheck className="h-3 w-3 shrink-0" />
-                      {data.school?.name} ya tenía estos datos tuyos — tocá <Eye className="h-3 w-3 inline" /> para verlos, o escribe encima para corregirlos.
+                      {data.school?.name} ya tenía estos datos tuyos — toca <Eye className="h-3 w-3 inline" /> para verlos, o escribe encima para corregirlos.
                     </p>
                   )}
                   <div>

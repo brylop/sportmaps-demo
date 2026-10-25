@@ -13,7 +13,19 @@
 import { supabase } from '../config/supabase';
 import { pesos } from './whatsapp-reclamo-valor.service';
 
-export interface PlanConPrecio { nombre: string | null; precio: number | string | null }
+export interface PlanConPrecio {
+    nombre: string | null;
+    precio: number | string | null;
+    /** `offering_plans.max_sessions`: clases al mes. Sin dato (null/0) no se inventa. */
+    clases?: number | string | null;
+}
+
+/** «8 clases al mes» / «1 clase al mes»; null si el plan no tiene un tope cargado. */
+export function textoDeClases(clases: number | string | null | undefined): string | null {
+    const n = Math.round(Number(clases ?? 0));
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return `${n} ${n === 1 ? 'clase' : 'clases'} al mes`;
+}
 
 /** «4 DÍAS / SEMANA (PROFUNDIZACIÓN) » → «4 días por semana (profundización)». */
 export function nombreDePlan(nombre: string | null | undefined): string {
@@ -28,7 +40,7 @@ export function nombreDePlan(nombre: string | null | undefined): string {
 export function textoDePrecios(planes: PlanConPrecio[]): string | null {
     const vistos = new Set<string>();
     const lista = planes
-        .map((p) => ({ nombre: nombreDePlan(p.nombre), precio: Math.round(Number(p.precio ?? 0)) }))
+        .map((p) => ({ nombre: nombreDePlan(p.nombre), precio: Math.round(Number(p.precio ?? 0)), clases: textoDeClases(p.clases) }))
         .filter((p) => p.nombre && Number.isFinite(p.precio) && p.precio > 0)
         .filter((p) => {
             const clave = `${p.nombre.toLowerCase()}|${p.precio}`;
@@ -38,7 +50,9 @@ export function textoDePrecios(planes: PlanConPrecio[]): string | null {
         })
         .sort((a, b) => a.precio - b.precio);
     if (!lista.length) return null;
-    return ['💰 Estos son los valores de la mensualidad:', ...lista.map((p) => `• ${p.nombre}: *${pesos(p.precio)}*`)].join('\n');
+    // «Plan pro: *$150.000* · 8 clases al mes». Sin clases cargadas no se escribe nada (no se inventa).
+    return ['💰 Estos son los valores de la mensualidad:',
+        ...lista.map((p) => `• ${p.nombre}: *${pesos(p.precio)}*${p.clases ? ` · ${p.clases}` : ''}`)].join('\n');
 }
 
 /** Planes activos de la escuela con su precio. Nunca lanza. */
@@ -46,13 +60,98 @@ export async function textoDePreciosDeEscuela(schoolId: string): Promise<string 
     try {
         const { data, error } = await supabase
             .from('offering_plans')
-            .select('name, price, is_active')
+            .select('name, price, is_active, max_sessions')
             .eq('school_id', schoolId)
             .eq('is_active', true)
             .order('price', { ascending: true })
             .limit(30);
         if (error || !Array.isArray(data)) return null;
-        return textoDePrecios((data as any[]).map((p) => ({ nombre: p.name, precio: p.price })));
+        return textoDePrecios((data as any[]).map((p) => ({ nombre: p.name, precio: p.price, clases: p.max_sessions })));
+    } catch {
+        return null;
+    }
+}
+
+// ─── «¿Cuántas clases tiene el plan pro?» (Dynasty 2026-10-24) ────────────────
+//
+// Sin regla, la pregunta se quedaba en silencio y una hora después salía «Todavía
+// nadie de la escuela ha podido contestarte». El dato está en el catálogo
+// (`offering_plans.max_sessions`): se contesta determinista, sin escalar.
+// «Plan pro» (8 clases) no es «PLAN SELECCION» (sin tope cargado): cada plan se
+// busca por su nombre COMPLETO y el que no tiene `max_sessions` NO inventa nada.
+
+export interface PlanDeCatalogo extends PlanConPrecio { activo?: boolean | null }
+
+/** Normaliza para comparar nombres de plan: sin tildes, sin signos, sin «plan». */
+function claveDePlan(t: string | null | undefined): string {
+    return normalizarPrecio(t).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+        .replace(/^plan /, '').trim();
+}
+
+/**
+ * ¿Pregunta cuántas clases (o días, o veces por semana) trae un plan?
+ * «¿El plan pro cuántas clases son?», «cuántas clases incluye la mensualidad»,
+ * «¿cuántas veces a la semana es el plan elite?». Debe nombrar un plan o decir
+ * «plan(es)» / «mensualidad»: «¿cuántas clases hay hoy?» no es esto. Pura.
+ */
+export function preguntaPorClasesDePlan(texto: string | null | undefined): boolean {
+    const t = normalizarPrecio(texto).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ');
+    if (!t) return false;
+    if (YA_PAGA.some((re) => re.test(t))) return false;
+    const cuantas = /\bcuantas (clases|sesiones|veces|dias|horas)\b/.test(t)
+        || /\bcuantos (dias|entrenamientos|entrenos|cupos)\b/.test(t)
+        || /\bcuantas son\b/.test(t);
+    if (!cuantas) return false;
+    return /\b(plan|planes|mensualidad|paquete|paquetes|incluye|incluyen)\b/.test(t);
+}
+
+export interface RespuestaClases { texto: string; sinDato: boolean }
+
+/**
+ * La respuesta, sobre el catálogo de planes activos. null = no hay con qué
+ * contestar (sin planes). `sinDato` = nombró un plan que no trae tope de clases:
+ * se dice que la escuela lo confirma y el bot lo deja en el buzón. Pura.
+ */
+export function respuestaClasesDePlan(planes: PlanDeCatalogo[], texto: string | null | undefined): RespuestaClases | null {
+    const activos = planes.filter((p) => p.activo !== false && nombreDePlan(p.nombre));
+    if (!activos.length) return null;
+    const t = ` ${normalizarPrecio(texto).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ')} `;
+    // Un plan «coincide» si TODAS las palabras de su nombre están en la pregunta; gana el de nombre más largo.
+    const coincidentes = activos
+        .map((p) => ({ p, clave: claveDePlan(p.nombre) }))
+        .filter(({ clave }) => clave && clave.split(' ').every((w) => t.includes(` ${w} `)))
+        .sort((a, b) => b.clave.length - a.clave.length);
+    const elegido = coincidentes[0]?.p;
+    if (elegido) {
+        const nombre = nombreDePlan(elegido.nombre).replace(/^plan /i, '');
+        const clases = textoDeClases(elegido.clases);
+        const precio = Math.round(Number(elegido.precio ?? 0));
+        if (!clases) {
+            return { sinDato: true, texto: `El plan *${nombre}* no tiene un número de clases fijo en mi catálogo; ` +
+                'la escuela te confirma cuántas incluye y te responde por aquí. 🙏' };
+        }
+        return { sinDato: false, texto: `El plan *${nombre}* incluye *${clases}*` +
+            (precio > 0 ? ` y cuesta *${pesos(precio)}* al mes.` : '.') };
+    }
+    // No nombró un plan que exista: la lista completa (con clases donde se sabe).
+    const lista = textoDePrecios(activos);
+    return lista ? { sinDato: false, texto: lista } : null;
+}
+
+/** Catálogo activo de la escuela → respuesta. Nunca lanza (null: sigue el camino de siempre). */
+export async function responderClasesDePlan(schoolId: string, texto: string | null | undefined): Promise<RespuestaClases | null> {
+    if (!preguntaPorClasesDePlan(texto)) return null;
+    try {
+        const { data, error } = await supabase
+            .from('offering_plans')
+            .select('name, price, is_active, max_sessions')
+            .eq('school_id', schoolId)
+            .eq('is_active', true)
+            .order('price', { ascending: true })
+            .limit(30);
+        if (error || !Array.isArray(data)) return null;
+        return respuestaClasesDePlan((data as any[]).map((p) => ({
+            nombre: p.name, precio: p.price, clases: p.max_sessions, activo: p.is_active })), texto);
     } catch {
         return null;
     }

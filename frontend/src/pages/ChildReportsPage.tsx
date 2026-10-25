@@ -1,95 +1,57 @@
-import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { ErrorState } from '@/components/common/ErrorState';
-import { FileText, ChevronRight, CheckCircle2 } from 'lucide-react';
+/**
+ * Todos los informes mensuales de un hijo — acudiente V2.
+ * Misma fuente que la pestaña Informes (athlete_reports publicados).
+ */
+import { Link, useParams } from 'react-router-dom';
+import { ChevronRight, FileText } from 'lucide-react';
 import { useAthleteReports } from '@/hooks/useAthleteReports';
-
-const MESES = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
-];
+import { firstName } from '@/components/parent/v2/hijos/hijosUtils';
+import { EmptyNote, InlineError, Pill, Section, SectionSkeleton } from '@/components/parent/v2/hijos/parts';
+import { CabeceraHijo, PaginaHijo, VolverLegado } from '@/components/parent/hijo-detalle/HijoDetalle';
+import { useHijoBasico } from '@/components/parent/hijo-detalle/useHijoDetalle';
+import { plural, reportTitle } from '@/components/parent/hijo-detalle/hijoDetalleUtils';
 
 export default function ChildReportsPage() {
   const { id } = useParams<{ id: string }>();
-
-  const { data: child } = useQuery({
-    queryKey: ['child-basic', id],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('children').select('id, full_name').eq('id', id!).single();
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!id,
-  });
-
-  const { data: reports, isLoading, error, refetch } = useAthleteReports('child', id);
-
-  if (isLoading) {
-    return <LoadingSpinner fullScreen text="Cargando informes..." />;
-  }
-
-  if (error) {
-    return (
-      <ErrorState
-        title="Error al cargar los informes"
-        message="Hubo un problema al recuperar los informes mensuales."
-        onRetry={() => refetch()}
-      />
-    );
-  }
+  const { data: child } = useHijoBasico(id);
+  const { data: reports, isLoading, isError, refetch } = useAthleteReports('child', id);
+  const nombre = child?.full_name ? firstName(child.full_name) : null;
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Informes Mensuales</h1>
-        <p className="text-muted-foreground mt-1">
-          {child?.full_name ? `Historial de ${child.full_name}` : 'Historial de informes publicados'}
-        </p>
-      </div>
+    <PaginaHijo>
+      <VolverLegado to="/children" label="Volver a Hijos" />
+      <CabeceraHijo
+        titulo={nombre ? `Informes de ${nombre}` : 'Informes mensuales'}
+        sub={reports && reports.length > 0 ? `${plural(reports.length, 'informe publicado', 'informes publicados')} por la escuela.` : 'El resumen que el profe publica cada mes.'}
+      />
 
-      {!reports || reports.length === 0 ? (
-        <Card className="border-dashed">
-          <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
-            <FileText className="h-10 w-10 text-muted-foreground opacity-40" />
-            <p className="text-sm text-muted-foreground max-w-xs">
-              Todavía no hay informes mensuales publicados para este atleta.
-            </p>
-          </CardContent>
-        </Card>
+      {isLoading ? (
+        <SectionSkeleton rows={3} label="Cargando los informes" />
+      ) : isError ? (
+        <InlineError message="No pudimos cargar los informes mensuales. Revisa tu conexión e intenta de nuevo." onRetry={() => refetch()} />
+      ) : !reports || reports.length === 0 ? (
+        <EmptyNote icon={<FileText className="h-8 w-8 opacity-40" aria-hidden="true" />}>
+          <p className="font-medium text-foreground">Todavía no hay informes mensuales{nombre ? ` de ${nombre}` : ''}.</p>
+          <p className="mt-1">Cuando el profe publique el informe del mes, aparecerá aquí.</p>
+        </EmptyNote>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <Section>
           {reports.map((r) => (
-            <Link key={r.id} to={`/children/${id}/reports/${r.id}`}>
-              <Card className="hover:border-primary/40 hover:shadow-lg transition-all cursor-pointer h-full">
-                <CardContent className="p-4 flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                    <FileText className="h-5 w-5 text-primary" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-sm">
-                      {MESES[r.period_month - 1]} {r.period_year}
-                    </p>
-                    {r.viewed_at ? (
-                      <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                        <CheckCircle2 className="h-3 w-3" /> Visto
-                      </span>
-                    ) : (
-                      <Badge variant="outline" className="text-[10px] h-4 px-1.5 text-green-600 border-green-500/30 bg-green-500/5">
-                        Nuevo
-                      </Badge>
-                    )}
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                </CardContent>
-              </Card>
+            <Link
+              key={r.id}
+              to={`/children/${id}/reports/${r.id}`}
+              className="flex min-h-touch items-center gap-3 border-t px-4 py-3 transition-colors first:border-t-0 hover:bg-muted/50"
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+                <FileText className="h-4 w-4" aria-hidden="true" />
+              </span>
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">{reportTitle(r.period_month, r.period_year)}</span>
+              {r.viewed_at ? <span className="text-xs text-muted-foreground">Visto</span> : <Pill tone="info">Nuevo</Pill>}
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
             </Link>
           ))}
-        </div>
+        </Section>
       )}
-    </div>
+    </PaginaHijo>
   );
 }

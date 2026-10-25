@@ -769,7 +769,7 @@ export default function PublicTrialClassBookingPage() {
           {step === 'welcome' && (
             <div className="space-y-4 animate-in fade-in duration-300">
               <p className="text-xs text-center text-muted-foreground">
-                Para darte la mejor experiencia, contanos un poco de vos
+                Para darte la mejor experiencia, cuéntanos un poco de ti
               </p>
               <div className="grid grid-cols-1 gap-3">
                 <button
@@ -811,8 +811,8 @@ export default function PublicTrialClassBookingPage() {
               </Button>
               <p className="text-[11px] text-center text-muted-foreground">
                 {returningHint === 'new'
-                  ? 'Verifiquemos tu correo — si es tu primera vez, agendás una clase de prueba 🎉'
-                  : 'Si ya tenés cuenta, te pedimos tu contraseña acá mismo. Si no, agendás una clase de prueba.'}
+                  ? 'Verifiquemos tu correo — si es tu primera vez, agendas una clase de prueba 🎉'
+                  : 'Si ya tienes cuenta, te pedimos tu contraseña acá mismo. Si no, agendas una clase de prueba.'}
               </p>
             </div>
           )}
@@ -835,7 +835,7 @@ export default function PublicTrialClassBookingPage() {
           {/* ── Ya registrado: login inline, sin salir de la página ── */}
           {step === 'password' && (
             <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
-              <p className="text-xs text-muted-foreground">Ya tenés cuenta con <strong>{email}</strong> — iniciá sesión para agendar tu clase.</p>
+              <p className="text-xs text-muted-foreground">Ya tienes cuenta con <strong>{email}</strong> — inicia sesión para agendar tu clase.</p>
               <div className="space-y-2">
                 <Label className="text-xs font-semibold">Contraseña</Label>
                 <div className="relative">
@@ -851,7 +851,7 @@ export default function PublicTrialClassBookingPage() {
 
           {step === 'plan_pick_child' && (
             <div className="space-y-3 animate-in fade-in slide-in-from-right-4 duration-300">
-              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">¿Para quién agendás?</Label>
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">¿Para quién agendas?</Label>
               {planChildren.map((c) => (
                 <button key={c.id} onClick={() => handlePickPlanChild(c)} className="w-full text-left rounded-xl border-2 border-border/50 hover:border-primary/40 p-4 transition-all flex items-center gap-2">
                   <User className="h-4 w-4 text-primary" /> <span className="font-semibold text-sm">{c.full_name}</span>
@@ -1487,7 +1487,7 @@ export default function PublicTrialClassBookingPage() {
 
           {step === 'category' && (
             <div className="space-y-3 animate-in fade-in duration-300">
-              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">¿Qué querés probar?</Label>
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">¿Qué quieres probar?</Label>
               {schoolInfo.trial_categories.map((c) => (
                 <button
                   key={c.id}
@@ -1506,7 +1506,7 @@ export default function PublicTrialClassBookingPage() {
           {step === 'slots' && (
             <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                <Calendar className="h-3.5 w-3.5" /> Elegí un horario
+                <Calendar className="h-3.5 w-3.5" /> Elige un horario
               </p>
               {loadingSlots ? (
                 <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />

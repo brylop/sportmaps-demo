@@ -89,7 +89,7 @@ describe('cierre por la escuela', () => {
         const { esRecuperable } = await import('./whatsapp-recuperacion.service');
         const m = marcaDeCierre('resuelto', 'lo registré en Pagos', 'u', 'recuperado: varios_cobros — x');
         expect(esRecuperable({ status: 'ignored', error_message: m, media_id: 'm' }, true)).toBe(false);
-    });
+    }, 30_000); // el import dinámico del servicio arrastra el bot y tarda ~5 s en frío
 });
 
 describe('filasParaAutocierre', () => {

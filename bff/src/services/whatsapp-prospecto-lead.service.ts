@@ -81,6 +81,41 @@ export interface ParamsLeadWa {
     /** Entrantes de texto del prospecto, del más viejo al más nuevo. */
     textos: string[];
     estado: 'nuevo' | 'respondido';
+    /**
+     * Mini-registro de la puerta única (conversación v2): el lead queda COMPLETO.
+     * `full_name` pasa a ser el del DEPORTISTA (como en la reserva de cortesía) y
+     * el nombre de quien escribe queda en `source_detail.contacto`.
+     */
+    completo?: {
+        deportista: string;
+        acudiente?: string | null;
+        /** ISO `YYYY-MM-DD`; null si solo dijo la edad (no se inventa una fecha). */
+        fechaNacimiento?: string | null;
+        edad?: number | null;
+        categoriaSugerida?: string | null;
+        quiere?: string | null;
+    };
+}
+
+/** Columnas y detalle que el mini-registro agrega al lead (pura). */
+export function camposDeLeadCompleto(
+    c: NonNullable<ParamsLeadWa['completo']>, contacto: string | null, ahora: string,
+): { columnas: Record<string, unknown>; detalle: Record<string, unknown> } {
+    return {
+        columnas: {
+            full_name: c.deportista.trim(),
+            guardian_name: c.acudiente?.trim() || null,
+            birth_date: c.fechaNacimiento ?? null,
+            suggested_category: c.categoriaSugerida ?? null,
+        },
+        detalle: {
+            via: 'puerta_v2',
+            registro_completo_at: ahora,
+            ...(contacto ? { contacto } : {}),
+            ...(c.edad != null ? { edad: c.edad } : {}),
+            ...(c.quiere ? { quiere: c.quiere } : {}),
+        },
+    };
 }
 
 /**
@@ -110,7 +145,9 @@ export async function registrarLeadDeProspecto(p: ParamsLeadWa): Promise<{ leadI
             const status = (RANGO[nuevoStatus] ?? 0) > (RANGO[previo.status] ?? 0) ? nuevoStatus : previo.status;
             const etapaAntes = etapaDeLead(previo);
             const etapa = siguienteEtapa(etapaAntes, p.estado);
+            const completo = p.completo ? camposDeLeadCompleto(p.completo, p.nombre, ahora) : null;
             const { error } = await supabase.from('school_signup_leads').update({
+                ...(completo?.columnas ?? {}),
                 status,
                 source_detail: {
                     ...sd,
@@ -124,6 +161,7 @@ export async function registrarLeadDeProspecto(p: ParamsLeadWa): Promise<{ leadI
                     mensajes: ultimos,
                     ultima_actividad: ahora,
                     ...(p.estado === 'respondido' ? { respondido_at: sd.respondido_at ?? ahora } : {}),
+                    ...(completo?.detalle ?? {}),
                 },
                 updated_at: ahora,
             }).eq('id', previo.id);
@@ -132,10 +170,12 @@ export async function registrarLeadDeProspecto(p: ParamsLeadWa): Promise<{ leadI
         }
 
         const { data: escuela } = await supabase.from('schools').select('slug').eq('id', p.schoolId).maybeSingle();
+        const nuevoCompleto = p.completo ? camposDeLeadCompleto(p.completo, p.nombre, ahora) : null;
         const { data, error } = await supabase.from('school_signup_leads').insert({
             school_id: p.schoolId,
             source_slug: (escuela as any)?.slug ?? 'whatsapp',
             full_name: (p.nombre || '').trim() || 'Prospecto WhatsApp',
+            ...(nuevoCompleto?.columnas ?? {}),
             phone: telefonoDeLeadWa(p.contactWaId),
             how_heard: 'whatsapp',
             notes: ultimos.join(' | ').slice(0, 1000) || null,
@@ -152,6 +192,7 @@ export async function registrarLeadDeProspecto(p: ParamsLeadWa): Promise<{ leadI
                 mensajes: ultimos,
                 ultima_actividad: ahora,
                 ...(p.estado === 'respondido' ? { respondido_at: ahora } : {}),
+                ...(nuevoCompleto?.detalle ?? {}),
             },
         }).select('id').single();
         if (error) throw error;

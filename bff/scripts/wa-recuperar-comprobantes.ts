@@ -60,6 +60,7 @@ const ESCUELA = arg('--escuela');
 const DESDE = arg('--desde');
 const APLICAR = process.argv.includes('--aplicar');
 const REPROCESAR = process.argv.includes('--reprocesar');
+const INCLUIR_NO_ATENDIDOS = process.argv.includes('--incluir-no-atendidos');
 
 const cop = (n: number | null | undefined) =>
     n === null || n === undefined ? '—'
@@ -90,7 +91,12 @@ async function main() {
     const { data: filas, error } = await q.limit(2000);
     if (error) { console.error('No se pudo leer la cola:', error.message); process.exit(1); }
     // La regla de qué se toma vive en el servicio (probada); acá solo se aplica.
-    const lista = ((filas ?? []) as unknown as FilaParaRecuperar[]).filter((f) => esRecuperable(f, REPROCESAR));
+    // --incluir-no-atendidos (2026-10-24): también lo que el worker cerró como
+    // 'contacto_no_atendido' (Dynasty: 117 archivos de 45 teléfonos sin leer).
+    const lista = ((filas ?? []) as unknown as FilaParaRecuperar[]).filter((f) =>
+        esRecuperable(f, REPROCESAR)
+        || (INCLUIR_NO_ATENDIDOS && f.status === 'ignored' && Boolean(f.media_id)
+            && (f.error_message ?? '').startsWith('contacto_no_atendido')));
     const antes = new Map(lista.map((f) => [f.id, decisionPrevia(f)]));
     console.log(`Filas a revisar: ${lista.length}${REPROCESAR ? ' (con --reprocesar)' : ''}\n`);
     if (lista.length === 0) return;
@@ -173,6 +179,7 @@ async function main() {
             cobro: r.pago ? `${(r.pago.concept ?? r.pago.id).slice(0, 40)} (${cop(r.pago.amount)})` : (r.pagoRegistradoId ? `ya: ${r.pagoRegistradoId.slice(0, 8)}` : '—'),
             decisión: r.decision,
             motivo: r.motivo.slice(0, 110),
+            propuesta: (r.propuesta ?? '').slice(0, 260),
         });
     }
 

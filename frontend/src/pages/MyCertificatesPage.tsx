@@ -1,9 +1,12 @@
+/**
+ * Constancias — rediseño V2 (acudiente). Una frase, un botón para pedir una
+ * constancia y la lista con su estado en palabras. Carga, vacío y error son
+ * tres estados distintos.
+ */
 import { useEffect, useState } from 'react';
-import { Loader2, FileCheck2, Plus, Download, ExternalLink } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Loader2, Download, ExternalLink, AlertTriangle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -11,6 +14,9 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
+import { ChipEstado } from '@/components/common/ChipEstado';
+import { estadoConstancia, fraseConstancias } from '@/components/certificates/myCertificatesModel';
+import { cn, formatCurrency } from '@/lib/utils';
 
 type Mine = {
   id: string;
@@ -30,18 +36,11 @@ type Mine = {
 type Tpl = { id: string; name: string; kind: string; requires_payment: boolean; price: number };
 type ChildOpt = { id: string; full_name: string; school_id: string };
 
-const STATUS: Record<string, { label: string; cls: string }> = {
-  pending_payment: { label: 'Pendiente pago',   cls: 'bg-amber-100 text-amber-800' },
-  pending_review:  { label: 'Por aprobar',      cls: 'bg-blue-100 text-blue-800' },
-  issued:          { label: 'Emitida',          cls: 'bg-green-100 text-green-800' },
-  revoked:         { label: 'Revocada',         cls: 'bg-gray-200 text-gray-700' },
-};
-
 export default function MyCertificatesPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [items, setItems] = useState<Mine[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [state, setState] = useState<'loading' | 'error' | 'ready'>('loading');
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const [reqOpen, setReqOpen] = useState(false);
@@ -58,15 +57,15 @@ export default function MyCertificatesPage() {
   }, []);
 
   async function load() {
-    setLoading(true);
+    setState('loading');
     const { data, error } = await supabase.rpc('my_athlete_certificates' as any);
-    setLoading(false);
     if (error) {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
       setItems([]);
+      setState('error');
       return;
     }
     setItems((data as Mine[]) || []);
+    setState('ready');
   }
 
   async function loadChildren() {
@@ -104,12 +103,14 @@ export default function MyCertificatesPage() {
       p_profile_id:  null,
     });
     setReqLoading(false);
-    if (error) return toast({ title: 'No se pudo solicitar', description: error.message, variant: 'destructive' });
+    if (error) {
+      return toast({ title: 'No se pudo pedir la constancia', description: 'Inténtalo de nuevo en un momento.', variant: 'destructive' });
+    }
     toast({
-      title: 'Solicitud enviada',
+      title: 'Listo, la pediste',
       description: tpl.requires_payment
-        ? `Costo: ${Number(tpl.price).toLocaleString('es-CO')} COP. Te avisaremos cuando esté lista.`
-        : 'La escuela revisará tu solicitud y te notificará cuando esté lista.',
+        ? `Cuesta ${formatCurrency(Number(tpl.price))}. Te avisamos cuando esté lista.`
+        : 'La escuela la revisa y te avisa cuando esté lista.',
     });
     setReqOpen(false);
     setSelectedChild(''); setSelectedTpl(''); setTemplates([]);
@@ -120,95 +121,125 @@ export default function MyCertificatesPage() {
     setBusyId(it.id);
     try {
       const res = await bffClient.get<any>(`/api/v1/certificates/${it.id}/signed-url`);
-      if (!res?.url) throw new Error(res?.error || 'no_url');
+      if (!res?.url) throw new Error('no_url');
       window.open(res.url, '_blank');
-    } catch (e: any) {
-      toast({ title: 'Error', description: e?.message || 'No se pudo descargar', variant: 'destructive' });
+    } catch {
+      toast({ title: 'No se pudo descargar', description: 'Inténtalo de nuevo en un momento.', variant: 'destructive' });
     } finally {
       setBusyId(null);
     }
   }
 
-  return (
-    <div className="container mx-auto p-6 space-y-6">
-      <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <FileCheck2 className="h-7 w-7 text-primary" />
-            Mis constancias
-          </h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Solicita y descarga las constancias de los atletas a tu cargo.
-          </p>
-        </div>
-        <Button onClick={() => setReqOpen(true)} className="gap-2">
-          <Plus className="h-4 w-4" />
-          Solicitar constancia
-        </Button>
-      </header>
+  const frase = fraseConstancias(items);
+  const puedePedir = children.length > 0;
 
-      <Card>
-        <CardHeader><CardTitle>Constancias</CardTitle></CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="py-12 flex justify-center"><Loader2 className="h-5 w-5 animate-spin" /></div>
-          ) : items.length === 0 ? (
-            <p className="py-8 text-center text-muted-foreground">Aún no has solicitado constancias.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Folio</TableHead>
-                  <TableHead>Atleta</TableHead>
-                  <TableHead>Escuela</TableHead>
-                  <TableHead>Tipo</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {items.map((it) => (
-                  <TableRow key={it.id}>
-                    <TableCell className="text-xs font-mono">{it.folio}</TableCell>
-                    <TableCell className="text-sm font-medium">{it.athlete_name}</TableCell>
-                    <TableCell className="text-xs">{it.school_name}</TableCell>
-                    <TableCell className="text-xs capitalize">{it.kind}</TableCell>
-                    <TableCell>
-                      <Badge className={STATUS[it.status]?.cls}>{STATUS[it.status]?.label || it.status}</Badge>
-                    </TableCell>
-                    <TableCell className="text-right space-x-1">
-                      <Button size="sm" variant="ghost" onClick={() => window.open(`/cert/${it.folio}`, '_blank')} className="gap-1">
-                        <ExternalLink className="h-3.5 w-3.5" />
-                      </Button>
-                      {it.status === 'issued' && it.pdf_url && (
-                        <Button size="sm" variant="outline" onClick={() => downloadPdf(it)} disabled={busyId === it.id} className="gap-1">
-                          {busyId === it.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                          PDF
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+  return (
+    <div className="mx-auto w-full max-w-page-narrow space-y-5 pb-nav-safe">
+      <section aria-label="Resumen" className="space-y-3">
+        <div className="space-y-1.5">
+          <p className="text-sm font-medium text-muted-foreground">Constancias</p>
+          {state === 'ready' && <h1 className="text-2xl font-bold leading-tight tracking-tight">{frase.titulo}</h1>}
+          {state === 'ready' && <p className="text-base text-muted-foreground">{frase.subtitulo}</p>}
+        </div>
+        {state === 'ready' && puedePedir && (
+          <Button
+            onClick={() => setReqOpen(true)}
+            className="h-14 w-full rounded-2xl text-lg font-semibold active:scale-[0.97] motion-reduce:active:scale-100"
+          >
+            Pedir una constancia
+          </Button>
+        )}
+      </section>
+
+      {state === 'loading' && (
+        <div className="space-y-3" aria-busy="true" aria-label="Cargando las constancias">
+          <Skeleton className="h-8 w-4/5 rounded-lg" />
+          <Skeleton className="h-14 w-full rounded-2xl" />
+          <Skeleton className="h-20 w-full rounded-2xl" />
+        </div>
+      )}
+
+      {state === 'error' && (
+        <div role="alert" className="space-y-3 rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
+          <p className="flex items-center gap-2 text-base font-semibold text-destructive">
+            <AlertTriangle className="h-5 w-5 shrink-0" aria-hidden="true" />
+            No pudimos cargar las constancias
+          </p>
+          <p className="text-sm text-muted-foreground">Revisa tu conexión e inténtalo de nuevo.</p>
+          <Button variant="outline" className="min-h-touch rounded-xl" onClick={() => void load()}>
+            <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+            Reintentar
+          </Button>
+        </div>
+      )}
+
+      {state === 'ready' && items.length > 0 && (
+        <div className="overflow-hidden rounded-2xl border bg-card">
+          {items.map((it, i) => {
+            const estado = estadoConstancia(it.status);
+            const lista = it.status === 'issued' && !!it.pdf_url;
+            return (
+              <div key={it.id} className={cn('space-y-1 px-4 py-3', i > 0 && 'border-t')}>
+                <div className="flex items-start gap-3">
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="break-words text-base font-semibold">{it.title || 'Constancia'}</span>
+                    <span className="break-words text-xs text-muted-foreground">
+                      {it.athlete_name}{it.school_name ? ` · ${it.school_name}` : ''} · Folio {it.folio}
+                    </span>
+                    {estado.detalle && <span className="text-xs text-muted-foreground">{estado.detalle}</span>}
+                  </span>
+                  <ChipEstado label={estado.label} tono={estado.tono} />
+                </div>
+                <div className="flex flex-wrap gap-x-4">
+                  {lista && (
+                    <button
+                      type="button"
+                      onClick={() => downloadPdf(it)}
+                      disabled={busyId === it.id}
+                      className="inline-flex min-h-touch items-center gap-1.5 text-sm font-semibold text-primary disabled:opacity-60"
+                    >
+                      {busyId === it.id
+                        ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                        : <Download className="h-4 w-4" aria-hidden="true" />}
+                      Descargar
+                    </button>
+                  )}
+                  <a
+                    href={`/cert/${it.folio}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex min-h-touch items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-foreground"
+                  >
+                    <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                    Ver
+                  </a>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {state === 'ready' && items.length === 0 && !puedePedir && (
+        <div className="rounded-2xl border bg-card p-6 text-center">
+          <p className="text-sm text-muted-foreground">Cuando la escuela te emita una constancia, aparece aquí.</p>
+        </div>
+      )}
 
       <Dialog open={reqOpen} onOpenChange={setReqOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Solicitar constancia</DialogTitle>
-            <DialogDescription>Selecciona el atleta y el tipo de constancia que necesitas.</DialogDescription>
+            <DialogTitle>Pedir una constancia</DialogTitle>
+            <DialogDescription>Elige para quién es y qué constancia necesitas.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            <div>
-              <Label>Atleta</Label>
+            <div className="space-y-1.5">
+              <Label>¿Para quién?</Label>
               <Select
                 value={selectedChild}
                 onValueChange={(v) => { setSelectedChild(v); void loadTemplatesForChild(v); setSelectedTpl(''); }}
               >
-                <SelectTrigger><SelectValue placeholder="Selecciona…" /></SelectTrigger>
+                <SelectTrigger className="min-h-touch text-input"><SelectValue placeholder="Elige a tu hijo" /></SelectTrigger>
                 <SelectContent>
                   {children.map((c) => (
                     <SelectItem key={c.id} value={c.id}>{c.full_name}</SelectItem>
@@ -216,25 +247,27 @@ export default function MyCertificatesPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <Label>Tipo de constancia</Label>
+            <div className="space-y-1.5">
+              <Label>¿Qué constancia?</Label>
               <Select value={selectedTpl} onValueChange={setSelectedTpl} disabled={!selectedChild || templates.length === 0}>
-                <SelectTrigger><SelectValue placeholder={!selectedChild ? 'Selecciona atleta primero' : (templates.length === 0 ? 'No hay plantillas activas' : 'Selecciona…')} /></SelectTrigger>
+                <SelectTrigger className="min-h-touch text-input">
+                  <SelectValue placeholder={!selectedChild ? 'Primero elige a tu hijo' : (templates.length === 0 ? 'La escuela aún no ofrece constancias' : 'Elige una')} />
+                </SelectTrigger>
                 <SelectContent>
                   {templates.map((t) => (
                     <SelectItem key={t.id} value={t.id}>
-                      {t.name}{t.requires_payment ? ` (${Number(t.price).toLocaleString('es-CO')} COP)` : ' (gratis)'}
+                      {t.name}{t.requires_payment ? ` · ${formatCurrency(Number(t.price))}` : ' · Gratis'}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setReqOpen(false)}>Cancelar</Button>
-            <Button onClick={submitRequest} disabled={!selectedChild || !selectedTpl || reqLoading}>
-              {reqLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Solicitar
+          <DialogFooter className="gap-2">
+            <Button variant="outline" className="min-h-touch" onClick={() => setReqOpen(false)}>Cancelar</Button>
+            <Button className="min-h-touch" onClick={submitRequest} disabled={!selectedChild || !selectedTpl || reqLoading}>
+              {reqLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
+              Pedirla
             </Button>
           </DialogFooter>
         </DialogContent>

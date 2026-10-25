@@ -18,6 +18,9 @@ import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useToast } from '@/hooks/use-toast';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { LocationAutocomplete } from '@/components/events/LocationAutocomplete';
+import ParentCalendarV2 from '@/components/parent/v2/ParentCalendarV2';
+import { usesParentCalendarV2 } from '@/components/parent/v2/parentCalendarModel';
+import { ACUDIENTE_V2 } from '@/lib/feature-flags';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isSameDay, isToday, addMonths, subMonths } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
@@ -178,7 +181,23 @@ function eventMatchesDate(event: CalendarEvent, date: Date): boolean {
 }
 
 // ─── Component ────────────────────────────────────────────────────────────
+// El acudiente (rol activo `parent`) ve el Calendario V2; los demás roles,
+// el calendario mensual de siempre, sin cambios.
 export default function CalendarPage() {
+  const { profile } = useAuth();
+  const { currentUserRole } = useSchoolContext();
+  if (ACUDIENTE_V2 && usesParentCalendarV2(currentUserRole, profile?.role)) {
+    return <ParentCalendarV2 vistaMes={<CalendarPageClassic soloLectura />} />;
+  }
+  return <CalendarPageClassic />;
+}
+
+/**
+ * `soloLectura`: vista «Mes» del acudiente V2. El acudiente RECIBE los eventos
+ * de la escuela y del profe; no crea, no edita ni borra (sin «Nuevo Evento»,
+ * sin «Crear Evento», sin lápiz).
+ */
+function CalendarPageClassic({ soloLectura = false }: { soloLectura?: boolean } = {}) {
   const { user, profile } = useAuth();
   const { can } = usePermissions();
   const { toast } = useToast();
@@ -520,7 +539,7 @@ export default function CalendarPage() {
   };
 
   // El lápiz solo aparece si la RLS va a dejar guardar: creador o admin.
-  const canEdit = (event: CalendarEvent) => event.user_id === user?.id || isSchoolWideView;
+  const canEdit = (event: CalendarEvent) => !soloLectura && (event.user_id === user?.id || isSchoolWideView);
 
   const resetForm = () =>
     setFormData({
@@ -607,12 +626,14 @@ export default function CalendarPage() {
                   : 'Gestiona tus entrenamientos, partidos y eventos'}
           </p>
         </div>
-        <PermissionGate permission="calendar:create">
-          <Button className="gap-2" onClick={handleOpenCreate}>
-            <Plus className="h-4 w-4" />
-            Nuevo Evento
-          </Button>
-        </PermissionGate>
+        {!soloLectura && (
+          <PermissionGate permission="calendar:create">
+            <Button className="gap-2" onClick={handleOpenCreate}>
+              <Plus className="h-4 w-4" />
+              Nuevo Evento
+            </Button>
+          </PermissionGate>
+        )}
       </div>
 
       {/* Main grid */}
@@ -715,9 +736,11 @@ export default function CalendarPage() {
               <CardContent className="py-10 text-center">
                 <CalendarIcon className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
                 <p className="text-sm text-muted-foreground">No hay eventos próximos</p>
-                <Button variant="outline" size="sm" className="mt-3 gap-1" onClick={handleOpenCreate}>
-                  <Plus className="h-3 w-3" /> Crear Evento
-                </Button>
+                {!soloLectura && (
+                  <Button variant="outline" size="sm" className="mt-3 gap-1" onClick={handleOpenCreate}>
+                    <Plus className="h-3 w-3" /> Crear Evento
+                  </Button>
+                )}
               </CardContent>
             </Card>
           ) : (

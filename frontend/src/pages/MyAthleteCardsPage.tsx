@@ -1,8 +1,15 @@
+/**
+ * Carnets — acudiente («Carnets») y deportista («Mis carnets»). Rediseño V2:
+ * una frase, la lista de carnets vigentes (uno por deportista y escuela) y,
+ * al tocar uno, el carnet en grande para mostrarlo o descargarlo.
+ *
+ * Carga, vacío y error son distintos: un error al cargar NUNCA se ve como
+ * «no tienes carnets».
+ */
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2, IdCard, Download, ExternalLink, AlertCircle, Building, ShieldCheck, ShieldX, Clock, RotateCw, Info } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Loader2, IdCard, Download, ExternalLink, RotateCw, AlertTriangle, RefreshCw, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
@@ -10,6 +17,9 @@ import { supabase } from '@/integrations/supabase/client';
 import { AthleteIdCard, type CardData } from '@/components/cards/AthleteIdCard';
 import { exportCardPng } from '@/lib/cards/cardExport';
 import { pickCurrentCards, slugifyFileName } from '@/lib/cards/cardLayout';
+import { ChipEstado } from '@/components/common/ChipEstado';
+import { estadoCarnet, venceCarnet, fraseCarnets } from '@/components/cards/myCardsModel';
+import { cn } from '@/lib/utils';
 
 type MyCardRow = {
   card_id: string;
@@ -33,20 +43,15 @@ type MyCardRow = {
   relation: 'self' | 'parent' | 'unknown';
 };
 
-const STATUS_BADGE: Record<string, { label: string; cls: string; icon: typeof ShieldCheck }> = {
-  active:  { label: 'Vigente',   cls: 'bg-green-100 text-green-700',   icon: ShieldCheck },
-  revoked: { label: 'Revocado',  cls: 'bg-gray-200 text-gray-700',     icon: ShieldX },
-  expired: { label: 'Vencido',   cls: 'bg-red-100 text-red-700',       icon: Clock },
-};
-
 export default function MyAthleteCardsPage() {
   const { toast } = useToast();
   const { profile } = useAuth();
   const isAthlete = profile?.role === 'athlete';
   const [rows, setRows] = useState<MyCardRow[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [state, setState] = useState<'loading' | 'error' | 'ready'>('loading');
   const [previewToken, setPreviewToken] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<CardData | null>(null);
+  const [previewError, setPreviewError] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewFace, setPreviewFace] = useState<'front' | 'back'>('front');
   const [downloading, setDownloading] = useState(false);
@@ -58,19 +63,18 @@ export default function MyAthleteCardsPage() {
 
   useEffect(() => {
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function load() {
-    setLoading(true);
+    setState('loading');
     const { data, error } = await supabase.rpc('my_athlete_id_cards' as any);
-    setLoading(false);
     if (error) {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
       setRows([]);
+      setState('error');
       return;
     }
     setRows((data as MyCardRow[]) || []);
+    setState('ready');
   }
 
   // Por escuela, y dentro de cada escuela solo el carnet vigente de cada atleta:
@@ -90,16 +94,20 @@ export default function MyAthleteCardsPage() {
     }));
   }, [rows]);
 
+  const allCards = groups.flatMap((g) => g.cards.map((c) => c.card));
+  const frase = fraseCarnets(allCards, isAthlete);
+
   async function openPreview(qrToken: string) {
     setPreviewToken(qrToken);
     setPreviewData(null);
+    setPreviewError(false);
     setPreviewFace('front');
     setPreviewOpen(true);
     const { data, error } = await supabase.rpc('verify_athlete_id_card_public' as any, {
       p_qr_token: qrToken,
     });
     if (error) {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      setPreviewError(true);
       return;
     }
     setPreviewData(data as CardData);
@@ -113,122 +121,115 @@ export default function MyAthleteCardsPage() {
         { data: previewData, publicUrl: `${publicCardOrigin}/${previewToken}` },
         `carnet-${slugifyFileName(previewData.athlete?.full_name, previewToken.slice(0, 8))}`,
       );
-    } catch (e: any) {
-      toast({ title: 'No se pudo descargar', description: e?.message || 'Error', variant: 'destructive' });
+    } catch {
+      toast({ title: 'No se pudo descargar el carnet', description: 'Inténtalo de nuevo en un momento.', variant: 'destructive' });
     } finally {
       setDownloading(false);
     }
   }
 
-  const title = isAthlete ? 'Mis carnets' : 'Carnets de mis hijos';
-
   return (
-    <div className="container mx-auto px-4 py-6 sm:p-6 space-y-6">
-      <header>
-        <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-2">
-          <IdCard className="h-7 w-7 text-primary shrink-0" />
-          {title}
-        </h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          {isAthlete
-            ? 'Tus carnets digitales deportivos, con la marca de cada escuela donde entrenas.'
-            : 'El carnet vigente de cada uno de tus hijos, con la marca de su escuela. Tócalo para verlo, voltearlo o descargarlo.'}
-        </p>
+    <div className="mx-auto w-full max-w-page-narrow space-y-5 pb-nav-safe">
+      <header className="space-y-1.5">
+        <p className="text-sm font-medium text-muted-foreground">{isAthlete ? 'Mis carnets' : 'Carnets'}</p>
+        {state === 'ready' && <h1 className="text-2xl font-bold leading-tight tracking-tight">{frase.titulo}</h1>}
+        {state === 'ready' && frase.subtitulo && <p className="text-base text-muted-foreground">{frase.subtitulo}</p>}
       </header>
 
-      {loading ? (
-        <div className="py-12 flex justify-center"><Loader2 className="h-6 w-6 animate-spin" /></div>
-      ) : rows.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 flex flex-col items-center text-center text-muted-foreground gap-3">
-            <AlertCircle className="h-10 w-10" />
-            <p className="font-medium">Aún no tienes carnets emitidos</p>
-            <p className="text-sm max-w-md">
-              {isAthlete
-                ? 'Tu escuela aún no te emite el carnet. Contáctala si necesitas uno.'
-                : 'La escuela debe emitir el carnet de tu hijo/a. Contáctala si necesitas uno.'}
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-6">
-          {groups.map((group) => (
-            <Card key={group.schoolId}>
-              <CardHeader className="flex flex-row items-center gap-3 pb-3 space-y-0 px-3 sm:px-6">
-                {group.school_logo ? (
-                  <img src={group.school_logo} alt="" className="h-10 w-10 rounded-lg object-contain bg-white p-1 shrink-0" />
-                ) : (
-                  <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                    <Building className="h-5 w-5 text-primary" />
-                  </div>
-                )}
-                <div className="min-w-0">
-                  <CardTitle className="text-lg break-words">{group.school_name}</CardTitle>
-                  <p className="text-xs text-muted-foreground">{group.cards.length} carnet{group.cards.length !== 1 ? 's' : ''}</p>
-                </div>
-              </CardHeader>
-              <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-3 px-3 pb-3 sm:px-6 sm:pb-6">
-                {group.cards.map(({ card: c, revokedCount }) => {
-                  const effectiveStatus: 'active' | 'revoked' | 'expired' =
-                    c.status === 'revoked' ? 'revoked' :
-                    c.is_expired           ? 'expired' : 'active';
-                  const sb = STATUS_BADGE[effectiveStatus];
-                  const StatusIcon = sb.icon;
-                  return (
-                    <button
-                      type="button"
-                      key={c.card_id}
-                      className="text-left border rounded-lg p-3 sm:p-4 hover:border-primary transition flex gap-3 items-start w-full"
-                      onClick={() => openPreview(c.qr_token)}
-                    >
-                      {c.athlete_photo ? (
-                        <img src={c.athlete_photo} alt="" className="h-14 w-14 sm:h-16 sm:w-16 rounded-lg object-cover shrink-0" />
-                      ) : (
-                        <div className="h-14 w-14 sm:h-16 sm:w-16 rounded-lg bg-muted flex items-center justify-center text-muted-foreground shrink-0">
-                          <IdCard className="h-6 w-6" />
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        {/* Sin truncate: en celular los nombres compuestos se cortaban. */}
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <p className="font-bold leading-tight break-words">{c.athlete_name}</p>
-                          <Badge className={`${sb.cls} gap-1 text-xs`}>
-                            <StatusIcon className="h-3 w-3" /> {sb.label}
-                          </Badge>
-                        </div>
-                        <div className="text-xs text-muted-foreground space-y-0.5 mt-1">
-                          {c.team_name && <p className="break-words">Equipo: {c.team_name}</p>}
-                          {c.branch_name && <p className="break-words">Sede: {c.branch_name}</p>}
-                          <p>Vence: {new Date(c.valid_until).toLocaleDateString('es-CO')}{c.version > 1 ? ` · versión ${c.version}` : ''}</p>
-                          {c.relation === 'self' && <Badge variant="outline" className="text-xs mt-1">Tu carnet</Badge>}
-                          {revokedCount > 0 && (
-                            <p className="flex items-center gap-1 pt-0.5">
-                              <Info className="h-3 w-3 shrink-0" />
-                              {revokedCount === 1 ? 'Carnet anterior revocado (reemplazado por este).' : `${revokedCount} carnets anteriores revocados.`}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </CardContent>
-            </Card>
-          ))}
+      {state === 'loading' && (
+        <div className="space-y-3" aria-busy="true" aria-label="Cargando los carnets">
+          <Skeleton className="h-8 w-4/5 rounded-lg" />
+          <Skeleton className="h-20 w-full rounded-2xl" />
+          <Skeleton className="h-20 w-full rounded-2xl" />
         </div>
       )}
 
+      {state === 'error' && (
+        <div role="alert" className="space-y-3 rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
+          <p className="flex items-center gap-2 text-base font-semibold text-destructive">
+            <AlertTriangle className="h-5 w-5 shrink-0" aria-hidden="true" />
+            No pudimos cargar los carnets
+          </p>
+          <p className="text-sm text-muted-foreground">Revisa tu conexión e inténtalo de nuevo.</p>
+          <Button variant="outline" className="min-h-touch rounded-xl" onClick={() => void load()}>
+            <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+            Reintentar
+          </Button>
+        </div>
+      )}
+
+      {state === 'ready' && allCards.length === 0 && (
+        <div className="rounded-2xl border bg-card p-6 text-center">
+          <IdCard className="mx-auto h-10 w-10 text-muted-foreground" aria-hidden="true" />
+          <p className="mt-2 font-semibold">{isAthlete ? 'Aún no tienes carnet' : 'Aún no hay carnets'}</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {isAthlete
+              ? 'La escuela todavía no te ha emitido el carnet. Pídeselo si lo necesitas.'
+              : 'La escuela todavía no ha emitido el carnet de tus hijos. Pídeselo si lo necesitas.'}
+          </p>
+        </div>
+      )}
+
+      {state === 'ready' && groups.map((group) => (
+        <section key={group.schoolId} aria-label={group.school_name} className="space-y-1.5">
+          {groups.length > 1 && (
+            <h2 className="px-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">{group.school_name}</h2>
+          )}
+          <div className="overflow-hidden rounded-2xl border bg-card">
+            {group.cards.map(({ card: c, revokedCount }, i) => {
+              const estado = estadoCarnet(c);
+              const detalle = [c.team_name, c.branch_name].filter(Boolean).join(' · ');
+              return (
+                <button
+                  type="button"
+                  key={c.card_id}
+                  className={cn('flex min-h-touch w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted/50', i > 0 && 'border-t')}
+                  onClick={() => openPreview(c.qr_token)}
+                >
+                  {c.athlete_photo ? (
+                    <img src={c.athlete_photo} alt="" className="h-14 w-14 shrink-0 rounded-xl object-cover" />
+                  ) : (
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                      <IdCard className="h-6 w-6" aria-hidden="true" />
+                    </div>
+                  )}
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="break-words text-base font-semibold leading-tight">
+                      {c.athlete_name}{c.relation === 'self' && !isAthlete ? ' (tú)' : ''}
+                    </span>
+                    {detalle && <span className="break-words text-xs text-muted-foreground">{detalle}</span>}
+                    <span className="text-xs text-muted-foreground">{venceCarnet(c)}</span>
+                    {revokedCount > 0 && (
+                      <span className="text-xs text-muted-foreground">Este carnet reemplaza al anterior.</span>
+                    )}
+                  </span>
+                  <span className="flex flex-col items-end gap-2">
+                    <ChipEstado {...estado} />
+                    <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ))}
+
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-md max-h-[95vh] overflow-y-auto">
+        <DialogContent className="max-h-[95vh] max-w-md overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Carnet deportivo</DialogTitle>
-            <DialogDescription>
-              Presenta este QR en la escuela. La validación es en tiempo real.
-            </DialogDescription>
+            <DialogDescription>Muestra el código QR en la entrada de la escuela.</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col items-center gap-3">
-            {!previewData ? (
-              <Loader2 className="h-6 w-6 animate-spin" />
+            {previewError ? (
+              <div role="alert" className="w-full space-y-3 rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-center">
+                <p className="font-semibold text-destructive">No pudimos abrir el carnet</p>
+                <Button variant="outline" className="min-h-touch rounded-xl" onClick={() => previewToken && void openPreview(previewToken)}>
+                  Reintentar
+                </Button>
+              </div>
+            ) : !previewData ? (
+              <Loader2 className="h-6 w-6 animate-spin" aria-label="Cargando el carnet" />
             ) : (
               <AthleteIdCard
                 data={previewData}
@@ -239,28 +240,31 @@ export default function MyAthleteCardsPage() {
             {previewData?.status === 'active' && (
               <Button
                 variant="ghost"
-                size="sm"
                 onClick={() => setPreviewFace((f) => (f === 'front' ? 'back' : 'front'))}
-                className="gap-1"
+                className="min-h-touch gap-1"
               >
-                <RotateCw className="h-3.5 w-3.5" />
-                {previewFace === 'front' ? 'Ver reverso' : 'Ver frente'}
+                <RotateCw className="h-4 w-4" aria-hidden="true" />
+                {previewFace === 'front' ? 'Ver el reverso' : 'Ver el frente'}
               </Button>
             )}
           </div>
-          <DialogFooter className="gap-2 sm:justify-between">
+          <DialogFooter className="flex-col gap-2 sm:flex-col">
             <Button
-              variant="outline"
+              onClick={downloadPreview}
+              disabled={downloading || previewData?.status !== 'active'}
+              className="h-12 w-full gap-2 rounded-xl text-base font-semibold"
+            >
+              {downloading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Download className="h-4 w-4" aria-hidden="true" />}
+              Descargar el carnet
+            </Button>
+            <Button
+              variant="ghost"
               onClick={() => previewToken && window.open(`/c/${previewToken}`, '_blank')}
-              className="gap-1"
+              className="min-h-touch w-full gap-2"
               disabled={!previewToken}
             >
-              <ExternalLink className="h-4 w-4" />
-              Abrir enlace público
-            </Button>
-            <Button onClick={downloadPreview} disabled={downloading || previewData?.status !== 'active'} className="gap-1">
-              {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-              Descargar PNG
+              <ExternalLink className="h-4 w-4" aria-hidden="true" />
+              Abrir el enlace para compartir
             </Button>
           </DialogFooter>
         </DialogContent>

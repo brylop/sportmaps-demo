@@ -216,7 +216,8 @@ describe('(a) familia sin cuenta con ficha por teléfono', () => {
         expect(pendientesPorLlavesMock).toHaveBeenCalledWith('school-1', { parentId: null, childIds: ['c1'], unregisteredIds: [] });
         expect(evaluatePaymentReceiptMock).toHaveBeenCalledWith('p-oct', undefined);
         expect(enviados()).toHaveLength(1);
-        expect(enviados()[0]).toContain('lo apliqué a *Mensualidad 10/2026');
+        // Cierre de una línea (spec 3.3, 2026-10-24).
+        expect(enviados()[0]).toContain('Listo: comprobante de *$150.000* de *Laura* para *octubre*. La escuela lo confirma.');
         expect(enviados()[0]).not.toMatch(/register|cuenta creada/);
         expect(cierre()).toMatchObject({ status: 'done', result_type: 'payment_receipt', result_ref_id: 'p-oct', matched_child_id: 'c1' });
     });
@@ -237,11 +238,18 @@ describe('(a) familia sin cuenta con ficha por teléfono', () => {
         expect(cierre()).toMatchObject({ status: 'ignored', result_type: 'escalated' });
     });
 
-    it('la ficha sin cobros pendientes ni pago que coincida → a la escuela, sin «crea tu cuenta»', async () => {
+    it('la ficha sin cobros pendientes ni pago que coincida → pregunta el MES con botones, sin «crea tu cuenta» (spec 3.3)', async () => {
         await runWhatsAppQueue();
         expect(enviados()).toHaveLength(1);
         expect(enviados()[0]).not.toContain('/register');
-        expect(cierre()).toMatchObject({ status: 'ignored', result_type: 'escalated' });
+        expect(enviados()[0]).toContain('¿De qué mes es?');
+        const botones = sendInteractiveButtonsMock.mock.calls[0][3] as any[];
+        // Últimos 3 meses + «Otro mes».
+        expect(botones).toHaveLength(4);
+        expect(botones[3].title).toBe('4. Otro mes');
+        const espera = updatesCola.find((u) => u.status === 'waiting_user');
+        expect(espera.pregunta_ocr).toMatchObject({ tipo: 'mes', parentId: null });
+        expect(espera.pregunta_ocr.guia.opciones).toHaveLength(4);
     });
 
     it('sin fichas por teléfono → como antes (al buzón con el enlace de registro)', async () => {
@@ -279,15 +287,19 @@ describe('(b) número sin ficha', () => {
         // Busca con el pie, el chat, el concepto y quien paga.
         expect(deportistaPorNombreMock.mock.calls[0][1]).toEqual(
             expect.arrayContaining(['Mensualidad de Laura Peña', 'Pedro Gómez']));
-        expect(enviados()[0]).toContain('lo apliqué a *Mensualidad 10/2026');
+        expect(enviados()[0]).toContain('Listo: comprobante de *$150.000* de *Laura* para *octubre*');
         expect(cierre()).toMatchObject({ status: 'done', result_ref_id: 'p-oct' });
     });
 
-    it('a una cuenta que no es de la escuela → silencio (no es un pago a la escuela)', async () => {
+    it('a una cuenta que no es de la escuela → sin responderle, pero a la bandeja como destino_ajeno (nunca se ignora un comprobante)', async () => {
         extractReceiptMock.mockResolvedValue(comprobante(150000, { destination: '3119998888' }));
         await runWhatsAppQueue();
         expect(enviados()).toHaveLength(0);
-        expect(cierre()).toMatchObject({ status: 'ignored', error_message: 'contacto_no_atendido' });
+        const c = cierre();
+        expect(c).toMatchObject({ status: 'ignored', result_type: 'escalated' });
+        expect(c.error_message).toMatch(/^recuperado: destino_ajeno — el dinero fue a 3119998888/);
+        expect(c.error_message).toContain('pagó: Pedro Gómez');
+        expect(c.pregunta_ocr.ocr).toMatchObject({ amount: 150000 });
     });
 
     it('sin destino legible ni texto de pago → silencio', async () => {
@@ -305,7 +317,7 @@ describe('(b) número sin ficha', () => {
         const responder = vi.fn((..._a: any[]) => Promise.resolve());
         await aplicarComprobanteDeFicha('f9', { childIds: ['c1'], unregisteredIds: [] }, responder);
         expect(evaluatePaymentReceiptMock).toHaveBeenCalledWith('p-oct', undefined);
-        expect(responder.mock.calls[0][0]).toContain('lo apliqué a *Mensualidad 10/2026');
+        expect(responder.mock.calls[0][0]).toContain('Listo: comprobante de *$150.000* de *Laura* para *octubre*');
     });
 });
 

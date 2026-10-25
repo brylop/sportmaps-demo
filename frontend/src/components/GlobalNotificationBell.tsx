@@ -9,8 +9,10 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
-import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { useAuth } from '@/contexts/AuthContext';
+import { markNotificationRead, markAllNotificationsRead } from '@/lib/notifications/markRead';
 
 const TYPE_STYLES: Record<string, string> = {
   warning:  'bg-amber-100 text-amber-700 border-amber-200',
@@ -22,17 +24,32 @@ const TYPE_STYLES: Record<string, string> = {
 export function GlobalNotificationBell() {
   const navigate      = useNavigate();
   const queryClient   = useQueryClient();
+  const { user }      = useAuth();
   const { data: notifications = [] } = useNotifications();
   const unreadCount   = notifications.filter((n: any) => !n.read).length;
 
-  const markRead = async (id: string, link?: string) => {
-    await supabase.from('notifications').update({ read: true }).eq('id', id);
-    queryClient.invalidateQueries({ queryKey: ['notifications'] });
+  // Mismo helper que /notifications: cuenta las filas que de verdad cambiaron
+  // (un UPDATE filtrado por RLS no da error, devuelve 0 filas — bug 2026-10-24).
+  const markRead = async (id: string, read: boolean, link?: string) => {
+    if (user && !read) {
+      try {
+        await markNotificationRead(user.id, id);
+      } catch (error) {
+        console.error('Error marking notification as read:', error);
+      }
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    }
     if (link) navigate(link);
   };
 
   const markAllRead = async () => {
-    await supabase.from('notifications').update({ read: true }).eq('read', false);
+    if (!user) return;
+    try {
+      await markAllNotificationsRead(user.id, unreadCount);
+    } catch (error) {
+      console.error('Error marking all as read:', error);
+      toast.error('No se pudieron marcar como leídas. Intenta de nuevo.');
+    }
     queryClient.invalidateQueries({ queryKey: ['notifications'] });
   };
 
@@ -97,7 +114,7 @@ export function GlobalNotificationBell() {
             notifications.slice(0, 10).map((n: any) => (
               <div
                 key={n.id}
-                onClick={() => markRead(n.id, n.link)}
+                onClick={() => void markRead(n.id, !!n.read, n.link)}
                 className={`flex gap-3 px-4 py-3 cursor-pointer hover:bg-accent/50 transition-colors border-b last:border-0 ${
                   !n.read ? 'bg-primary/5' : ''
                 }`}

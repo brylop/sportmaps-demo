@@ -42,6 +42,7 @@ import {
     type PagoPendiente,
 } from '../services/whatsapp-receipt-matching.service';
 import { invitacionPendienteVigente } from '../services/whatsapp-invitacion-vigente.service';
+import { identificarStaffPorTelefono, recibirPlanillaDeStaff } from '../services/whatsapp-asistencia-staff.service';
 import { esErrorDeVentana } from '../services/whatsapp-plantillas.service';
 
 // El mismo Logger que usa receipt-approval.service, para poder pasárselo tal cual
@@ -49,6 +50,7 @@ import { esErrorDeVentana } from '../services/whatsapp-plantillas.service';
 import type { Logger } from 'pino';
 import {
     detectarOtroConcepto, decidirOtroConcepto, mensajeOtroConcepto, motivoOtroConcepto, textosAlrededor,
+    type SenalOtroConcepto,
 } from '../services/whatsapp-otro-concepto.service';
 import { ventaAbiertaDeContacto, decidirComprobanteDeVenta } from '../services/whatsapp-venta-servicios.service';
 import {
@@ -63,6 +65,18 @@ import {
     cargarRecargos, montoEsperado, textoExcedente, huellasDelComprobante, referenciasDelComprobante,
     ordenarDelMasAntiguo, cubrirCobrosConComprobante,
 } from '../services/whatsapp-excedente.service';
+import {
+    calcularCandidatosDePago, textoPropuesta, motivoConPropuesta, type PropuestaDePago,
+} from '../services/whatsapp-pago-esperado.service';
+import { cargarItemsDeTorneo, cruzarTorneo, motivoTorneo } from '../services/whatsapp-torneos-pago.service';
+import {
+    candidatosParaPreguntar, botonesDeDeportistas, opcionesDeDeportistas, textoPreguntaDeportista,
+    deportistasParaPreguntar, fichasDesdeDeportistas, guardarPreguntaGuiada, opcionesDeMeses, ultimosMeses,
+    botonesDeOpciones, textoPreguntaMes, textoPreguntaConcepto, OPCIONES_CONCEPTO, PASO_PREGUNTA_MES,
+    PASO_PREGUNTA_CONCEPTO, PASO_PREGUNTA_DEPORTISTA_BOTONES, textoCierreEnRevision, mesDeCobroEnTexto,
+    type GuiaGuardada,
+} from '../services/whatsapp-comprobante-guiado.service';
+import { categoriaDelCobro, etiquetaDelCobro } from '../services/tipo-de-cobro';
 
 const BUCKET = 'payment-receipts';
 const LOTE = 10;
@@ -377,6 +391,8 @@ async function esperarAlUsuario(id: string, pregunta: {
     parentId: string | null;
     /** 'deportista': se preguntó de qué deportista es (número sin ficha). */
     tipo?: 'cobro' | 'deportista';
+    /** Opciones de los botones de deportista (2026-10-24): el «1», «2» de la respuesta apunta a ellas. */
+    guia?: GuiaGuardada;
 }) {
     await supabase.from('whatsapp_inbound_queue')
         .update({
@@ -393,6 +409,7 @@ async function esperarAlUsuario(id: string, pregunta: {
                 // pago por otro lado (referencia alternativa del comprobante).
                 referencias: referenciasDelComprobante(pregunta.ocr),
                 ...(pregunta.tipo === 'deportista' ? { tipo: 'deportista' } : {}),
+                ...(pregunta.guia ? { guia: pregunta.guia } : {}),
             },
             pregunta_at: new Date().toISOString(),
         })
@@ -523,6 +540,8 @@ export async function estamparComprobante(
         ocr_amount: ctx.ocr.amount, ocr_date: ctx.ocr.date, ocr_bank: ctx.ocr.bank,
         ocr_reference: ctx.ocr.reference, ocr_destination: ctx.ocr.destination,
         ocr_provider: ctx.ocr.provider,
+        // Quién hizo la transferencia (reporte «Torneos: quién pagó qué», 2026-10-24).
+        ocr_origin_name: ctx.ocr.originName ?? null,
         receipt_verdict: veredicto.verdict,
         receipt_verdict_reasons: veredicto.reasons,
         receipt_verdict_at: new Date().toISOString(),
@@ -573,7 +592,16 @@ export async function aplicarComprobante(
      * mismo archivo ANTES de evaluar, para que la base no tome la suma como
      * saldo a favor. `nota`: una línea más para la familia (excedente).
      */
-    extra: { esperado?: number; cubre?: PagoPendiente[]; nota?: string } = {},
+    extra: {
+        esperado?: number; cubre?: PagoPendiente[]; nota?: string;
+        /**
+         * (2026-10-24) Abono: el comprobante es MENOR a la cuota. Queda en revisión y
+         * NO pasa por `evaluatePaymentReceipt` (que con la auto-aprobación de la
+         * escuela prendida podría aprobarlo): un abono lo aprueba una persona.
+         * `motivo` queda en `error_message` de la fila (la propuesta armada).
+         */
+        soloRevision?: boolean; motivo?: string;
+    } = {},
 ): Promise<void> {
     const estampado = await estamparComprobante(ctx, pago, extra.esperado);
 
@@ -615,7 +643,9 @@ export async function aplicarComprobante(
         if (!r.ok) ctx.log?.warn?.({ queueId: ctx.queueId, paymentId: pago.id, err: r.error }, '[wa-queue] no se pudieron cubrir los otros cobros');
     }
 
-    const resultado = await evaluatePaymentReceipt(pago.id, ctx.log);
+    const resultado: { action: string; reason?: string | null } = extra.soloRevision
+        ? { action: 'manual_review' }
+        : await evaluatePaymentReceipt(pago.id, ctx.log);
 
     // 8. Contarle al acudiente qué pasó, nombrando el pago para que pueda corregir.
     let respuesta: string;
@@ -630,9 +660,17 @@ export async function aplicarComprobante(
             `Revisé tu comprobante para ${destino} y no lo pude validar.\n\n` +
             `${resultado.reason ?? ''}\n\nSi crees que hay un error, mándame el comprobante correcto por acá.`;
     } else {
-        respuesta =
-            `Recibí tu comprobante y lo apliqué a ${destino} 📄\n\n` +
-            'La escuela lo está revisando y te confirma en poco tiempo.';
+        // Cierre de UNA línea (spec 3.3): «Listo: comprobante de $150.000 de Sofía
+        // para octubre. La escuela lo confirma.» El cobro se nombra por su mes
+        // (mensualidad) o por su tipo (inscripción, seguro, torneo…).
+        respuesta = cubre.length
+            ? `Recibí tu comprobante y lo apliqué a ${destino} 📄\n\nLa escuela lo está revisando y te confirma en poco tiempo.`
+            : textoCierreEnRevision({
+                monto: ctx.ocr?.amount ?? null,
+                atleta: pago.atleta,
+                para: paraDelCobro(pago),
+                abono: extra.soloRevision === true,
+            });
     }
     if (extra.nota && resultado.action !== 'rejected') respuesta += `\n\n${extra.nota}`;
 
@@ -658,9 +696,144 @@ export async function aplicarComprobante(
         result_ref_id: pago.id,
         matched_parent_id: ctx.parentId,
         matched_child_id: pago.child_id,
-        error_message: null,
+        error_message: extra.motivo ? extra.motivo.slice(0, 500) : null,
     });
     ctx.log?.info?.({ queueId: ctx.queueId, paymentId: pago.id, accion: resultado.action }, '[wa-queue] aplicado');
+}
+
+/** A qué se refiere un cobro en el cierre de una línea: el mes (mensualidad) o su tipo (inscripción, seguro, torneo…). */
+function paraDelCobro(p: PagoPendiente): string {
+    const cat = categoriaDelCobro({ payment_category: p.categoria ?? null, concept: p.concept, due_date: p.due_date });
+    if (cat === 'mensualidad') return mesDeCobroEnTexto({ due_date: p.due_date, concept: p.concept }) ?? 'la mensualidad';
+    return etiquetaDelCobro({ payment_category: cat, concept: p.concept }).toLowerCase();
+}
+
+// ─── Pago esperado y preguntas guiadas (spec whatsapp-conversacion-v2-dynasty §3.3, §3.5, §3.6) ──
+
+/**
+ * El pago esperado de la familia contra el monto del comprobante, para el motivo
+ * de la bandeja y para decidir el abono. `pagoAbono` es el ÚNICO cobro de
+ * mensualidad del deportista al que se le puede abonar. Solo lectura; nunca lanza.
+ */
+async function pagoEsperadoDeLaFila(
+    schoolId: string, parentId: string | null, llaves: LlavesDeFicha | undefined,
+    monto: number | null, pendientes: PagoPendiente[],
+): Promise<{ propuesta: PropuestaDePago; texto: string; pagoAbono: PagoPendiente | null } | null> {
+    try {
+        const r = await calcularCandidatosDePago({
+            schoolId, monto,
+            llaves: { parentId, childIds: llaves?.childIds, unregisteredIds: llaves?.unregisteredIds },
+        });
+        if (!r.deportistas.length) return null;
+        let pagoAbono: PagoPendiente | null = null;
+        if (r.propuesta.accion === 'abono_en_revision' && r.propuesta.candidato && monto !== null) {
+            const dep = r.deportistas.find((d) => d.id === r.propuesta.candidato!.deportistaIds[0]);
+            const delDeportista = pendientes.filter((p) => (p.child_id === dep?.id || (!!dep?.nombre && p.atleta === dep.nombre))
+                && categoriaDelCobro({ payment_category: p.categoria ?? null, concept: p.concept }) === 'mensualidad'
+                && p.amount > monto);
+            pagoAbono = delDeportista.length === 1 ? delDeportista[0] : null;
+        }
+        return { propuesta: r.propuesta, texto: textoPropuesta(r.propuesta), pagoAbono };
+    } catch {
+        return null;
+    }
+}
+
+/** El motivo de «otro concepto» con quién pagó, el deportista y —si es torneo— el cruce con el catálogo. */
+async function motivoDeOtroConcepto(a: {
+    senal: SenalOtroConcepto; fila: FilaCola; parentId: string | null; llaves?: LlavesDeFicha;
+    ocr: Awaited<ReturnType<typeof extractReceipt>>;
+}): Promise<string> {
+    const base = motivoOtroConcepto(a.senal);
+    try {
+        const monto = a.ocr.amount ?? null;
+        const ds = await deportistasParaPreguntar(a.fila.school_id, {
+            parentId: a.parentId, childIds: a.llaves?.childIds, unregisteredIds: a.llaves?.unregisteredIds,
+        });
+        const nombres = ds.map((d) => d.nombre).filter(Boolean) as string[];
+        const deportista = nombres.length === 1 ? nombres[0] : nombres.length > 1 ? `${nombres.join(' / ')} (¿cuál?)` : null;
+        if (a.senal.concepto === 'torneo') {
+            const items = await cargarItemsDeTorneo(a.fila.school_id);
+            const cruce = cruzarTorneo({ textos: [a.fila.media_caption, a.ocr.description, a.senal.evidencia], monto, items });
+            return motivoTorneo({ quienPago: a.ocr.originName, deportista, monto, cruce, evidencia: a.senal.evidencia });
+        }
+        return motivoConPropuesta(base,
+            `Propuesta → pagó: ${a.ocr.originName ?? 'no se leyó'} · deportista: ${deportista ?? 'sin identificar'}`
+            + `${monto ? ` · ${cop(monto)}` : ''} · registrar a mano como ${a.senal.concepto.replace('_', ' ')}`);
+    } catch {
+        return base;
+    }
+}
+
+/**
+ * Pregunta con botones lo que falta cuando la familia no tiene cobros pendientes:
+ * UN deportista → el mes (últimos 3 + «Otro mes»); 2-3 → de cuál. Devuelve true si
+ * la pregunta salió y la fila quedó esperando; false si no se pudo (conversación
+ * tomada, sin deportistas, más de 3…): quien llama sigue como antes.
+ */
+async function preguntarMesOQuien(a: {
+    fila: FilaCola; parentId: string | null; llaves?: LlavesDeFicha;
+    ocr: Awaited<ReturnType<typeof extractReceipt>>; sha: string; storagePath: string | null;
+    responder: Responder;
+}): Promise<boolean> {
+    try {
+        const ds = await deportistasParaPreguntar(a.fila.school_id, {
+            parentId: a.parentId, childIds: a.llaves?.childIds, unregisteredIds: a.llaves?.unregisteredIds,
+        });
+        const monto = a.ocr.amount ?? null;
+        const quienPago = a.ocr.originName ?? null;
+        const base = { ocr: a.ocr, sha: a.sha, storagePath: a.storagePath, parentId: a.parentId, referencias: referenciasDelComprobante(a.ocr) };
+        if (ds.length === 1) {
+            const d = ds[0];
+            const opciones = opcionesDeMeses(ultimosMeses(new Date()));
+            const r = await a.responder(textoPreguntaMes({ monto, atleta: d.nombre }), PASO_PREGUNTA_MES, botonesDeOpciones(opciones)) as { silenciado?: boolean } | undefined;
+            if (r?.silenciado) return false;
+            await guardarPreguntaGuiada(a.fila.id, base, 'mes', {
+                opciones, monto, quienPago, parentId: a.parentId,
+                deportista: { id: d.id, tipo: d.tipo, nombre: d.nombre, cuota: d.cuota },
+            });
+            return true;
+        }
+        if (ds.length > 1 && ds.length <= 3) {
+            const fichas = fichasDesdeDeportistas(ds);
+            const r = await a.responder(textoPreguntaDeportista(), PASO_PREGUNTA_DEPORTISTA_BOTONES, botonesDeDeportistas(fichas)) as { silenciado?: boolean } | undefined;
+            if (r?.silenciado) return false;
+            await esperarAlUsuario(a.fila.id, {
+                opciones: [], ocr: a.ocr, sha: a.sha, storagePath: a.storagePath, parentId: a.parentId, tipo: 'deportista',
+                guia: { opciones: opcionesDeDeportistas(fichas), monto, quienPago, parentId: a.parentId },
+            });
+            return true;
+        }
+        return false;
+    } catch {
+        return false;
+    }
+}
+
+/** «Ese valor no coincide con una mensualidad: ¿es de…?» [Mensualidad][Inscripción][Otro]. true si salió. */
+async function preguntarConcepto(a: {
+    fila: FilaCola; parentId: string | null; llaves?: LlavesDeFicha;
+    ocr: Awaited<ReturnType<typeof extractReceipt>>; sha: string; storagePath: string | null;
+    responder: Responder; propuesta: string | null;
+}): Promise<boolean> {
+    try {
+        const monto = a.ocr.amount ?? null;
+        const ds = await deportistasParaPreguntar(a.fila.school_id, {
+            parentId: a.parentId, childIds: a.llaves?.childIds, unregisteredIds: a.llaves?.unregisteredIds,
+        });
+        const r = await a.responder(textoPreguntaConcepto({ monto }), PASO_PREGUNTA_CONCEPTO, botonesDeOpciones(OPCIONES_CONCEPTO)) as { silenciado?: boolean } | undefined;
+        if (r?.silenciado) return false;
+        await guardarPreguntaGuiada(a.fila.id,
+            { ocr: a.ocr, sha: a.sha, storagePath: a.storagePath, parentId: a.parentId, referencias: referenciasDelComprobante(a.ocr) },
+            'concepto', {
+                opciones: OPCIONES_CONCEPTO, monto, quienPago: a.ocr.originName ?? null, parentId: a.parentId,
+                propuesta: a.propuesta,
+                deportista: ds.length === 1 ? { id: ds[0].id, tipo: ds[0].tipo, nombre: ds[0].nombre, cuota: ds[0].cuota } : null,
+            });
+        return true;
+    } catch {
+        return false;
+    }
 }
 /** Ver `aplicarComprobante`: la plantilla de «en revisión» cuando el texto no pudo salir por ventana. */
 async function avisarRevisionTrasVentana(ctx: ContextoAplicacion, pago: PagoPendiente): Promise<void> {
@@ -964,7 +1137,7 @@ async function continuarComoComprobante(
         await cerrar(fila.id, 'ignored', {
             result_type: 'escalated',
             matched_parent_id: parentId,
-            error_message: motivoOtroConcepto(otro.senal),
+            error_message: await motivoDeOtroConcepto({ senal: otro.senal, fila, parentId, llaves: opts.llaves, ocr }),
         });
         log?.info?.({ queueId: fila.id, concepto: otro.senal.concepto, fuente: otro.senal.fuente }, '[wa-queue] otro concepto: a la escuela');
         return;
@@ -979,20 +1152,49 @@ async function continuarComoComprobante(
     const recargos = await cargarRecargos(fila.school_id, pendientes);
     // Huellas para que la bandeja cierre sola la fila cuando se decida el pago.
     const huellas = huellasDelComprobante({ sha: shaArchivo, ocr, storagePath, parentId });
+    const lectura = leerTextosDelComprobante(fila.media_caption, await textosCercanos(fila), pendientes);
     const porTexto = decidirCobroPorTexto({
         pendientes,
         parciales: await cobrosParcialesDe(fila.school_id, parentId, opts.llaves),
         monto: montoLeido,
-        lectura: leerTextosDelComprobante(fila.media_caption, await textosCercanos(fila), pendientes),
+        lectura,
         permiteAbonos: await escuelaRecibeAbonos(fila.school_id),
         recargos,
     });
     if (porTexto?.tipo === 'a_la_escuela') {
+        // Pago esperado (spec 3.5): un monto MENOR a la cuota es un ABONO, no un
+        // cambio de plan (esa regla se descartó). Queda EN REVISIÓN con la
+        // propuesta armada y nunca se aprueba solo.
+        const esperado = porTexto.codigo === 'monto_no_cuadra'
+            ? await pagoEsperadoDeLaFila(fila.school_id, parentId, opts.llaves, montoLeido, pendientes)
+            : null;
+        if (esperado?.pagoAbono) {
+            const destino = esperado.pagoAbono;
+            log?.info?.({ queueId: fila.id, paymentId: destino.id }, '[wa-queue] monto menor a la cuota: abono en revisión');
+            await aplicarComprobante({
+                queueId: fila.id, schoolId: fila.school_id, parentId, storagePath, sha: shaArchivo, ocr,
+                responder, alFallar, log,
+            }, destino, pendientes.filter((x) => x.id !== destino.id), {
+                soloRevision: true,
+                motivo: `abono_en_revision: ${esperado.texto}`,
+                nota: `Quedan *${cop(destino.amount - (montoLeido as number))}* para completar ${cop(destino.amount)}.`,
+            });
+            return;
+        }
+        // Concepto solo si el monto no calza con una mensualidad (spec 3.3).
+        const cobroDelMonto = pendientes.find((p) => p.id === porTexto.pagoId);
+        if (porTexto.codigo === 'monto_no_cuadra' && montoLeido !== null && cobroDelMonto && esperado && !lectura.saldo
+            && categoriaDelCobro({ payment_category: cobroDelMonto.categoria ?? null, concept: cobroDelMonto.concept }) === 'mensualidad') {
+            if (await preguntarConcepto({
+                fila, parentId, llaves: opts.llaves, ocr, sha: shaArchivo, storagePath, responder,
+                propuesta: esperado?.texto ?? null,
+            })) return;
+        }
         await responder(porTexto.mensaje, 'comprobante_a_la_escuela');
         await cerrar(fila.id, 'ignored', {
             result_type: 'escalated',
             matched_parent_id: parentId,
-            error_message: `${porTexto.codigo}: ${porTexto.resumen}`,
+            error_message: motivoConPropuesta(`${porTexto.codigo}: ${porTexto.resumen}`, esperado?.texto),
             ...(huellas ? { pregunta_ocr: huellas } : {}),
         });
         log?.info?.({ queueId: fila.id, codigo: porTexto.codigo, paymentId: porTexto.pagoId }, '[wa-queue] a la escuela por monto/texto');
@@ -1035,6 +1237,12 @@ async function continuarComoComprobante(
             });
             return;
         }
+        // Spec 3.3: sin cobros → se pregunta el mes (o de cuál deportista, si son
+        // varios) con botones. Elegirlo NO crea ni aplica nada: va a la bandeja
+        // con la propuesta «crear el cobro de ese mes y aplicar».
+        if (await preguntarMesOQuien({
+            fila, parentId, llaves: opts.llaves, ocr, sha: shaArchivo, storagePath, responder,
+        })) return;
         if (!parentId) {
             // Sin cuenta y sin cobros por la ficha: lo aplica la escuela, como antes.
             await responder(M.escaladoSinAcudiente, 'familia_sin_cuenta');
@@ -1290,6 +1498,79 @@ async function encolarMatricula(
     log?.info?.({ queueId: fila.id, intakeId: intake.id, duplicateOfChildId, duplicateOfIntakeId }, '[wa-queue] matrícula encolada');
 }
 
+/** Lo que una rama anterior ya leyó del archivo (evita bajarlo y leerlo dos veces). */
+interface LecturaPrevia {
+    base64: string;
+    mime: string;
+    storagePath: string;
+    ocr: Awaited<ReturnType<typeof extractReceipt>>;
+}
+
+/**
+ * Foto de PLANILLA DE ASISTENCIA de un entrenador o de la dueña (spec
+ * whatsapp-conversacion-v2-dynasty §3.8, camino 1). Va ANTES de la decisión de
+ * `decidirAdjunto` porque al coach (rol que `wa_identify_staff_admin_by_phone` no
+ * ve) se le clasifica como «desconocido» o «familia», y no depende del asistente:
+ * la asistencia del equipo no es una respuesta del bot a una familia, así que
+ * corre con `ai_enabled=false` y con la conversación tomada (el resumen sale
+ * igual: quien escribió acaba de hacerlo y la ventana de 24 h está abierta).
+ *
+ * Orden de lectura (§4.1 de alta-atleta-por-foto-hoja-matricula.md, se respeta):
+ *   1. ¿Es staff? (una RPC, sin OCR). Si no, no se hace nada: el flujo sigue igual.
+ *   2. Si el texto cercano habla de pago, es un comprobante: no se gasta OCR.
+ *   3. `extractReceipt` primero. Comprobante o listado → el flujo de pagos de
+ *      siempre (un admin que también es acudiente NO pierde ese camino).
+ *   4. Recién entonces el OCR de planillas. `no_aplica` → sigue el flujo normal
+ *      (matrícula, etc.) reusando la lectura ya hecha (`previo`).
+ * Costo: una lectura extra de planillas solo en las fotos de staff que no son
+ * comprobante.
+ *
+ * La fila se cierra `done` / `result_type='none'` (el CHECK `chk_wa_queue_result`
+ * no admite valores nuevos) con `result_ref_id` = la fila de
+ * `attendance_sheet_intake`, igual que la matrícula con `enrollment_form_intake`.
+ */
+async function intentarPlanillaDeStaff(
+    fila: FilaCola,
+    wa: WhatsAppIntegration,
+    conversationId: string | null,
+    log?: Logger,
+): Promise<{ atendida: true } | { atendida: false; previo?: LecturaPrevia }> {
+    const staff = await identificarStaffPorTelefono(fila.integration_id, fila.wa_phone_number);
+    if (staff.resultado !== 'staff' || (staff.schoolId && staff.schoolId !== fila.school_id)) return { atendida: false };
+    if (textosHablanDePago(await textosCercanos(fila))) return { atendida: false };
+
+    const bajada = await bajarYGuardarArchivo(fila, wa, log);
+    if (!bajada.ok) return { atendida: true }; // ya reintentó o cerró la fila
+    const { base64, mime, storagePath } = bajada;
+
+    let ocr: LecturaPrevia['ocr'];
+    try {
+        ocr = await extractReceipt(base64, mime);
+    } catch (err: any) {
+        await reintentar(fila, `OCR (comprobantes) no disponible: ${err?.message ?? err}`, log);
+        return { atendida: true };
+    }
+    const previo: LecturaPrevia = { base64, mime, storagePath, ocr };
+    if (ocr.isReceipt === true || ocr.isTransactionList === true) return { atendida: false, previo };
+
+    const r = await recibirPlanillaDeStaff({
+        integration: wa, waId: fila.wa_phone_number, staff, base64, mime, queueId: fila.id, source: 'whatsapp',
+    });
+    if (r.estado === 'no_aplica') return { atendida: false, previo };
+
+    const bot = await import('../services/whatsapp-bot.service');
+    await bot.enviarRespuestaStaff(wa, conversationId, fila.wa_phone_number,
+        { texto: r.texto, botones: r.botones },
+        { step: 'asistencia_staff', estado: r.estado, queue_id: fila.id, intake_id: r.intakeId ?? null });
+    await cerrar(fila.id, 'done', {
+        result_type: 'none',
+        ...(r.intakeId ? { result_ref_id: r.intakeId } : {}),
+        ...(r.estado === 'resumen' || r.estado === 'pregunta_equipo' ? {} : { error_message: `planilla_asistencia: ${r.estado}` }),
+    });
+    log?.info?.({ queueId: fila.id, estado: r.estado, intakeId: r.intakeId }, '[wa-queue] planilla de asistencia del equipo');
+    return { atendida: true };
+}
+
 /**
  * Camino nuevo para quien resulta ser owner/admin/school_admin de la
  * escuela (§4.1/§4.2 de alta-atleta-por-foto-hoja-matricula.md). Corre ANTES
@@ -1309,17 +1590,22 @@ async function procesarComoStaffAdmin(
     conv: { id?: string; parent_id?: string | null; identified?: boolean } | null | undefined,
     responder: (texto: string, paso: string) => Promise<unknown>,
     log?: Logger,
+    previo?: LecturaPrevia,
 ): Promise<void> {
-    const bajada = await bajarYGuardarArchivo(fila, wa, log);
-    if (!bajada.ok) return;
-    const { base64, mime, storagePath } = bajada;
-
-    let ocr;
-    try {
-        ocr = await extractReceipt(base64, mime);
-    } catch (err: any) {
-        await reintentar(fila, `OCR (comprobantes) no disponible: ${err?.message ?? err}`, log);
-        return;
+    let base64: string, mime: string, storagePath: string, ocr: LecturaPrevia['ocr'];
+    if (previo) {
+        // La rama de planillas ya bajó y leyó el archivo: no se repite.
+        ({ base64, mime, storagePath, ocr } = previo);
+    } else {
+        const bajada = await bajarYGuardarArchivo(fila, wa, log);
+        if (!bajada.ok) return;
+        ({ base64, mime, storagePath } = bajada);
+        try {
+            ocr = await extractReceipt(base64, mime);
+        } catch (err: any) {
+            await reintentar(fila, `OCR (comprobantes) no disponible: ${err?.message ?? err}`, log);
+            return;
+        }
     }
 
     if (ocr.isReceipt === true) {
@@ -1546,7 +1832,10 @@ let esperaAcuseMs = ACUSE_DIFERIDO_MS;
 export function _fijarEsperaAcuse(ms: number): void { esperaAcuseMs = ms; }
 
 /** Pasos que son PREGUNTAS: salen en el acto (llevan su `queue_id` y esperan respuesta). */
-const PASOS_PREGUNTA = new Set(['ask_cual_pago', 'confirmar_combinacion', PASO_PREGUNTA_DEPORTISTA]);
+const PASOS_PREGUNTA = new Set([
+    'ask_cual_pago', 'confirmar_combinacion', PASO_PREGUNTA_DEPORTISTA,
+    PASO_PREGUNTA_MES, PASO_PREGUNTA_CONCEPTO, PASO_PREGUNTA_DEPORTISTA_BOTONES,
+]);
 
 /** Respuestas de una ráfaga de archivos del mismo contacto, para mandarlas en UN mensaje. */
 export interface RespuestaEnRafaga { texto: string; paso: string; queueId: string }
@@ -1872,8 +2161,10 @@ async function comprobanteDeNumeroSinFicha(
     let ocr;
     try {
         ocr = await extractReceipt(archivo.base64, archivo.mime);
-    } catch {
-        await silencio();
+    } catch (err: any) {
+        // Un OCR caído nunca decide (regla 2 del worker): antes esto cerraba como
+        // `contacto_no_atendido` y un pago real se perdía. Se reintenta.
+        await reintentar(fila, `OCR no disponible: ${err?.message ?? err}`, log);
         return;
     }
     // Se le escribe solo si el dinero fue a una cuenta general de la escuela, o
@@ -1883,6 +2174,24 @@ async function comprobanteDeNumeroSinFicha(
         // Pago a una cuenta que la escuela acepta por fuera de la app: no se le
         // contesta a un número sin ficha; queda informativo en la bandeja.
         await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: MOTIVO_FUERA_DE_SPORTMAPS });
+        return;
+    }
+    if (destino === 'ajena' && pareceComprobanteDePago(ocr)) {
+        // Spec 3.5: un comprobante NUNCA se ignora por el tipo de contacto. A una
+        // cuenta que no es de la escuela: sin responderle (es un número sin ficha),
+        // pero se guarda y queda en la bandeja como `destino_ajeno`.
+        const guardada = await bajarYGuardarArchivo(fila, wa, log);
+        if (!guardada.ok) return;
+        await cerrar(fila.id, 'ignored', {
+            result_type: 'escalated',
+            error_message: motivoConPropuesta(
+                `recuperado: destino_ajeno — el dinero fue a ${ocr.destination ?? '?'}, que no es una cuenta de la escuela (número sin ficha)`,
+                `Propuesta → pagó: ${ocr.originName ?? 'no se leyó'}${ocr.amount ? ` · ${cop(ocr.amount)}` : ''} · confirmar con quien lo mandó si era para la escuela`),
+            pregunta_ocr: huellasDelComprobante({
+                sha: crypto.createHash('sha256').update(Buffer.from(guardada.base64, 'base64')).digest('hex'),
+                ocr, storagePath: guardada.storagePath, parentId: null,
+            }),
+        });
         return;
     }
     if (destino === 'ajena' || (destino !== 'general' && !hablaDePago)) { await silencio(); return; }
@@ -1895,15 +2204,82 @@ async function comprobanteDeNumeroSinFicha(
         await continuarComoComprobante(fila, null, responder, bajada.base64, bajada.mime, bajada.storagePath, ocr, log, { llaves });
         return;
     }
+    // Spec 3.3: el nombre no señala a UN deportista. Si 2-3 se le parecen →
+    // botones con sus nombres; si ninguno →  «escribe nombre y apellido».
+    const posibles = await candidatosParaPreguntar(fila.school_id, [...textos, ocr.description, ocr.originName]);
+    const paso = posibles.length ? PASO_PREGUNTA_DEPORTISTA_BOTONES : PASO_PREGUNTA_DEPORTISTA;
     // UNA vez: si ya se le preguntó (otra foto de la ráfaga), esta queda esperando la misma respuesta.
-    if (!(await yaSalioElPaso(conversationId, PASO_PREGUNTA_DEPORTISTA))) {
-        await responder(PREGUNTA_DEPORTISTA, PASO_PREGUNTA_DEPORTISTA);
+    if (!(await yaSalioElPaso(conversationId, paso))) {
+        if (posibles.length) await responder(textoPreguntaDeportista(), paso, botonesDeDeportistas(posibles));
+        else await responder(PREGUNTA_DEPORTISTA, paso);
     }
     await esperarAlUsuario(fila.id, {
         opciones: [], ocr,
         sha: crypto.createHash('sha256').update(Buffer.from(bajada.base64, 'base64')).digest('hex'),
         storagePath: bajada.storagePath, parentId: null, tipo: 'deportista',
+        ...(posibles.length
+            ? { guia: { opciones: opcionesDeDeportistas(posibles), monto: ocr.amount ?? null, quienPago: ocr.originName ?? null, parentId: null } }
+            : {}),
     });
+}
+
+/**
+ * Contacto que el bot NO atiende (personal, negocio, otro club, conversación
+ * tomada por una persona…) manda un archivo. Antes se cerraba SIEMPRE como
+ * `contacto_no_atendido`, aunque fuera un pago real (Dynasty: 117 archivos; 3
+ * eran pagos por $610.000). Regla de 2026-10-24: un comprobante NUNCA se ignora
+ * por el tipo de contacto. Se lee (con el mismo tope de ráfaga del contacto sin
+ * ficha); si trae monto y el destino es una cuenta de la escuela, se GUARDA y
+ * queda en la bandeja (`sin_familia`, con quién pagó). Sin responderle a nadie:
+ * es un contacto que el bot no atiende. Lo que no es un pago sigue en silencio.
+ */
+async function comprobanteDeContactoNoAtendido(
+    fila: FilaCola, wa: WhatsAppIntegration, conversationId: string | null, log: Logger | undefined,
+    tipoDeContacto: string, anunciaPago: boolean,
+): Promise<void> {
+    const silencio = () => cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'contacto_no_atendido' });
+    let archivo: { base64: string; mime: string; storagePath: string | null };
+    if (anunciaPago) {
+        // Lo de siempre: quien anuncia un pago por texto deja el archivo guardado.
+        const bajada = await bajarYGuardarArchivo(fila, wa, log);
+        if (!bajada.ok) return;
+        archivo = bajada;
+    } else {
+        if (await excedeOcrSinFicha(fila)) { await silencio(); return; }
+        const r = await obtenerArchivoDeFila(fila, wa, { guardar: false });
+        if (!r.ok) { await silencio(); return; }
+        archivo = r;
+    }
+    let ocr;
+    try {
+        ocr = await extractReceipt(archivo.base64, archivo.mime);
+    } catch (err: any) {
+        await reintentar(fila, `OCR no disponible: ${err?.message ?? err}`, log);
+        return;
+    }
+    if (!pareceComprobanteDePago(ocr)) { await silencio(); return; }
+    const destino = await destinoDelComprobante(fila.school_id, ocr);
+    if (destino === 'fuera_de_sportmaps') {
+        await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: MOTIVO_FUERA_DE_SPORTMAPS });
+        return;
+    }
+    // Solo una cuenta GENERAL de la escuela cuenta: a una cuenta ajena o al Nequi
+    // personal restringido de la dueña, un contacto personal manda plata por otras razones.
+    if (destino !== 'general') { await silencio(); return; }
+
+    const guardada = archivo.storagePath
+        ? { ok: true as const, base64: archivo.base64, storagePath: archivo.storagePath }
+        : await bajarYGuardarArchivo(fila, wa, log);
+    if (!guardada.ok) return;
+    const sha = crypto.createHash('sha256').update(Buffer.from(archivo.base64, 'base64')).digest('hex');
+    await cerrar(fila.id, 'ignored', {
+        result_type: 'escalated',
+        error_message: motivoConPropuesta(
+            `sin_familia: contacto_no_atendido (${tipoDeContacto}): comprobante${ocr.amount ? ` de ${cop(ocr.amount)}` : ''} a una cuenta de la escuela`,
+            `Propuesta → pagó: ${ocr.originName ?? 'no se leyó'} · deportista: sin identificar (el número no está en ninguna ficha) · ${ocr.date ?? 'sin fecha'}`),
+        pregunta_ocr: huellasDelComprobante({ sha, ocr, storagePath: guardada.storagePath, parentId: null }),
+    });
+    log?.info?.({ queueId: fila.id, tipo: tipoDeContacto }, '[wa-queue] contacto no atendido con un comprobante: a la bandeja');
 }
 
 /**
@@ -2165,6 +2541,16 @@ async function procesarFilaInterna(
         esStaffAdmin = (staffCheck as any)?.estado === 'identificado';
     }
 
+    // 2.6. ¿Planilla de asistencia de un entrenador o de la dueña? Va antes de la
+    // decisión y no depende del asistente (ver `intentarPlanillaDeStaff`). Lo
+    // marcado como personal/negocio/otro club/plataforma no entra.
+    let lecturaPrevia: LecturaPrevia | undefined;
+    if (!esMarcaNoFamilia(atencion.tipo)) {
+        const planilla = await intentarPlanillaDeStaff(fila, wa, conversationId, log);
+        if (planilla.atendida) return;
+        lecturaPrevia = planilla.previo;
+    }
+
     const decision = decidirAdjunto({ botEncendido: atencion.botEncendido, tipo: atencion.tipo, esStaffAdmin });
     log?.info?.({ queueId: fila.id, tipo: atencion.tipo, decision }, '[wa-queue] atención');
 
@@ -2184,17 +2570,17 @@ async function procesarFilaInterna(
         // pero el archivo se guarda (`storage_path`) para que la escuela lo vea
         // en la Bandeja — antes se perdía con la URL de Meta. Solo por el texto
         // (sin OCR) y nunca a contactos marcados como personales.
-        if (atencion.tipo === 'desconocido' && textosHablanDePago(await textosDelContacto(fila, conversationId))) {
-            const bajada = await bajarYGuardarArchivo(fila, wa, log);
-            if (!bajada.ok) return;
-        }
-        await cerrar(fila.id, 'ignored', { result_type: 'none', error_message: 'contacto_no_atendido' });
+        // Un comprobante NUNCA se ignora por el tipo de contacto (2026-10-24): ver
+        // `comprobanteDeContactoNoAtendido`.
+        const anunciaPago = atencion.tipo === 'desconocido'
+            && textosHablanDePago(await textosDelContacto(fila, conversationId));
+        await comprobanteDeContactoNoAtendido(fila, wa, conversationId, log, atencion.tipo, anunciaPago);
         return;
     }
     armarAcuseDiferido();
     if (decision === 'staff_admin') {
         // §4.1/§4.2 de alta-atleta-por-foto-hoja-matricula.md.
-        await procesarComoStaffAdmin(fila, wa, conv, responder, log);
+        await procesarComoStaffAdmin(fila, wa, conv, responder, log, lecturaPrevia);
         return;
     }
     if (decision === 'escalar_sin_cuenta') {

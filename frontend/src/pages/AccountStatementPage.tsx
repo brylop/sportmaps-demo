@@ -8,28 +8,37 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Printer, Loader2 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
+import { esAcudienteV2 } from '@/lib/vistaAcudiente';
+import { EstadoCuentaAcudiente } from '@/components/account-statement/EstadoCuentaAcudiente';
+import { printStatement, STATUS_LABELS, type StatementData as Statement } from '@/components/account-statement/statementPrint';
 
-interface Statement {
-  athlete_name: string;
-  summary: {
-    count_expected: number; total_expected: number;
-    count_settled: number;  total_settled: number;
-    count_open: number;     total_open: number;
-    total_late_fees: number;
-  };
-  meses: Array<{ periodo: string; status: string | null }>;
-  events: Array<{
-    tipo: 'pago' | 'sesion'; fecha: string; status: string | null;
-    amount: number | null; amount_paid: number | null; attendance_status: string | null;
-  }>;
+/**
+ * Estado de Cuenta. La MISMA RPC sirve a la escuela (admin viendo a cualquier
+ * deportista) y a la familia. El acudiente V2 ve su propia presentación
+ * (EstadoCuentaAcudiente: una frase, un botón para pagar y el detalle por
+ * mes); la escuela y el deportista adulto siguen viendo esta pantalla igual.
+ */
+export default function AccountStatementPage() {
+  const { profile } = useAuth();
+  const { schoolId, currentUserRole, loading: schoolLoading } = useSchoolContext();
+  const [searchParams] = useSearchParams();
+  const esAcudiente = esAcudienteV2(currentUserRole ?? profile?.role)
+    && !searchParams.get('user_id') && !searchParams.get('unregistered_athlete_id');
+  if (esAcudiente) {
+    return (
+      <EstadoCuentaAcudiente
+        schoolId={schoolId}
+        childId={searchParams.get('child_id') || undefined}
+        months={Number(searchParams.get('months') || 12)}
+        schoolLoading={schoolLoading}
+      />
+    );
+  }
+  return <AccountStatementClassic />;
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  paid: 'Pagado', partial: 'Abono parcial', pending: 'Pendiente', overdue: 'Vencido',
-  awaiting_approval: 'En revisión', glosado: 'En aclaración', cancelled: 'Cancelado', rejected: 'Rechazado',
-};
-
-export default function AccountStatementPage() {
+function AccountStatementClassic() {
   const { schoolId } = useSchoolContext();
   const [searchParams] = useSearchParams();
   const childId = searchParams.get('child_id') || undefined;
@@ -55,64 +64,7 @@ export default function AccountStatementPage() {
 
   const handlePrint = () => {
     if (!data) return;
-    const win = window.open('', '_blank');
-    if (!win) return;
-    const generated = new Date().toLocaleString('es-CO');
-    const mesesRows = data.meses.map((m) => `<tr><td>${m.periodo}</td><td>${STATUS_LABELS[m.status || ''] || 'Sin cobro'}</td></tr>`).join('');
-    const eventRows = data.events.map((ev) => `
-      <tr>
-        <td>${new Date(ev.fecha).toLocaleDateString('es-CO')}</td>
-        <td>${ev.tipo === 'pago' ? 'Pago' : 'Sesión'}</td>
-        <td>${ev.tipo === 'pago' ? (STATUS_LABELS[ev.status || ''] || ev.status) : (ev.attendance_status || '')}</td>
-        <td>${ev.tipo === 'pago' && ev.amount != null ? formatCurrency(ev.amount) : ''}</td>
-      </tr>`).join('');
-
-    win.document.write(`
-<!DOCTYPE html><html lang="es">
-<head>
-  <meta charset="utf-8">
-  <title>Estado de Cuenta — ${data.athlete_name}</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Arial, sans-serif; font-size: 12px; color: #1a1a1a; background: #fff; padding: 28px; }
-    .header h1 { font-size: 20px; color: #1a3d6b; }
-    .meta { font-size: 11px; color: #666; margin: 6px 0 22px; }
-    h2 { font-size: 12px; font-weight: 700; margin: 20px 0 8px; color: #1a3d6b;
-         border-bottom: 2px solid #e8eef5; padding-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 24px; }
-    .kpi { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px; }
-    .kpi-label { font-size: 9px; color: #999; text-transform: uppercase; letter-spacing: 0.5px; }
-    .kpi-value { font-size: 20px; font-weight: 700; margin-top: 2px; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 18px; font-size: 11px; }
-    th { background: #f3f4f6; text-align: left; padding: 6px 8px; font-size: 9px; font-weight: 700; color: #666; text-transform: uppercase; letter-spacing: 0.4px; }
-    td { padding: 6px 8px; border-bottom: 1px solid #f3f4f6; }
-    tr:nth-child(even) td { background: #fafafa; }
-    .footer { text-align: center; font-size: 10px; color: #aaa; margin-top: 36px; border-top: 1px solid #e5e7eb; padding-top: 14px; }
-    @media print { body { padding: 0; } }
-  </style>
-</head>
-<body>
-  <div class="header"><h1>Estado de Cuenta — ${data.athlete_name}</h1></div>
-  <p class="meta">Generado el ${generated} · últimos ${months} meses en el detalle (el resumen es histórico completo)</p>
-
-  <h2>Resumen</h2>
-  <div class="kpis">
-    <div class="kpi"><div class="kpi-label">Facturado</div><div class="kpi-value">${formatCurrency(data.summary.total_expected)}</div></div>
-    <div class="kpi"><div class="kpi-label">Cobrado</div><div class="kpi-value">${formatCurrency(data.summary.total_settled)}</div></div>
-    <div class="kpi"><div class="kpi-label">Saldo pendiente</div><div class="kpi-value">${formatCurrency(data.summary.total_open)}</div></div>
-    <div class="kpi"><div class="kpi-label">Mora aplicada</div><div class="kpi-value">${formatCurrency(data.summary.total_late_fees)}</div></div>
-  </div>
-
-  <h2>Meses (últimos ${months})</h2>
-  <table><thead><tr><th>Período</th><th>Estado</th></tr></thead><tbody>${mesesRows}</tbody></table>
-
-  <h2>Detalle — pagos y sesiones</h2>
-  <table><thead><tr><th>Fecha</th><th>Tipo</th><th>Estado</th><th>Monto</th></tr></thead><tbody>${eventRows}</tbody></table>
-
-  <div class="footer">SportMaps — Estado de cuenta generado automáticamente.</div>
-</body></html>`);
-    win.document.close();
-    setTimeout(() => { win.print(); }, 400);
+    printStatement(data, months);
   };
 
   if (isLoading) {

@@ -1,40 +1,42 @@
-import { useMemo, useState } from 'react';
-import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import { useState, type ReactNode } from 'react';
+import { useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import type { Json } from '@/integrations/supabase/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
 import {
-  ChevronLeft, PartyPopper, Frown, Meh, Smile, Laugh, Angry,
-  HandMetal, Target as TargetIcon, MessageSquare, Shield, Zap,
-  Footprints, CircleDot, CheckCircle2, Pencil,
+  AlertCircle, Angry, ArrowLeft, Check, ChevronLeft, CircleDot, Footprints, Frown, HandMetal, Laugh,
+  Meh, MessageSquare, PartyPopper, Pencil, Shield, Smile, Target as TargetIcon, Zap, type LucideIcon,
 } from 'lucide-react';
+import {
+  BORG_OPTIONS,
+  COMPREHENSION_OPTIONS,
+  EFFORT_OPTIONS,
+  EMPTY_ANSWERS,
+  SATISFACTION_OPTIONS,
+  TOTAL_QUESTIONS,
+  buildPayload,
+  sessionDateLabel,
+  toggleFocus,
+  type EvalAnswers,
+} from '@/lib/postEntrenoAutoeval';
 
 /**
  * Autoevaluación post-entrenamiento — spec docs/specs/evaluacion-post-entrenamiento.md §5.1.
- * La llena el padre (o la atleta adulta) desde el deep-link de la notificación
- * que dispara el trigger post_training_notify_on_finalize al cerrar la sesión.
+ * La llena el acudiente con su hijo (o el deportista adulto) desde el enlace
+ * de la notificación que dispara el trigger post_training_notify_on_finalize
+ * al cerrar la sesión.
+ *
+ * Rediseño V2: una pregunta por pantalla, un toque por respuesta (salvo la
+ * última, que es opcional y de varias). Colores del tema: se lee igual en
+ * claro y en oscuro. El envío NO cambió: submit_post_training_self_eval con
+ * el mismo `p_answers` (lib/postEntrenoAutoeval → buildPayload).
  */
 
-const COMPREHENSION_OPTIONS = [
-  { value: 1, label: 'Las comprendí y apliqué' },
-  { value: 2, label: 'Solo las comprendí' },
-  { value: 3, label: 'Las apliqué sin entender bien el concepto' },
-  { value: 4, label: 'Ni las comprendí ni apliqué' },
-];
-
-const SATISFACTION_OPTIONS = [
-  { value: 1, label: 'No me siento satisfecha', Icon: Angry },
-  { value: 2, label: 'Me siento satisfecha', Icon: Meh },
-  { value: 3, label: 'Me siento alegre y satisfecha', Icon: Laugh },
-  { value: 4, label: 'Me siento alegre', Icon: Smile },
-  { value: 5, label: 'No me siento satisfecha ni alegre', Icon: Frown },
-];
-
-const FOCUS_ICONS: Record<string, any> = {
+const FOCUS_ICONS: Record<string, LucideIcon> = {
   focus_pase_control: HandMetal,
   focus_recepcion_pase: HandMetal,
   focus_remate_gol: TargetIcon,
@@ -54,35 +56,61 @@ const FOCUS_ICONS: Record<string, any> = {
   focus_presion_tras_perdida: Zap,
 };
 
-type Answers = {
-  rpe_borg: number | null;
-  task_comprehension: number | null;
-  self_effort_pct: number | null;
-  satisfaction: number | null;
-  focus: string[];
-  focus_other_text: string;
-};
+const SATISFACTION_ICONS: Record<number, LucideIcon> = { 1: Angry, 2: Meh, 3: Laugh, 4: Smile, 5: Frown };
 
-const EFFORT_STEPS = [50, 60, 70, 80, 90, 100];
-const EFFORT_LABELS: Record<number, string> = {
-  50: 'Me costó, di menos de la mitad',
-  60: 'Di la mitad',
-  70: 'Me esforcé moderadamente',
-  80: 'Me esforcé bien',
-  90: 'Me esforcé mucho',
-  100: '¡Lo di todo!',
-};
+/** Intensidad de la escala 0–10: del verde suave al rojo, con colores que existen en claro y oscuro. */
+function borgDot(n: number) {
+  if (n <= 3) return 'bg-sky-500';
+  if (n <= 6) return 'bg-amber-500';
+  if (n <= 8) return 'bg-orange-500';
+  return 'bg-red-600';
+}
 
-const BORG_LABELS: Record<number, string> = {
-  0: 'Reposo', 1: 'Muy, muy ligero', 2: 'Muy ligero', 3: 'Ligero', 4: 'Algo pesado',
-  5: 'Pesado', 6: 'Más pesado', 7: 'Muy pesado', 8: 'Muy, muy pesado', 9: 'Máximo', 10: 'Extremo',
-};
+/** Una respuesta de un toque: fila grande, borde y fondo del tema. */
+function Opcion({
+  selected,
+  onClick,
+  children,
+  leading,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  children: ReactNode;
+  leading?: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onClick}
+      className={cn(
+        'flex min-h-touch w-full items-center gap-3 rounded-xl border px-4 py-2.5 text-left text-sm font-medium transition-colors motion-safe:active:scale-[0.98]',
+        selected
+          ? 'border-primary bg-primary text-primary-foreground'
+          : 'border-border bg-card text-card-foreground hover:bg-muted',
+      )}
+    >
+      {leading}
+      <span className="min-w-0 flex-1">{children}</span>
+      {selected && <Check className="h-4 w-4 shrink-0" aria-hidden="true" />}
+    </button>
+  );
+}
 
-function borgColor(n: number) {
-  if (n <= 3) return 'from-sky-400 to-sky-500';
-  if (n <= 6) return 'from-emerald-400 to-amber-400';
-  if (n <= 8) return 'from-amber-400 to-orange-500';
-  return 'from-orange-500 to-red-500';
+function Pregunta({ n, titulo, opcional, children }: { n: number; titulo: string; opcional?: boolean; children: ReactNode }) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="text-xs font-semibold text-muted-foreground">
+          Pregunta {n} de {TOTAL_QUESTIONS}
+          {opcional && ' · opcional'}
+        </p>
+        <h2 className="mt-1 text-xl font-semibold md:text-2xl">{titulo}</h2>
+      </div>
+      {children}
+    </div>
+  );
 }
 
 export default function PostTrainingSelfEvalPage() {
@@ -90,26 +118,24 @@ export default function PostTrainingSelfEvalPage() {
   const [searchParams] = useSearchParams();
   const childIdParam = searchParams.get('child_id');
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const location = useLocation();
+  const { user, profile } = useAuth();
   const { toast } = useToast();
 
   const [step, setStep] = useState(0);
-  const [answers, setAnswers] = useState<Answers>({
-    rpe_borg: null, task_comprehension: null, self_effort_pct: null,
-    satisfaction: null, focus: [], focus_other_text: '',
-  });
+  const [answers, setAnswers] = useState<EvalAnswers>(EMPTY_ANSWERS);
   const [showOtherInput, setShowOtherInput] = useState(false);
   const [result, setResult] = useState<{ saved: number; streak: number; month_avg_borg: number | null } | null>(null);
 
   // ── Sesión + equipo + escuela + deporte ────────────────────────────────────
-  const { data: ctx, isLoading } = useQuery({
+  const { data: ctx, isLoading, isError, refetch } = useQuery({
     queryKey: ['post-training-context', sessionId, childIdParam],
     enabled: !!sessionId,
     queryFn: async () => {
       const { data: session, error: sErr } = await supabase
         .from('attendance_sessions')
         .select('id, school_id, team_id, session_date, finalized, teams(name), schools(category_id)')
-        .eq('id', sessionId)
+        .eq('id', sessionId!)
         .single();
       if (sErr || !session) throw sErr || new Error('Sesión no encontrada');
 
@@ -117,7 +143,7 @@ export default function PostTrainingSelfEvalPage() {
       const teamName = (session as any).teams?.name ?? null;
 
       // Resolver sujeto: child_id de la URL, o buscar entre los hijos del padre
-      // presentes en esta sesión, o el propio usuario si es atleta adulta.
+      // presentes en esta sesión, o el propio usuario si es deportista adulto.
       let childId = childIdParam;
       let childName: string | null = null;
 
@@ -128,7 +154,7 @@ export default function PostTrainingSelfEvalPage() {
         const { data: ownRecord } = await supabase
           .from('attendance_records')
           .select('id')
-          .eq('session_id', sessionId)
+          .eq('session_id', sessionId!)
           .eq('user_id', user.id)
           .in('status', ['present', 'late'])
           .maybeSingle();
@@ -137,7 +163,7 @@ export default function PostTrainingSelfEvalPage() {
           const { data: kids } = await supabase
             .from('attendance_records')
             .select('child_id, children(id, full_name, parent_id)')
-            .eq('session_id', sessionId)
+            .eq('session_id', sessionId!)
             .in('status', ['present', 'late'])
             .not('child_id', 'is', null);
           const mine = ((kids ?? []) as any[]).find((k) => k.children?.parent_id === user.id);
@@ -157,11 +183,11 @@ export default function PostTrainingSelfEvalPage() {
         .filter((m) => m.metric_key.startsWith('focus_') && !['focus_nada', 'focus_other'].includes(m.metric_key))
         .map((m) => ({ key: m.metric_key as string, label: m.display_name as string }));
 
-      // Contador social: cuántas de las presentes ya respondieron (rpe_borg).
+      // Contador social: cuántos de los presentes ya respondieron (rpe_borg).
       const { data: present } = await supabase
         .from('attendance_records')
         .select('child_id, user_id')
-        .eq('session_id', sessionId)
+        .eq('session_id', sessionId!)
         .in('status', ['present', 'late']);
 
       const totalPresentes = (present ?? []).length;
@@ -190,22 +216,11 @@ export default function PostTrainingSelfEvalPage() {
   const submit = useMutation({
     mutationFn: async () => {
       if (!sessionId || !ctx?.subjectId) throw new Error('Falta información de la sesión.');
-      const payload: Record<string, Json> = {
-        rpe_borg: answers.rpe_borg,
-        task_comprehension: answers.task_comprehension,
-        self_effort_pct: answers.self_effort_pct,
-        satisfaction: answers.satisfaction,
-      };
-      if (answers.focus.length > 0) payload.focus = answers.focus;
-      if (answers.focus.includes('focus_other') && answers.focus_other_text.trim()) {
-        payload.focus_other_text = answers.focus_other_text.trim();
-      }
-
       const { data, error } = await supabase.rpc('submit_post_training_self_eval', {
         p_session_id: sessionId,
         p_child_id: ctx.subjectType === 'child' ? ctx.subjectId : null,
         p_user_id: ctx.subjectType === 'profile' ? ctx.subjectId : null,
-        p_answers: payload,
+        p_answers: buildPayload(answers),
       });
       if (error) throw error;
       return data as { saved: number; streak: number; month_avg_borg: number | null };
@@ -214,276 +229,322 @@ export default function PostTrainingSelfEvalPage() {
       setResult(data);
       setStep(6);
     },
-    onError: (err: any) => {
-      toast({ title: 'No se pudo guardar', description: err?.message ?? 'Intenta de nuevo.', variant: 'destructive' });
+    onError: (err: unknown) => {
+      toast({
+        title: 'No se pudo guardar',
+        description: err instanceof Error ? err.message : 'Intenta de nuevo.',
+        variant: 'destructive',
+      });
     },
   });
 
-  const dots = [0, 1, 2, 3, 4];
-  const canGoNext = useMemo(() => {
-    if (step === 1) return answers.rpe_borg !== null;
-    if (step === 2) return answers.task_comprehension !== null;
-    if (step === 3) return answers.self_effort_pct !== null;
-    if (step === 4) return answers.satisfaction !== null;
-    return true;
-  }, [step, answers]);
+  /** Elegir y pasar a la siguiente: un toque por pregunta. */
+  const elegir = (patch: Partial<EvalAnswers>, next: number) => {
+    setAnswers((a) => ({ ...a, ...patch }));
+    setStep(next);
+  };
+
+  const salir = () => {
+    if (location.key !== 'default' && window.history.length > 1) navigate(-1);
+    else navigate('/dashboard');
+  };
+
+  const shell = (children: ReactNode) => (
+    <div className="min-h-screen-d bg-background text-foreground">
+      <div className="mx-auto flex min-h-screen-d w-full max-w-page-narrow flex-col px-gutter pb-nav-safe pt-safe-t">
+        {children}
+      </div>
+    </div>
+  );
 
   if (isLoading) {
-    return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Cargando…</div>;
-  }
-
-  if (!ctx?.subjectId) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-3 p-6 text-center">
-        <p className="font-semibold">No encontramos a qué deportista corresponde este entreno.</p>
-        <Button variant="outline" onClick={() => navigate('/')}>Volver al inicio</Button>
-      </div>
+    return shell(
+      <div role="status" aria-label="Cargando el entreno" className="flex flex-1 flex-col items-center justify-center gap-4 py-10">
+        <div className="h-20 w-20 animate-pulse rounded-full bg-muted motion-reduce:animate-none" />
+        <div className="h-6 w-56 animate-pulse rounded-lg bg-muted motion-reduce:animate-none" />
+        <div className="h-touch w-full animate-pulse rounded-xl bg-muted motion-reduce:animate-none" />
+      </div>,
     );
   }
 
-  const nombre = ctx.childName ?? 'Deportista';
+  if (isError) {
+    return shell(
+      <div role="alert" className="flex flex-1 flex-col items-center justify-center gap-3 py-10 text-center">
+        <AlertCircle className="h-8 w-8 text-destructive" aria-hidden="true" />
+        <p className="text-base font-semibold">No pudimos abrir este entreno.</p>
+        <p className="max-w-prose-ui text-sm text-muted-foreground">Revisa tu conexión e intenta de nuevo. Si el enlace es viejo, puede que el entreno ya no exista.</p>
+        <div className="flex flex-wrap justify-center gap-2">
+          <Button className="min-h-touch" onClick={() => refetch()}>Intentar de nuevo</Button>
+          <Button variant="outline" className="min-h-touch" onClick={() => navigate('/dashboard')}>Ir al inicio</Button>
+        </div>
+      </div>,
+    );
+  }
 
-  return (
-    <div className="min-h-screen bg-background-light flex flex-col max-w-md mx-auto">
-      {step > 0 && step < 6 && (
-        <div className="flex items-center gap-3 px-6 pt-7 pb-1">
-          <button onClick={() => setStep((s) => Math.max(0, s - 1))} className="w-9 h-9 rounded-full border flex items-center justify-center shrink-0">
-            <ChevronLeft className="w-4 h-4" />
+  if (!ctx?.subjectId) {
+    return shell(
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 py-10 text-center">
+        <p className="text-base font-semibold">No encontramos a qué deportista corresponde este entreno.</p>
+        <p className="max-w-prose-ui text-sm text-muted-foreground">Puede que no haya quedado en la lista de ese día. Pregúntale al profe.</p>
+        <Button variant="outline" className="min-h-touch" onClick={() => navigate('/dashboard')}>Ir al inicio</Button>
+      </div>,
+    );
+  }
+
+  const nombreCompleto = ctx.childName ?? (ctx.subjectType === 'profile' ? profile?.full_name ?? null : null);
+  const nombre = nombreCompleto?.trim().split(/\s+/)[0] || null;
+  const fecha = sessionDateLabel(ctx.session.session_date);
+
+  return shell(
+    <>
+      {/* Barra superior: salir en la portada; pregunta anterior y avance en las preguntas. */}
+      {step === 0 && (
+        <div className="pt-3">
+          <button
+            type="button"
+            onClick={salir}
+            className="inline-flex min-h-touch items-center gap-2 rounded-lg pr-3 text-sm font-medium text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            Volver
           </button>
-          <div className="flex gap-1.5 flex-1">
-            {dots.map((d) => (
-              <div key={d} className={`h-1.5 flex-1 rounded-full ${d < step ? 'bg-orange' : 'bg-muted'}`} />
+        </div>
+      )}
+      {step > 0 && step < 6 && (
+        <div className="flex items-center gap-3 pt-3">
+          <button
+            type="button"
+            onClick={() => setStep((s) => Math.max(0, s - 1))}
+            aria-label="Pregunta anterior"
+            className="flex h-touch w-touch shrink-0 items-center justify-center rounded-full border border-border bg-card text-foreground hover:bg-muted"
+          >
+            <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+          </button>
+          <div
+            className="flex flex-1 gap-1.5"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={TOTAL_QUESTIONS}
+            aria-valuenow={step}
+            aria-label={`Pregunta ${step} de ${TOTAL_QUESTIONS}`}
+          >
+            {Array.from({ length: TOTAL_QUESTIONS }, (_, i) => (
+              <div key={i} className={cn('h-1.5 flex-1 rounded-full', i < step ? 'bg-primary' : 'bg-muted')} />
             ))}
           </div>
         </div>
       )}
 
-      {/* Paso 0 — Entrada */}
-      {step === 0 && (
-        <div className="flex-1 flex flex-col items-center justify-center px-8 py-10 text-center gap-5">
-          <div className="w-24 h-24 rounded-full bg-primary flex items-center justify-center text-white text-3xl font-bold">
-            {nombre.charAt(0)}
-          </div>
-          <div>
-            <h1 className="text-2xl font-extrabold">¡Hola {nombre}!</h1>
-            <p className="text-muted-foreground mt-1">¿Cómo estuvo el entreno de hoy?</p>
-          </div>
-          <div className="flex flex-col gap-2 items-center">
-            <span className="text-xs font-semibold bg-white border rounded-full px-4 py-2">
-              {ctx.teamName ?? 'Tu equipo'} · {new Date(ctx.session.session_date).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'short' })}
-            </span>
+      <div className="flex flex-1 flex-col py-6">
+        {/* Paso 0 — Portada: una frase y un botón */}
+        {step === 0 && (
+          <div className="flex flex-1 flex-col items-center justify-center gap-5 text-center">
+            <div
+              className="flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 text-3xl font-semibold text-primary"
+              aria-hidden="true"
+            >
+              {(nombre ?? 'D').charAt(0).toUpperCase()}
+            </div>
+            <div className="space-y-1">
+              <h1 className="text-2xl font-semibold md:text-3xl">
+                {nombre ? `¿Cómo te fue en el entreno, ${nombre}?` : '¿Cómo te fue en el entreno?'}
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                {[ctx.teamName, fecha].filter(Boolean).join(' · ')}
+              </p>
+            </div>
             {ctx.totalPresentes > 0 && (
-              <span className="text-xs font-semibold bg-orange/10 text-orange-dark rounded-full px-4 py-2">
-                El equipo ya respondió {ctx.yaRespondieron} de {ctx.totalPresentes}
+              <span className="inline-flex items-center rounded-full bg-muted px-3 py-1 text-xs font-semibold text-foreground">
+                Ya respondieron {ctx.yaRespondieron} de {ctx.totalPresentes} del equipo
               </span>
             )}
+            <div className="w-full space-y-2 pt-2">
+              <Button size="lg" className="min-h-touch h-12 w-full rounded-xl text-base font-semibold" onClick={() => setStep(1)}>
+                Empezar
+              </Button>
+              <p className="text-xs text-muted-foreground">5 preguntas de un toque. Menos de 30 segundos. Tu profe lo ve para cuidar cuánto entrenas.</p>
+            </div>
           </div>
-          <Button size="lg" className="w-full mt-4 bg-orange hover:bg-orange-dark text-white rounded-full h-14 text-base font-bold" onClick={() => setStep(1)}>
-            Empezar
-          </Button>
-          <p className="text-xs text-muted-foreground">Menos de 30 segundos</p>
-        </div>
-      )}
+        )}
 
-      {/* Paso 1 — BORG */}
-      {step === 1 && (
-        <div className="flex-1 flex flex-col items-center px-8 pt-4 gap-6">
-          <div className="text-center">
-            <p className="text-xs font-bold text-orange-dark uppercase tracking-wide">Pregunta 1 de 5</p>
-            <h2 className="text-xl font-extrabold mt-1">¿Qué tan cansada terminaste?</h2>
-          </div>
-          <div className={`w-32 h-32 rounded-full bg-gradient-to-br ${borgColor(answers.rpe_borg ?? 0)} flex items-center justify-center text-white text-4xl font-extrabold shadow-lg`}>
-            {answers.rpe_borg ?? '–'}
-          </div>
-          <p className="text-sm font-semibold text-muted-foreground">
-            {answers.rpe_borg !== null ? BORG_LABELS[answers.rpe_borg] : 'Desliza para elegir'}
-          </p>
-          <div className="w-full grid grid-cols-11 gap-1">
-            {Array.from({ length: 11 }, (_, n) => n).map((n) => (
-              <button
-                key={n}
-                onClick={() => setAnswers((a) => ({ ...a, rpe_borg: n }))}
-                className={`h-10 rounded-lg text-xs font-bold border-2 ${answers.rpe_borg === n ? 'border-orange bg-orange text-white' : 'border-border bg-white text-muted-foreground'}`}
-              >
-                {n}
-              </button>
-            ))}
-          </div>
-          <Button disabled={!canGoNext} className="w-full mt-8 mb-8 h-12 rounded-full bg-orange hover:bg-orange-dark" onClick={() => setStep(2)}>
-            Siguiente
-          </Button>
-        </div>
-      )}
-
-      {/* Paso 2 — Comprensión */}
-      {step === 2 && (
-        <div className="flex-1 flex flex-col px-6 pt-4 gap-4">
-          <div className="text-center">
-            <p className="text-xs font-bold text-orange-dark uppercase tracking-wide">Pregunta 2 de 5</p>
-            <h2 className="text-xl font-extrabold mt-1">¿Entendiste los ejercicios de hoy?</h2>
-          </div>
-          <div className="flex flex-col gap-3 mt-2">
-            {COMPREHENSION_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => { setAnswers((a) => ({ ...a, task_comprehension: opt.value })); setStep(3); }}
-                className={`flex items-center gap-3 p-4 rounded-2xl border-2 text-left font-semibold ${answers.task_comprehension === opt.value ? 'border-orange bg-orange/5 text-orange-dark' : 'border-border bg-white'}`}
-              >
-                <CheckCircle2 className={`w-5 h-5 shrink-0 ${answers.task_comprehension === opt.value ? 'text-orange' : 'text-muted-foreground/40'}`} />
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Paso 3 — Esfuerzo */}
-      {step === 3 && (
-        <div className="flex-1 flex flex-col items-center px-8 pt-4 gap-5">
-          <div className="text-center">
-            <p className="text-xs font-bold text-orange-dark uppercase tracking-wide">Pregunta 3 de 5</p>
-            <h2 className="text-xl font-extrabold mt-1">¿Cuánto te esforzaste hoy?</h2>
-          </div>
-          <div className="text-5xl font-extrabold text-orange-dark">{answers.self_effort_pct ?? '--'}%</div>
-          <p className="text-sm font-semibold text-muted-foreground text-center">
-            {answers.self_effort_pct ? EFFORT_LABELS[answers.self_effort_pct] : 'Elige tu nivel'}
-          </p>
-          <div className="w-full flex items-end justify-center gap-2 h-40">
-            {EFFORT_STEPS.map((v, i) => (
-              <button
-                key={v}
-                onClick={() => setAnswers((a) => ({ ...a, self_effort_pct: v }))}
-                className={`w-9 rounded-t-lg border-2 ${answers.self_effort_pct === v ? 'border-orange bg-gradient-to-t from-orange-dark to-orange' : 'border-border bg-muted/40'}`}
-                style={{ height: `${35 + i * 13}%` }}
-              />
-            ))}
-          </div>
-          <div className="w-full flex justify-center gap-2 text-[10px] font-bold text-muted-foreground">
-            {EFFORT_STEPS.map((v) => <span key={v} className="w-9 text-center">{v}</span>)}
-          </div>
-          <Button disabled={!canGoNext} className="w-full mt-8 mb-8 h-12 rounded-full bg-orange hover:bg-orange-dark" onClick={() => setStep(4)}>
-            Siguiente
-          </Button>
-        </div>
-      )}
-
-      {/* Paso 4 — Satisfacción */}
-      {step === 4 && (
-        <div className="flex-1 flex flex-col items-center px-6 pt-4 gap-5">
-          <div className="text-center">
-            <p className="text-xs font-bold text-orange-dark uppercase tracking-wide">Pregunta 4 de 5</p>
-            <h2 className="text-xl font-extrabold mt-1">¿Cómo te sentiste al terminar?</h2>
-          </div>
-          <div className="flex items-center gap-2">
-            {SATISFACTION_OPTIONS.map(({ value, label, Icon }) => (
-              <button
-                key={value}
-                onClick={() => { setAnswers((a) => ({ ...a, satisfaction: value })); setStep(5); }}
-                className={`rounded-full flex items-center justify-center transition-transform ${answers.satisfaction === value ? 'w-20 h-20 bg-gradient-to-br from-orange to-orange-dark text-white scale-105 shadow-lg' : 'w-12 h-12 bg-muted/50 text-muted-foreground'}`}
-                title={label}
-              >
-                <Icon className={answers.satisfaction === value ? 'w-9 h-9' : 'w-5 h-5'} />
-              </button>
-            ))}
-          </div>
-          {answers.satisfaction && (
-            <p className="text-sm font-semibold bg-orange/10 text-orange-dark rounded-full px-4 py-2 text-center">
-              {SATISFACTION_OPTIONS.find((o) => o.value === answers.satisfaction)?.label}
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Paso 5 — Aspectos a mejorar */}
-      {step === 5 && (
-        <div className="flex-1 flex flex-col px-6 pt-4 gap-4">
-          <div className="text-center">
-            <p className="text-xs font-bold text-orange-dark uppercase tracking-wide flex items-center justify-center gap-2">
-              Pregunta 5 de 5 <span className="bg-muted rounded-full px-2 py-0.5 text-muted-foreground normal-case font-bold">opcional</span>
-            </p>
-            <h2 className="text-xl font-extrabold mt-1">¿Qué quieres mejorar la próxima vez?</h2>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {(ctx.focusItems ?? []).map(({ key, label }) => {
-              const Icon = FOCUS_ICONS[key] ?? CircleDot;
-              const selected = answers.focus.includes(key);
-              return (
-                <button
-                  key={key}
-                  onClick={() => setAnswers((a) => ({
-                    ...a,
-                    focus: selected ? a.focus.filter((f) => f !== key) : [...a.focus, key],
-                  }))}
-                  className={`flex items-center gap-2 p-3 rounded-2xl border-2 text-sm font-semibold text-left ${selected ? 'border-orange bg-orange/5 text-orange-dark' : 'border-border bg-white'}`}
+        {/* Paso 1 — ¿Qué tan duro fue? (0 a 10) */}
+        {step === 1 && (
+          <Pregunta n={1} titulo="¿Qué tan duro fue el entreno?">
+            <div role="radiogroup" aria-label="¿Qué tan duro fue?" className="space-y-1.5">
+              {BORG_OPTIONS.map((o) => (
+                <Opcion
+                  key={o.value}
+                  selected={answers.rpe_borg === o.value}
+                  onClick={() => elegir({ rpe_borg: o.value }, 2)}
+                  leading={
+                    <span className="flex w-8 shrink-0 items-center gap-1.5">
+                      <span className={cn('h-2.5 w-2.5 rounded-full', borgDot(o.value))} aria-hidden="true" />
+                      <span className="text-base font-semibold tabular-nums">{o.value}</span>
+                    </span>
+                  }
                 >
-                  <Icon className={`w-5 h-5 shrink-0 ${selected ? 'text-orange' : 'text-muted-foreground'}`} />
-                  {label}
-                </button>
-              );
-            })}
-            <button
-              onClick={() => {
-                setShowOtherInput(true);
-                setAnswers((a) => (a.focus.includes('focus_other') ? a : { ...a, focus: [...a.focus, 'focus_other'] }));
-              }}
-              className={`col-span-2 flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed text-sm font-semibold ${answers.focus.includes('focus_other') ? 'border-orange text-orange-dark' : 'border-border text-muted-foreground'}`}
-            >
-              <Pencil className="w-4 h-4" /> Otro
-            </button>
-          </div>
-          {showOtherInput && answers.focus.includes('focus_other') && (
-            <Textarea
-              placeholder="¿Qué te gustaría mejorar?"
-              maxLength={200}
-              value={answers.focus_other_text}
-              onChange={(e) => setAnswers((a) => ({ ...a, focus_other_text: e.target.value }))}
-              className="rounded-xl"
-            />
-          )}
-          <button
-            className="text-sm font-bold text-muted-foreground underline py-2"
-            onClick={() => setAnswers((a) => ({ ...a, focus: [] }))}
-          >
-            Hoy nada
-          </button>
-          <Button
-            disabled={submit.isPending}
-            className="w-full mt-2 mb-8 h-12 rounded-full bg-orange hover:bg-orange-dark"
-            onClick={() => submit.mutate()}
-          >
-            {submit.isPending ? 'Guardando…' : 'Terminar'}
-          </Button>
-        </div>
-      )}
+                  {o.label}
+                </Opcion>
+              ))}
+            </div>
+          </Pregunta>
+        )}
 
-      {/* Paso 6 — Cierre */}
-      {step === 6 && result && (
-        <div className="flex-1 flex flex-col items-center justify-center px-8 text-center gap-5">
-          <div className="w-24 h-24 rounded-full bg-primary flex items-center justify-center">
-            <PartyPopper className="w-11 h-11 text-white" />
-          </div>
-          <h1 className="text-2xl font-extrabold">¡Listo!</h1>
-          {result.streak > 1 && (
-            <p className="text-sm font-bold bg-orange/10 text-orange-dark rounded-full px-4 py-2">
-              Llevas {result.streak} entrenos seguidos respondiendo 🔥
-            </p>
-          )}
-          <div className="w-full bg-white border rounded-3xl p-6 flex items-center justify-around shadow-sm">
-            <div>
-              <p className="text-xs font-bold text-muted-foreground uppercase">Hoy terminaste en</p>
-              <p className="text-3xl font-extrabold text-orange-dark">{answers.rpe_borg}</p>
+        {/* Paso 2 — Comprensión */}
+        {step === 2 && (
+          <Pregunta n={2} titulo="¿Entendiste los ejercicios de hoy?">
+            <div role="radiogroup" aria-label="¿Entendiste los ejercicios?" className="space-y-2">
+              {COMPREHENSION_OPTIONS.map((o) => (
+                <Opcion key={o.value} selected={answers.task_comprehension === o.value} onClick={() => elegir({ task_comprehension: o.value }, 3)}>
+                  {o.label}
+                </Opcion>
+              ))}
             </div>
-            <div className="w-px h-12 bg-border" />
-            <div>
-              <p className="text-xs font-bold text-muted-foreground uppercase">Promedio del mes</p>
-              <p className="text-3xl font-extrabold text-primary">{result.month_avg_borg ?? '—'}</p>
+          </Pregunta>
+        )}
+
+        {/* Paso 3 — Esfuerzo */}
+        {step === 3 && (
+          <Pregunta n={3} titulo="¿Cuánto te esforzaste hoy?">
+            <div role="radiogroup" aria-label="¿Cuánto te esforzaste?" className="space-y-2">
+              {EFFORT_OPTIONS.map((o) => (
+                <Opcion
+                  key={o.value}
+                  selected={answers.self_effort_pct === o.value}
+                  onClick={() => elegir({ self_effort_pct: o.value }, 4)}
+                  leading={<span className="w-12 shrink-0 text-base font-semibold tabular-nums">{o.value} %</span>}
+                >
+                  {o.label}
+                </Opcion>
+              ))}
             </div>
+          </Pregunta>
+        )}
+
+        {/* Paso 4 — Cómo se sintió */}
+        {step === 4 && (
+          <Pregunta n={4} titulo="¿Cómo te sentiste al terminar?">
+            <div role="radiogroup" aria-label="¿Cómo te sentiste?" className="space-y-2">
+              {SATISFACTION_OPTIONS.map((o) => {
+                const Icon = SATISFACTION_ICONS[o.value] ?? Meh;
+                return (
+                  <Opcion
+                    key={o.value}
+                    selected={answers.satisfaction === o.value}
+                    onClick={() => elegir({ satisfaction: o.value }, 5)}
+                    leading={<Icon className="h-5 w-5 shrink-0" aria-hidden="true" />}
+                  >
+                    {o.label}
+                  </Opcion>
+                );
+              })}
+            </div>
+          </Pregunta>
+        )}
+
+        {/* Paso 5 — Qué mejorar (opcional, varias) */}
+        {step === 5 && (
+          <Pregunta n={5} titulo="¿Qué quieres mejorar la próxima vez?" opcional>
+            <p className="-mt-2 text-sm text-muted-foreground">Elige las que quieras, o ninguna.</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {(ctx.focusItems ?? []).map(({ key, label }) => {
+                const Icon = FOCUS_ICONS[key] ?? CircleDot;
+                const selected = answers.focus.includes(key);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => setAnswers((a) => toggleFocus(a, key))}
+                    className={cn(
+                      'flex min-h-touch items-center gap-3 rounded-xl border px-4 py-2.5 text-left text-sm font-medium transition-colors',
+                      selected ? 'border-primary bg-primary/10 text-foreground' : 'border-border bg-card text-card-foreground hover:bg-muted',
+                    )}
+                  >
+                    <Icon className={cn('h-5 w-5 shrink-0', selected ? 'text-primary' : 'text-muted-foreground')} aria-hidden="true" />
+                    <span className="min-w-0 flex-1">{label}</span>
+                    {selected && <Check className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                aria-pressed={answers.focus.includes('focus_other')}
+                onClick={() => {
+                  setShowOtherInput(true);
+                  setAnswers((a) => (a.focus.includes('focus_other') ? a : { ...a, focus: [...a.focus, 'focus_other'] }));
+                }}
+                className={cn(
+                  'flex min-h-touch items-center justify-center gap-2 rounded-xl border border-dashed px-4 text-sm font-medium sm:col-span-2',
+                  answers.focus.includes('focus_other') ? 'border-primary text-foreground' : 'border-border text-muted-foreground hover:bg-muted',
+                )}
+              >
+                <Pencil className="h-4 w-4" aria-hidden="true" /> Otra cosa
+              </button>
+            </div>
+            {showOtherInput && answers.focus.includes('focus_other') && (
+              <Textarea
+                aria-label="¿Qué te gustaría mejorar?"
+                placeholder="¿Qué te gustaría mejorar?"
+                maxLength={200}
+                value={answers.focus_other_text}
+                onChange={(e) => setAnswers((a) => ({ ...a, focus_other_text: e.target.value }))}
+                className="rounded-xl"
+              />
+            )}
+            <div className="space-y-2 pt-2">
+              <Button
+                size="lg"
+                disabled={submit.isPending}
+                className="min-h-touch h-12 w-full rounded-xl text-base font-semibold"
+                onClick={() => submit.mutate()}
+              >
+                {submit.isPending ? 'Guardando…' : 'Terminar'}
+              </Button>
+              {answers.focus.length > 0 && (
+                <Button
+                  variant="ghost"
+                  className="min-h-touch w-full"
+                  onClick={() => {
+                    setShowOtherInput(false);
+                    setAnswers((a) => ({ ...a, focus: [] }));
+                  }}
+                >
+                  Hoy nada: quitar lo que elegí
+                </Button>
+              )}
+            </div>
+          </Pregunta>
+        )}
+
+        {/* Paso 6 — Listo */}
+        {step === 6 && result && (
+          <div className="flex flex-1 flex-col items-center justify-center gap-5 text-center">
+            <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <PartyPopper className="h-9 w-9" aria-hidden="true" />
+            </div>
+            <div className="space-y-1">
+              <h1 className="text-2xl font-semibold">¡Listo! Tu profe ya lo ve.</h1>
+              {result.streak > 1 && (
+                <p className="text-sm text-muted-foreground">Llevas {result.streak} entrenos seguidos respondiendo.</p>
+              )}
+            </div>
+            <div className="grid w-full grid-cols-2 gap-2">
+              <div className="rounded-2xl border bg-card p-4 text-card-foreground">
+                <p className="text-2xl font-semibold tabular-nums">{answers.rpe_borg} de 10</p>
+                <p className="text-xs text-muted-foreground">Qué tan duro fue hoy</p>
+              </div>
+              <div className="rounded-2xl border bg-card p-4 text-card-foreground">
+                <p className="text-2xl font-semibold tabular-nums">{result.month_avg_borg ?? '—'}</p>
+                <p className="text-xs text-muted-foreground">Promedio del mes</p>
+              </div>
+            </div>
+            <Button size="lg" className="min-h-touch h-12 w-full rounded-xl text-base font-semibold" onClick={() => navigate('/')}>
+              Cerrar
+            </Button>
           </div>
-          <Button className="w-full h-12 rounded-full bg-primary hover:bg-primary/90" onClick={() => navigate('/')}>
-            Cerrar
-          </Button>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </>,
   );
 }

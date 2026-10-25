@@ -16,6 +16,8 @@ import AuthLayout from "@/layouts/AuthLayout";
 import { MobileBottomNav } from "@/components/navigation/MobileBottomNav";
 import { CartDrawer } from "@/components/cart/CartDrawer";
 import { Suspense, lazy } from "react";
+import { ACUDIENTE_V2, SHOW_EXPLORE } from "@/lib/feature-flags";
+const ExplorarProntoPage = lazy(() => import("./pages/ExplorarProntoPage"));
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { InstallBanner } from "./pwa/InstallBanner";
 import { UpdateBanner } from "./pwa/UpdateBanner";
@@ -96,12 +98,14 @@ const MembershipsPage = lazy(() => import("./pages/MembershipsPage"));
 const OfferingsPage = lazy(() => import("./pages/OfferingsPage"));
 const StatsPage = lazy(() => import("./pages/StatsPage"));
 const MessagesPage = lazy(() => import("./pages/MessagesPage"));
-const ProfilePage = lazy(() => import("./pages/ProfilePage"));
+const PerfilSegunRol = lazy(() => import("./components/parent/v2/PerfilSegunRol"));
 const MyEnrollmentsPage = lazy(() => import("./pages/MyEnrollmentsPage"));
 const ShopPage = lazy(() => import("./pages/ShopPage"));
 
 // ─── Parent pages (lazy) ──────────────────────────────────────────────────────
-const MyChildrenPage = lazy(() => import("./pages/MyChildrenPage"));
+// Acudiente V2: con VITE_ACUDIENTE_V2=false vuelven las pantallas anteriores (copias intactas).
+const MyChildrenPage = lazy(() => ACUDIENTE_V2 ? import("./pages/MyChildrenPage") : import("./pages/MyChildrenPageClassic"));
+const ParentMorePage = lazy(() => import("./pages/ParentMorePage"));
 const ChildProgressPage = lazy(() => import("./pages/ChildProgressPage"));
 const ChildAttendancePage = lazy(() => import("./pages/ChildAttendancePage"));
 const ChildReportsPage = lazy(() => import("./pages/ChildReportsPage"));
@@ -110,7 +114,7 @@ const ChildReportDetailPage = lazy(() => import("./pages/ChildReportDetailPage")
 const ChildPostTrainingReportPage = lazy(() => import("./pages/ChildPostTrainingReportPage"));
 const AcademicProgressPage = lazy(() => import("./pages/AcademicProgressPage"));
 const AttendancePage = lazy(() => import("./pages/AttendancePage"));
-const MyPaymentsPage = lazy(() => import("./pages/MyPaymentsPage"));
+const MyPaymentsPage = lazy(() => ACUDIENTE_V2 ? import("./pages/MyPaymentsPage") : import("./pages/MyPaymentsPageClassic"));
 const AccountStatementPage = lazy(() => import("./pages/AccountStatementPage"));
 const PostTrainingSelfEvalPage = lazy(() => import("./pages/PostTrainingSelfEvalPage"));
 const PostTrainingDayRecapPage = lazy(() => import("./pages/PostTrainingDayRecapPage"));
@@ -263,6 +267,8 @@ const EnrollmentIntakeInboxPage = lazy(() => import("./pages/school/EnrollmentIn
 
 // ─── Trainer pages (lazy) ────────────────────────────────────────────────────
 const TrainerOnboarding = lazy(() => import("./pages/trainer/TrainerOnboarding"));
+const AttendanceSheetIntakePage = lazy(() => import("./pages/school/AttendanceSheetIntakePage"));
+const PlanChangesPage = lazy(() => import("./pages/school/PlanChangesPage"));
 const TrainerDashboard = lazy(() => import("./pages/trainer/TrainerDashboard"));
 const TrainerClients = lazy(() => import('./pages/trainer/TrainerClients'));
 const TrainerRoutines = lazy(() => import('./pages/trainer/TrainerRoutines'));
@@ -424,7 +430,8 @@ const App = () => (
                     <Route path="/polls/v/:pollId" element={<PublicPollPage />} />
 
                     {/* Public Marketplace routes */}
-                    <Route path="/explorar" element={<ExplorarGlobalPage />} />
+                    {/* Explorar apagado para todos hasta terminar su rediseño (SHOW_EXPLORE). */}
+                    <Route path="/explorar" element={SHOW_EXPLORE ? <ExplorarGlobalPage /> : <ExplorarProntoPage />} />
                     <Route path="/marketplace" element={<MarketplacePage />} />
                     {/* Detalle de PRODUCTO = tienda; el de servicio (/marketplace/service/:id) sigue abierto. */}
                     <Route path="/marketplace/product/:id" element={<StoreGate><MarketplaceDetailPage /></StoreGate>} />
@@ -452,7 +459,8 @@ const App = () => (
                       </ProtectedRoute>
                     }>
                       <Route path="dashboard" element={<DashboardPage />} />
-                      <Route path="profile" element={<ProfilePage />} />
+                      {/* El acudiente V2 tiene una sola «Mi cuenta» (/settings); los demás roles, su perfil de siempre. */}
+                      <Route path="profile" element={<PerfilSegunRol />} />
                       <Route path="calendar" element={
                         <ModuleGate moduleKey="gestion_deportiva_calendario">
                           <CalendarPage />
@@ -517,6 +525,14 @@ const App = () => (
                           <MyPaymentsPage />
                         </ProtectedRoute>
                       } />
+                      {/* «Más» del acudiente V2: quinta pestaña de la barra. Con la reversa no existe. */}
+                      {ACUDIENTE_V2 && (
+                        <Route path="mas" element={
+                          <ProtectedRoute allowedRoles={['parent']}>
+                            <ParentMorePage />
+                          </ProtectedRoute>
+                        } />
+                      )}
                       <Route path="tournaments/:eventId/register" element={
                         <ProtectedRoute allowedRoles={['parent', 'athlete']}>
                           <TournamentRegisterPage />
@@ -702,6 +718,18 @@ const App = () => (
                           esta lista es solo el primer tamiz. */}
                       <Route path="mi-plan" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'wellness_professional', 'store_owner', 'organizer', 'reporter', 'personal_trainer']}>
+                      {/* Planillas de asistencia por foto (WhatsApp + OCR): revisar y guardar. El coach ve solo lo suyo (el BFF filtra). */}
+                      <Route path="school/attendance-sheets" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
+                          <AttendanceSheetIntakePage />
+                        </ProtectedRoute>
+                      } />
+                      {/* Cambios de plan por clases tomadas (modo sombra): solo dinero → dueño/admin/contador; el BFF es el gate real. */}
+                      <Route path="school/plan-changes" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'accountant']}>
+                          <PlanChangesPage />
+                        </ProtectedRoute>
+                      } />
                           <MiPlanPage />
                         </ProtectedRoute>
                       } />

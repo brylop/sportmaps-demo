@@ -8,7 +8,7 @@ export type BucketName = 'avatars' | 'medical-documents' | 'payment-receipts' | 
 
 function friendlyUploadError(message: string): string {
   if (/mime type .* is not supported/i.test(message)) {
-    return 'Ese tipo de archivo no está permitido acá. Subí una imagen (PNG, JPG, WEBP o SVG).';
+    return 'Ese tipo de archivo no está permitido acá. Sube una imagen (PNG, JPG, WEBP o SVG).';
   }
   if (/exceeded the maximum allowed size/i.test(message)) {
     return 'El archivo pesa más de lo permitido.';

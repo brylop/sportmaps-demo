@@ -6,8 +6,10 @@ import { parentsAPI } from '@/lib/api/parents';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -281,15 +283,18 @@ export function AddChildDialog({ open, onOpenChange, onSuccess, nombresTomados =
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      {/* Hoja con encabezado (título + pasos) y pie fijos; solo el cuerpo hace
+          scroll. Antes el pie era `sticky` dentro del scroll del DialogContent
+          y los campos pasaban por debajo de «Cancelar / Siguiente». */}
+      <DialogContent variant="sheet">
         <DialogHeader>
           <DialogTitle>Añadir Hijo</DialogTitle>
-          <DialogDescription>
+          {/* En pantallas bajas (celular a 200 % de zoom) la descripción queda
+              solo para lectores de pantalla: el alto es para los campos. */}
+          <DialogDescription className="[@media(max-height:32rem)]:sr-only">
             Completa la información de tu hijo para gestionar sus actividades deportivas
           </DialogDescription>
-        </DialogHeader>
-        <Form {...form}>
-          <div className="mb-8 mt-2 px-4">
+          <div className="px-4 pb-2 pt-4 [@media(max-height:32rem)]:pt-1">
             <div className="relative flex justify-between items-center">
               {/* Stepper Line */}
               <div className="absolute top-1/2 left-0 w-full h-0.5 bg-muted -translate-y-1/2 z-0"></div>
@@ -306,7 +311,7 @@ export function AddChildDialog({ open, onOpenChange, onSuccess, nombresTomados =
                 >
                   {currentStep > 1 ? <Check className="w-5 h-5" /> : 1}
                 </div>
-                <span className={`text-[10px] mt-2 font-medium uppercase tracking-wider ${currentStep >= 1 ? 'text-primary' : 'text-muted-foreground'}`}>
+                <span className={`text-xs mt-2 font-medium uppercase tracking-wider ${currentStep >= 1 ? 'text-primary' : 'text-muted-foreground'}`}>
                   Básica
                 </span>
               </div>
@@ -319,15 +324,16 @@ export function AddChildDialog({ open, onOpenChange, onSuccess, nombresTomados =
                 >
                   2
                 </div>
-                <span className={`text-[10px] mt-2 font-medium uppercase tracking-wider ${currentStep >= 2 ? 'text-primary' : 'text-muted-foreground'}`}>
+                <span className={`text-xs mt-2 font-medium uppercase tracking-wider ${currentStep >= 2 ? 'text-primary' : 'text-muted-foreground'}`}>
                   Médica
                 </span>
               </div>
             </div>
           </div>
-
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            <div className="max-h-[55vh] overflow-y-auto px-1 custom-scrollbar">
+        </DialogHeader>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="flex min-h-0 flex-1 flex-col">
+            <DialogBody>
               {currentStep === 1 ? (
                 <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
                   {/* Avatar Upload */}
@@ -396,12 +402,12 @@ export function AddChildDialog({ open, onOpenChange, onSuccess, nombresTomados =
                                     !field.value && "text-muted-foreground"
                                   )}
                                 >
-                                  {field.value ? (
-                                    format(new Date(field.value + 'T00:00:00'), "PPP", { locale: es })
-                                  ) : (
-                                    <span>Selecciona una fecha</span>
-                                  )}
-                                  <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                  <span className="min-w-0 truncate">
+                                    {field.value
+                                      ? format(new Date(field.value + 'T00:00:00'), "PPP", { locale: es })
+                                      : 'Selecciona una fecha'}
+                                  </span>
+                                  <CalendarIcon className="ml-auto h-4 w-4 shrink-0 opacity-50" />
                                 </Button>
                               </FormControl>
                             </PopoverTrigger>
@@ -811,14 +817,15 @@ export function AddChildDialog({ open, onOpenChange, onSuccess, nombresTomados =
                   </div>
                 </div>
               )}
-            </div>
+            </DialogBody>
 
-            <div className="sticky bottom-0 bg-background flex justify-between items-center pt-4 border-t border-muted">
+            <DialogFooter className="flex-row flex-wrap items-center justify-between gap-2 sm:justify-between sm:space-x-0">
               {currentStep === 1 ? (
                 <>
                   <Button
                     type="button"
                     variant="ghost"
+                    className="min-h-touch md:min-h-0"
                     onClick={() => onOpenChange(false)}
                     disabled={isSubmitting}
                   >
@@ -827,7 +834,7 @@ export function AddChildDialog({ open, onOpenChange, onSuccess, nombresTomados =
                   <Button
                     type="button"
                     onClick={nextStep}
-                    className="bg-primary hover:bg-primary/90 min-w-32"
+                    className="bg-primary hover:bg-primary/90 min-w-32 min-h-touch md:min-h-0"
                   >
                     Siguiente
                     <ChevronRight className="w-4 h-4 ml-2" />
@@ -838,6 +845,7 @@ export function AddChildDialog({ open, onOpenChange, onSuccess, nombresTomados =
                   <Button
                     type="button"
                     variant="outline"
+                    className="min-h-touch md:min-h-0"
                     onClick={prevStep}
                     disabled={isSubmitting}
                   >
@@ -847,7 +855,7 @@ export function AddChildDialog({ open, onOpenChange, onSuccess, nombresTomados =
                   <Button
                     type="submit"
                     disabled={isSubmitting || isUploading}
-                    className="bg-primary hover:bg-primary/90 min-w-32"
+                    className="bg-primary hover:bg-primary/90 min-w-32 min-h-touch md:min-h-0"
                   >
                     {isSubmitting || isUploading ? (
                       <div className="flex items-center gap-2">
@@ -863,7 +871,7 @@ export function AddChildDialog({ open, onOpenChange, onSuccess, nombresTomados =
                   </Button>
                 </>
               )}
-            </div>
+            </DialogFooter>
           </form>
         </Form>
       </DialogContent>

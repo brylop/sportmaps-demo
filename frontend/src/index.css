@@ -384,6 +384,18 @@
   }
 
   /*
+   * Aviso «Activa las notificaciones» (PushPermissionBanner). Mientras está a
+   * la vista, el componente pone `data-aviso-push` en <html> y en
+   * --aviso-push-h la franja que ocupa desde su borde de arriba hasta el fondo
+   * de la pantalla (barra inferior incluida). El <main> del AuthLayout reserva
+   * ese alto abajo, así lo último de la página se puede subir por encima del
+   * aviso en vez de quedar tapado. Se va al cerrarlo.
+   */
+  html[data-aviso-push] main {
+    padding-bottom: calc(var(--aviso-push-h, 0px) + 1rem);
+  }
+
+  /*
    * Cabecera `sticky top-0` que es la primera cosa pegada al borde físico de
    * arriba (no una segunda barra apilada debajo de otra, ni una sticky
    * anidada dentro de un contenedor con scroll propio — esas NO llevan esta

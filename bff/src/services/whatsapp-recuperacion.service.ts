@@ -66,6 +66,12 @@ import { ventanaAbierta } from './whatsapp-plantillas.service';
 import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from './whatsapp-optin.service';
 import { conversacionTomada } from './whatsapp-tomada.service';
 import { botEncendido } from './whatsapp-atencion.service';
+import {
+    calcularCandidatosDePago, deportistasEsperados, textoPropuesta, motivoConPropuesta,
+} from './whatsapp-pago-esperado.service';
+import { cargarItemsDeTorneo, cruzarTorneo, motivoTorneo, type ItemDeTorneo } from './whatsapp-torneos-pago.service';
+import { candidatosParaPreguntar, nombreDelMes } from './whatsapp-comprobante-guiado.service';
+import { deportistaPorNombre } from './whatsapp-comprobante-de-ficha.service';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -134,6 +140,11 @@ export interface ResultadoRecuperacion {
     esperado?: number;
     /** Lo que pagó de más: queda como saldo a favor cuando la escuela aprueba. */
     excedente?: number;
+    /**
+     * La propuesta armada para la escuela (deportista, mes, cobro, por qué —
+     * spec 3.5/3.3, 2026-10-24). Ya va dentro de `motivo`; acá aparte para el script.
+     */
+    propuesta?: string | null;
 }
 
 /** Lo que devuelve la regla (sin la lectura ni quién es la familia). */
@@ -219,6 +230,13 @@ export function decidirRecuperacion(e: {
     fueraDeSportmaps?: boolean;
     /** Montos con el recargo del enlace de pago de cada cobro (id → montos). */
     recargos?: Map<string, number[]>;
+    /**
+     * Torneos del catálogo de la escuela (`school_tournament_items`) y el/los
+     * deportista(s) ya identificados: para el motivo de un comprobante de torneo
+     * (quién pagó, a qué torneo, cuánto). Sin catálogo degrada a «registrar a mano».
+     */
+    torneos?: ItemDeTorneo[];
+    deportista?: string | null;
 }): DecisionDeRecuperacion {
     const { ocr } = e;
     const recargos = e.recargos ?? new Map<string, number[]>();
@@ -281,7 +299,20 @@ export function decidirRecuperacion(e: {
             pago: otro.pago,
         };
     }
-    if (otro.tipo === 'a_la_escuela') return { decision: 'otro_concepto', motivo: motivoOtroConcepto(otro.senal) };
+    if (otro.tipo === 'a_la_escuela') {
+        if (otro.senal.concepto === 'torneo') {
+            // Spec 3.6: que se vea quién pagó, el deportista y el torneo del catálogo.
+            return {
+                decision: 'otro_concepto',
+                motivo: motivoTorneo({
+                    quienPago: ocr.originName, deportista: e.deportista ?? null, monto,
+                    cruce: cruzarTorneo({ textos: [e.pie, ocr.description, ...(e.textos ?? [])], monto, items: e.torneos ?? [] }),
+                    evidencia: otro.senal.evidencia,
+                }),
+            };
+        }
+        return { decision: 'otro_concepto', motivo: motivoOtroConcepto(otro.senal) };
+    }
 
     // Recargo del enlace de pago (2026-10-13): el monto es el de UN cobro con su
     // recargo online (aunque hoy la escuela cobre otro %): pago completo de ese.
@@ -675,6 +706,52 @@ export async function pagosRegistradosDe(schoolId: string, k: LlavesDeFamilia): 
     }));
 }
 
+/** Decisiones que NO terminan en un cobro y por eso llevan propuesta para la escuela. */
+const DECISIONES_CON_PROPUESTA: DecisionRecuperacion[] = [
+    'monto_distinto', 'sin_pendientes', 'varios_cobros', 'familia_sin_cuenta', 'sin_familia', 'numero_ambiguo',
+];
+
+/**
+ * La propuesta de la bandeja (F): qué deportista, qué mes, qué cobro y por qué.
+ * Con el deportista conocido, el pago esperado (`calcularCandidatosDePago`); sin
+ * él, los deportistas que el comprobante nombra a medias. Solo lectura; nunca lanza.
+ */
+export async function propuestaParaLaBandeja(e: {
+    decision: DecisionRecuperacion;
+    schoolId: string;
+    llaves: LlavesDeFamilia | null;
+    ocr: OcrResult;
+    textos: (string | null | undefined)[];
+    fecha: string;
+    destinoDeLaEscuela: boolean;
+    noDuplicado: boolean;
+}): Promise<string | null> {
+    if (!DECISIONES_CON_PROPUESTA.includes(e.decision)) return null;
+    try {
+        const pago = e.ocr.originName ? `pagó: ${e.ocr.originName}` : null;
+        if (e.llaves) {
+            const r = await calcularCandidatosDePago({
+                schoolId: e.schoolId, monto: e.ocr.amount ?? null, destinoDeLaEscuela: e.destinoDeLaEscuela, noDuplicado: e.noDuplicado,
+                llaves: { parentId: e.llaves.parentId, childIds: e.llaves.childIds, unregisteredIds: e.llaves.unregisteredIds },
+            });
+            if (!r.deportistas.length) return pago ? `Propuesta → ${pago} · sin inscripción activa para calcular lo esperado` : null;
+            let t = textoPropuesta(r.propuesta);
+            if (e.decision === 'sin_pendientes') {
+                const mes = Number(e.fecha.slice(5, 7));
+                const nombres = r.deportistas.map((d) => d.nombre).filter(Boolean).join(' / ');
+                t += ` · mes del comprobante: ${nombreDelMes(mes).toLowerCase()} ${e.fecha.slice(0, 4)}`
+                    + ` → crear el cobro de ese mes${nombres ? ` de ${nombres}` : ''} y aplicarlo (no se crea solo)`;
+            }
+            return pago ? `${t} · ${pago}` : t;
+        }
+        const posibles = await candidatosParaPreguntar(e.schoolId, e.textos);
+        return `Propuesta → ${pago ? `${pago} · ` : ''}deportista: `
+            + (posibles.length ? `¿${posibles.map((p) => p.nombre).join(' o ')}?` : 'sin identificar (el nombre del comprobante no señala a nadie de la escuela)');
+    } catch {
+        return null;
+    }
+}
+
 export interface EntradaComprobante {
     schoolId: string;
     familia: Familia;
@@ -724,10 +801,24 @@ export async function procesarComprobanteRecuperado(e: EntradaComprobante): Prom
     let pagadosQueCubren: PagoRegistrado[] = [];
     let registrados: PagoRegistrado[] = [];
     let llaves: LlavesDeFamilia | null = null;
+    let familia: Familia = e.familia;
     if (parentId) {
         llaves = { parentId, childIds: await hijosDelAcudiente(parentId, e.schoolId) };
     } else if (e.familia.tipo === 'sin_cuenta' && (e.familia.childIds?.length || e.familia.unregisteredIds?.length)) {
         llaves = { childIds: e.familia.childIds, unregisteredIds: e.familia.unregisteredIds };
+    }
+    // Spec 3.3/3.5 (2026-10-24): número sin ficha (o familia sin cuenta sin fichas):
+    // el deportista por lo que dice el pie, el chat, el concepto y quien paga —igual
+    // que el worker con un número sin ficha—. Con UN solo candidato se sigue como
+    // familia con ficha; si no, va al buzón con los candidatos. Nunca se aprueba.
+    let deportistaPorElNombre = false;
+    if (!llaves && (familia.tipo === 'desconocido' || familia.tipo === 'sin_cuenta')) {
+        const k = await deportistaPorNombre(e.schoolId, [e.pie, ocr.description, ocr.originName, ...(e.textos ?? [])]).catch(() => null);
+        if (k && (k.childIds.length || k.unregisteredIds.length)) {
+            llaves = { childIds: k.childIds, unregisteredIds: k.unregisteredIds };
+            familia = { tipo: 'sin_cuenta', childIds: k.childIds, unregisteredIds: k.unregisteredIds };
+            deportistaPorElNombre = true;
+        }
     }
     if (llaves) {
         const [porLlaves, delWorker, regs] = await Promise.all([
@@ -743,14 +834,37 @@ export async function procesarComprobanteRecuperado(e: EntradaComprobante): Prom
     }
 
     const recargos = await cargarRecargos(e.schoolId, pendientes);
+    const textosDecision = [...(e.textos ?? []), ocr.description];
+    // Torneo: se lee el catálogo y el deportista SOLO si el comprobante lo nombra.
+    let torneos: ItemDeTorneo[] | undefined;
+    let deportistaTorneo: string | null = null;
+    if (detectarOtroConcepto({ pie: e.pie, descripcion: ocr.description, chat: textosDecision })?.concepto === 'torneo') {
+        torneos = await cargarItemsDeTorneo(e.schoolId);
+        if (llaves) {
+            const nombres = (await deportistasEsperados(e.schoolId, llaves)).map((x) => x.nombre).filter(Boolean) as string[];
+            deportistaTorneo = nombres.length === 1 ? nombres[0] : nombres.length > 1 ? `${nombres.join(' / ')} (¿cuál?)` : null;
+        }
+    }
     const d = decidirRecuperacion({
-        familia: e.familia, ocr, destinoDeLaEscuela, yaUsadoEn, pagadosQueCubren, pendientes, registrados,
-        textos: [...(e.textos ?? []), ocr.description],
+        familia, ocr, destinoDeLaEscuela, yaUsadoEn, pagadosQueCubren, pendientes, registrados,
+        textos: textosDecision,
         pie: e.pie ?? null,
         fueraDeSportmaps,
         recargos,
+        torneos, deportista: deportistaTorneo,
     });
-    const resultado: ResultadoRecuperacion = { ...d, ocr, parentId, sha: e.sha };
+    if (deportistaPorElNombre && (d.decision === 'en_revision' || d.decision === 'abono_en_revision')) {
+        d.motivo += ' (deportista identificado por el nombre del comprobante, no por el teléfono)';
+    }
+    // Spec 3.5 / F: lo que no se aplica sale con la propuesta armada (deportista,
+    // mes, cobro, por qué) en el motivo, para que la escuela decida con un toque.
+    const propuesta = await propuestaParaLaBandeja({
+        decision: d.decision, schoolId: e.schoolId, llaves, ocr, textos: [e.pie, ...textosDecision],
+        fecha: fechaDeReferencia(ocr.date, e.fechaMensaje),
+        destinoDeLaEscuela, noDuplicado: !yaUsadoEn,
+    });
+    if (propuesta) d.motivo = motivoConPropuesta(d.motivo, propuesta);
+    const resultado: ResultadoRecuperacion = { ...d, ocr, parentId, sha: e.sha, propuesta };
 
     if ((d.decision !== 'en_revision' && d.decision !== 'abono_en_revision') || !e.aplicar) return resultado;
 

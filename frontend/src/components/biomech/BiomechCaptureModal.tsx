@@ -213,7 +213,7 @@ export function BiomechCaptureModal({
     const captured = isVolleyballAnalyzer(analyzerRef.current)
       ? recordedSamples.current.length : recordedFrames.current.length;
     if (captured === 0) {
-      setErrorMsg('No se detectó ninguna pose. Asegurate de estar completamente visible en la cámara.');
+      setErrorMsg('No se detectó ninguna pose. Asegúrate de estar completamente visible en la cámara.');
       setModalState('error');
       return;
     }

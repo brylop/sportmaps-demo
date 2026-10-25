@@ -28,13 +28,21 @@ import {
 } from '@/lib/clinical/agenda-extra';
 import { dayToLocalDate } from '@/lib/dateUtils';
 import { cn } from '@/lib/utils';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { esAcudienteV2 } from '@/lib/vistaAcudiente';
+import { SHOW_EXPLORE } from '@/lib/feature-flags';
 
 function initials(name: string) {
   return name.split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase();
 }
 
 export default function MyAppointmentsPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
+  const { currentUserRole } = useSchoolContext();
+  // Acudiente V2: copia para la familia y sin «Buscar profesional» mientras
+  // Explorar esté apagado (hoy /explorar dice «Muy pronto»).
+  const acudienteV2 = esAcudienteV2(currentUserRole ?? profile?.role);
+  const puedeBuscar = !acudienteV2 || SHOW_EXPLORE;
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
   const [cancelling, setCancelling] = useState<ClientAppointment | null>(null);
@@ -104,7 +112,7 @@ export default function MyAppointmentsPage() {
                 <p className="text-xs text-muted-foreground truncate">Con {professionalName}</p>
               </div>
             </div>
-            <Badge variant="outline" className={cn('text-[10px] shrink-0', APPOINTMENT_STATUS_TONE[a.status], APPOINTMENT_STATUS_TONE_DARK[a.status])}>
+            <Badge variant="outline" className={cn('text-xs shrink-0', APPOINTMENT_STATUS_TONE[a.status], APPOINTMENT_STATUS_TONE_DARK[a.status])}>
               {APPOINTMENT_STATUS_LABEL[a.status]}
             </Badge>
           </div>
@@ -182,7 +190,16 @@ export default function MyAppointmentsPage() {
   const error = childrenQ.error ?? appointmentsQuery.error;
 
   return (
-    <div className="container mx-auto px-4 py-6 max-w-4xl">
+    <div className={cn(acudienteV2 ? 'mx-auto w-full max-w-page-narrow pb-6' : 'container mx-auto px-4 py-6 max-w-4xl')}>
+      {acudienteV2 ? (
+        <header className="mb-4 space-y-1">
+          <h1 className="text-2xl font-bold">Mis citas</h1>
+          <p className="text-base text-muted-foreground">
+            Citas de tu familia con profesionales de salud.{' '}
+            <Link to="/salud" className="font-medium text-primary underline-offset-4 hover:underline">Ver salud de mis hijos</Link>
+          </p>
+        </header>
+      ) : (
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-6">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-xl bg-emerald-100 dark:bg-emerald-950 flex items-center justify-center">
@@ -202,9 +219,10 @@ export default function MyAppointmentsPage() {
           </Button>
         </div>
       </div>
+      )}
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-20">
+        <div className="flex items-center justify-center py-20" aria-busy="true" aria-label="Cargando tus citas">
           <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
         </div>
       ) : error ? (
@@ -217,14 +235,14 @@ export default function MyAppointmentsPage() {
         </Card>
       ) : (
         <Tabs value={tab} onValueChange={(v) => setTab(v as 'upcoming' | 'past')}>
-          <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsList className="grid h-tabs w-full max-w-md grid-cols-2 md:h-10">
             <TabsTrigger value="upcoming" className="gap-1.5">
               Próximas
-              <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">{upcoming.length}</Badge>
+              <Badge variant="secondary" className="h-5 px-1.5 text-xs">{upcoming.length}</Badge>
             </TabsTrigger>
             <TabsTrigger value="past" className="gap-1.5">
               Historial
-              <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">{past.length}</Badge>
+              <Badge variant="secondary" className="h-5 px-1.5 text-xs">{past.length}</Badge>
             </TabsTrigger>
           </TabsList>
 
@@ -235,11 +253,17 @@ export default function MyAppointmentsPage() {
                   <Stethoscope className="h-10 w-10 text-muted-foreground/40 mx-auto" />
                   <div>
                     <p className="font-medium">No tienes citas programadas</p>
-                    <p className="text-sm text-muted-foreground">Explora profesionales de salud y medicina deportiva.</p>
+                    <p className="text-sm text-muted-foreground">
+                      {acudienteV2
+                        ? 'Cuando un profesional de salud agende una cita para tu familia, aparece aquí.'
+                        : 'Explora profesionales de salud y medicina deportiva.'}
+                    </p>
                   </div>
-                  <Button asChild>
-                    <Link to="/explorar?category=services">Buscar profesional</Link>
-                  </Button>
+                  {puedeBuscar && (
+                    <Button asChild>
+                      <Link to="/explorar?category=services">Buscar profesional</Link>
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             ) : (

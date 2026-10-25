@@ -260,15 +260,15 @@ export function TrialClassSelfModal({ open, onOpenChange, facilities, children, 
             {!isParent && (
               <div className="flex items-center gap-3 rounded-xl border-2 border-primary bg-primary/5 px-4 py-3">
                 <User className="h-5 w-5 text-primary shrink-0" />
-                <span className="font-semibold text-sm">Para vos — otra disciplina de la escuela</span>
+                <span className="font-semibold text-sm">Para ti — otra disciplina de la escuela</span>
               </div>
             )}
 
             {subject && subject.kind !== 'new_sibling' && hasActivePlan && !checkingPlan && (
               <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-400">
                 {subject.kind === 'self'
-                  ? 'Ya tenés un plan activo en esta escuela — agendá tus clases desde tu plan, en "Gestión de Clases", no como prueba.'
-                  : 'Ya tiene un plan activo en esta escuela — agendá sus clases desde su plan, en "Gestión de Clases", no como prueba.'}
+                  ? 'Ya tienes un plan activo en esta escuela — agenda tus clases desde tu plan, en "Gestión de Clases", no como prueba.'
+                  : 'Ya tiene un plan activo en esta escuela — agenda sus clases desde su plan, en "Gestión de Clases", no como prueba.'}
               </div>
             )}
 
@@ -283,7 +283,7 @@ export function TrialClassSelfModal({ open, onOpenChange, facilities, children, 
         {step === 'select' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
             <div className="space-y-3">
-              <Label className="text-sm font-semibold tracking-tight">¿Qué querés probar?</Label>
+              <Label className="text-sm font-semibold tracking-tight">¿Qué quieres probar?</Label>
               <Select value={categoryId} onValueChange={setCategoryId}>
                 <SelectTrigger className="bg-muted/30 border-border/50 h-11">
                   <SelectValue placeholder="Selecciona una opción…" />

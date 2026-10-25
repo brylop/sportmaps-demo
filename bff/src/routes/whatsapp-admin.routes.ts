@@ -684,7 +684,7 @@ function armarBandeja(filas: any[], convs: Map<string, Partial<ConvDeBandeja> & 
     const orden: Record<GrupoBandeja, number> = { accion: 0, revisar: 1, informativo: 2 };
     const enriquecidas = filas.flatMap((f) => {
         const c = convs.get(f.wa_phone_number) ?? null;
-        if (!filaCuentaEnBandeja(c?.contact_kind ?? null, c?.tambien_familia ?? false)) return [];
+        if (!filaCuentaEnBandeja(c?.contact_kind ?? null, c?.tambien_familia ?? false, f.error_message ?? null)) return [];
         return [{
             ...f,
             ...clasificarFila(f, c?.contact_kind ?? null, c?.tambien_familia ?? false),
