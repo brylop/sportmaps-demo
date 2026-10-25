@@ -263,6 +263,8 @@ const EnrollmentIntakeInboxPage = lazy(() => import("./pages/school/EnrollmentIn
 
 // ─── Trainer pages (lazy) ────────────────────────────────────────────────────
 const TrainerOnboarding = lazy(() => import("./pages/trainer/TrainerOnboarding"));
+const AttendanceSheetIntakePage = lazy(() => import("./pages/school/AttendanceSheetIntakePage"));
+const PlanChangesPage = lazy(() => import("./pages/school/PlanChangesPage"));
 const TrainerDashboard = lazy(() => import("./pages/trainer/TrainerDashboard"));
 const TrainerClients = lazy(() => import('./pages/trainer/TrainerClients'));
 const TrainerRoutines = lazy(() => import('./pages/trainer/TrainerRoutines'));
@@ -702,6 +704,18 @@ const App = () => (
                           esta lista es solo el primer tamiz. */}
                       <Route path="mi-plan" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'wellness_professional', 'store_owner', 'organizer', 'reporter', 'personal_trainer']}>
+                      {/* Planillas de asistencia por foto (WhatsApp + OCR): revisar y guardar. El coach ve solo lo suyo (el BFF filtra). */}
+                      <Route path="school/attendance-sheets" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
+                          <AttendanceSheetIntakePage />
+                        </ProtectedRoute>
+                      } />
+                      {/* Cambios de plan por clases tomadas (modo sombra): solo dinero → dueño/admin/contador; el BFF es el gate real. */}
+                      <Route path="school/plan-changes" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'accountant']}>
+                          <PlanChangesPage />
+                        </ProtectedRoute>
+                      } />
                           <MiPlanPage />
                         </ProtectedRoute>
                       } />

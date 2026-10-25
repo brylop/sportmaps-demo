@@ -424,6 +424,7 @@ export function getNavigationByRole(
           },
           { title: 'Resultados', href: '/results', icon: Trophy },
           { title: 'Reportes', href: '/coach-reports', icon: FileText },
+          { title: 'Planillas por revisar', href: '/school/attendance-sheets', icon: ClipboardList },
           { title: 'Informe Mensual', href: '/informe-mensual', icon: FileText }
         ]
       },
@@ -470,6 +471,7 @@ export function getNavigationByRole(
             icon: BookOpen,
             // Gateado en el GRUPO, no en cada hijo: si la escuela no tiene el
             // addon 'accounting', el submenu entero desaparece de una vez.
+          { title: 'Planillas por revisar', href: '/school/attendance-sheets', icon: ClipboardList },
             addon: 'accounting',
             moduleKey: 'finanzas_contabilidad',
             submenu: [
@@ -484,6 +486,7 @@ export function getNavigationByRole(
             // Standalone: factura mensualidades/inscripciones/torneos/tienda
             // sin necesitar Contabilidad completa (el motor de emisión ya lee
             // payments/marketplace_transactions/orders directo). Se oculta si
+          { title: 'Cambios de plan', href: '/school/plan-changes', icon: TrendingUp },
             // la escuela YA tiene 'accounting' para no duplicar el acceso —
             // ahí la misma función vive como pestaña dentro de Contabilidad.
             title: 'Facturación electrónica',
@@ -718,6 +721,7 @@ export function getNavigationByRole(
             icon: BookOpen,
             // Gateado en el GRUPO, no en cada hijo: si la escuela no tiene el
             // addon 'accounting', el submenu entero desaparece de una vez.
+          { title: 'Planillas por revisar', href: '/school/attendance-sheets', icon: ClipboardList },
             addon: 'accounting',
             moduleKey: 'finanzas_contabilidad',
             submenu: [
@@ -732,6 +736,7 @@ export function getNavigationByRole(
             // Standalone: factura mensualidades/inscripciones/torneos/tienda
             // sin necesitar Contabilidad completa (el motor de emisión ya lee
             // payments/marketplace_transactions/orders directo). Se oculta si
+          { title: 'Cambios de plan', href: '/school/plan-changes', icon: TrendingUp },
             // la escuela YA tiene 'accounting' para no duplicar el acceso —
             // ahí la misma función vive como pestaña dentro de Contabilidad.
             title: 'Facturación electrónica',
@@ -857,6 +862,7 @@ export function getNavigationByRole(
         title: 'Reportes',
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
+          { title: 'Cambios de plan', href: '/school/plan-changes', icon: TrendingUp },
           { title: 'Panel de Reportes', href: '/reporter-dashboard', icon: BarChart3 },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
         ]
