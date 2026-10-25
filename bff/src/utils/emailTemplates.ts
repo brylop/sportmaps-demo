@@ -62,11 +62,11 @@ export const BrandedEmailTemplates = {
                     <p>La escuela <strong>${branding.schoolName}</strong> ha registrado
                     a <strong>${safeChild}</strong> en su sistema.</p>
                     <p>Para ver el progreso, realizar pagos y recibir notificaciones,
-                    aceptá la invitación y completa tu registro.</p>
+                    acepta la invitación y completa tu registro.</p>
                 `,
                 cta: { label: 'Aceptar Invitación', url: params.inviteLink },
                 closingHtml: `
-                    <p>Si ya tenés cuenta en SportMaps, el deportista se asociará
+                    <p>Si ya tienes cuenta en SportMaps, el deportista se asociará
                     automáticamente cuando inicies sesión con este correo.</p>
                 `,
             }),
@@ -586,10 +586,10 @@ export const BrandedEmailTemplates = {
                         params.bankReason ? `: <em>${escapeHtml(params.bankReason)}</em>` : '.'
                     }</p>
                     <p>No te preocupes: el cobro sigue disponible, no perdiste el intento.
-                    Podés volver a intentarlo con el mismo medio o con otro.</p>
+                    Puedes volver a intentarlo con el mismo medio o con otro.</p>
                 `,
                 cta: { label: 'Reintentar pago', url: params.link },
-                closingHtml: 'Si el problema persiste, contactá directamente a la escuela.',
+                closingHtml: 'Si el problema persiste, contacta directamente a la escuela.',
             }),
         };
     },
@@ -663,9 +663,9 @@ export const BrandedEmailTemplates = {
                 title: '¡Bienvenido a SportMaps!',
                 greeting: `Hola ${escapeHtml(params.name)},`,
                 bodyHtml: `
-                    <p>Estamos emocionados de tenerte con nosotros. Ahora podés gestionar
+                    <p>Estamos emocionados de tenerte con nosotros. Ahora puedes gestionar
                     las actividades deportivas de tus hijos de forma fácil y rápida.</p>
-                    <p>Explorá las escuelas cercanas y encontrá el programa perfecto.</p>
+                    <p>Explora las escuelas cercanas y encuentra el programa perfecto.</p>
                 `,
                 cta: { label: 'Explorar Programas', url: 'https://app.sportmaps.co/explorar' },
             }),
@@ -942,7 +942,7 @@ export const EmailTemplates = {
         <div style="background-color: #F3F4F6; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center;">
           <a href="${escapeHtml(inviteLink)}" style="background-color: #248223; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">Aceptar Invitación y Crear Cuenta</a>
         </div>
-        <p>Si ya tenés cuenta, el deportista se asociará automáticamente cuando inicies sesión con este correo.</p>
+        <p>Si ya tienes cuenta, el deportista se asociará automáticamente cuando inicies sesión con este correo.</p>
         <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 30px 0;" />
         <p style="color: #6B7280; font-size: 12px;">SportMaps - Gestión Deportiva</p>
       </div>

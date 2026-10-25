@@ -529,7 +529,7 @@ router.post('/school-tournaments/:id/publish', requireAuth, requireRole('school'
         if (!wasAlreadyActive && data.tournament_scope === 'internal') {
             notifySchoolFamilies(schoolId, {
                 title: '🏆 Nuevo torneo/liga interna',
-                message: `Ya podés inscribirte a "${data.title}".`,
+                message: `Ya puedes inscribirte a "${data.title}".`,
                 link: `/tournaments/${data.id}/register`,
                 data: { eventId: data.id },
             }).catch((err) => req.log?.warn({ err }, 'Error notificando publicación de torneo'));
@@ -1988,9 +1988,11 @@ router.post('/:id/register', requireAuth, async (req: AuthenticatedRequest, res:
                 participant_role: participant_role || 'athlete',
                 participant_age: participant_age || null,
                 category_id: category_id || null,
-                package_choice: package_choice || null,
+                // `event_registrations` no tiene columna package_choice (nunca se
+                // migró): con ella el insert fallaba y nadie podía inscribirse. El
+                // paquete elegido se guarda en las notas.
                 child_id: child_id || null,
-                notes: notes || null,
+                notes: [package_choice ? `Paquete: ${package_choice}` : null, notes || null].filter(Boolean).join(' · ') || null,
                 payment_proof_url: payment_proof_url || null,
                 status: 'pending',
                 payment_status: payment_proof_url ? 'pending' : 'not_required'
@@ -2028,7 +2030,7 @@ router.get('/my-registrations/list', requireAuth, async (req: AuthenticatedReque
             .select(`
                 id, event_id, participant_name, participant_role, participant_age,
                 status, payment_status, payment_proof_url, category_id,
-                package_choice, child_id, notes, created_at,
+                child_id, notes, created_at,
                 events:event_id(id, title, sport, event_date, city, slug, status, image_url, start_time)
             `)
             .eq('user_id', userId)
