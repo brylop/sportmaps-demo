@@ -14,6 +14,8 @@ import { usePwaTenantSync } from "@/hooks/usePwaTenantSync";
 import { PushPermissionBanner } from "@/components/PushPermissionBanner";
 import { TrialStatusBanner } from "@/components/entitlements/TrialStatusBanner";
 import { SupportChatButton } from "@/components/support/SupportChatButton";
+import { VolverAcudiente } from "@/components/parent/v2/VolverAcudiente";
+import { ACUDIENTE_V2 } from "@/lib/feature-flags";
 
 export default function AuthLayout() {
   const { user, profile } = useAuth();
@@ -101,7 +103,7 @@ export default function AuthLayout() {
                     {profile?.full_name || user?.email?.split('@')[0]}
                   </span>
                   <span className="text-[10px] text-muted-foreground capitalize">
-                    {profile?.role === 'parent' ? 'Padre' :
+                    {profile?.role === 'parent' ? 'Acudiente' :
                       profile?.role === 'athlete' ? 'Deportista' :
                         profile?.role === 'coach' ? 'Entrenador' :
                           profile?.role === 'personal_trainer' ? 'Entrenador Personal' :
@@ -133,6 +135,9 @@ export default function AuthLayout() {
                   - rol es de escuela (no super_admin)
                   - tier incluye whitelabel (Pro+ via entitlements)
                   Si no aplica, renderiza children sin envolver. */}
+              {/* Acudiente V2: toda pantalla interna tiene «Volver». */}
+              {ACUDIENTE_V2 && (currentUserRole ?? profile?.role) === 'parent' && <VolverAcudiente />}
+
               <BrandingScope>
                 <Outlet />
               </BrandingScope>

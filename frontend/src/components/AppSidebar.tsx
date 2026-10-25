@@ -271,7 +271,7 @@ export function AppSidebar() {
       return isGlobalAdmin ? 'Admin General' : 'Admin Sede';
     }
     const roleLabels: Record<string, string> = {
-      athlete: 'Deportista', parent: 'Padre', coach: 'Entrenador',
+      athlete: 'Deportista', parent: 'Acudiente', coach: 'Entrenador',
       school: 'Escuela', staff: 'Staff', wellness_professional: 'Bienestar',
       store_owner: 'Tienda', viewer: 'Visitante',
       personal_trainer: 'Entrenador Personal',

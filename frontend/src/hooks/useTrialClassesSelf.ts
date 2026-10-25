@@ -200,7 +200,7 @@ export function useTrialClassesSelf() {
       const tooLate = typeof error.message === 'string' && error.message.startsWith('too_late_to_reschedule');
       toast({
         title: tooLate ? 'Ya no se puede reprogramar sola' : 'No se pudo reprogramar',
-        description: tooLate ? 'Quedan pocas horas para tu clase — contactá directamente a la escuela.' : error.message,
+        description: tooLate ? 'Quedan pocas horas para tu clase — contacta directamente a la escuela.' : error.message,
         variant: 'destructive',
       });
     },

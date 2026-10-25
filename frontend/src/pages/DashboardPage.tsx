@@ -27,6 +27,9 @@ import { OpenTournamentsCard } from '@/components/dashboard/OpenTournamentsCard'
 import { supabase } from '@/integrations/supabase/client';
 import { getStepsForRole } from '@/lib/onboarding/getStepsForRole';
 import { acceptPendingInvitations } from '@/lib/invitations/acceptPendingInvitations';
+import { ParentHomeV2 } from '@/components/parent/v2/ParentHomeV2';
+import { usaInicioAcudienteV2 } from '@/components/parent/v2/parentHomeLogic';
+import { ACUDIENTE_V2 } from '@/lib/feature-flags';
 
 export default function DashboardPage() {
   const { profile, user, realRole } = useAuth();
@@ -316,6 +319,43 @@ export default function DashboardPage() {
     if (dest && profile.onboarding_completed === false) {
       return <Navigate to={dest} replace />;
     }
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Inicio del acudiente — rediseño V2. Va DESPUÉS de los gates (onboarding de
+  // persona) y de refreshOnboardingData (claim_orphan_children, aceptar
+  // invitaciones), que corren en los hooks de arriba igual que para todos.
+  // Conserva lo que el acudiente ya tenía y no es decorativo: la invitación
+  // pendiente, el modal de inscripción pendiente y los torneos abiertos.
+  // ────────────────────────────────────────────────────────────────────────────
+  if (ACUDIENTE_V2 && usaInicioAcudienteV2(profile.role)) {
+    return (
+      <ParentHomeV2
+        userId={user?.id}
+        nombreAcudiente={profile.full_name}
+        avisosSinLeer={realStatsLoading ? undefined : realStats?.unreadNotifications}
+        extras={
+          <>
+            <PendingEnrollmentModal />
+            {/* Primeros pasos (vincular hijo, ficha médica, invitación…): el mismo
+                checklist que tenía el Inicio anterior, mientras no esté completo. */}
+            {onboardingSteps.length > 0 && !onboardingSteps.every(s => s.completed) && onboardingStatus !== 'completed' && (
+              <DashboardChecklist steps={onboardingSteps} onStepClick={(step) => navigate(step.href)} />
+            )}
+            {invitation && (
+              <InvitationBanner
+                invitation={invitation}
+                onAction={() => {
+                  setInvitation(null);
+                  refreshOnboardingData();
+                }}
+              />
+            )}
+          </>
+        }
+        pie={<OpenTournamentsCard />}
+      />
+    );
   }
 
   // Dashboard handles empty states via the Quick Start Checklist

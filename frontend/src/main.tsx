@@ -37,7 +37,7 @@ function ErrorFallback() {
     <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', padding: '1.5rem', textAlign: 'center', fontFamily: 'sans-serif' }}>
       <div>
         <p style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '0.5rem' }}>Algo salió mal</p>
-        <p style={{ color: '#666', marginBottom: '1rem' }}>Ya nos avisaron del error. Intentá recargar la página.</p>
+        <p style={{ color: '#666', marginBottom: '1rem' }}>Ya nos avisaron del error. Intenta recargar la página.</p>
         <button
           onClick={() => window.location.reload()}
           style={{ padding: '0.5rem 1rem', borderRadius: '0.5rem', background: '#248223', color: 'white', border: 'none', cursor: 'pointer' }}

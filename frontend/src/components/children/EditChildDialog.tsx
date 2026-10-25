@@ -5,8 +5,10 @@ import * as z from 'zod';
 import { parentsAPI } from '@/lib/api/parents';
 import {
     Dialog,
+    DialogBody,
     DialogContent,
     DialogDescription,
+    DialogFooter,
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
@@ -225,7 +227,9 @@ export function EditChildDialog({ open, onOpenChange, onSuccess, child }: EditCh
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-lg">
+            {/* Encabezado y pie fijos, cuerpo con scroll propio (mismo bug que
+                «Añadir Hijo»: el pie sticky dejaba pasar campos por debajo). */}
+            <DialogContent variant="sheet">
                 <DialogHeader>
                     <DialogTitle>Editar Información del Hijo</DialogTitle>
                     <DialogDescription>
@@ -234,8 +238,8 @@ export function EditChildDialog({ open, onOpenChange, onSuccess, child }: EditCh
                 </DialogHeader>
 
                 <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                        <div className="max-h-[60vh] overflow-y-auto px-1 custom-scrollbar space-y-5">
+                    <form onSubmit={form.handleSubmit(onSubmit)} className="flex min-h-0 flex-1 flex-col">
+                        <DialogBody className="space-y-5">
 
                             {/* Avatar Upload */}
                             <div className="flex flex-col items-center justify-center py-2 space-y-2">
@@ -613,12 +617,13 @@ export function EditChildDialog({ open, onOpenChange, onSuccess, child }: EditCh
                                     )}
                                 />
                             </div>
-                        </div>
+                        </DialogBody>
 
-                        <div className="sticky bottom-0 bg-background flex justify-between items-center pt-4 border-t border-muted">
+                        <DialogFooter className="flex-row flex-wrap items-center justify-between gap-2 sm:justify-between sm:space-x-0">
                             <Button
                                 type="button"
                                 variant="ghost"
+                                className="min-h-touch md:min-h-0"
                                 onClick={() => onOpenChange(false)}
                                 disabled={isSubmitting}
                             >
@@ -627,7 +632,7 @@ export function EditChildDialog({ open, onOpenChange, onSuccess, child }: EditCh
                             <Button
                                 type="submit"
                                 disabled={isSubmitting || isUploading}
-                                className="bg-primary hover:bg-primary/90 min-w-36"
+                                className="bg-primary hover:bg-primary/90 min-w-36 min-h-touch md:min-h-0"
                             >
                                 {isSubmitting || isUploading ? (
                                     <div className="flex items-center gap-2">
@@ -641,7 +646,7 @@ export function EditChildDialog({ open, onOpenChange, onSuccess, child }: EditCh
                                     </>
                                 )}
                             </Button>
-                        </div>
+                        </DialogFooter>
                     </form>
                 </Form>
             </DialogContent>

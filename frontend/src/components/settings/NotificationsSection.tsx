@@ -124,8 +124,8 @@ export function NotificationsSection({ data, saving, onSave }: NotificationsSect
                 <div className="space-y-0.5">
                   <Label>Avisos de evaluación post-entrenamiento</Label>
                   <p className="text-sm text-muted-foreground">
-                    Te preguntamos cómo te fue después de cada entreno — podés desactivarlo aquí,
-                    seguís recibiendo el informe mensual igual.
+                    Te preguntamos cómo te fue después de cada entreno — puedes desactivarlo aquí,
+                    sigues recibiendo el informe mensual igual.
                   </p>
                 </div>
               </div>

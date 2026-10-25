@@ -1,23 +1,30 @@
-import { useState, useEffect } from 'react';
+/**
+ * «Eventos y torneos» — /my-event-registrations. Inscripciones individuales a
+ * eventos (acudiente por sus hijos, deportista adulto por sí mismo).
+ *
+ * Rediseño V2 (2026-10-24): una frase arriba, lista de una columna
+ * (max-w-page-narrow), y carga / vacío / error como tres estados distintos:
+ * un error del BFF nunca puede verse como «No tienes inscripciones».
+ *
+ * La ruta vive FUERA de AuthLayout (App.tsx), así que el «Volver» del acudiente
+ * no lo pone el layout: lo pone esta página con el mismo VolverAcudiente. Los
+ * demás roles conservan su flecha a /dashboard. «Explorar eventos» solo sale
+ * con SHOW_EXPLORE.
+ */
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { bffClient } from '@/lib/api/bffClient';
-import { useToast } from '@/hooks/use-toast';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ArrowLeft, AlertTriangle, Calendar, ExternalLink, MapPin, RefreshCw, Ticket } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { VolverAcudiente } from '@/components/parent/v2/VolverAcudiente';
+import { ACUDIENTE_V2, SHOW_EXPLORE } from '@/lib/feature-flags';
+import { cn } from '@/lib/utils';
 import {
-  ArrowLeft,
-  Calendar,
-  MapPin,
-  Ticket,
-  Eye,
-  ExternalLink,
-  CheckCircle2,
-  Clock,
-  XCircle,
-  Trophy,
-} from 'lucide-react';
+  CLASE_TONO, estadoInscripcionEvento, estadoPagoEvento, fechaEvento, fraseEventos,
+} from '@/components/inscripciones/inscripcionesTextos';
 
 interface MyRegistration {
   id: string;
@@ -44,201 +51,170 @@ interface MyRegistration {
   };
 }
 
-const STATUS_CONFIG: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string; icon: any }> = {
-  pending: { variant: 'outline', label: 'Pendiente', icon: Clock },
-  approved: { variant: 'default', label: 'Aprobada', icon: CheckCircle2 },
-  rejected: { variant: 'destructive', label: 'Rechazada', icon: XCircle },
-  cancelled: { variant: 'secondary', label: 'Cancelada', icon: XCircle },
-};
-
-const PAYMENT_STATUS: Record<string, { label: string; color: string }> = {
-  pending: { label: 'Pago pendiente', color: 'text-yellow-600' },
-  verified: { label: 'Pago verificado', color: 'text-green-600' },
-  rejected: { label: 'Pago rechazado', color: 'text-red-600' },
-  not_required: { label: 'Sin pago requerido', color: 'text-muted-foreground' },
-};
-
 const PKG_LABELS: Record<string, string> = {
-  pkg_solo: 'Solo Competencia',
-  pkg_3: '2 Noches Hotel',
-  pkg_2: '3 Noches Hotel',
-  pkg_1: '4 Noches Hotel',
+  pkg_solo: 'Solo competencia',
+  pkg_3: '2 noches de hotel',
+  pkg_2: '3 noches de hotel',
+  pkg_1: '4 noches de hotel',
 };
+
+type LoadState = 'loading' | 'error' | 'ready';
 
 export default function MyEventRegistrationsPage() {
   const navigate = useNavigate();
-  const { toast } = useToast();
+  const { profile } = useAuth();
+  const { currentUserRole } = useSchoolContext();
+  const esAcudienteV2 = ACUDIENTE_V2 && (currentUserRole ?? profile?.role) === 'parent';
   const [registrations, setRegistrations] = useState<MyRegistration[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [state, setState] = useState<LoadState>('loading');
 
-  useEffect(() => {
-    loadRegistrations();
-  }, []);
-
-  const loadRegistrations = async () => {
-    setLoading(true);
+  const loadRegistrations = useCallback(async () => {
+    setState('loading');
     try {
       const data = await bffClient.get<MyRegistration[] | null>('/api/v1/events/my-registrations/list');
       setRegistrations(Array.isArray(data) ? data : []);
-    } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
-    } finally {
-      setLoading(false);
+      setState('ready');
+    } catch {
+      // Sin toast: el error se muestra en la pantalla, con su «Reintentar».
+      setState('error');
     }
-  };
+  }, []);
 
-  const formatDate = (dateStr: string) =>
-    new Date(dateStr).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' });
-
-  const pendingCount = registrations.filter(r => r.status === 'pending').length;
-  const approvedCount = registrations.filter(r => r.status === 'approved').length;
-
-  if (loading) {
-    return (
-      <div className="container mx-auto py-6 px-4 max-w-5xl space-y-6">
-        <Skeleton className="h-10 w-48" />
-        <div className="grid grid-cols-3 gap-4">
-          {[1, 2, 3].map(i => <Skeleton key={i} className="h-20" />)}
-        </div>
-        <Skeleton className="h-96" />
-      </div>
-    );
-  }
+  useEffect(() => {
+    void loadRegistrations();
+  }, [loadRegistrations]);
 
   return (
-    <div className="container mx-auto py-6 px-4 max-w-5xl">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/dashboard')}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold">Mis Inscripciones a Eventos</h1>
-            <p className="text-muted-foreground">Historial de inscripciones individuales</p>
-          </div>
-        </div>
-        <Button onClick={() => navigate('/events')} className="gap-2">
-          <Ticket className="h-4 w-4" />
-          Explorar Eventos
-        </Button>
-      </div>
-
-      {/* Summary */}
-      <div className="grid grid-cols-3 gap-4 mb-8">
-        <Card>
-          <CardContent className="pt-4 pb-4 text-center">
-            <p className="text-2xl font-bold">{registrations.length}</p>
-            <p className="text-xs text-muted-foreground">Total</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 pb-4 text-center">
-            <p className="text-2xl font-bold text-yellow-600">{pendingCount}</p>
-            <p className="text-xs text-muted-foreground">Pendientes</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 pb-4 text-center">
-            <p className="text-2xl font-bold text-green-600">{approvedCount}</p>
-            <p className="text-xs text-muted-foreground">Aprobadas</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Registrations List */}
-      {registrations.length === 0 ? (
-        <Card>
-          <CardContent className="py-16 text-center">
-            <Trophy className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-            <h3 className="font-semibold text-lg mb-2">No tienes inscripciones aun</h3>
-            <p className="text-muted-foreground mb-6 max-w-md mx-auto">
-              Explora eventos deportivos y registrate individualmente.
-            </p>
-            <Button onClick={() => navigate('/events')} size="lg" className="gap-2">
-              <Ticket className="h-5 w-5" />
-              Explorar Eventos
-            </Button>
-          </CardContent>
-        </Card>
+    <div className="mx-auto w-full max-w-page-narrow space-y-4 px-gutter pb-nav-safe pt-4 md:pb-8 md:pt-6">
+      {esAcudienteV2 ? (
+        <VolverAcudiente />
       ) : (
-        <div className="space-y-4">
-          {registrations.map((reg) => {
-            const ev = reg.events;
-            const cfg = STATUS_CONFIG[reg.status] || STATUS_CONFIG.pending;
-            const payCfg = PAYMENT_STATUS[reg.payment_status] || PAYMENT_STATUS.not_required;
-            const StatusIcon = cfg.icon;
-            return (
-              <Card key={reg.id} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-0">
-                  <div className="flex flex-col md:flex-row">
-                    {ev?.image_url && (
-                      <div className="md:w-44 h-28 md:h-auto overflow-hidden rounded-t-lg md:rounded-l-lg md:rounded-tr-none">
-                        <img src={ev.image_url} alt={ev.title} className="w-full h-full object-cover" />
-                      </div>
-                    )}
-                    <div className="flex-1 p-5">
-                      <div className="flex items-start justify-between gap-3 mb-2">
-                        <div>
-                          <h3 className="font-semibold text-lg">{ev?.title || 'Evento'}</h3>
-                          <div className="flex flex-wrap items-center gap-3 mt-1 text-sm text-muted-foreground">
-                            <span className="flex items-center gap-1">
-                              <Calendar className="h-3.5 w-3.5" />
-                              {ev?.event_date ? formatDate(ev.event_date) : '—'}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <MapPin className="h-3.5 w-3.5" />
-                              {ev?.city || '—'}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Ticket className="h-3.5 w-3.5" />
-                              {ev?.sport}
-                            </span>
-                          </div>
-                        </div>
-                        <Badge variant={cfg.variant} className="flex items-center gap-1">
-                          <StatusIcon className="h-3 w-3" />
-                          {cfg.label}
-                        </Badge>
-                      </div>
+        <Button variant="ghost" className="min-h-touch -ml-2 gap-2 px-2 text-muted-foreground" onClick={() => navigate('/dashboard')}>
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+          Volver
+        </Button>
+      )}
 
-                      <div className="flex flex-wrap items-center gap-4 text-sm mt-3">
-                        <div>
-                          <span className="text-muted-foreground">Participante:</span>{' '}
-                          <span className="font-medium">{reg.participant_name}</span>
-                          {reg.child_id && <Badge variant="outline" className="ml-1 text-xs">Hijo/a</Badge>}
-                        </div>
-                        {reg.package_choice && (
-                          <div>
-                            <span className="text-muted-foreground">Paquete:</span>{' '}
-                            <span className="font-medium">{PKG_LABELS[reg.package_choice] || reg.package_choice}</span>
-                          </div>
-                        )}
-                        <div className={payCfg.color}>
-                          {payCfg.label}
-                        </div>
-                      </div>
+      <header className="space-y-2">
+        <h1 className="text-2xl font-bold md:text-3xl">{esAcudienteV2 ? 'Eventos y torneos' : 'Mis inscripciones a eventos'}</h1>
+        {state === 'ready' && <p className="text-base text-muted-foreground">{fraseEventos(registrations)}</p>}
+        {SHOW_EXPLORE && (
+          <Button className="min-h-touch w-full gap-2 sm:w-auto" onClick={() => navigate('/events')}>
+            <Ticket className="h-4 w-4" aria-hidden="true" />
+            Explorar eventos
+          </Button>
+        )}
+      </header>
 
-                      <div className="flex items-center gap-2 mt-4">
-                        {ev?.slug && (
-                          <Button variant="outline" size="sm" className="gap-1"
-                            onClick={() => window.open(`/event/${ev.slug}`, '_blank')}>
-                            <ExternalLink className="h-3.5 w-3.5" />
-                            Ver Evento
-                          </Button>
-                        )}
-                        <span className="text-xs text-muted-foreground ml-auto">
-                          Inscrito el {formatDate(reg.created_at)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+      {state === 'loading' && (
+        <div className="space-y-3" aria-busy="true" aria-label="Cargando inscripciones a eventos">
+          <Skeleton className="h-5 w-2/3" />
+          <Skeleton className="h-28 w-full rounded-2xl" />
+          <Skeleton className="h-28 w-full rounded-2xl" />
         </div>
       )}
+
+      {state === 'error' && (
+        <div role="alert" className="space-y-3 rounded-xl border border-destructive/40 bg-destructive/5 p-4">
+          <p className="flex items-center gap-2 font-semibold text-destructive">
+            <AlertTriangle className="h-5 w-5 shrink-0" aria-hidden="true" />
+            No pudimos cargar tus inscripciones a eventos
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Esto no quiere decir que no tengas inscripciones. Inténtalo de nuevo en un momento.
+          </p>
+          <Button variant="outline" className="min-h-touch" onClick={() => void loadRegistrations()}>
+            <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+            Reintentar
+          </Button>
+        </div>
+      )}
+
+      {state === 'ready' && registrations.length === 0 && (
+        <div className="rounded-2xl border bg-card p-6 text-center">
+          <p className="font-semibold">Aún no hay inscripciones</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {esAcudienteV2
+              ? 'Cuando inscribas a tus hijos en un evento o torneo, aparece aquí.'
+              : 'Cuando te inscribas en un evento o torneo, aparece aquí.'}
+          </p>
+        </div>
+      )}
+
+      {state === 'ready' && registrations.length > 0 && (
+        <ul className="space-y-3" aria-label="Inscripciones a eventos">
+          {registrations.map((reg) => <RegistrationCard key={reg.id} reg={reg} />)}
+        </ul>
+      )}
     </div>
+  );
+}
+
+function RegistrationCard({ reg }: { reg: MyRegistration }) {
+  const ev = reg.events;
+  const estado = estadoInscripcionEvento(reg.status);
+  const pago = estadoPagoEvento(reg.payment_status);
+  const datos = [
+    ev?.event_date ? { icon: Calendar, text: fechaEvento(ev.event_date) } : null,
+    ev?.city ? { icon: MapPin, text: ev.city } : null,
+  ].filter(Boolean) as { icon: typeof Calendar; text: string }[];
+
+  return (
+    <li className="overflow-hidden rounded-2xl border bg-card">
+      <div className="flex gap-3 p-4">
+        {ev?.image_url && (
+          <img src={ev.image_url} alt="" className="h-touch w-touch shrink-0 rounded-xl object-cover sm:h-20 sm:w-20" />
+        )}
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <h2 className="min-w-0 text-base font-semibold leading-snug">{ev?.title || 'Evento'}</h2>
+            <span className={cn('whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold', CLASE_TONO[estado.tono])}>
+              {estado.label}
+            </span>
+          </div>
+          {(datos.length > 0 || ev?.sport) && (
+            <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+              {datos.map(({ icon: Icon, text }) => (
+                <span key={text} className="inline-flex items-center gap-1">
+                  <Icon className="h-4 w-4" aria-hidden="true" />
+                  {text}
+                </span>
+              ))}
+              {ev?.sport && <span className="capitalize">{ev.sport}</span>}
+            </p>
+          )}
+          <p className="text-sm">
+            <span className="text-muted-foreground">Participante: </span>
+            <span className="font-medium">{reg.participant_name}</span>
+            {reg.child_id && <span className="text-muted-foreground"> · hijo/a</span>}
+          </p>
+          {reg.package_choice && (
+            <p className="text-sm">
+              <span className="text-muted-foreground">Paquete: </span>
+              <span className="font-medium">{PKG_LABELS[reg.package_choice] || reg.package_choice}</span>
+            </p>
+          )}
+          {pago && (
+            <span className={cn('inline-block rounded-full px-2.5 py-1 text-xs font-semibold', CLASE_TONO[pago.tono])}>
+              {pago.label}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 border-t px-4 py-1">
+        <span className="flex-1 text-xs text-muted-foreground">Inscrito el {fechaEvento(reg.created_at)}</span>
+        {ev?.slug && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="min-h-touch gap-1.5 px-2 text-primary"
+            onClick={() => window.open(`/event/${ev.slug}`, '_blank')}
+          >
+            <ExternalLink className="h-4 w-4" aria-hidden="true" />
+            Ver evento
+          </Button>
+        )}
+      </div>
+    </li>
   );
 }

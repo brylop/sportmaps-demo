@@ -18,6 +18,20 @@ import { supabase } from '@/integrations/supabase/client';
 
 const sportsList = SPORTS_LIST;
 
+// Nunca el rol interno en pantalla («parent», «school_admin»): palabras de V2Palabras.
+const ROL_VISIBLE: Record<string, string> = {
+  parent: 'Acudiente',
+  athlete: 'Deportista',
+  coach: 'Profe',
+  school: 'Dueño de la escuela',
+  owner: 'Dueño de la escuela',
+  school_admin: 'Administración',
+  wellness_professional: 'Profesional de salud',
+  store_owner: 'Tienda',
+  personal_trainer: 'Entrenador personal',
+  organizer: 'Organizador',
+};
+
 interface ProfileSectionProps {
   data: any;
   saving: boolean;
@@ -135,8 +149,8 @@ export function ProfileSection({ data, saving, onSave }: ProfileSectionProps) {
             <div className="space-y-1 text-center sm:text-left">
               <h3 className="font-medium text-lg">{formData.full_name || 'Tu Nombre'}</h3>
               <p className="text-sm text-muted-foreground">{profile?.email}</p>
-              <p className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-full inline-block mt-1 font-medium capitalize">
-                {profile?.role?.replace('_', ' ')}
+              <p className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-full inline-block mt-1 font-medium">
+                {ROL_VISIBLE[profile?.role ?? ''] ?? profile?.role?.replace('_', ' ')}
               </p>
             </div>
           </div>

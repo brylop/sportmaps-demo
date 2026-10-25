@@ -1167,7 +1167,7 @@ export function PaymentCheckoutModal({
                     )}
                     {conceptType === 'articulos' && (
                       <div className="space-y-2">
-                        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Elegí los artículos</Label>
+                        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Elige los artículos</Label>
                         <div className="space-y-1.5">
                           {merchCatalog.map((item) => {
                             const sel = merchSelected[item.id];
@@ -1211,7 +1211,7 @@ export function PaymentCheckoutModal({
                     )}
                     {conceptType === 'torneo' && (
                       <div className="space-y-2">
-                        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Elegí los cobros</Label>
+                        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Elige los cobros</Label>
                         <div className="space-y-1.5">
                           {tournCatalog.map((item) => {
                             const sel = tournSelected[item.id];

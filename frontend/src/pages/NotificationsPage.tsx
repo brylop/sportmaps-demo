@@ -1,8 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useNotifications } from '@/hooks/useDashboardStats';
-import { supabase } from '@/integrations/supabase/client';
+import { markNotificationRead, markAllNotificationsRead, deleteNotification } from '@/lib/notifications/markRead';
+import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { esAcudienteV2 } from '@/lib/vistaAcudiente';
+import { NotificacionesV2, type NotificacionV2 } from '@/components/notifications/NotificacionesV2';
 import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useQueryClient } from '@tanstack/react-query';
@@ -37,10 +41,11 @@ interface Notification {
 // Notification interface is handled by useNotifications hook result
 
 export default function NotificationsPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
+  const { currentUserRole } = useSchoolContext();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data: notifications = [], isLoading } = useNotifications();
+  const { data: notifications = [], isLoading, isError, refetch } = useNotifications();
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
 
   const unreadCount = notifications.filter((n: any) => !n.read).length;
@@ -70,47 +75,44 @@ export default function NotificationsPage() {
     return colors[type] ?? 'text-muted-foreground';
   };
 
-  const markAsRead = async (id: string) => {
-    try {
-      const { error } = await supabase
-        .from('notifications')
-        .update({ read: true })
-        .eq('id', id);
+  // Antes los errores se tragaban en console.error y un UPDATE filtrado por
+  // RLS (0 filas, sin error) se veía como éxito: el contador no bajaba y nadie
+  // se enteraba (bug 2026-10-24). Ver lib/notifications/markRead.ts.
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ['notifications'] });
 
-      if (error) throw error;
-      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+  const markAsRead = async (id: string) => {
+    if (!user) return;
+    try {
+      await markNotificationRead(user.id, id);
     } catch (error) {
       console.error('Error marking notification as read:', error);
+      toast.error('No se pudo marcar como leída. Intenta de nuevo.');
+    } finally {
+      refresh();
     }
   };
 
   const markAllAsRead = async () => {
     if (!user) return;
     try {
-      const { error } = await supabase
-        .from('notifications')
-        .update({ read: true })
-        .eq('user_id', user.id)
-        .eq('read', false);
-
-      if (error) throw error;
-      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      await markAllNotificationsRead(user.id, unreadCount);
     } catch (error) {
       console.error('Error marking all as read:', error);
+      toast.error('No se pudieron marcar como leídas. Intenta de nuevo.');
+    } finally {
+      refresh();
     }
   };
 
-  const deleteNotification = async (id: string) => {
+  const removeNotification = async (id: string) => {
+    if (!user) return;
     try {
-      const { error } = await supabase
-        .from('notifications')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
-      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      await deleteNotification(user.id, id);
     } catch (error) {
       console.error('Error deleting notification:', error);
+      toast.error('No se pudo eliminar la notificación. Intenta de nuevo.');
+    } finally {
+      refresh();
     }
   };
 
@@ -125,6 +127,28 @@ export default function NotificationsPage() {
   const filteredNotifications = filter === 'unread'
     ? notifications.filter((n: any) => !n.read)
     : notifications;
+
+  // Acudiente V2: misma lógica (arriba), otra presentación. Los demás roles no cambian.
+  if (esAcudienteV2(currentUserRole ?? profile?.role)) {
+    return (
+      <NotificacionesV2
+        notifications={notifications as NotificacionV2[]}
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={() => { void refetch(); }}
+        filter={filter}
+        onFilter={setFilter}
+        timeAgo={getTimeAgo}
+        onOpen={(n) => {
+          if (!n.read) void markAsRead(n.id);
+          if (n.link) navigate(n.link);
+        }}
+        onMarkRead={(id) => { void markAsRead(id); }}
+        onDelete={(id) => { void removeNotification(id); }}
+        onMarkAll={() => { void markAllAsRead(); }}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -259,7 +283,7 @@ export default function NotificationsPage() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={(e) => { e.stopPropagation(); deleteNotification(notification.id); }}
+                          onClick={(e) => { e.stopPropagation(); void removeNotification(notification.id); }}
                           className="gap-1 text-destructive hover:text-destructive"
                         >
                           <Trash2 className="h-3 w-3" />

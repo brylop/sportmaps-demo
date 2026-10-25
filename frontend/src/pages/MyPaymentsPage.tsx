@@ -1,21 +1,25 @@
+/**
+ * /my-payments — Pagos del acudiente (rol `parent`), rediseño V2.
+ *
+ * La vista es AcuPagosV2 (Por pagar · Pagados). Esta página conserva todo lo
+ * que no es presentación: la carga de datos (con su historia: pronto pago,
+ * recargo de mora, descuento por hermanos, pagos únicos, glosas, factura
+ * electrónica), el atajo `?pay=` del Inicio y el ÚNICO flujo de pago
+ * (PaymentCheckoutModal: sesión firmada por el BFF o comprobante).
+ *
+ * El atleta adulto NO usa esta vista: el efecto de abajo lo redirige a
+ * /athlete-payments (AthletePaymentsPage) antes de cargar nada, como siempre.
+ */
 import { useState, useEffect, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  CreditCard, CheckCircle2, XCircle, Clock, Calendar,
-  Plus, Eye, Loader2, Info, AlertTriangle,
-  Percent, Zap, User, FileText
-} from 'lucide-react';
+import { Loader2, Zap, User, FileText } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { PaymentCheckoutModal } from '@/components/payment/PaymentCheckoutModal';
 import { isOneTimeCategory } from '@/lib/payment-accounts';
 import { GlosaRespondModal } from '@/components/payment/GlosaRespondModal';
-import { FailedAttemptChip } from '@/components/payment/FailedAttemptChip';
-import { listMine as listMyGlosas, OPEN_GLOSA_STATUSES, REASON_LABELS, type Glosa } from '@/lib/api/glosas';
+import { listMine as listMyGlosas, OPEN_GLOSA_STATUSES, type Glosa } from '@/lib/api/glosas';
 import { formatCurrency } from '@/lib/utils';
 import { normalizeReceiptUrl } from '@/lib/normalizeReceiptUrl';
 import { useToast } from '@/hooks/use-toast';
@@ -24,6 +28,8 @@ import { calcEarlyPaymentDiscount } from '@/lib/earlyPaymentDiscount';
 import { MiFacturaElectronicaCard } from '@/components/billing/MiFacturaElectronicaCard';
 import { DebitoAutomaticoCard, DebitoSugerenciaBanner } from '@/components/autopay/DebitoAutomaticoCard';
 import { useMiDebito } from '@/components/autopay/useMiDebito';
+import { AcuPagosV2 } from '@/components/parent/v2/AcuPagosV2';
+import { PAYABLE_STATES, rowTitle, type Transaction } from '@/components/parent/v2/pagosModel';
 
 interface Enrollment {
   id: string;
@@ -50,42 +56,6 @@ interface ViewingProof {
   amount: number;
 }
 
-interface Transaction {
-  id: string;
-  amount: number;
-  payment_method: string;
-  status: string;
-  reference: string;
-  transaction_date: string;
-  authorization_code?: string;
-  receipt_url?: string;
-  amount_paid?: number;
-  balance_pending?: number;
-  pct_paid?: number;
-  installments_pending?: number;
-  school_id?: string;
-  school_type?: string;
-  concept?: string;
-  child_id?: string;
-  child_name?: string;
-  period_year?: number | null;
-  period_month?: number | null;
-  period_label?: string | null;
-  late_fee_amount?: number | null;
-  /** Descuento por hermanos (mig. 20260916101241) ya neteado en `amount` al
-   *  generarse el cobro — a diferencia de discount_amount (pronto pago), este
-   *  no cambia si se paga antes o después. Solo informativo. */
-  sibling_discount_applied?: number | null;
-  discount_amount?: number;
-  discount_eligible?: boolean;
-  discount_valid_until?: string | null;
-  /** payments.payment_category (la vista payments_with_installments no la trae). */
-  payment_category?: string | null;
-  last_failure_reason?: string | null;
-  last_failure_at?: string | null;
-  requires_review?: boolean | null;
-}
-
 const MONTH_NAMES_ES = [
   'Enero','Febrero','Marzo','Abril','Mayo','Junio',
   'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'
@@ -93,39 +63,25 @@ const MONTH_NAMES_ES = [
 const formatPeriodLabel = (year?: number | null, month?: number | null): string | null =>
   year && month && month >= 1 && month <= 12 ? `${MONTH_NAMES_ES[month - 1]} ${year}` : null;
 
-const statusConfig: Record<string, { label: string; icon: any; color: string }> = {
-  pending:           { label: 'Pendiente',   icon: Clock,       color: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800' },
-  awaiting_approval: { label: 'Por Validar', icon: Loader2,     color: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800' },
-  approved:          { label: 'Aprobado',   icon: CheckCircle2, color: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800' },
-  rejected:          { label: 'Rechazado',  icon: XCircle,     color: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800' },
-  failed:            { label: 'Rechazado',  icon: XCircle,     color: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800' },
-  cancelled:         { label: 'Anulado',    icon: XCircle,     color: 'bg-zinc-100 text-zinc-600 border-zinc-200 dark:bg-zinc-800/40 dark:text-zinc-400 dark:border-zinc-700' },
-  partial:           { label: 'Abono Recibido', icon: Percent,  color: 'bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800' },
-  glosado:           { label: 'Necesita aclaración', icon: AlertTriangle, color: 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800' },
-};
-
-// Estados que cuentan como "pendiente de pago" (dinero por cobrar). Los
-// terminales negativos (rejected/failed/cancelled) NO son pendientes.
-//
-// OJO: no incluye 'overdue' — `payments.status` sí puede venir así (línea
-// ~275, solo 'paid' se remapea a 'approved') y statusConfig cae a
-// "Pendiente" para ese caso por el fallback `|| statusConfig.pending`. No
-// agregar 'overdue' acá porque también gatea el descuento por pronto pago
-// (otro feature, otro alcance); para el chip de intento fallido se usa
-// TERMINAL_STATES_FOR_FAILURE_CHIP en su lugar, con la lista invertida.
-const PENDING_STATES = ['pending', 'awaiting_approval', 'partial', 'glosado'];
-
-// Estados donde un intento fallido previo ya no es relevante: el pago
-// terminó (a favor o en contra) y mostrar "pago rechazado" encima sería
-// engañoso o redundante. Todo lo demás (pending, overdue, partial,
-// glosado, awaiting_approval, o cualquier estado futuro no listado) sí lo
-// muestra — lista negra en vez de blanca para no repetir el bug de dejar
-// 'overdue' afuera.
-const TERMINAL_STATES_FOR_FAILURE_CHIP = ['approved', 'cancelled', 'rejected', 'failed'];
-
-// Estados en los que el cobro tiene botón "Pagar" directo (y que el atajo
-// `?pay=` del dashboard puede abrir solo).
+// Estados que el atajo `?pay=` del Inicio puede abrir solo (sin cambios en V2:
+// un abono `partial` se paga desde la lista, no desde el atajo).
 const DIRECTLY_PAYABLE_STATES = ['pending', 'overdue', 'rejected', 'failed'];
+
+// Lo que el modal de pago necesita de un cobro, armado en un solo lugar. El
+// monto es el saldo de la fila: el modal aplica pronto pago y el BFF decide el
+// valor final (create-session); nunca se cobra lo que diga el cliente.
+const toSelectedPayment = (p: Transaction) => ({
+  childId: p.child_id || '',
+  childName: p.child_name || 'Deportista',
+  teamName: p.concept || 'Mensualidad',
+  amount: p.balance_pending || p.amount,
+  schoolId: p.school_id || '',
+  paymentId: p.id,
+  discount_eligible: p.discount_eligible,
+  discount_amount: p.discount_amount,
+  paymentCategory: p.payment_category ?? null,
+  late_fee_amount: p.late_fee_amount ?? null,
+});
 
 export default function MyPaymentsPage() {
   const { user, profile } = useAuth();
@@ -135,7 +91,14 @@ export default function MyPaymentsPage() {
   const [glosaMap, setGlosaMap] = useState<Map<string, Glosa>>(new Map());
   const [respondingGlosa, setRespondingGlosa] = useState<Glosa | null>(null);
   const [loading, setLoading] = useState(true);
+  // Error al cargar ≠ «no debes nada» (UX-2): antes el catch dejaba la lista
+  // vacía y la pantalla parecía al día.
+  const [loadError, setLoadError] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
+  // Cobros marcados que faltan por pagar. El checkout es de UN cobro por vez
+  // (no hay pago múltiple en el BFF): al terminar uno con éxito se abre el
+  // siguiente con el mismo modal.
+  const [payQueue, setPayQueue] = useState<Transaction[]>([]);
   const [showChildPicker, setShowChildPicker] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<{
     childId: string;
@@ -192,6 +155,7 @@ export default function MyPaymentsPage() {
   const fetchPaymentData = async () => {
     try {
       setLoading(true);
+      setLoadError(false);
 
       // ── PASO 1: Obtener hijos del padre ──────────────────────────────────
       const { data: childrenData, error: childrenError } = await supabase
@@ -241,11 +205,11 @@ export default function MyPaymentsPage() {
       // se regenera incluyendo estos campos, esta query se vuelve redundante
       // pero no rompe nada (devuelve los mismos valores).
       const paymentIds = (payments || []).map((p: any) => p.id).filter(Boolean);
-      let periodMap: Record<string, { period_year: number | null; period_month: number | null; late_fee_amount?: number | null; created_at: string; early_payment_discount_applied?: number | null; sibling_discount_applied?: number | null; child_id?: string | null; parent_id?: string | null; school_id: string; last_failure_reason?: string | null; last_failure_at?: string | null; requires_review?: boolean | null; payment_category?: string | null }> = {};
+      let periodMap: Record<string, { period_year: number | null; period_month: number | null; late_fee_amount?: number | null; created_at: string; early_payment_discount_applied?: number | null; sibling_discount_applied?: number | null; child_id?: string | null; parent_id?: string | null; school_id: string; last_failure_reason?: string | null; last_failure_at?: string | null; requires_review?: boolean | null; payment_category?: string | null; payment_method?: string | null; payment_provider?: string | null }> = {};
       if (paymentIds.length > 0) {
         const { data: periodRows } = await supabase
           .from('payments')
-          .select('id, period_year, period_month, late_fee_amount, created_at, early_payment_discount_applied, sibling_discount_applied, child_id, parent_id, school_id, last_failure_reason, last_failure_at, requires_review, payment_category')
+          .select('id, period_year, period_month, late_fee_amount, created_at, early_payment_discount_applied, sibling_discount_applied, child_id, parent_id, school_id, last_failure_reason, last_failure_at, requires_review, payment_category, payment_method, payment_provider')
           .in('id', paymentIds);
         periodMap = Object.fromEntries(
           (periodRows || []).map((r: any) => [r.id, {
@@ -262,6 +226,8 @@ export default function MyPaymentsPage() {
             last_failure_at: r.last_failure_at,
             requires_review: r.requires_review,
             payment_category: r.payment_category ?? null,
+            payment_method: r.payment_method ?? null,
+            payment_provider: r.payment_provider ?? null,
           }]),
         );
       }
@@ -327,8 +293,6 @@ export default function MyPaymentsPage() {
           amount: p.amount,
           amount_paid: p.amount_paid,
           balance_pending: p.balance_pending,
-          pct_paid: p.pct_paid,
-          installments_pending: p.installments_pending,
           concept: p.concept,
           child_id: p.child_id,
           // Acudiente que además es atleta: sus cobros propios llegan con él como
@@ -337,11 +301,14 @@ export default function MyPaymentsPage() {
           child_name: p.child_id
             ? (childNameMap[p.child_id] || 'Deportista')
             : (p.parent_id === user?.id ? 'Tú (como atleta)' : 'Deportista'),
-          payment_method: p.payment_type || 'transfer',
+          // Medio real (payments.payment_method + pasarela). Antes se leía
+          // payment_type, que es one_time/monthly, no el medio.
+          pay_method: periodMap[p.id]?.payment_method ?? null,
+          pay_provider: periodMap[p.id]?.payment_provider ?? null,
           status: p.status === 'paid' ? 'approved' : p.status,
           reference: p.receipt_number || `SP-${p.id.slice(0, 8).toUpperCase()}`,
           transaction_date: p.payment_date || p.created_at,
-          authorization_code: p.status === 'paid' ? `AUTH-${p.id.slice(0, 5).toUpperCase()}` : undefined,
+          due_date: p.due_date ?? null,
           receipt_url: p.receipt_url,
           period_year:  periodMap[p.id]?.period_year ?? p.period_year ?? null,
           period_month: periodMap[p.id]?.period_month ?? p.period_month ?? null,
@@ -511,24 +478,17 @@ export default function MyPaymentsPage() {
       }
     } catch (error) {
       console.error('Error fetching payment data:', error);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
   };
 
-  // Lo que el modal de pago necesita de una fila, armado en un solo lugar.
-  const toSelectedPayment = (p: Transaction) => ({
-    childId: p.child_id || '',
-    childName: p.child_name || 'Deportista',
-    teamName: p.concept || 'Mensualidad',
-    amount: p.balance_pending || p.amount,
-    schoolId: p.school_id || '',
-    paymentId: p.id,
-    discount_eligible: p.discount_eligible,
-    discount_amount: p.discount_amount,
-    paymentCategory: p.payment_category ?? null,
-    late_fee_amount: p.late_fee_amount ?? null,
-  });
+  // Abre el ÚNICO checkout (PaymentCheckoutModal) para un cobro existente.
+  const openCheckoutFor = (p: Transaction) => {
+    setSelectedPayment(toSelectedPayment(p));
+    setShowCheckout(true);
+  };
 
   useEffect(() => {
     if (loading || autoOpenedRef.current) return;
@@ -541,15 +501,81 @@ export default function MyPaymentsPage() {
       : (payable.find(t => t.id === pay) ?? null);
     setSearchParams(prev => { prev.delete('pay'); return prev; }, { replace: true });
     if (!target) return;
-    setSelectedPayment(toSelectedPayment(target));
-    setShowCheckout(true);
+    setPayQueue([]);
+    openCheckoutFor(target);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- corre una sola vez, al terminar la carga
   }, [loading, transactions, searchParams]);
+
+  // «Pagar $ X» / «Ya transferí» con los cobros marcados. El BFF firma la
+  // sesión de UN cobro (no existe pago múltiple), así que se pagan en fila con
+  // el mismo modal: el primero ya, el resto al terminar cada uno con éxito.
+  const startPaying = (rows: Transaction[]) => {
+    const payable = rows.filter(t => PAYABLE_STATES.includes(t.status));
+    if (payable.length === 0) return;
+    const [first, ...rest] = payable;
+    setPayQueue(rest);
+    if (rest.length > 0) {
+      toast({
+        title: `Vas a pagar ${payable.length} cobros, uno por uno`,
+        description: `Empezamos por ${rowTitle(first)}.`,
+      });
+    }
+    openCheckoutFor(first);
+  };
+
+  // «Ya transferí»: UN comprobante para UN cobro, nunca en fila. La base no deja
+  // usar el mismo comprobante en dos cobros (uq_payments_school_receipt_hash): si
+  // la familia hizo una sola transferencia por varios cobros y la subiera en
+  // cada uno, del segundo en adelante vería «Comprobante ya usado» y quedarían
+  // sin pagar aunque la plata ya llegó.
+  const startUploadingProof = (rows: Transaction[]) => {
+    const payable = rows.filter(t => PAYABLE_STATES.includes(t.status));
+    if (payable.length === 0) return;
+    setPayQueue([]);
+    if (payable.length > 1) {
+      toast({
+        title: 'Un comprobante por cobro',
+        description: `Sube aquí el comprobante de ${rowTitle(payable[0])}. Si hiciste una sola transferencia por varios cobros, súbela aquí y avísale a la escuela para que la reparta.`,
+      });
+    }
+    openCheckoutFor(payable[0]);
+  };
+
+  // Si la familia cierra el modal (o el pago no pasa) con cobros en fila, la
+  // fila se corta, pero diciéndolo: nunca en silencio.
+  const pagoExitosoRef = useRef(false);
+  const handleCheckoutOpenChange = (open: boolean) => {
+    setShowCheckout(open);
+    if (open) return;
+    if (!pagoExitosoRef.current && payQueue.length > 0) {
+      toast({
+        title: `Quedan ${payQueue.length} ${payQueue.length === 1 ? 'cobro' : 'cobros'} por pagar`,
+        description: 'Los puedes pagar cuando quieras desde «Por pagar».',
+      });
+      setPayQueue([]);
+    }
+    pagoExitosoRef.current = false;
+  };
+
+  // El modal llama onSuccess y enseguida se cierra solo (onOpenChange(false)):
+  // el siguiente de la fila se abre en el próximo tick, con el modal remontado
+  // (key) para que no herede el estado del pago anterior.
+  const handleCheckoutSuccess = () => {
+    pagoExitosoRef.current = true;
+    void fetchPaymentData();
+    if (payQueue.length === 0) return;
+    const [next, ...rest] = payQueue;
+    setPayQueue(rest);
+    setTimeout(() => {
+      toast({ title: 'Listo', description: `Sigue: ${rowTitle(next)}.` });
+      openCheckoutFor(next);
+    }, 0);
+  };
 
   const handleShowProof = async (receiptUrl: string, concept: string, amount: number) => {
     if (!receiptUrl) return;
 
-    // ✅ Short-circuit si ya es URL pública directa
+    // Short-circuit si ya es URL pública directa
     if (receiptUrl.startsWith('http')) {
       setViewingProof({ open: true, url: receiptUrl, concept, amount });
       return;
@@ -572,190 +598,70 @@ export default function MyPaymentsPage() {
     } catch (err: unknown) {
       console.error('Error generating signed URL:', err);
       toast({
-        title: 'Error de acceso',
-        description: 'No se pudo generar el acceso seguro al comprobante.',
+        title: 'No pudimos abrir el recibo',
+        description: 'Inténtalo de nuevo en un momento.',
         variant: 'destructive',
       });
     }
   };
 
-  const summary = {
-    count_pending: transactions.filter(t => PENDING_STATES.includes(t.status)).length,
-    count_approved: transactions.filter(t => t.status === 'approved').length,
-    pending_total: transactions.filter(t => PENDING_STATES.includes(t.status)).reduce((sum, t) => sum + (t.balance_pending || t.amount), 0),
-    count_total: transactions.length
-  };
+  // Débito automático: igual que antes de la V2 (sugerencia + tarjeta). Ya está
+  // en producción para las escuelas que lo ofrecen; la V2 no quita módulos.
+  // Los avisos enlazan a /my-payments#debito.
 
-  const renderPaymentList = (list: Transaction[]) => {
-    if (list.length === 0) return (
-      <Card className="border-dashed">
-        <CardContent className="p-8 text-center">
-          <CreditCard className="h-10 w-10 mx-auto mb-3 text-muted-foreground opacity-30" />
-          <h3 className="font-semibold text-lg">Sin movimientos</h3>
-          <p className="text-muted-foreground mt-1">No hay registros en esta sección.</p>
-        </CardContent>
-      </Card>
-    );
-
-    return list.map(txn => (
-      <PaymentCard
-        key={txn.id}
-        txn={txn}
-        invoice={invoiceMap[txn.id]}
-        openGlosa={glosaMap.get(txn.id) || null}
-        onRespondGlosa={(g) => setRespondingGlosa(g)}
-        onSelect={(p) => {
-          if (p.status === 'approved' || p.status === 'glosado') return;
-          setSelectedPayment(prev => prev?.paymentId === p.id ? null : {
-            childId: p.child_id || '',
-            childName: p.child_name || 'Deportista',
-            teamName: p.concept || 'Mensualidad',
-            amount: p.balance_pending || p.amount,
-            schoolId: p.school_id || '',
-            paymentId: p.id,
-            discount_eligible: p.discount_eligible,
-            discount_amount: p.discount_amount,
-            paymentCategory: p.payment_category ?? null,
-            late_fee_amount: p.late_fee_amount ?? null,
-          });
-        }}
-        isSelected={selectedPayment?.paymentId === txn.id}
-        onShowProof={handleShowProof}
-        onAbonar={(p) => {
-          // Abonar reusa el flujo probado: subir comprobante por el saldo →
-          // queda awaiting_approval → la escuela lo registra como abono (suma a
-          // amount_paid). El flujo viejo de payment_installments quedó huérfano
-          // (la escuela no lo revisaba).
-          setSelectedPayment(toSelectedPayment(p));
-          setShowCheckout(true);
-        }}
-        onPay={(p) => {
-          // Botón "Pagar" directo: selecciona y abre el modal en un solo
-          // click, sin pasar por la barra flotante (antes eran 2 clicks).
-          setSelectedPayment(toSelectedPayment(p));
-          setShowCheckout(true);
-        }}
-      />
-    ));
-  };
-
-  if (loading && transactions.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-[60dvh]">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" />
-      </div>
-    );
-  }
+  const childrenForStatement = [...new Map(enrollments.filter(e => e.child_id).map(e => [e.child_id, e])).values()];
+  const loadState = loading && transactions.length === 0 ? 'loading' : loadError ? 'error' : 'ready';
 
   return (
-    <div className="space-y-6 pb-24 relative">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-3 truncate">
-            <CreditCard className="h-7 w-7 text-primary" />
-            Mis Pagos
-          </h1>
-          <p className="text-sm md:text-base text-muted-foreground truncate">Tus mensualidades, pagos y débito automático</p>
-        </div>
-        <Button onClick={() => setShowChildPicker(true)} size="sm" className="w-full md:w-auto">
-          <Plus className="h-4 w-4 mr-2" />
-          Nuevo Pago
-        </Button>
-      </div>
-
-      {/* Invitación a activar el débito desde donde la familia ya paga. */}
-      <DebitoSugerenciaBanner data={debito.data} userId={user?.id} onActivar={setActivarDebitoSchoolId} />
-
-      {/* Estado de Cuenta por hijo — misma pantalla que usa la escuela
-          (get_athlete_account_statement), acotada a lo suyo por el gate de la
-          RPC (children.parent_id = auth.uid()). Esta página es solo de
-          `parent` (el useEffect de arriba redirige a cualquier otro rol antes
-          de llegar acá), así que el bloque "Mi estado de cuenta" del atleta
-          adulto nunca podía renderizar — vive ahora en AthletePaymentsPage. */}
-      {enrollments.some(e => e.child_id) && (
-        <div className="flex flex-wrap gap-2">
-          {[...new Map(enrollments.filter(e => e.child_id).map(e => [e.child_id, e])).values()].map((e) => (
-            <Button key={e.child_id} asChild variant="outline" size="sm">
-              <Link to={`/estado-cuenta?child_id=${e.child_id}`}>
-                <FileText className="h-3.5 w-3.5 mr-2" />
-                Estado de cuenta — {e.children?.full_name || 'mi hijo/a'}
-              </Link>
-            </Button>
-          ))}
-        </div>
-      )}
-
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card className="hover:shadow-md transition-shadow">
-          <CardContent className="p-4 flex items-center gap-4">
-            <div className="h-12 w-12 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-              <Clock className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+    <div className="relative">
+      <AcuPagosV2
+        state={loadState}
+        transactions={transactions}
+        invoiceMap={invoiceMap}
+        onRetry={() => { void fetchPaymentData(); }}
+        onPay={startPaying}
+        onUploadProof={startUploadingProof}
+        onShowReceipt={(t) => handleShowProof(t.receipt_url || '', t.concept || '', Number(t.amount_paid || t.amount))}
+        canClarify={(t) => glosaMap.has(t.id)}
+        onClarify={(t) => setRespondingGlosa(glosaMap.get(t.id) ?? null)}
+        porPagarFooter={
+          <>
+            <DebitoSugerenciaBanner data={debito.data} userId={user?.id} onActivar={setActivarDebitoSchoolId} />
+            <div id="debito" className="scroll-mt-20">
+              <DebitoAutomaticoCard
+                data={debito.data}
+                reload={debito.reload}
+                activarSchoolId={activarDebitoSchoolId}
+                onActivarSchoolIdChange={setActivarDebitoSchoolId}
+              />
             </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Pendientes</p>
-              <p className="text-xl font-bold text-foreground">{summary.count_pending}</p>
+            {/* Adelantar una mensualidad sin cobro creado (modo create del mismo modal). */}
+            <div className="text-center">
+              <Button variant="link" className="min-h-touch text-sm" onClick={() => setShowChildPicker(true)}>
+                ¿Quieres adelantar un pago? Pagar otro concepto
+              </Button>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card className="hover:shadow-md transition-shadow">
-          <CardContent className="p-4 flex items-center gap-4">
-            <div className="h-12 w-12 rounded-xl bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center">
-              <CreditCard className="h-6 w-6 text-amber-500 dark:text-amber-400" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Monto pendiente</p>
-              <p className="text-xl font-bold text-foreground">{formatCurrency(summary.pending_total)}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="hover:shadow-md transition-shadow">
-          <CardContent className="p-4 flex items-center gap-4">
-            <div className="h-12 w-12 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
-              <CheckCircle2 className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Pagos realizados</p>
-              <p className="text-xl font-bold text-foreground">{summary.count_approved}</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Débito automático (F3). Reemplaza la tarjeta falsa de "Suscripciones
-          Activas". Los avisos enlazan a /my-payments#debito. */}
-      <div id="debito" className="scroll-mt-20">
-        <DebitoAutomaticoCard
-          data={debito.data}
-          reload={debito.reload}
-          activarSchoolId={activarDebitoSchoolId}
-          onActivarSchoolIdChange={setActivarDebitoSchoolId}
-        />
-      </div>
-
-      {/* ¿Quiere factura electrónica a su nombre? Mismo bloque que /p/:token. */}
-      <MiFacturaElectronicaCard />
-
-      <Tabs defaultValue="all" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="all">Todas ({summary.count_total})</TabsTrigger>
-          <TabsTrigger value="approved">Aprobadas ({summary.count_approved})</TabsTrigger>
-          <TabsTrigger value="pending">Pendientes ({summary.count_pending})</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="all" className="space-y-4">
-          {renderPaymentList(transactions)}
-        </TabsContent>
-
-        <TabsContent value="approved" className="space-y-4">
-          {renderPaymentList(transactions.filter(t => t.status === 'approved'))}
-        </TabsContent>
-
-        <TabsContent value="pending" className="space-y-4">
-          {renderPaymentList(transactions.filter(t => PENDING_STATES.includes(t.status)))}
-        </TabsContent>
-      </Tabs>
+          </>
+        }
+        pagadosFooter={
+          <>
+            {childrenForStatement.length > 0 && (
+              <div className="flex flex-wrap justify-center gap-2">
+                {childrenForStatement.map((e) => (
+                  <Button key={e.child_id} asChild variant="outline" size="sm" className="min-h-touch">
+                    <Link to={`/estado-cuenta?child_id=${e.child_id}`}>
+                      <FileText className="mr-2 h-4 w-4" aria-hidden="true" />
+                      Estado de cuenta de {e.children?.full_name || 'tu hijo'}
+                    </Link>
+                  </Button>
+                ))}
+              </div>
+            )}
+            {/* ¿Quiere factura electrónica a su nombre? Mismo bloque que /p/:token. */}
+            <MiFacturaElectronicaCard />
+          </>
+        }
+      />
 
       {/* Child Picker Dialog */}
       <Dialog open={showChildPicker} onOpenChange={setShowChildPicker}>
@@ -778,6 +684,7 @@ export default function MyPaymentsPage() {
                         ? 'bg-zinc-900 border-zinc-800 hover:border-indigo-500/50 hover:bg-zinc-950 dark:bg-zinc-950 dark:hover:bg-black' 
                         : 'bg-background hover:bg-muted/50 hover:border-primary'}`}
                     onClick={() => {
+                      setPayQueue([]);
                       setSelectedPayment({
                         childId: enroll.child_id,
                         childName: enroll.children?.full_name || 'Deportista',
@@ -804,7 +711,7 @@ export default function MyPaymentsPage() {
                           {isPT ? 'Coach Personal' : (enroll.teams?.name || 'Sin curso asignado')}
                         </p>
                         {enroll.schools?.name && (
-                          <p className={`text-[10px] italic truncate ${isPT ? 'text-zinc-500' : 'text-muted-foreground'}`}>
+                          <p className={`text-xs italic truncate ${isPT ? 'text-zinc-500' : 'text-muted-foreground'}`}>
                             {isPT ? `Con ${enroll.schools.name}` : `Escuela: ${enroll.schools.name}`}
                           </p>
                         )}
@@ -832,8 +739,11 @@ export default function MyPaymentsPage() {
       {/* Payment Checkout Modal */}
       {selectedPayment && (
         <PaymentCheckoutModal
+          // Remonta al cambiar de cobro (pago en fila): el modal guarda estado
+          // interno del intento anterior (resultado, cobro creado).
+          key={selectedPayment.paymentId ?? `nuevo-${selectedPayment.childId}-${selectedPayment.teamName}`}
           open={showCheckout}
-          onOpenChange={setShowCheckout}
+          onOpenChange={handleCheckoutOpenChange}
           studentId={selectedPayment.childId}
           childId={selectedPayment.childId}
           // Sin esto la notificación al colegio sale como "un deportista envió
@@ -846,7 +756,7 @@ export default function MyPaymentsPage() {
           concept={selectedPayment.teamName}
           paymentCategory={selectedPayment.paymentCategory ?? null}
           mode={selectedPayment.paymentId ? 'update' : 'create'}
-          onSuccess={fetchPaymentData}
+          onSuccess={handleCheckoutSuccess}
         />
       )}
 
@@ -857,55 +767,6 @@ export default function MyPaymentsPage() {
         onOpenChange={(o) => { if (!o) setRespondingGlosa(null); }}
         onSuccess={fetchPaymentData}
       />
-
-      {/* Barra de acción flotante (estilo atleta). Offset inferior mayor que
-          bottom-6 en móvil: MobileBottomNav (h-16 + safe-area, ver
-          components/navigation/MobileBottomNav.tsx) vive fijo en el mismo
-          borde y esta barra, con z-index mayor, quedaba encima tapándolo. */}
-      {selectedPayment && (
-        <div className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom)+0.75rem)] md:bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-2xl bg-zinc-900 dark:bg-zinc-950 border border-zinc-800 dark:border-zinc-800 text-white p-4 rounded-xl shadow-2xl flex items-center justify-between z-50 animate-in fade-in slide-in-from-bottom-5 duration-300">
-          <div className="flex flex-col min-w-0">
-            <span className="text-zinc-500 dark:text-zinc-400 text-[10px] uppercase tracking-wider font-bold truncate">
-              {selectedPayment.childName} — {selectedPayment.teamName}
-            </span>
-            {selectedPayment.discount_eligible && (selectedPayment.discount_amount ?? 0) > 0 ? (
-              <div className="flex items-baseline gap-1.5 animate-in fade-in">
-                <span className="text-xs text-zinc-500 line-through font-normal">
-                  {formatCurrency(selectedPayment.amount)}
-                </span>
-                <span className="font-bold text-xl text-emerald-400 dark:text-emerald-300">
-                  {formatCurrency(selectedPayment.amount - selectedPayment.discount_amount!)}
-                </span>
-              </div>
-            ) : (
-              <span className="font-bold text-xl text-emerald-400 dark:text-emerald-300">
-                {formatCurrency(selectedPayment.amount)}
-              </span>
-            )}
-            {(selectedPayment.late_fee_amount ?? 0) > 0 && (
-              <span className="text-[10px] font-semibold text-amber-400 dark:text-amber-300">
-                Incluye recargo por mora: {formatCurrency(selectedPayment.late_fee_amount as number)}
-              </span>
-            )}
-          </div>
-          
-          <div className="flex items-center gap-3">
-            <Button 
-              variant="ghost" 
-              className="text-zinc-400 hover:text-white hover:bg-zinc-800 dark:hover:bg-zinc-900 hidden sm:flex"
-              onClick={() => setSelectedPayment(null)}
-            >
-              Cancelar
-            </Button>
-            <Button 
-              className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 font-bold shadow-lg shadow-emerald-600/20"
-              onClick={() => setShowCheckout(true)}
-            >
-              Pagar Ahora
-            </Button>
-          </div>
-        </div>
-      )}
 
       {/* Proof Viewer Dialog for Parents */}
       <Dialog open={viewingProof.open} onOpenChange={(open) => setViewingProof(prev => ({ ...prev, open }))}>
@@ -946,224 +807,5 @@ export default function MyPaymentsPage() {
         </DialogContent>
       </Dialog>
     </div>
-  );
-}
-
-function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, onPay, invoice, openGlosa, onRespondGlosa }: {
-  txn: Transaction;
-  onSelect: (p: Transaction) => void;
-  isSelected: boolean;
-  onShowProof: (url: string, concept: string, amount: number) => void;
-  onAbonar: (p: Transaction) => void;
-  onPay: (p: Transaction) => void;
-  invoice?: { number: string | null; public_url: string | null };
-  openGlosa?: Glosa | null;
-  onRespondGlosa?: (g: Glosa) => void;
-}) {
-  const config = statusConfig[txn.status] || statusConfig.pending;
-  const StatusIcon = config.icon;
-  const nonInteractive = txn.status === 'approved' || txn.status === 'glosado';
-  // Estados que necesitan un pago nuevo (no un abono ni una aclaración):
-  // el botón "Pagar" les ahorra el paso de seleccionar + usar la barra flotante.
-  const payableDirectly = DIRECTLY_PAYABLE_STATES.includes(txn.status);
-
-  return (
-    <Card
-      className={`transition-all overflow-hidden ${nonInteractive ? 'cursor-default' : 'cursor-pointer hover:border-primary/30'} ${
-        isSelected
-          ? 'border-primary bg-primary/5 shadow-md ring-1 ring-primary/20'
-          : 'border-border'
-      }`}
-      onClick={() => onSelect(txn)}
-    >
-      <CardContent className="p-4 sm:p-5">
-        <div className="flex items-start gap-3">
-          <div className={`h-10 w-10 sm:h-12 sm:w-12 rounded-xl flex items-center justify-center shrink-0 ${config.color.split(' ')[0]}`}>
-            <StatusIcon className={`h-5 w-5 sm:h-6 sm:w-6 ${config.color.split(' ')[1]}`} />
-          </div>
-
-          <div className="flex-1 min-w-0 space-y-1.5">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">
-                {txn.child_name || 'Deportista'}
-              </span>
-              {txn.school_type === 'personal_trainer' && (
-                <Badge variant="outline" className="text-[10px] py-0 px-2 h-5 bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-900/30 dark:border-indigo-800 dark:text-indigo-400 font-bold">
-                  <Zap className="h-2.5 w-2.5 mr-1 fill-indigo-500/20" />
-                  ENTRENADOR PT
-                </Badge>
-              )}
-            </div>
-
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="font-bold text-sm sm:text-base text-foreground truncate">
-                {/* El trigger fn_payments_fill_period rellena period_year/period_month
-                    en CUALQUIER pago (torneos, tienda, mensualidad — no solo mensualidad),
-                    así que su sola presencia no indica que el pago sea una mensualidad.
-                    concept siempre viene poblado (0 nulos verificado en producción) y ya
-                    incluye "Mensualidad {mes}" cuando corresponde — mostrarlo directo evita
-                    que un pago de torneo/tienda aparezca disfrazado de mensualidad. */}
-                {txn.concept || (txn.period_label ? `Mensualidad ${txn.period_label}` : 'Mensualidad')}
-              </h3>
-              <div className="text-right shrink-0">
-                {txn.discount_eligible && (txn.discount_amount ?? 0) > 0 && PENDING_STATES.includes(txn.status) ? (
-                  <div className="flex items-center gap-1.5 justify-end">
-                    <span className="text-xs text-muted-foreground line-through font-normal">
-                      {formatCurrency(txn.amount)}
-                    </span>
-                    <span className="font-bold text-sm sm:text-base text-primary">
-                      {formatCurrency(txn.amount - txn.discount_amount!)}
-                    </span>
-                  </div>
-                ) : (
-                  <p className="font-bold text-sm sm:text-base text-foreground">
-                    {formatCurrency(txn.amount)}
-                  </p>
-                )}
-                {txn.status === 'partial' && (
-                  <p className="text-[10px] text-red-500 dark:text-red-400 font-bold">
-                    PENDIENTE: {formatCurrency(txn.balance_pending || 0)}
-                  </p>
-                )}
-                {(txn.late_fee_amount ?? 0) > 0 && (
-                  <p className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
-                    Incluye recargo por mora: {formatCurrency(txn.late_fee_amount as number)}
-                  </p>
-                )}
-                {(txn.sibling_discount_applied ?? 0) > 0 && (
-                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
-                    Incluye descuento por hermanos: {formatCurrency(txn.sibling_discount_applied as number)}
-                  </p>
-                )}
-                {txn.discount_eligible && (txn.discount_amount ?? 0) > 0 && PENDING_STATES.includes(txn.status) && (
-                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
-                    Ahorra {formatCurrency(txn.discount_amount!)} pagando antes del {txn.discount_valid_until}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground pt-1">
-              <div className="flex items-center gap-1">
-                <Calendar className="h-3.5 w-3.5" />
-                {new Date(txn.transaction_date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
-              </div>
-              <div className="flex items-center gap-1">
-                <Info className="h-3.5 w-3.5" />
-                REF: <span className="font-mono">{txn.reference}</span>
-              </div>
-            </div>
-
-            {!TERMINAL_STATES_FOR_FAILURE_CHIP.includes(txn.status) && (
-              <div className="mt-1">
-                <FailedAttemptChip
-                  reason={txn.last_failure_reason}
-                  at={txn.last_failure_at}
-                  requiresReview={txn.requires_review}
-                  showReason
-                />
-              </div>
-            )}
-
-            {txn.status === 'glosado' && (
-              <div className="mt-2 rounded-md border border-orange-300 bg-orange-50 dark:bg-orange-950/30 p-2 text-xs text-orange-800 dark:text-orange-300">
-                <p className="font-semibold flex items-center gap-1">
-                  <AlertTriangle className="h-3 w-3 shrink-0" />
-                  {openGlosa ? REASON_LABELS[openGlosa.reason] : 'Tu comprobante necesita una aclaración.'}
-                </p>
-                {openGlosa?.responds_by && (
-                  <p className="mt-0.5">
-                    Responde antes del{' '}
-                    <strong>
-                      {new Date(openGlosa.responds_by + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
-                    </strong>.
-                  </p>
-                )}
-              </div>
-            )}
-
-            <div className="flex items-center justify-between pt-3 border-t mt-3 sm:mt-4">
-              <Badge variant="outline" className={`h-6 text-[10px] font-bold ${config.color}`}>
-                <StatusIcon className="h-3 w-3 mr-1" />
-                {config.label.toUpperCase()}
-              </Badge>
-
-              <div className="flex items-center gap-2">
-                {invoice?.public_url && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 text-[11px] font-bold text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
-                    title={invoice.number ? `Factura ${invoice.number}` : 'Factura electrónica'}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      window.open(invoice.public_url!, '_blank', 'noopener,noreferrer');
-                    }}
-                  >
-                    <FileText className="h-3.5 w-3.5 mr-1" />
-                    FACTURA
-                  </Button>
-                )}
-                {txn.receipt_url && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 text-[11px] font-bold text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onShowProof(txn.receipt_url!, txn.concept || '', txn.amount);
-                    }}
-                  >
-                    <Eye className="h-3.5 w-3.5 mr-1" />
-                    RECIBO
-                  </Button>
-                )}
-                {txn.status === 'partial' && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 text-[11px] font-bold text-primary hover:text-primary hover:bg-primary/10"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onAbonar(txn);
-                    }}
-                  >
-                    <Plus className="h-3.5 w-3.5 mr-1" />
-                    ABONAR
-                  </Button>
-                )}
-                {payableDirectly && (
-                  <Button
-                    size="sm"
-                    className="h-8 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onPay(txn);
-                    }}
-                  >
-                    <CreditCard className="h-3.5 w-3.5 mr-1" />
-                    PAGAR
-                  </Button>
-                )}
-                {txn.status === 'glosado' && openGlosa && onRespondGlosa && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 text-[11px] font-bold text-orange-600 hover:text-orange-700 hover:bg-orange-50"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onRespondGlosa(openGlosa);
-                    }}
-                  >
-                    <AlertTriangle className="h-3.5 w-3.5 mr-1" />
-                    RESPONDER
-                  </Button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
   );
 }
