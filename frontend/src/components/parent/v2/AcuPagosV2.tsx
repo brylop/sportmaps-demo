@@ -10,6 +10,7 @@
  * puede verse como «no debes nada» (UX-2).
  */
 import { useMemo, useState, type ReactNode } from 'react';
+import { useOcultarFabSoporte } from '@/lib/supportFab';
 import { Check, AlertTriangle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -55,6 +56,10 @@ export function AcuPagosV2({
   const totalDebe = sumDue(payable);
   const totalMarcado = sumDue(marked);
   const showBar = state === 'ready' && tab === 'por-pagar' && payable.length > 0;
+  // La barra va fija abajo, igual que la burbuja de Mapi: el scroll no los
+  // separa y la burbuja tapaba «Ya transferí: subir el comprobante». Mientras se
+  // ve la barra, la burbuja se esconde (mismo mecanismo que el buzón de WhatsApp).
+  useOcultarFabSoporte(showBar);
 
   const toggle = (id: string) =>
     setOff((prev) => {

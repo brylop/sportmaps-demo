@@ -44,7 +44,7 @@ import {
   MoreHorizontal
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
-import { SHOW_EXPLORE, ACUDIENTE_V2 } from '@/lib/feature-flags';
+import { SHOW_EXPLORE, ACUDIENTE_V2, ENTRENADOR_V2, DEPORTISTA_V2 } from '@/lib/feature-flags';
 import type { AddonKey } from '@/config/saas-plans';
 import type { ModuleKey } from '@/config/module-catalog';
 import { BUYER_STORE_HIDDEN, type BuyerStoreVisibility } from '@/lib/store/buyerStoreVisibility';
@@ -277,6 +277,8 @@ export function getNavigationByRole(
   storeEnabled: boolean = false,
   /** Tienda de la escuela activa para el comprador. Default: oculta (fail-closed). */
   buyerStore: BuyerStoreVisibility = BUYER_STORE_HIDDEN,
+  /** Menú clásico del coach aunque la V2 esté encendida (perfil de escuela que entra a una sede como coach). */
+  coachClasico: boolean = false,
 ): NavGroup[] {
   const baseNav: NavGroup = {
     title: 'Principal',
@@ -288,7 +290,23 @@ export function getNavigationByRole(
   };
 
   const roleSpecificNav: Record<UserRole, NavGroup[]> = {
-    athlete: [
+    // Deportista V2 (docs/specs/entrenador-deportista-v2.md): las cinco de la
+    // barra más la tienda si la escuela vende; lo demás vive en «Más».
+    // Con VITE_DEPORTISTA_V2=false vuelve el menú anterior, tal cual.
+    athlete: DEPORTISTA_V2 ? [
+      {
+        title: 'Principal',
+        items: [
+          { title: 'Hoy', href: '/dashboard', icon: Home },
+          { title: 'Entrenos', href: '/training', icon: Activity },
+          { title: 'Progreso', href: '/stats', icon: BarChart3 },
+          { title: 'Carnet', href: '/my-cards', icon: IdCard },
+          { title: 'Tienda', href: '/mi-tienda', icon: ShoppingBag, requiresStore: true, buyerStore: 'store' },
+          { title: 'Mis compras', href: '/mis-compras', icon: ClipboardList, requiresStore: true, buyerStore: 'purchases' },
+          { title: 'Más', href: '/mas', icon: MoreHorizontal }
+        ]
+      }
+    ] : [
       {
         title: 'Principal',
         items: [
@@ -409,7 +427,21 @@ export function getNavigationByRole(
       }
     ],
 
-    coach: [
+    // Entrenador V2 (docs/specs/entrenador-deportista-v2.md): las cinco de la
+    // barra; agenda, rutinas, dotación, informes, mensajes… viven en «Más».
+    // Con VITE_ENTRENADOR_V2=false vuelve el menú anterior, tal cual.
+    coach: ENTRENADOR_V2 && !coachClasico ? [
+      {
+        title: 'Principal',
+        items: [
+          { title: 'Hoy', href: '/dashboard', icon: Home },
+          { title: 'Equipos', href: '/teams', icon: Users },
+          { title: 'Sesiones', href: '/training-plans', icon: Activity },
+          { title: 'Asistencia', href: '/coach-attendance', icon: ClipboardCheck },
+          { title: 'Más', href: '/mas', icon: MoreHorizontal }
+        ]
+      }
+    ] : [
       {
         title: 'Principal',
         items: [

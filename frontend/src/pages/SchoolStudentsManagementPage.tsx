@@ -1,4 +1,5 @@
 import { BranchChip } from '@/components/common/BranchChip';
+import { ENTRENADOR_V2 } from '@/lib/feature-flags';
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -263,7 +264,11 @@ export default function SchoolStudentsManagementPage() {
   const coachUploadsEnrollmentForms = profile?.role === 'coach' && coachCanUploadEnrollmentForms;
 
   // Besser: el coach no ve mensualidad ni estado de pago en ninguna pantalla.
-  const hideFinancials = profile?.role === 'coach' && coachHideFinancialInfo;
+  // Entrenador V2 (decisión 10-25): ningún coach ve montos, solo al día /
+  // pendiente / vencido en su app. 0 coaches registraron o aprobaron pagos en
+  // los últimos 90 días, así que no se pierde un flujo en uso.
+  // Con VITE_ENTRENADOR_V2=false vuelve a depender solo de la escuela.
+  const hideFinancials = profile?.role === 'coach' && (coachHideFinancialInfo || ENTRENADOR_V2);
 
   // «Estado de cuenta»: registrar desde el listado un pago que la familia hizo
   // por fuera de la app (efectivo o transferencia directa). Es el mismo modal de

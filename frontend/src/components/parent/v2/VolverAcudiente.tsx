@@ -9,14 +9,15 @@
  */
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
-import { esRaizDePestana, pestanaDe } from '@/lib/acudienteTabs';
+import { esRaizDePestana, pestanaDe, PESTANAS_ACUDIENTE, type PestanaAcudiente } from '@/lib/acudienteTabs';
 
-export function VolverAcudiente() {
+/** `pestanas`: las del rol (acudiente por defecto; el layout pasa las de entrenador o deportista). */
+export function VolverAcudiente({ pestanas = PESTANAS_ACUDIENTE }: { pestanas?: PestanaAcudiente[] } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
-  if (esRaizDePestana(location.pathname)) return null;
+  if (esRaizDePestana(location.pathname, pestanas)) return null;
 
-  const dueña = pestanaDe(location.pathname);
+  const dueña = pestanaDe(location.pathname, pestanas);
   const destino = dueña?.href ?? '/dashboard';
   const volver = () => {
     // `default` = primera entrada de la sesión: no hay a dónde volver dentro de la app.
