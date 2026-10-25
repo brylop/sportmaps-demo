@@ -27,6 +27,18 @@ describe('filaCuentaEnBandeja', () => {
         expect(filaCuentaEnBandeja(null, false)).toBe(true);
         expect(filaCuentaEnBandeja('staff')).toBe(true);
     });
+
+    it('un pago real de un contacto no atendido (sin_familia: contacto_no_atendido…) SÍ entra, de cualquier marca', () => {
+        const pago = 'sin_familia: contacto_no_atendido (personal): comprobante de $150.000 a una cuenta de la escuela';
+        for (const t of ['personal', 'negocio', 'otro_club', 'plataforma', 'desconocido']) {
+            expect(filaCuentaEnBandeja(t, false, pago)).toBe(true);
+        }
+    });
+    it('la foto sin pago (contacto_no_atendido a secas) o cualquier otro motivo sigue escondida', () => {
+        expect(filaCuentaEnBandeja('personal', false, 'contacto_no_atendido')).toBe(false);
+        expect(filaCuentaEnBandeja('negocio', false, 'no es un comprobante')).toBe(false);
+        expect(filaCuentaEnBandeja('personal', false, null)).toBe(false);
+    });
 });
 
 describe('clasificarFila con «también es familia»', () => {

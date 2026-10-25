@@ -250,16 +250,19 @@ describe('…1042: la escuela mandó solo una imagen y nadie volvió', () => {
         expect(borradores()).toHaveLength(0);
     });
 
-    it('pregunta escolar sin respuesta que el bot sepa → algo honesto UNA vez', async () => {
+    // Conversación v2 (2026-10-24): «Todavía nadie de la escuela ha podido contestarte» era un
+    // no-respuesta. Dentro de horario y sin una hora que decir el bot se CALLA (la escuela se
+    // re-avisa igual); fuera de horario dice la hora concreta (ver whatsapp-conversacion-v2.test.ts).
+    it('pregunta escolar sin respuesta que el bot sepa → no manda un «Todavía nadie…» vacío; re-avisa a la escuela', async () => {
         base({ filas: [
             { wa_message_id: 'in-0', direction: 'inbound', type: 'text', text_body: 'Quiero inscribir a mi hija en voleibol', ai_generated: false, created_at: hace(50) },
             { wa_message_id: 'bot-1', direction: 'outbound', type: 'text', text_body: '¡Gracias! 🙌 Ya pasé tu mensaje a la escuela…', payload: { step: 'prospecto_seguimiento' }, ai_generated: true, created_at: hace(40) },
             { wa_message_id: 'in-1', direction: 'inbound', type: 'text', text_body: '¿Llevan uniforme a las clases?', ai_generated: false, created_at: hace(35) },
         ] });
         await revisarRetomas(Date.now());
-        const [b] = borradores();
-        expect(b.tool_context).toMatchObject({ step: 'retoma_sin_respuesta' });
-        expect(b.proposed_text).toContain('Todavía nadie de la escuela ha podido contestarte');
+        expect(borradores().some((b) => b.tool_context?.step === 'retoma_sin_respuesta')).toBe(false);
+        expect(borradores().some((b) => /Todavía nadie/.test(b.proposed_text ?? ''))).toBe(false);
+        expect(avisos().length).toBeGreaterThan(0);
     });
 
     it('…y si ya lo dijo en 24 h, no lo repite', async () => {

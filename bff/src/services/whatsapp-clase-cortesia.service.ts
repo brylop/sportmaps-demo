@@ -921,7 +921,15 @@ export async function atenderTurnoCortesia(
  */
 export async function iniciarCortesia(
     ctx: CtxCortesia,
-    opciones: { encabezado?: string; step?: string; intro?: string; texto?: string | null } = {},
+    opciones: {
+        encabezado?: string; step?: string; intro?: string; texto?: string | null;
+        /**
+         * Lo que ya se sabe de quien va a la clase (el mini-registro de la puerta
+         * del desconocido): al elegir horario va directo al resumen, sin volver a
+         * preguntar nombre, edad ni acudiente.
+         */
+        datos?: Pick<DatosCortesia, 'nombre' | 'edad' | 'fechaNacimiento' | 'acudiente'>;
+    } = {},
 ): Promise<void> {
     const d = deps(ctx);
     const cabeza = opciones.encabezado ? `${opciones.encabezado}\n\n` : '';
@@ -976,11 +984,11 @@ export async function iniciarCortesia(
         const delGrupo = franjas.filter((f) => baseGrupo(f.grupo) === grupo);
         const intro = opciones.intro
             ?? `${base} Estos son los horarios de *${grupo.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())}*:`;
-        await ofrecerFranjas(ctx, delGrupo.length ? delGrupo : franjas, 0, { dia }, cabeza + intro,
+        await ofrecerFranjas(ctx, delGrupo.length ? delGrupo : franjas, 0, { dia, ...opciones.datos }, cabeza + intro,
             opciones.step ?? 'cortesia_ofrecer', { yaFiltradas: true });
         return;
     }
-    await ofrecerFranjas(ctx, franjas, 0, { perfil, dia, ...edadDelPerfil(perfil) },
+    await ofrecerFranjas(ctx, franjas, 0, { perfil, dia, ...edadDelPerfil(perfil), ...opciones.datos },
         cabeza + (opciones.intro ?? `${base} Estos son los próximos horarios:`),
         opciones.step ?? 'cortesia_ofrecer', { maximo: yaListado ? MAX_BOTONES : undefined });
 }

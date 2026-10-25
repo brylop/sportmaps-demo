@@ -154,8 +154,11 @@ describe('urgencia de una escalación', () => {
         expect(textoSinRespuesta({ urgencia: 'normal', categoria: null, fueraDeHorario: true, proximaAtencion: 'mañana a las 8:00 am' }))
             .toContain('mañana a las 8:00 am');
         expect(mensajeDeEscalamientoUrgente('seguridad')).toContain('*urgente*');
-        for (const t of [textoSinRespuesta({ urgencia: 'normal', categoria: null, fueraDeHorario: false })]) {
-            expect(t).not.toMatch(/\bvos\b|en breve/);
+        // Conversación v2 (2026-10-24): dentro de horario y sin una hora que decir ya NO sale
+        // «Todavía nadie…» (no contestaba nada): el bot se calla y solo se re-avisa a la escuela.
+        expect(textoSinRespuesta({ urgencia: 'normal', categoria: null, fueraDeHorario: false })).toBeNull();
+        for (const t of [textoSinRespuesta({ urgencia: 'normal', categoria: null, fueraDeHorario: true, proximaAtencion: 'mañana a las 16:00' })]) {
+            expect(t).not.toMatch(/\bvos\b|en breve|Todavía nadie/);
         }
     });
 });

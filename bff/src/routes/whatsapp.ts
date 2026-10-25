@@ -34,7 +34,7 @@ import {
 import {
     runBotTurn, deliver, atenderDesconocido, mensajesRecientes, SILENCIO_HUMANO_MIN,
     TEXTO_MIME_RECHAZADO, vocativosDeEscuela, revisarEscalacionesVencidas, revisarRetomas,
-    reservarPasoUnaVez,
+    reservarPasoUnaVez, enviarRespuestaStaff,
 } from '../services/whatsapp-bot.service';
 import { debeAtender } from '../services/whatsapp-atencion.service';
 import { encolarAdjunto } from '../services/whatsapp-queue.service';
@@ -47,6 +47,9 @@ import { atenderNotaDeVoz, atenderNotaDeVozDeProspecto } from '../services/whats
 import { conContextoLlm } from '../services/llm-usage.service';
 import { esNumeroDePlataforma, guardarEstadoPlataforma } from '../services/plataforma-wa.service';
 import { atenderEntrantePlataforma } from '../services/plataforma-wa-entrante.service';
+import {
+    identificarStaffPorTelefono, procesarMensajeStaff, esDisparadorDeLista, type StaffIdentificado,
+} from '../services/whatsapp-asistencia-staff.service';
 
 /**
  * Corre en segundo plano lo que espera (la ráfaga, el acuse): el webhook
@@ -498,6 +501,14 @@ async function handleBotTurn(
         return;
     }
 
+    // Asistencia del EQUIPO por WhatsApp (spec conversación v2 §3.8): «lista»,
+    // la respuesta a la lista numerada o un botón `asis_*` de un coach/dueña.
+    // Va ANTES de `debeAtender` y NO depende del asistente: no es una respuesta
+    // del bot a una familia, así que corre aunque `ai_enabled=false` (el coach
+    // acaba de escribir: la ventana de 24 h está abierta). Con la baja pedida
+    // (optedOut) no se sigue. Si no es de asistencia, el flujo normal sigue igual.
+    if (!optedOut && await atenderAsistenciaDeStaff(req, integration, conversationId, msg)) return;
+
     // ¿A este contacto el asistente le contesta? Se pregunta ANTES de cualquier
     // respuesta, del modelo y de cualquier borrador.
     //
@@ -555,7 +566,7 @@ async function handleBotTurn(
             const resultado = await atenderNotaDeVozDeProspecto({
                 integration, conversationId, msg,
                 turno: async (texto) => {
-                    await atenderDesconocido(integration, conversationId, msg.contactWaId, texto, null);
+                    await atenderDesconocido(integration, conversationId, msg.contactWaId, texto, null, null, 'audio');
                 },
             }).catch((err) => {
                 req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: audio de prospecto falló');
@@ -640,6 +651,67 @@ async function handleBotTurn(
     // misma conversación (`correrTurnoAgrupado`). Un botón o un STOP no esperan
     // la ráfaga: son una elección explícita.
     await lanzarTurno(req, integration, conversationId, msg, msg.textBody, optedOut, 'texto');
+}
+
+// ─── Asistencia del equipo (staff) ───────────────────────────────────────────
+
+const TTL_STAFF_MS = 5 * 60_000;
+const cacheStaff = new Map<string, { staff: StaffIdentificado; hasta: number }>();
+
+/** Vacía el cache de identificación de staff (pruebas). */
+export function limpiarCacheStaff(): void { cacheStaff.clear(); }
+
+/** Identifica al staff por teléfono con cache corto (5 min): una consulta por contacto, no por mensaje. */
+async function staffDe(integrationId: string, waId: string): Promise<StaffIdentificado> {
+    const k = `${integrationId}:${waId}`;
+    const c = cacheStaff.get(k);
+    if (c && c.hasta > Date.now()) return c.staff;
+    const staff = await identificarStaffPorTelefono(integrationId, waId);
+    if (cacheStaff.size > 2000) cacheStaff.clear();
+    cacheStaff.set(k, { staff, hasta: Date.now() + TTL_STAFF_MS });
+    return staff;
+}
+
+/**
+ * ¿El mensaje PUEDE ser de asistencia? Filtro gratis para no preguntarle a la
+ * base «¿es staff?» por cada mensaje de cada familia: un botón `asis_*`, la
+ * palabra «lista» y afines, o un texto corto con la forma de la respuesta a la
+ * lista («faltaron 3 y 7», «todos», «solo 1,2»). El servicio vuelve a decidir
+ * (y exige además una lista abierta ≤ 6 h para esa última).
+ */
+export function esCandidatoDeAsistencia(msg: Pick<ParsedInboundMessage, 'type' | 'textBody' | 'botonId'>): boolean {
+    if (typeof msg.botonId === 'string' && msg.botonId.startsWith('asis_')) return true;
+    if (msg.type !== 'text') return false;
+    const t = (msg.textBody ?? '').trim();
+    if (!t) return false;
+    if (esDisparadorDeLista(t)) return true;
+    return t.length <= 60 && /\d|todos|todas|ninguno|ninguna|nadie|falt|vini|solo/i.test(t);
+}
+
+/** true = el mensaje era de asistencia y ya se respondió (el bot no sigue). */
+async function atenderAsistenciaDeStaff(
+    req: Request,
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    msg: ParsedInboundMessage,
+): Promise<boolean> {
+    if (!esCandidatoDeAsistencia(msg)) return false;
+    try {
+        const staff = await staffDe(integration.id, msg.contactWaId);
+        if (staff.resultado !== 'staff') return false;
+        const r = await procesarMensajeStaff({
+            integration, waId: msg.contactWaId, texto: msg.textBody, botonId: msg.botonId ?? null, staff,
+        });
+        if (!r) return false;
+        await enviarRespuestaStaff(integration, conversationId, msg.contactWaId,
+            { texto: r.texto, botones: r.botones },
+            { step: 'asistencia_staff', estado: r.estado, intake_id: r.intakeId ?? null });
+        req.log?.info({ conversationId, estado: r.estado }, 'WhatsApp: asistencia del equipo');
+        return true;
+    } catch (err: any) {
+        req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: asistencia del equipo falló; sigue el flujo normal');
+        return false;
+    }
 }
 
 /**

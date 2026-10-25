@@ -112,6 +112,16 @@ vi.mock('../services/whatsapp-receipt-matching.service', () => ({
     describirPago: () => 'un pago',
     mensajeElegirPago: () => 'elige',
 }));
+// El bot arrastra el modelo y media app: el job lo importa perezoso al responder y,
+// sin este mock, ese import frío (~2 s) se cuenta dentro del primer test (timeout de 5 s con la suite en paralelo).
+vi.mock('../services/whatsapp-bot.service', () => ({
+    conPresentacionSiEsPrimera: (_w: any, _c: any, t: string) => Promise.resolve(t),
+    anexoDeConsentimiento: () => Promise.resolve(null),
+    ofrecerConsentimientoSiFalta: () => Promise.resolve(),
+    abrirConsultaParaLaEscuela: () => Promise.resolve(),
+    acusarAdjunto: () => Promise.resolve('ok'),
+    enviarRespuestaStaff: () => Promise.resolve({ ok: true }),
+}));
 
 // Import DESPUÉS de los vi.mock — vitest hoistea los vi.mock, pero el import
 // dinámico deja explícito el orden para quien lea el archivo.

@@ -24,6 +24,7 @@ import { normalizeReference } from './receipt-verdict';
 import { describirPago, type PagoPendiente } from './whatsapp-receipt-matching.service';
 import type { BotonInteractivo } from './whatsapp.service';
 import { categoriaDelCobro, etiquetaCortaDelCobro } from './tipo-de-cobro';
+import { deportistaElegidoPorBoton } from './whatsapp-comprobante-guiado.service';
 
 /** Las fichas de una familia en `payments` cuando no hay `parent_id`. */
 export interface LlavesDeFicha { childIds: string[]; unregisteredIds: string[] }
@@ -242,7 +243,9 @@ export async function resolverRespuestaDeDeportista(
     texto: string,
     responder: (texto: string, paso: string) => Promise<unknown>,
 ): Promise<boolean> {
-    const llaves = await deportistaPorNombre(fila.school_id, [texto]);
+    // Tocó uno de los botones con nombres (spec 3.3, 2026-10-24): «1», «2» o «3».
+    const porBoton = await deportistaElegidoPorBoton(fila.id, texto);
+    const llaves = porBoton ?? await deportistaPorNombre(fila.school_id, [texto]);
     if (!hayLlaves(llaves)) {
         await responder('Gracias 🙏 No encontré a ese deportista, así que le paso tu comprobante a la escuela para que lo aplique.',
             'deportista_a_la_escuela');
