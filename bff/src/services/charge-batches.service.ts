@@ -20,6 +20,7 @@ import type {
     ChargeBatchRequest, ChargeBatchCreate, AtletaInput,
 } from './charge-batches.schemas';
 import { esFuncionInexistente } from './athlete-duplicates.service';
+import { conceptoHorasAdicionales, tarifaPorHora } from './hour-bank-extra.shared';
 
 // ─── Errores ─────────────────────────────────────────────────────────────────
 
@@ -120,7 +121,7 @@ export function traducirErrorRpc(err: ErrorRpc, contexto: 'preview' | 'create' |
 
 // ─── Pertenencia a la escuela (antes de la RPC) ─────────────────────────────
 
-const COLUMNA_ATLETA: Record<AtletaInput['type'], 'child_id' | 'user_id' | 'unregistered_athlete_id'> = {
+export const COLUMNA_ATLETA: Record<AtletaInput['type'], 'child_id' | 'user_id' | 'unregistered_athlete_id'> = {
     child: 'child_id',
     adult: 'user_id',
     unregistered: 'unregistered_athlete_id',
@@ -210,14 +211,24 @@ export async function verificarPertenencia(schoolId: string, body: ChargeBatchRe
  * due_date, concept, notes, period{year,month}, enrollment_id, fee_id,
  * overage_charge_id, discount, exonerate) + pay_amount/close_mode por línea.
  */
-function lineasParaRpc(b: ChargeBatchRequest) {
+export function lineasParaRpc(b: Pick<ChargeBatchRequest, 'lines'>) {
     // Contrato del BFF (Linea.pay_amount): «ausente o 0 = la línea nace
     // pendiente». La RPC (§17.2) entiende lo contrario: con p_payment, una
     // línea SIN pay_amount se paga completa. Sin esta normalización, un
     // cliente del BFF que omite pay_amount registraba plata que no recibió
     // (hallado en QA sobre el gemelo, 2026-10-10: mensualidad de $280.000
     // quedó `paid`). El modal ya manda pay_amount explícito en modo un atleta.
-    return b.lines.map((l, idx) => ({ idx, ...l, pay_amount: l.pay_amount ?? 0 }));
+    return b.lines.map((l, idx) => {
+        const { extra_hours, ...resto } = l;
+        // Venta de horas por adelantado: el lote la ve como una «Clase extra» con un
+        // concepto fijo (con el que `sumarHorasAdicionales` encuentra el pago). La
+        // misma transformación corre en la vista previa y en la creación, así que el
+        // preview_hash coincide.
+        const linea = extra_hours != null
+            ? { ...resto, category: 'clase_extra' as const, concept: conceptoHorasAdicionales(extra_hours) }
+            : resto;
+        return { idx, ...linea, pay_amount: l.pay_amount ?? 0 };
+    });
 }
 
 function argsComunes(schoolId: string, actor: string, b: ChargeBatchRequest) {
@@ -316,10 +327,52 @@ export async function listarLotes(schoolId: string, cursor: string | undefined, 
     const filas = (data ?? []) as Record<string, any>[];
     const pagina = filas.slice(0, limit);
     const nombres = await nombresDePerfiles(pagina.map((f) => f.created_by));
+    const destinos = await etiquetasDeDestino(schoolId, pagina);
     return {
-        items: pagina.map((f) => ({ ...f, created_by_name: nombres.get(f.created_by) ?? null })),
+        items: pagina.map((f) => ({
+            ...f,
+            created_by_name: nombres.get(f.created_by) ?? null,
+            target_label: destinos.get(f.id) ?? null,
+        })),
         next_cursor: filas.length > limit ? pagina[pagina.length - 1]?.created_at ?? null : null,
     };
+}
+
+/**
+ * Nombre legible del destino de cada lote («Equipo Sub-12», «Sofía Ensayo +2»).
+ * El lote solo guarda `target: { kind, ids }`; sin esto «Operaciones» mostraba
+ * «Un atleta» sin nombre. Una consulta por tabla para toda la página (sin N+1) y
+ * siempre acotada a la escuela.
+ */
+async function etiquetasDeDestino(schoolId: string, lotes: Record<string, any>[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const idsDe = (l: Record<string, any>): string[] => (Array.isArray(l.target?.ids) ? l.target.ids.filter((x: unknown): x is string => typeof x === 'string') : []);
+    const equipos = [...new Set(lotes.filter((l) => l.target?.kind === 'team').flatMap(idsDe))];
+    const atletas = [...new Set(lotes.filter((l) => l.target?.kind === 'athlete').flatMap(idsDe))];
+    const nombreEquipo = new Map<string, string>();
+    const nombreAtleta = new Map<string, string>();
+    if (equipos.length) {
+        const { data } = await supabase.from('teams').select('id, name').eq('school_id', schoolId).in('id', equipos);
+        for (const t of (data ?? []) as { id: string; name: string | null }[]) if (t.name) nombreEquipo.set(t.id, t.name);
+    }
+    if (atletas.length) {
+        const [hijos, perfiles] = await Promise.all([
+            supabase.from('children').select('id, full_name').in('id', atletas),
+            supabase.from('profiles').select('id, full_name').in('id', atletas),
+        ]);
+        for (const c of (hijos.data ?? []) as { id: string; full_name: string | null }[]) if (c.full_name) nombreAtleta.set(c.id, c.full_name);
+        for (const p of (perfiles.data ?? []) as { id: string; full_name: string | null }[]) if (p.full_name && !nombreAtleta.has(p.id)) nombreAtleta.set(p.id, p.full_name);
+    }
+    for (const l of lotes) {
+        const ids = idsDe(l);
+        if (!ids.length) continue;
+        const nombres = (l.target.kind === 'team' ? nombreEquipo : l.target.kind === 'athlete' ? nombreAtleta : null);
+        const primero = nombres?.get(ids[0]);
+        if (!primero) continue;
+        if (l.target.kind === 'team') out.set(l.id, ids.length > 1 ? `Equipo ${primero} +${ids.length - 1}` : `Equipo ${primero}`);
+        else out.set(l.id, ids.length > 1 ? `${primero} +${ids.length - 1}` : primero);
+    }
+    return out;
 }
 
 async function nombresDePerfiles(ids: (string | null | undefined)[]): Promise<Map<string, string>> {
@@ -667,7 +720,12 @@ export async function sugerenciasDeCobro(schoolId: string, atleta: AtletaInput) 
             status: e.status,
             paused: pausado(e),
             is_primary: primariaSet.has(e.id),
-            plan: plan ? { id: plan.id, name: plan.name, hours_plan: Number(plan.included_minutes_per_period) > 0 } : null,
+            plan: plan ? {
+                id: plan.id, name: plan.name, hours_plan: Number(plan.included_minutes_per_period) > 0,
+                // Para vender horas adicionales: la misma tarifa que usa el cobro de excedentes.
+                included_minutes: Number(plan.included_minutes_per_period) > 0 ? Number(plan.included_minutes_per_period) : null,
+                hourly_rate: tarifaPorHora(Number(plan.price), Number(plan.included_minutes_per_period)),
+            } : null,
             team: team ? { id: team.id, name: team.name } : null,
             suggested_monthly_amount: sugerido,
             amount_source: Number(e.monthly_fee) > 0 ? 'tarifa_del_atleta' : Number(plan?.price) > 0 ? 'plan' : Number(team?.price_monthly) > 0 ? 'equipo' : null,

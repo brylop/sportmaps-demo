@@ -16,6 +16,9 @@ import AuthLayout from "@/layouts/AuthLayout";
 import { MobileBottomNav } from "@/components/navigation/MobileBottomNav";
 import { CartDrawer } from "@/components/cart/CartDrawer";
 import { Suspense, lazy } from "react";
+import { ACUDIENTE_V2, ENTRENADOR_V2, DEPORTISTA_V2, SHOW_EXPLORE } from "@/lib/feature-flags";
+import { MasSegunRol, EntrenosSegunRol, ProgresoSegunRol, CarnetSegunRol, PagosDeportistaSegunRol, EquiposSegunRol, EvaluarEquipoRuta, SesionesSegunRol, PlanificacionCompleta, AsistenciaSegunRol, EntrenamientosCompletos, EstadisticasCompletas } from "@/components/v2/RutasSegunRol";
+const ExplorarProntoPage = lazy(() => import("./pages/ExplorarProntoPage"));
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { InstallBanner } from "./pwa/InstallBanner";
 import { UpdateBanner } from "./pwa/UpdateBanner";
@@ -75,6 +78,9 @@ const EventIndividualRegisterPage = lazy(() => import("./pages/events/EventIndiv
 const MyEventRegistrationsPage = lazy(() => import("./pages/events/MyEventRegistrationsPage"));
 const TournamentRegisterPage = lazy(() => import("./pages/events/TournamentRegisterPage"));
 const TournamentResultsPage = lazy(() => import("./pages/events/TournamentResultsPage"));
+const TournamentLivePage = lazy(() => import("./pages/events/TournamentLivePage"));
+const TournamentTvPage = lazy(() => import("./pages/events/TournamentTvPage"));
+const TournamentScorerPage = lazy(() => import("./pages/events/TournamentScorerPage"));
 
 // ─── Polls (lazy) ────────────────────────────────────────────────────────────
 const PollsPage = lazy(() => import("./pages/polls/PollsPage"));
@@ -86,36 +92,35 @@ const DashboardPage = lazy(() => import("./pages/DashboardPage"));
 const CalendarPage = lazy(() => import("./pages/CalendarPage"));
 const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
-const TeamsPage = lazy(() => import("./pages/TeamsPage"));
+const BiomechVolleyballLabPage = lazy(() => import("./pages/BiomechVolleyballLabPage"));
 const SchoolSportsPage = lazy(() => import("./pages/SchoolSportsPage"));
 const MembershipsPage = lazy(() => import("./pages/MembershipsPage"));
 const OfferingsPage = lazy(() => import("./pages/OfferingsPage"));
-const StatsPage = lazy(() => import("./pages/StatsPage"));
 const MessagesPage = lazy(() => import("./pages/MessagesPage"));
-const ProfilePage = lazy(() => import("./pages/ProfilePage"));
+const PerfilSegunRol = lazy(() => import("./components/parent/v2/PerfilSegunRol"));
 const MyEnrollmentsPage = lazy(() => import("./pages/MyEnrollmentsPage"));
 const ShopPage = lazy(() => import("./pages/ShopPage"));
 
 // ─── Parent pages (lazy) ──────────────────────────────────────────────────────
-const MyChildrenPage = lazy(() => import("./pages/MyChildrenPage"));
+// Acudiente V2: con VITE_ACUDIENTE_V2=false vuelven las pantallas anteriores (copias intactas).
+const MyChildrenPage = lazy(() => ACUDIENTE_V2 ? import("./pages/MyChildrenPage") : import("./pages/MyChildrenPageClassic"));
 const ChildProgressPage = lazy(() => import("./pages/ChildProgressPage"));
 const ChildAttendancePage = lazy(() => import("./pages/ChildAttendancePage"));
 const ChildReportsPage = lazy(() => import("./pages/ChildReportsPage"));
+const ChildMatchReportsPage = lazy(() => import("./pages/ChildMatchReportsPage"));
 const ChildReportDetailPage = lazy(() => import("./pages/ChildReportDetailPage"));
 const ChildPostTrainingReportPage = lazy(() => import("./pages/ChildPostTrainingReportPage"));
 const AcademicProgressPage = lazy(() => import("./pages/AcademicProgressPage"));
 const AttendancePage = lazy(() => import("./pages/AttendancePage"));
-const MyPaymentsPage = lazy(() => import("./pages/MyPaymentsPage"));
+const MyPaymentsPage = lazy(() => ACUDIENTE_V2 ? import("./pages/MyPaymentsPage") : import("./pages/MyPaymentsPageClassic"));
 const AccountStatementPage = lazy(() => import("./pages/AccountStatementPage"));
 const PostTrainingSelfEvalPage = lazy(() => import("./pages/PostTrainingSelfEvalPage"));
 const PostTrainingDayRecapPage = lazy(() => import("./pages/PostTrainingDayRecapPage"));
 
 // ─── Coach pages (lazy) ───────────────────────────────────────────────────────
-const CoachAttendancePage = lazy(() => import("./pages/CoachAttendancePage"));
 const CoachCheckInScanPage = lazy(() => import("./pages/CoachCheckInScanPage"));
 const CoachPlansPage = lazy(() => import("./pages/CoachPlansPage"));
 const ResultsPage = lazy(() => import("./pages/ResultsPage"));
-const TrainingPlansPage = lazy(() => import("./pages/TrainingPlansPage"));
 const CoachReportsPage = lazy(() => import("./pages/CoachReportsPage"));
 const CoachTeamPostTrainingReportPage = lazy(() => import("./pages/CoachTeamPostTrainingReportPage"));
 const CoachEvaluationsPage = lazy(() => import("./pages/CoachEvaluationsPage"));
@@ -153,9 +158,7 @@ const ReporterDashboardPage = lazy(() => import("./pages/ReporterDashboardPage")
 
 // ─── Athlete pages (lazy) ─────────────────────────────────────────────────────
 const GoalsPage = lazy(() => import("./pages/GoalsPage"));
-const TrainingPage = lazy(() => import("./pages/TrainingPage"));
 const AthleteWellnessPage = lazy(() => import("./pages/AthleteWellnessPage"));
-const AthletePaymentsPage = lazy(() => import("./pages/AthletePaymentsPage"));
 
 // ─── Store pages (lazy) ───────────────────────────────────────────────────────
 const StoreProductsPage = lazy(() => import("./pages/StoreProductsPage"));
@@ -202,7 +205,6 @@ const SchoolCardsAdminPage = lazy(() => import("./pages/SchoolCardsAdminPage"));
 const SchoolCertificatesAdminPage = lazy(() => import("./pages/SchoolCertificatesAdminPage"));
 const CertificateTemplatesPage = lazy(() => import("./pages/CertificateTemplatesPage"));
 const MyCertificatesPage = lazy(() => import("./pages/MyCertificatesPage"));
-const MyAthleteCardsPage = lazy(() => import("./pages/MyAthleteCardsPage"));
 const CertificateVerifyPublicPage = lazy(() => import("./pages/CertificateVerifyPublicPage"));
 const JoinSchoolPublicPage = lazy(() => import("./pages/JoinSchoolPublicPage"));
 const SchoolJoinQRsPage = lazy(() => import("./pages/SchoolJoinQRsPage"));
@@ -258,6 +260,8 @@ const EnrollmentIntakeInboxPage = lazy(() => import("./pages/school/EnrollmentIn
 
 // ─── Trainer pages (lazy) ────────────────────────────────────────────────────
 const TrainerOnboarding = lazy(() => import("./pages/trainer/TrainerOnboarding"));
+const AttendanceSheetIntakePage = lazy(() => import("./pages/school/AttendanceSheetIntakePage"));
+const PlanChangesPage = lazy(() => import("./pages/school/PlanChangesPage"));
 const TrainerDashboard = lazy(() => import("./pages/trainer/TrainerDashboard"));
 const TrainerClients = lazy(() => import('./pages/trainer/TrainerClients'));
 const TrainerRoutines = lazy(() => import('./pages/trainer/TrainerRoutines'));
@@ -412,11 +416,15 @@ const App = () => (
                     <Route path="/event/:eventId/register" element={<EventIndividualRegisterPage />} />
                     <Route path="/my-event-registrations" element={<MyEventRegistrationsPage />} />
                     <Route path="/tournaments/:eventId/results" element={<TournamentResultsPage />} />
+                    <Route path="/torneo/:slug/en-vivo" element={<TournamentLivePage />} />
+                    <Route path="/torneo/:slug/tv" element={<TournamentTvPage />} />
+                    <Route path="/anotador/:token" element={<TournamentScorerPage />} />
                     <Route path="/s/:slug" element={<PublicSchoolPage />} />
                     <Route path="/polls/v/:pollId" element={<PublicPollPage />} />
 
                     {/* Public Marketplace routes */}
-                    <Route path="/explorar" element={<ExplorarGlobalPage />} />
+                    {/* Explorar apagado para todos hasta terminar su rediseño (SHOW_EXPLORE). */}
+                    <Route path="/explorar" element={SHOW_EXPLORE ? <ExplorarGlobalPage /> : <ExplorarProntoPage />} />
                     <Route path="/marketplace" element={<MarketplacePage />} />
                     {/* Detalle de PRODUCTO = tienda; el de servicio (/marketplace/service/:id) sigue abierto. */}
                     <Route path="/marketplace/product/:id" element={<StoreGate><MarketplaceDetailPage /></StoreGate>} />
@@ -444,7 +452,8 @@ const App = () => (
                       </ProtectedRoute>
                     }>
                       <Route path="dashboard" element={<DashboardPage />} />
-                      <Route path="profile" element={<ProfilePage />} />
+                      {/* El acudiente V2 tiene una sola «Mi cuenta» (/settings); los demás roles, su perfil de siempre. */}
+                      <Route path="profile" element={<PerfilSegunRol />} />
                       <Route path="calendar" element={
                         <ModuleGate moduleKey="gestion_deportiva_calendario">
                           <CalendarPage />
@@ -457,9 +466,17 @@ const App = () => (
                       {/* Athlete routes */}
                       <Route path="teams" element={
                         <ModuleGate moduleKey="gestion_deportiva_equipos_planes">
-                          <TeamsPage />
+                          <EquiposSegunRol />
                         </ModuleGate>
                       } />
+                      {/* Entrenador V2: evaluar al equipo en una pantalla. */}
+                      {ENTRENADOR_V2 && (
+                        <Route path="coach/evaluar/:sessionId" element={
+                          <ProtectedRoute allowedRoles={['coach', 'school', 'school_admin', 'admin', 'super_admin']}>
+                            <EvaluarEquipoRuta />
+                          </ProtectedRoute>
+                        } />
+                      )}
                       {/* Deportes y categorias: util sobre todo en multideporte.
                           El item del menu se muestra condicionado (AppSidebar). */}
                       <Route path="school-sports" element={
@@ -486,15 +503,18 @@ const App = () => (
                           </ModuleGate>
                         </ProtectedRoute>
                       } />
-                      <Route path="stats" element={<StatsPage />} />
+                      {/* /stats, /training, /my-cards, /athlete-payments y /mas: pantalla V2 según el rol (RutasSegunRol). */}
+                      <Route path="stats" element={<ProgresoSegunRol />} />
                       <Route path="goals" element={<GoalsPage />} />
-                      <Route path="training" element={<TrainingPage />} />
+                      <Route path="training" element={<EntrenosSegunRol />} />
+                      {DEPORTISTA_V2 && <Route path="training/todo" element={<EntrenamientosCompletos />} />}
+                      {DEPORTISTA_V2 && <Route path="stats/todo" element={<EstadisticasCompletas />} />}
                       <Route path="enrollments" element={<MyEnrollmentsPage />} />
                       <Route path="shop" element={<StoreGate><ShopPage /></StoreGate>} />
                       <Route path="wellness" element={<AthleteWellnessPage />} />
                       <Route path="athlete-payments" element={
                         <ProtectedRoute allowedRoles={['athlete']}>
-                          <AthletePaymentsPage />
+                          <PagosDeportistaSegunRol />
                         </ProtectedRoute>
                       } />
 
@@ -509,6 +529,18 @@ const App = () => (
                           <MyPaymentsPage />
                         </ProtectedRoute>
                       } />
+                      {/* «Más» del acudiente V2: quinta pestaña de la barra. Con la reversa no existe. */}
+                      {(ACUDIENTE_V2 || ENTRENADOR_V2 || DEPORTISTA_V2) && (
+                        <Route path="mas" element={
+                          <ProtectedRoute allowedRoles={[
+                            ...(ACUDIENTE_V2 ? ['parent' as const] : []),
+                            ...(DEPORTISTA_V2 ? ['athlete' as const] : []),
+                            ...(ENTRENADOR_V2 ? ['coach' as const] : []),
+                          ]}>
+                            <MasSegunRol />
+                          </ProtectedRoute>
+                        } />
+                      )}
                       <Route path="tournaments/:eventId/register" element={
                         <ProtectedRoute allowedRoles={['parent', 'athlete']}>
                           <TournamentRegisterPage />
@@ -545,6 +577,11 @@ const App = () => (
                           <AttendancePage />
                         </ProtectedRoute>
                       } />
+                      <Route path="children/:id/partidos" element={
+                        <ProtectedRoute allowedRoles={['parent']}>
+                          <ChildMatchReportsPage />
+                        </ProtectedRoute>
+                      } />
                       <Route path="children/:id/reports" element={
                         <ProtectedRoute allowedRoles={['parent']}>
                           <ChildReportsPage />
@@ -576,7 +613,7 @@ const App = () => (
                       } />
 
                       {/* Coach routes */}
-                      <Route path="coach-attendance" element={<CoachAttendancePage />} />
+                      <Route path="coach-attendance" element={<AsistenciaSegunRol />} />
                       <Route path="coach-attendance/scan" element={<CoachCheckInScanPage />} />
                       <Route path="coach-plans" element={
                         <ModuleGate moduleKey="gestion_deportiva_disponibilidad_coach" roles={['coach']}>
@@ -586,9 +623,17 @@ const App = () => (
                       <Route path="results" element={<ResultsPage />} />
                       <Route path="training-plans" element={
                         <ModuleGate moduleKey="gestion_deportiva_entrenamiento_metricas">
-                          <TrainingPlansPage />
+                          <SesionesSegunRol />
                         </ModuleGate>
                       } />
+                      {/* La planificación completa (crear/editar sesiones y plan del mes), igual que siempre. Con la reversa no existe. */}
+                      {ENTRENADOR_V2 && (
+                        <Route path="training-plans/planificar" element={
+                          <ModuleGate moduleKey="gestion_deportiva_entrenamiento_metricas">
+                            <PlanificacionCompleta />
+                          </ModuleGate>
+                        } />
+                      )}
                       <Route path="coach-reports" element={<CoachReportsPage />} />
                       <Route path="coach-reports/entreno-equipo" element={<CoachTeamPostTrainingReportPage />} />
                       <Route path="evaluations" element={<CoachEvaluationsPage />} />
@@ -632,6 +677,11 @@ const App = () => (
                       <Route path="school/dotacion" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
                           <SchoolEquipmentPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="coach/voleibol-pose" element={
+                        <ProtectedRoute allowedRoles={['coach', 'school', 'admin', 'school_admin']}>
+                          <BiomechVolleyballLabPage />
                         </ProtectedRoute>
                       } />
                       <Route path="coach/dotacion" element={
@@ -685,6 +735,18 @@ const App = () => (
                       <Route path="mi-plan" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'wellness_professional', 'store_owner', 'organizer', 'reporter', 'personal_trainer']}>
                           <MiPlanPage />
+                        </ProtectedRoute>
+                      } />
+                      {/* Planillas de asistencia por foto (WhatsApp + OCR): revisar y guardar. El coach ve solo lo suyo (el BFF filtra). */}
+                      <Route path="school/attendance-sheets" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
+                          <AttendanceSheetIntakePage />
+                        </ProtectedRoute>
+                      } />
+                      {/* Cambios de plan por clases tomadas (modo sombra): solo dinero → dueño/admin/contador; el BFF es el gate real. */}
+                      <Route path="school/plan-changes" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'accountant']}>
+                          <PlanChangesPage />
                         </ProtectedRoute>
                       } />
                       <Route path="invitations" element={
@@ -807,7 +869,7 @@ const App = () => (
                       } />
                       <Route path="my-cards" element={
                         <ProtectedRoute>
-                          <MyAthleteCardsPage />
+                          <CarnetSegunRol />
                         </ProtectedRoute>
                       } />
                       <Route path="facturacion/recibo/:invoiceId" element={

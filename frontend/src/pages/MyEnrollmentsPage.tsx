@@ -1,7 +1,24 @@
+/**
+ * «Inscripciones y planes» — /enrollments. La usan el acudiente (por hijo) y el
+ * deportista adulto (lo suyo).
+ *
+ * Rediseño V2 (2026-10-24): una frase y un botón arriba, una sola columna con
+ * más aire en escritorio (max-w-page), nada de texto por debajo de text-xs.
+ * Lo que antes vivía en el panel lateral se reubicó sin perder nada:
+ *  - «Clases programadas» → la línea «Próxima clase» de arriba + pestaña Clases
+ *    (que es donde se cancela cada clase o reserva).
+ *  - «Instalaciones» → pestaña Reservas («Reservar una instalación»). Si el plan
+ *    no trae reservas, la lista va plegada: el botón abría un «sin acceso».
+ *  - «Clase de prueba» → tarjeta al final, igual para todas las pestañas.
+ * Las cuatro tarjetas de conteo se volvieron la frase de arriba y los números
+ * de cada pestaña. Los botones a Explorar solo salen con SHOW_EXPLORE.
+ * Los modales de agendar/reservar (abajo) son los mismos de antes.
+ */
 import { useState, useMemo, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Dialog, DialogContent, DialogTitle,
 } from '@/components/ui/dialog';
@@ -10,11 +27,11 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
-  Users, User, Calendar, Clock, MapPin, Zap, Trophy,
-  ChevronRight, CalendarCheck, Map as MapIcon,
-  Building2, Star, Target,
+  User, Calendar, Clock, Zap, Trophy,
+  ChevronRight, CalendarCheck,
+  Building2,
   XCircle, CheckCircle2, ChevronLeft,
-  Sun, Sunset, Moon, AlertCircle, Sparkles,
+  Sun, Sunset, Moon, AlertCircle, AlertTriangle, RefreshCw, Sparkles,
 } from 'lucide-react';
 import {
   format, parseISO, addDays, startOfDay,
@@ -22,7 +39,6 @@ import {
 } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useEnrollments } from '@/hooks/useEnrollments';
-import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { getSportVisual } from '@/lib/sportVisuals';
@@ -33,7 +49,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   useAvailableSessions,
-  useUpcomingSessions,
   useMyBookings,
   useMySecondaryBookings,
   useBookSession,
@@ -56,6 +71,9 @@ import { HourBankBalanceCard } from '@/components/access/HourBankBalanceCard';
 import { CompactSessionSlot } from '@/components/booking/CompactSessionSlot';
 import { HourGridPicker } from '@/components/booking/HourGridPicker';
 import { WEEKDAY_LONG, dayNotAllowedMessage, describeAllowedDays, isDayAllowed, weekdayOfDateString } from '@/lib/school/levelProgression';
+import { SHOW_EXPLORE } from '@/lib/feature-flags';
+import { cn } from '@/lib/utils';
+import { fraseResumen, primerNombre, saldoDeClases, venceEn } from '@/components/inscripciones/inscripcionesTextos';
 
 // ─── Tipos de instalación ─────────────────────────────────────────────────────
 
@@ -67,6 +85,8 @@ interface Facility {
   type: string;
   school_id: string;
 }
+
+type Tab = 'groups' | 'classes' | 'reservations';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -96,51 +116,25 @@ function getNextAvailableDates(count = 14) {
   return dates;
 }
 
-function getPlanVisual(name: string = '') {
-  const n = name.toLowerCase();
-
-  if (n.includes('elite') || n.includes('premium') || n.includes('oro') || n.includes('gold') || n.includes('black')) {
-    return { gradient: 'from-zinc-900 via-zinc-800 to-black', accent: 'text-amber-400', tag: 'bg-amber-400/20 text-amber-400 border-amber-400/30', icon: Trophy, glow: 'shadow-amber-900/20' };
-  }
-  if (n.includes('combate') || n.includes('mma') || n.includes('box') || n.includes('warrior')) {
-    return { gradient: 'from-rose-700 via-rose-800 to-red-950', accent: 'text-white', tag: 'bg-white/20 text-white border-white/20', icon: Target, glow: 'shadow-red-900/30' };
-  }
-  if (n.includes('gym') || n.includes('fitness') || n.includes('musculo') || n.includes('iron')) {
-    return { gradient: 'from-orange-500 via-orange-600 to-amber-700', accent: 'text-white', tag: 'bg-white/20 text-white border-white/20', icon: Zap, glow: 'shadow-orange-900/20' };
-  }
-  if (n.includes('yoga') || n.includes('zen') || n.includes('paz') || n.includes('balance') || n.includes('wellness')) {
-    return { gradient: 'from-emerald-500 via-teal-600 to-cyan-700', accent: 'text-white', tag: 'bg-white/20 text-white border-white/20', icon: Star, glow: 'shadow-emerald-900/20' };
-  }
-  if (n.includes('basico') || n.includes('básico') || n.includes('estandar') || n.includes('estándar') || n.includes('base') || n.includes('inicial')) {
-    return { gradient: 'from-slate-500 via-slate-600 to-slate-700', accent: 'text-white', tag: 'bg-white/20 text-white border-white/20', icon: Target, glow: 'shadow-slate-900/20' };
-  }
-  if (n.includes('full') || n.includes('completo') || n.includes('total') || n.includes('platinum')) {
-    return { gradient: 'from-blue-600 via-blue-700 to-indigo-900', accent: 'text-white', tag: 'bg-white/20 text-white border-white/20', icon: Zap, glow: 'shadow-blue-900/30' };
-  }
-  return { gradient: 'from-[#6366f1] via-[#8b5cf6] to-[#a855f7]', accent: 'text-white', tag: 'bg-white/20 text-white border-white/20', icon: Zap, glow: 'shadow-purple-900/30' };
+/** Fecha (YYYY-MM-DD) de una reserva unificada, sea clase o instalación. */
+function bookingDate(b: any): string {
+  return (b._type === 'primary' ? b.attendance_sessions?.session_date : b.reservation_date) || '';
 }
 
-// ─── Shared Stat ──────────────────────────────────────────────────────────────
-
-const StatItem = ({ icon: Icon, label, value, colorClass }: {
-  icon: any; label: string; value: number | string; colorClass: string;
-}) => (
-  <div className="flex items-center gap-3 px-4 py-4 rounded-xl bg-card border border-border/40 shadow-sm transition-all hover:border-primary/20">
-    <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${colorClass} shadow-inner`}>
-      <Icon className="h-6 w-6" />
-    </div>
-    <div>
-      <p className="text-2xl font-black leading-tight tracking-tight">{value}</p>
-      <p className="text-[10px] uppercase tracking-[0.2em] font-black text-muted-foreground/60">{label}</p>
-    </div>
-  </div>
-);
+/** Nombre de lo que se agendó: equipo / plan / instalación. */
+function bookingName(b: any): string {
+  if (b._type === 'primary') {
+    return (b.booking_type === 'team' ? b.enrollments?.teams?.name : b.enrollments?.offering_plans?.name) || 'Clase';
+  }
+  return b.facilities?.name || 'Reserva';
+}
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function MyEnrollmentsPage() {
   const { user } = useAuth();
-  const { currentUserRole, schoolId } = useSchoolContext();
+  const { currentUserRole } = useSchoolContext();
+  const isParent = currentUserRole === 'parent';
   const [selectedChildId, setSelectedChildId] = useState<string | undefined>(undefined);
 
   // ── Fetch Children (if parent) ──
@@ -154,21 +148,21 @@ export default function MyEnrollmentsPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: currentUserRole === 'parent' && !!user?.id,
+    enabled: isParent && !!user?.id,
   });
 
   // Auto-select first child
   useEffect(() => {
-    if (currentUserRole === 'parent' && children?.length && !selectedChildId) {
+    if (isParent && children?.length && !selectedChildId) {
       setSelectedChildId(children[0].id);
     }
-  }, [children, currentUserRole, selectedChildId]);
+  }, [children, isParent, selectedChildId]);
 
-  const { activeEnrollments, loading: activeIsLoading } = useEnrollments(selectedChildId);
-  const { data: upcomingData } = useUpcomingSessions(selectedChildId);
-  const { toast } = useToast();
-  const navigate = useNavigate();
+  const {
+    activeEnrollments, loading: activeIsLoading, error: enrollmentsError, refetch: refetchEnrollments,
+  } = useEnrollments(selectedChildId);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   // ── Prefetch PT Availability ──
   useEffect(() => {
@@ -180,7 +174,7 @@ export default function MyEnrollmentsPage() {
     });
   }, [activeEnrollments, selectedChildId, queryClient]);
 
-  const [activeTab, setActiveTab] = useState<'groups' | 'classes' | 'reservations'>('groups');
+  const [activeTab, setActiveTab] = useState<Tab>('groups');
   const [selectedTeam, setSelectedTeam] = useState<any>(null);
   const [scheduleEnrollment, setScheduleEnrollment] = useState<any>(null);
   const [reservingFacility, setReservingFacility] = useState<Facility | null>(null);
@@ -188,9 +182,9 @@ export default function MyEnrollmentsPage() {
 
   const { data: myBookingsData, isLoading: myBookingsLoading } = useMyBookings(selectedChildId);
   const { data: mySecBookings, isLoading: mySecLoading } = useMySecondaryBookings(selectedChildId);
-  const { data: facilitiesData, isLoading: facilitiesLoading } = useAthleteFacilities(selectedChildId);
-  const { mutate: cancelBooking, isPending: isCanceling } = useCancelBooking(selectedChildId);
-  const [cancelingBookingId, setCancelingBookingId] = useState<string | null>(null);
+  const {
+    data: facilitiesData, isLoading: facilitiesLoading, error: facilitiesError, refetch: refetchFacilities,
+  } = useAthleteFacilities(selectedChildId);
   const { selfServiceAvailable } = useTrialClassesSelf();
 
   const athleteFacilities: Facility[] = facilitiesData?.facilities ?? [];
@@ -198,8 +192,6 @@ export default function MyEnrollmentsPage() {
   // ── Derivados de enrollments (ANTES del early return — regla de hooks) ──────
   const teamEnrollments = (activeEnrollments ?? []).filter((e: any) => e.team_id && !e.offering_plan_id);
   const planEnrollments = (activeEnrollments ?? []).filter((e: any) => e.offering_plan_id);
-
-  const upcomingSessions = upcomingData?.sessions ?? [];
 
   const enrollmentWithSec = (activeEnrollments ?? []).find(
     (e: any) => (e.plan_details?.max_secondary_sessions ?? 0) > 0
@@ -217,7 +209,7 @@ export default function MyEnrollmentsPage() {
   const totalMyClasses = myBookingsData?.filter((b: any) => b.status?.toLowerCase() !== 'cancelled').length ?? 0;
   const totalMyReservations = mySecBookings?.filter((b: any) => b.status?.toLowerCase() !== 'cancelled').length ?? 0;
 
-  // ── Unificación de reservas para Agenda y Sidebar ──
+  // ── Unificación de clases y reservas (pestañas y «Próxima clase») ──
   const allBookings = useMemo(() => {
     const primary = (myBookingsData ?? []).filter((b: any) => b.status?.toLowerCase() !== 'cancelled');
     const secondary = (mySecBookings ?? []).filter((b: any) => b.status?.toLowerCase() !== 'cancelled');
@@ -226,303 +218,235 @@ export default function MyEnrollmentsPage() {
       ...primary.map(b => ({ ...b, _type: 'primary' })),
       ...secondary.map(b => ({ ...b, _type: 'secondary' }))
     ].sort((a, b) => {
-      const dateA = a._type === 'primary' ? a.attendance_sessions?.session_date : a.reservation_date;
-      const dateB = b._type === 'primary' ? b.attendance_sessions?.session_date : b.reservation_date;
-      if (dateA !== dateB) return (dateA || '').localeCompare(dateB || '');
+      const dateA = bookingDate(a);
+      const dateB = bookingDate(b);
+      if (dateA !== dateB) return dateA.localeCompare(dateB);
       return (a.start_time || '').localeCompare(b.start_time || '');
     });
   }, [myBookingsData, mySecBookings]);
 
-  if (activeIsLoading || myBookingsLoading || mySecLoading || (currentUserRole === 'parent' && childrenLoading) || !activeEnrollments) {
-    return <LoadingSpinner fullScreen text={currentUserRole === 'parent' ? "Cargando inscripciones..." : "Cargando tu portal..."} />;
+  const selectedChild = children?.find((c: any) => c.id === selectedChildId);
+  const nombre = isParent ? (primerNombre(selectedChild?.full_name) || 'Tu hijo/a') : null;
+
+  const waitingChild = isParent && (childrenLoading || (!!children?.length && !selectedChildId));
+  if (activeIsLoading || myBookingsLoading || mySecLoading || waitingChild) {
+    return (
+      <div className="mx-auto w-full max-w-page space-y-4 pb-6" aria-busy="true" aria-label="Cargando inscripciones">
+        <Skeleton className="h-8 w-2/3" />
+        <Skeleton className="h-5 w-full max-w-md" />
+        <Skeleton className="h-touch w-full rounded-xl" />
+        <Skeleton className="h-32 w-full rounded-2xl" />
+      </div>
+    );
   }
 
+  const today = new Date().toLocaleDateString('en-CA');
+  const proximas = allBookings.filter((b) => bookingDate(b) >= today);
+  const proxima = proximas[0];
+  const canReserve = !!enrollmentForFacility && (enrollmentForFacility.plan_details?.max_secondary_sessions ?? 0) > 0;
+  // Un solo plan: su botón va arriba. Con varios, cada tarjeta trae el suyo.
+  const unicoPlan = planEnrollments.length === 1 ? planEnrollments[0] : null;
+
+  const tabs: { key: Tab; label: string; count: number }[] = [
+    { key: 'groups', label: 'Equipos y planes', count: teamEnrollments.length + planEnrollments.length },
+    { key: 'classes', label: 'Clases', count: totalMyClasses },
+    { key: 'reservations', label: 'Reservas', count: totalMyReservations },
+  ];
+
   return (
-    <div className="min-h-screen bg-background pb-12">
-      <div className="container max-w-7xl mx-auto px-4 pt-2 space-y-8">
+    <div className="mx-auto w-full max-w-page space-y-5 pb-6">
 
-        {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-          <div>
-            <p className="text-xs font-bold text-muted-foreground uppercase tracking-[0.2em] mb-1">
-              {currentUserRole === 'parent' ? 'Portal Familiar' : 'Portal del Atleta'}
-            </p>
-            <h1 className="text-4xl font-black tracking-tight flex items-center gap-3 text-balance">
-              {currentUserRole === 'parent'
-                ? (selectedChildId ? `Inscripciones de ${children?.find(c => c.id === selectedChildId)?.full_name}` : 'Inscripciones')
-                : 'Mis Inscripciones'
-              }
-            </h1>
-          </div>
+      {/* ── Arriba: una frase y un botón ── */}
+      <header className="space-y-3">
+        <h1 className="text-2xl font-bold md:text-3xl">{isParent ? 'Inscripciones y planes' : 'Mis inscripciones'}</h1>
 
-          {currentUserRole === 'parent' && children && children.length > 0 && (
-            <div className="flex flex-wrap gap-2 items-center bg-muted/30 p-2 rounded-2xl border border-border/20 self-start md:self-auto">
-              {children.map((child: any) => (
+        {isParent && (children?.length ?? 0) > 1 && (
+          <div role="radiogroup" aria-label="Deportista" className="flex gap-2 overflow-x-auto scrollbar-none">
+            {children!.map((child: any) => {
+              const on = selectedChildId === child.id;
+              return (
                 <button
                   key={child.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
                   onClick={() => setSelectedChildId(child.id)}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-xl transition-all ${selectedChildId === child.id
-                      ? 'bg-primary text-primary-foreground shadow-md'
-                      : 'hover:bg-muted text-muted-foreground'
-                    }`}
+                  className={cn(
+                    'flex min-h-touch shrink-0 items-center gap-2 rounded-full border px-3 text-sm transition-colors',
+                    on ? 'border-2 border-primary bg-primary/10 font-semibold text-foreground' : 'bg-card font-medium text-muted-foreground hover:text-foreground',
+                  )}
                 >
-                  <Avatar className="h-6 w-6 border-2 border-white/10">
-                    <AvatarImage src={child.avatar_url || ''} />
-                    <AvatarFallback className="text-[10px] bg-slate-200 text-slate-700">
-                      {child.full_name.charAt(0)}
-                    </AvatarFallback>
+                  <Avatar className="h-7 w-7">
+                    <AvatarImage src={child.avatar_url || ''} alt="" />
+                    <AvatarFallback className="bg-muted text-xs text-foreground">{child.full_name.charAt(0)}</AvatarFallback>
                   </Avatar>
-                  <span className="text-sm font-bold truncate max-w-32">{child.full_name}</span>
+                  <span className="max-w-40 truncate">{child.full_name}</span>
                 </button>
-              ))}
+              );
+            })}
+          </div>
+        )}
+
+        {enrollmentsError ? null : (
+          <div className="space-y-1">
+            <p className="text-base text-muted-foreground">
+              {fraseResumen({
+                nombre,
+                equipos: teamEnrollments.length,
+                planes: planEnrollments.length,
+                // La frase habla de lo que viene; lo ya pasado sigue en cada pestaña.
+                clases: proximas.filter((b) => b._type === 'primary').length,
+                reservas: proximas.filter((b) => b._type === 'secondary').length,
+              })}
+            </p>
+            {proxima && (
+              <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <CalendarCheck className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                <span>
+                  Próxima: <b className="font-semibold text-foreground">
+                    {format(parseISO(bookingDate(proxima)), "EEE d 'de' MMM", { locale: es })}
+                    {(proxima._type === 'primary' ? proxima.attendance_sessions?.start_time : proxima.start_time)
+                      ? ` · ${fmtTime(proxima._type === 'primary' ? proxima.attendance_sessions?.start_time : proxima.start_time)}`
+                      : ''}
+                  </b> · {bookingName(proxima)}
+                </span>
+              </p>
+            )}
+          </div>
+        )}
+
+        {unicoPlan && !enrollmentsError && (
+          <Button className="min-h-touch w-full sm:w-auto" onClick={() => setScheduleEnrollment(unicoPlan)}>
+            <CalendarCheck className="mr-2 h-4 w-4" aria-hidden="true" />
+            Agendar clase
+          </Button>
+        )}
+      </header>
+
+      {enrollmentsError ? (
+        <ErrorBox
+          titulo="No pudimos cargar las inscripciones"
+          detalle={`Esto no quiere decir que ${nombre ? `${nombre} no tenga` : 'no tengas'} equipos ni planes. Revisa tu conexión e inténtalo de nuevo.`}
+          onRetry={() => refetchEnrollments()}
+        />
+      ) : (
+        <>
+          {/* ── Pestañas ── */}
+          <div role="tablist" aria-label="Inscripciones" className="flex gap-1 rounded-xl bg-muted p-1">
+            {tabs.map(({ key, label, count }) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === key}
+                onClick={() => setActiveTab(key)}
+                className={cn(
+                  'flex min-h-touch flex-1 items-center justify-center gap-1.5 rounded-lg px-2 text-sm transition-colors',
+                  activeTab === key ? 'bg-background font-semibold text-foreground shadow-sm' : 'font-medium text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <span className="truncate">{label}</span>
+                {count > 0 && <span className="text-xs text-muted-foreground">{count}</span>}
+              </button>
+            ))}
+          </div>
+
+          {/* Pestaña: Equipos y planes */}
+          {activeTab === 'groups' && (
+            <div className="space-y-5">
+              {teamEnrollments.length === 0 && planEnrollments.length === 0 ? (
+                <div className="space-y-3 rounded-2xl border bg-card p-6 text-center">
+                  <p className="font-semibold">{nombre ? `${nombre} no está en ningún equipo ni plan` : 'No estás en ningún equipo ni plan'}</p>
+                  <p className="text-sm text-muted-foreground">
+                    Cuando la escuela {nombre ? `inscriba a ${nombre}` : 'te inscriba'} en un equipo o le asigne un plan, aparece aquí.
+                  </p>
+                  {SHOW_EXPLORE && (
+                    <div className="flex flex-wrap justify-center gap-2">
+                      <Button variant="outline" className="min-h-touch" onClick={() => navigate('/explore')}>Buscar equipos</Button>
+                      <Button variant="outline" className="min-h-touch" onClick={() => navigate('/explore')}>Ver membresías</Button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  {planEnrollments.length > 0 && (
+                    <section className="space-y-2" aria-label="Planes">
+                      <h2 className="px-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                        {planEnrollments.length === 1 ? 'Plan' : `Planes (${planEnrollments.length})`}
+                      </h2>
+                      <div className={cn('grid grid-cols-1 gap-3', planEnrollments.length > 1 && 'md:grid-cols-2')}>
+                        {planEnrollments.map((e: any) => (
+                          <div key={e.id} className="space-y-3">
+                            <PlanCard enrollment={e} onSchedule={unicoPlan ? undefined : () => setScheduleEnrollment(e)} />
+                            {/* Banco de horas (F6) — no renderiza nada si la inscripción no tiene un plan por horas */}
+                            <HourBankBalanceCard enrollmentId={e.id} />
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {teamEnrollments.length > 0 && (
+                    <section className="space-y-2" aria-label="Equipos">
+                      <h2 className="px-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                        {teamEnrollments.length === 1 ? 'Equipo' : `Equipos (${teamEnrollments.length})`}
+                      </h2>
+                      <div className="overflow-hidden rounded-2xl border bg-card">
+                        {teamEnrollments.map((e: any, i: number) => (
+                          <TeamRow key={e.id} enrollment={e} first={i === 0} onClick={() => setSelectedTeam(e)} />
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {SHOW_EXPLORE && (teamEnrollments.length === 0 || planEnrollments.length === 0) && (
+                    <Button variant="link" className="min-h-touch h-auto px-1 text-sm" onClick={() => navigate('/explore')}>
+                      {teamEnrollments.length === 0 ? 'Buscar equipos' : 'Ver membresías'}
+                    </Button>
+                  )}
+                </>
+              )}
             </div>
           )}
-        </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatItem icon={Users} label="Equipos" value={teamEnrollments.length} colorClass="bg-blue-500/10 text-blue-500" />
-          <StatItem icon={Zap} label="Planes" value={planEnrollments.length} colorClass="bg-purple-500/10 text-purple-500" />
-          <StatItem icon={Calendar} label="Clases" value={totalMyClasses} colorClass="bg-green-500/10 text-green-500" />
-          <StatItem icon={MapIcon} label="Reservas" value={totalMyReservations} colorClass="bg-amber-500/10 text-amber-500" />
-        </div>
+          {activeTab === 'classes' && (
+            <MyBookingsTab hasSecondary={!!enrollmentWithSec} secLabel={secondaryLabel} filter="primary" childId={selectedChildId} allBookings={allBookings} />
+          )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-
-          {/* ── Main content ── */}
-          <div className="lg:col-span-8 space-y-6">
-
-            {/* Tabs */}
-            <div className="flex gap-2 p-1.5 bg-muted/40 rounded-2xl border border-border/30 w-fit">
-              {[
-                { key: 'groups', icon: Trophy, label: 'Mis Grupos', count: teamEnrollments.length + planEnrollments.length },
-                { key: 'classes', icon: CalendarCheck, label: 'Mis Clases', count: totalMyClasses },
-                { key: 'reservations', icon: MapPin, label: 'Mis Reservas', count: totalMyReservations },
-              ].map(({ key, icon: Icon, label, count }) => (
-                <button
-                  key={key}
-                  onClick={() => setActiveTab(key as any)}
-                  className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === key
-                      ? 'bg-background text-foreground shadow-lg border border-border/50'
-                      : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                >
-                  <Icon className="h-4 w-4" />
-                  {label}
-                  {count > 0 && <span className="opacity-40">{count}</span>}
-                </button>
-              ))}
+          {activeTab === 'reservations' && (
+            <div className="space-y-5">
+              <MyBookingsTab hasSecondary={!!enrollmentWithSec} secLabel={secondaryLabel} filter="secondary" childId={selectedChildId} allBookings={allBookings} />
+              <FacilitiesSection
+                facilities={athleteFacilities}
+                loading={facilitiesLoading}
+                error={!!facilitiesError}
+                onRetry={() => refetchFacilities()}
+                canReserve={canReserve}
+                enrollment={enrollmentForFacility}
+                nombre={nombre}
+                onReserve={setReservingFacility}
+              />
             </div>
+          )}
 
-            {/* Tab: Mis Grupos */}
-            {activeTab === 'groups' && (
-              <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                <section>
-                  <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-4">
-                    Equipos ({teamEnrollments.length})
-                  </h3>
-                  {teamEnrollments.length === 0 ? (
-                    <EmptyDashed icon={Users} text="No estás inscrito en ningún equipo de formación">
-                      <Button variant="outline" size="sm" onClick={() => navigate('/explore')}>Buscar equipos</Button>
-                    </EmptyDashed>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {teamEnrollments.map((e: any) => (
-                        <TeamCard key={e.id} enrollment={e} onClick={() => setSelectedTeam(e)} />
-                      ))}
-                    </div>
-                  )}
-                </section>
-
-                <section>
-                  <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-4">
-                    Planes ({planEnrollments.length})
-                  </h3>
-                  {planEnrollments.length === 0 ? (
-                    <EmptyDashed icon={Zap} text="No tienes planes o membresías activas">
-                      <Button variant="outline" size="sm" onClick={() => navigate('/explore')}>Ver membresías</Button>
-                    </EmptyDashed>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {planEnrollments.map((e: any) => (
-                        <div key={e.id} className="space-y-3">
-                          <PlanCard enrollment={e} onClick={() => setScheduleEnrollment(e)} />
-                          {/* Banco de horas (F6) — no renderiza nada si la inscripción no tiene un plan por horas */}
-                          <HourBankBalanceCard enrollmentId={e.id} />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </section>
+          {selfServiceAvailable && (
+            <section className="flex flex-col gap-3 rounded-2xl border bg-card p-4 sm:flex-row sm:items-center">
+              <span className="flex h-touch w-touch shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <Sparkles className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <h2 className="text-base font-semibold">Clase de prueba</h2>
+                <p className="text-sm text-muted-foreground">
+                  ¿Quieres probar otra disciplina, o agendarle una prueba a un hermano/a? Rápido, sin pasar por la escuela.
+                </p>
               </div>
-            )}
-
-            {activeTab === 'classes' && (
-              <div className="animate-in fade-in duration-500">
-                <MyBookingsTab hasSecondary={!!enrollmentWithSec} secLabel={secondaryLabel} filter="primary" childId={selectedChildId} allBookings={allBookings} />
-              </div>
-            )}
-
-            {activeTab === 'reservations' && (
-              <div className="animate-in fade-in duration-500">
-                <MyBookingsTab hasSecondary={!!enrollmentWithSec} secLabel={secondaryLabel} filter="secondary" childId={selectedChildId} allBookings={allBookings} />
-              </div>
-            )}
-          </div>
-
-          {/* ── Side panel ── */}
-          <div className="lg:col-span-4 space-y-6 sticky top-8">
-
-            {/* Clases Programadas */}
-            <Card className="border-border/40 bg-muted/20">
-              <CardContent className="p-5 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Clases Programadas</h4>
-                  <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                </div>
-
-                {upcomingSessions.length === 0 && !myBookingsData?.length ? (
-                  <div className="py-6 text-center border-2 border-dashed border-border/40 rounded-xl px-4">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 leading-relaxed">
-                      No hay clases programadas esta semana
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {allBookings
-                      .filter((b) => {
-                        const dateStr = b._type === 'primary' ? b.attendance_sessions?.session_date : b.reservation_date;
-                        const today = new Date().toLocaleDateString('en-CA');
-                        return dateStr >= today;
-                      })
-                      .slice(0, 4)
-                      .map((b) => {
-                        const isPrimary = b._type === 'primary';
-                        const s = isPrimary ? b.attendance_sessions : b;
-                        if (!s) return null;
-                        const dateStr = isPrimary ? b.attendance_sessions?.session_date : b.reservation_date;
-                        const today = new Date().toLocaleDateString('en-CA');
-                        const isPast = dateStr < today;
-                        const contextName = isPrimary
-                          ? ((b as any).booking_type === 'team' ? (b as any).enrollments?.teams?.name : (b as any).enrollments?.offering_plans?.name)
-                          : (b as any).facilities?.name;
-
-                        const isPT = (b as any).school_type === 'personal_trainer';
-
-                        return (
-                          <div key={b.id} className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all ${isPast ? 'bg-muted/20 border-border/20 opacity-60' : 'bg-background border-border/40 hover:border-primary/30 shadow-sm'
-                            }`}>
-                            <div className="text-center shrink-0 w-10">
-                              <p className="text-[9px] font-black uppercase text-muted-foreground capitalize leading-none">
-                                {format(parseISO(dateStr), 'EEE', { locale: es })}
-                              </p>
-                              <p className="text-lg font-black leading-tight">
-                                {format(parseISO(dateStr), 'd')}
-                              </p>
-                            </div>
-                            <div className="w-px h-8 bg-border/40" />
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-1.5 mb-0.5">
-                                {isPrimary ? (
-                                  isPT ? <User className="h-3 w-3 text-indigo-500" /> : <Trophy className="h-3 w-3 text-purple-500" />
-                                ) : (
-                                  <Building2 className="h-3 w-3 text-blue-500" />
-                                )}
-                                <p className={`text-[11px] font-black uppercase tracking-tight truncate ${isPT ? 'text-indigo-600 dark:text-indigo-400' : ''}`}>{contextName}</p>
-                                {isPT && (
-                                  <span className="text-[9px] font-bold opacity-70 ml-1">
-                                    {b.session_type === 'group' ? '👥' : '👤'}
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
-                                <Clock className="h-3 w-3" />
-                                {fmtTime(s.start_time)}
-                              </p>
-                            </div>
-                            {!isPast && b.status === 'confirmed' && (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setCancelingBookingId(b.id); }}
-                                className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 bg-background shadow-sm border rounded-full hover:text-destructive hover:border-destructive/30"
-                                title="Cancelar"
-                              >
-                                <XCircle className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                            {isPast || b.status !== 'confirmed' ? (
-                              <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
-                            ) : (
-                              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/30" />
-                            )}
-                          </div>
-                        );
-                      })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Instalaciones */}
-            <Card className="border-border/40 bg-muted/20">
-              <CardContent className="p-5 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Instalaciones</h4>
-                  <Badge variant="outline" className="text-[9px] h-4 py-0 font-bold border-green-500/30 text-green-500 bg-green-500/5">
-                    {athleteFacilities.length}
-                  </Badge>
-                </div>
-
-                {facilitiesLoading ? (
-                  <div className="h-16 rounded-xl bg-muted/40 animate-pulse" />
-                ) : athleteFacilities.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground text-center py-4">
-                    Tu escuela no tiene instalaciones disponibles
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    {athleteFacilities.map((facility) => (
-                      <div key={facility.id} className="flex items-center gap-4 bg-card/60 p-4 rounded-2xl border border-border/40">
-                        <div className="w-12 h-12 rounded-xl bg-background flex items-center justify-center border border-border/50 shadow-sm">
-                          <Building2 className="h-6 w-6 text-muted-foreground/60" />
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-[12px] font-black uppercase tracking-tight leading-none mb-1">{facility.name}</p>
-                          <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tighter opacity-70">{facility.type}</p>
-                        </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setReservingFacility(facility)}
-                          className="h-8 text-[10px] font-black uppercase px-4 border-border/80 hover:bg-primary/5 hover:border-primary/20"
-                        >
-                          Reservar
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {selfServiceAvailable && (
-              <Card className="border-primary/30 bg-primary/5">
-                <CardContent className="p-5 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-primary" />
-                    <h4 className="text-[10px] font-black uppercase tracking-widest text-primary">Clase de Prueba</h4>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    ¿Querés probar otra disciplina, o agendarle una prueba a un hermano/a? Rápido, sin pasar por la escuela.
-                  </p>
-                  <Button size="sm" onClick={() => setShowTrialModal(true)} className="w-full h-9 font-bold">
-                    Agendar clase de prueba
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        </div>
-      </div>
+              <Button variant="outline" className="min-h-touch shrink-0" onClick={() => setShowTrialModal(true)}>
+                Agendar clase de prueba
+              </Button>
+            </section>
+          )}
+        </>
+      )}
 
       {/* ── Modals ── */}
       {showTrialModal && (
@@ -531,14 +455,13 @@ export default function MyEnrollmentsPage() {
           onOpenChange={setShowTrialModal}
           facilities={athleteFacilities}
           children={(children ?? []).map((c: any) => ({ id: c.id, full_name: c.full_name }))}
-          isParent={currentUserRole === 'parent'}
+          isParent={isParent}
         />
       )}
       {selectedTeam && (
         <TeamDetailModal enrollment={selectedTeam} onClose={() => setSelectedTeam(null)} />
       )}
 
-      {/* ✅ FIX: pasar facilities completo en lugar de [0] hardcodeado */}
       {scheduleEnrollment && (
         <ScheduleClassModal
           enrollment={scheduleEnrollment}
@@ -548,7 +471,7 @@ export default function MyEnrollmentsPage() {
         />
       )}
 
-      {/* ✅ FIX: enrollment calculado con lógica de créditos, no [0] */}
+      {/* enrollment calculado con lógica de créditos, no [0] */}
       {reservingFacility && (
         <FacilityReserveModal
           facility={reservingFacility}
@@ -557,156 +480,196 @@ export default function MyEnrollmentsPage() {
           onClose={() => setReservingFacility(null)}
         />
       )}
-
-      <AlertDialog open={!!cancelingBookingId} onOpenChange={(open) => !open && setCancelingBookingId(null)}>
-        <AlertDialogContent className="sm:max-w-modal-sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
-              <XCircle className="h-5 w-5" />
-              ¿Cancelar esta clase?
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              Esta acción liberará tu cupo y se devolverá el crédito a tu plan.
-              ¿Estás seguro que deseas cancelar tu asistencia?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="mt-4">
-            <AlertDialogCancel disabled={isCanceling}>No, mantener</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (cancelingBookingId) {
-                  cancelBooking(cancelingBookingId, {
-                    onSuccess: () => {
-                      toast({ title: '✅ Clase cancelada', description: 'Tu cupo ha sido liberado correctamente.' });
-                      setCancelingBookingId(null);
-                    },
-                    onError: (err: any) => {
-                      toast({ title: 'Error', description: err.message, variant: 'destructive' });
-                    },
-                  });
-                }
-              }}
-              disabled={isCanceling}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {isCanceling ? 'Cancelando...' : 'Sí, cancelar clase'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
 
-// ─── Cards ────────────────────────────────────────────────────────────────────
+// ─── Estados ──────────────────────────────────────────────────────────────────
 
-function TeamCard({ enrollment, onClick }: { enrollment: any; onClick?: () => void }) {
-  const isTrainer = enrollment.program?.school_type === 'personal_trainer';
-  const vis = getSportVisual(enrollment.program?.sport);
-
-  const gradientClass = isTrainer
-    ? "from-violet-600 to-indigo-900 hover:shadow-indigo-900/40"
-    : "from-red-600 to-red-800 hover:shadow-red-900/40";
-
+function ErrorBox({ titulo, detalle, onRetry }: { titulo: string; detalle: string; onRetry: () => void }) {
   return (
-    <Card
-      onClick={onClick}
-      className={`group relative overflow-hidden border-none bg-gradient-to-br ${gradientClass} text-white shadow-lg transition-all hover:scale-[1.02] cursor-pointer`}
-    >
-      <CardContent className="p-6">
-        <Badge className="absolute top-3 right-3 bg-black/20 text-white border-white/20 text-[9px] font-bold opacity-0 group-hover:opacity-100 transition-opacity">
-          ACTIVO
-        </Badge>
-        <div className="flex items-start gap-5">
-          <div className="w-16 h-16 rounded-2xl bg-white/10 flex items-center justify-center text-3xl border border-white/20 shrink-0">
-            {vis.icon}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80 mb-1">
-              {isTrainer ? 'Entrenamiento Personal' : 'Equipo'}
-            </p>
-            <h4 className="text-xl font-black leading-tight truncate uppercase tracking-tighter">{enrollment.program?.name}</h4>
-            <div className="flex items-center gap-3 mt-4">
-              <Badge variant="outline" className="border-white/30 text-white bg-white/10 text-[10px] font-bold py-0.5 px-2">
-                <Trophy className="h-3 w-3 mr-1" />{enrollment.program?.sport || 'Deporte'}
-              </Badge>
-            </div>
-          </div>
-          <ChevronRight className="h-6 w-6 opacity-40 self-center" />
-        </div>
-      </CardContent>
-    </Card>
+    <div role="alert" className="space-y-3 rounded-xl border border-destructive/40 bg-destructive/5 p-4">
+      <p className="flex items-center gap-2 font-semibold text-destructive">
+        <AlertTriangle className="h-5 w-5 shrink-0" aria-hidden="true" />
+        {titulo}
+      </p>
+      <p className="text-sm text-muted-foreground">{detalle}</p>
+      <Button variant="outline" className="min-h-touch" onClick={onRetry}>
+        <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+        Reintentar
+      </Button>
+    </div>
   );
 }
 
-function PlanCard({ enrollment, onClick }: { enrollment: any; onClick?: () => void }) {
+// ─── Equipos, planes e instalaciones ──────────────────────────────────────────
+
+function SportBadge({ sport, trainer }: { sport?: string; trainer?: boolean }) {
+  return (
+    <span className="flex h-touch w-touch shrink-0 items-center justify-center rounded-xl bg-primary/10 text-xl text-primary" aria-hidden="true">
+      {trainer ? <User className="h-5 w-5" /> : getSportVisual(sport).icon}
+    </span>
+  );
+}
+
+function TeamRow({ enrollment, first, onClick }: { enrollment: any; first: boolean; onClick: () => void }) {
+  const isTrainer = enrollment.program?.school_type === 'personal_trainer';
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn('flex min-h-touch w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted/50', !first && 'border-t')}
+    >
+      <SportBadge sport={enrollment.program?.sport} trainer={isTrainer} />
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="truncate text-base font-semibold">{enrollment.program?.name}</span>
+        <span className="truncate text-xs text-muted-foreground">
+          {isTrainer ? 'Entrenamiento personal' : 'Equipo'}{enrollment.program?.sport ? ` · ${enrollment.program.sport}` : ''}
+        </span>
+      </span>
+      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+    </button>
+  );
+}
+
+/** `onSchedule` undefined = el botón ya está arriba de la página (un solo plan). */
+function PlanCard({ enrollment, onSchedule }: { enrollment: any; onSchedule?: () => void }) {
   const plan = enrollment.plan_details;
-  const isUnlimited = !plan || plan.max_sessions === null;
-  const creditsLeft = isUnlimited ? null : Math.max(0, (plan?.max_sessions ?? 0) - (enrollment.sessions_used ?? 0));
   const hasSecondary = (plan?.max_secondary_sessions ?? 0) > 0;
   const secLeft = Math.max(0, (plan?.max_secondary_sessions ?? 0) - (enrollment.secondary_sessions_used ?? 0));
   const secLabel = plan?.secondary_session_label || 'GYM';
 
   // Offering arriba (nombre del programa), plan_details abajo (tarifa)
-  const offeringName = enrollment.offering?.name ?? enrollment.program?.name ?? 'Mi Plan';
+  const offeringName = enrollment.offering?.name ?? enrollment.program?.name ?? 'Mi plan';
   const tariffName = enrollment.offering_plan?.name ?? plan?.name ?? 'Plan';
-
   const isTrainer = enrollment.program?.school_type === 'personal_trainer';
-  const visual = isTrainer
-    ? { gradient: 'from-zinc-800 via-zinc-900 to-black', accent: 'text-violet-400', tag: 'bg-violet-400/20 text-violet-400 border-violet-400/30', icon: User, glow: 'shadow-indigo-900/20' }
-    : getPlanVisual(tariffName);
-
-  const VisualIcon = visual.icon;
-
-  const daysLeft = enrollment.expires_at
-    ? Math.max(0, Math.ceil((new Date(enrollment.expires_at).getTime() - Date.now()) / 86400000))
-    : null;
+  const vence = venceEn(enrollment.expires_at);
 
   return (
-    <Card
-      onClick={onClick}
-      className={`group relative overflow-hidden border-none bg-gradient-to-br ${visual.gradient} text-white shadow-lg transition-all hover:scale-[1.02] ${visual.glow} cursor-pointer`}
-    >
-      <CardContent className="p-6">
-        <Badge className={`absolute top-3 right-3 ${visual.tag} text-[9px] font-bold opacity-0 group-hover:opacity-100 transition-opacity`}>
-          ACTIVO
-        </Badge>
-        <div className="flex items-start gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center border border-white/20 shrink-0">
-            <VisualIcon className={`h-7 w-7 ${visual.accent}`} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80 mb-1 truncate">
-              {isTrainer ? 'Coach Personal' : offeringName}
-            </p>
-            <h4 className="text-xl font-black leading-tight truncate uppercase tracking-tighter">{tariffName}</h4>
-            <div className="flex items-center gap-2 mt-3 flex-wrap">
-              <div className="flex items-center gap-1 px-2 py-0.5 bg-white/10 rounded-full border border-white/20 text-[10px] font-bold">
-                <Zap className="h-3 w-3" />
-                {isUnlimited ? 'Ilimitadas' : `${creditsLeft} clases`}
-              </div>
-              {hasSecondary && (
-                <div className="flex items-center gap-1 px-2 py-0.5 bg-white/10 rounded-full border border-white/20 text-[10px] font-bold">
-                  <Building2 className="h-3 w-3" />
-                  {secLeft}/{plan.max_secondary_sessions} {secLabel}
-                </div>
-              )}
-            </div>
-            {daysLeft !== null && (
-              <p className="text-[10px] font-bold opacity-60 flex items-center gap-1 mt-2">
-                <Clock className="h-3 w-3" />{daysLeft} días restantes
-              </p>
-            )}
-          </div>
-          <ChevronRight className="h-6 w-6 opacity-40 self-center shrink-0" />
+    <div className="flex flex-col gap-3 rounded-2xl border bg-card p-4">
+      <div className="flex items-start gap-3">
+        <SportBadge sport={enrollment.program?.sport} trainer={isTrainer} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-xs text-muted-foreground">{isTrainer ? 'Entrenamiento personal' : offeringName}</p>
+          <h3 className="text-base font-semibold leading-snug">{tariffName}</h3>
         </div>
-        <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between">
-          <p className="text-[10px] uppercase font-black tracking-widest opacity-60">Toca para gestionar clases</p>
-          <CalendarCheck className="h-3.5 w-3.5 opacity-60" />
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs font-medium">
+          <Zap className="h-3.5 w-3.5" aria-hidden="true" />
+          {saldoDeClases(plan?.max_sessions ?? null, enrollment.sessions_used)}
+        </span>
+        {hasSecondary && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs font-medium">
+            <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
+            {secLeft} de {plan.max_secondary_sessions} {secLabel}
+          </span>
+        )}
+        {vence && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs font-medium">
+            <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+            {vence}
+          </span>
+        )}
+      </div>
+      {onSchedule && (
+        <Button variant="outline" className="min-h-touch w-full" onClick={onSchedule}>
+          Ver y agendar clases
+        </Button>
+      )}
+    </div>
+  );
+}
+
+const FACILITIES_VISIBLE = 5;
+
+function FacilitiesSection({ facilities, loading, error, onRetry, canReserve, enrollment, nombre, onReserve }: {
+  facilities: Facility[];
+  loading: boolean;
+  error: boolean;
+  onRetry: () => void;
+  canReserve: boolean;
+  enrollment: any | null;
+  nombre: string | null;
+  onReserve: (f: Facility) => void;
+}) {
+  const [verTodas, setVerTodas] = useState(false);
+
+  if (loading) return <Skeleton className="h-24 w-full rounded-2xl" />;
+  if (error) {
+    return (
+      <ErrorBox
+        titulo="No pudimos cargar las instalaciones"
+        detalle="Revisa tu conexión e inténtalo de nuevo."
+        onRetry={onRetry}
+      />
+    );
+  }
+  if (facilities.length === 0) {
+    return canReserve
+      ? <p className="px-1 text-sm text-muted-foreground">La escuela todavía no tiene instalaciones para reservar.</p>
+      : null;
+  }
+
+  const lista = (items: Facility[], bare = false) => (
+    <div className={cn(!bare && 'overflow-hidden rounded-2xl border bg-card')}>
+      {items.map((f, i) => (
+        <div key={f.id} className={cn('flex min-h-touch items-center gap-3 px-4 py-2', i > 0 && 'border-t')}>
+          <Building2 className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="truncate text-sm font-semibold">{f.name}</span>
+            {f.type && <span className="truncate text-xs capitalize text-muted-foreground">{f.type.replace(/_/g, ' ')}</span>}
+          </span>
+          <Button
+            variant={canReserve ? 'default' : 'outline'}
+            size="sm"
+            className="min-h-touch shrink-0 px-4"
+            onClick={() => onReserve(f)}
+            aria-label={`Reservar ${f.name}`}
+          >
+            Reservar
+          </Button>
         </div>
-        <VisualIcon className="absolute -bottom-4 -right-4 h-32 w-32 opacity-10 rotate-12" />
-      </CardContent>
-    </Card>
+      ))}
+    </div>
+  );
+
+  if (!canReserve) {
+    // El plan no trae reservas: «Reservar» abre un «sin acceso». La lista queda
+    // plegada (no se pierde: se despliega con un toque).
+    return (
+      <details className="group rounded-2xl border bg-card">
+        <summary className="flex min-h-touch cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+          <Building2 className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="text-sm font-semibold">Instalaciones de la escuela ({facilities.length})</span>
+            <span className="text-xs text-muted-foreground">
+              {nombre ? `El plan de ${nombre}` : 'Tu plan'} no incluye reservas de instalaciones.
+            </span>
+          </span>
+          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" aria-hidden="true" />
+        </summary>
+        <div className="border-t">{lista(facilities, true)}</div>
+      </details>
+    );
+  }
+
+  const plan = enrollment?.plan_details;
+  const secLeft = Math.max(0, (plan?.max_secondary_sessions ?? 0) - (enrollment?.secondary_sessions_used ?? 0));
+  const visibles = verTodas ? facilities : facilities.slice(0, FACILITIES_VISIBLE);
+  return (
+    <section className="space-y-2" aria-label="Reservar una instalación">
+      <h2 className="px-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">Reservar una instalación</h2>
+      <p className="px-1 text-sm text-muted-foreground">
+        {secLeft === 1 ? 'Queda 1 reserva' : `Quedan ${secLeft} reservas`} de {plan?.max_secondary_sessions} en el plan.
+      </p>
+      {lista(visibles)}
+      {facilities.length > FACILITIES_VISIBLE && (
+        <Button variant="link" className="min-h-touch h-auto px-1 text-sm" onClick={() => setVerTodas((v) => !v)}>
+          {verTodas ? 'Ver menos' : `Ver las ${facilities.length} instalaciones`}
+        </Button>
+      )}
+    </section>
   );
 }
 
@@ -737,7 +700,7 @@ function ScheduleClassModal({ enrollment, facilities, childId, onClose }: {
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-xl max-h-[88dvh] flex flex-col gap-0 p-0 overflow-hidden">
+      <DialogContent className="sm:max-w-xl max-h-sheet flex flex-col gap-0 p-0 overflow-hidden">
         <DialogTitle className="sr-only">Gestión de Clases</DialogTitle>
 
         {/* ✅ FIX: displayName en lugar de teamName */}
@@ -752,7 +715,7 @@ function ScheduleClassModal({ enrollment, facilities, childId, onClose }: {
               <Zap className="h-3.5 w-3.5 text-purple-500" />
             </div>
             <div>
-              <p className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">{planName}</p>
+              <p className="text-xs font-black uppercase tracking-wider text-muted-foreground">{planName}</p>
               <p className="text-xs font-black">{isUnlimited ? '∞ ilimitadas' : `${creditsLeft} clase${creditsLeft !== 1 ? 's' : ''} disponibles`}</p>
             </div>
           </div>
@@ -764,7 +727,7 @@ function ScheduleClassModal({ enrollment, facilities, childId, onClose }: {
                   <Building2 className="h-3.5 w-3.5 text-blue-500" />
                 </div>
                 <div>
-                  <p className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">{secLabel}</p>
+                  <p className="text-xs font-black uppercase tracking-wider text-muted-foreground">{secLabel}</p>
                   <p className="text-xs font-black">{secLeft}/{plan.max_secondary_sessions} disponibles</p>
                 </div>
               </div>
@@ -825,7 +788,7 @@ function ModalTab({ active, onClick, children }: { active: boolean; onClick: () 
   return (
     <button
       onClick={onClick}
-      className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold rounded-md transition-colors ${active ? 'bg-background text-foreground shadow-sm border border-border/40' : 'text-muted-foreground hover:text-foreground'
+      className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-semibold rounded-md transition-colors ${active ? 'bg-background text-foreground shadow-sm border border-border/40' : 'text-muted-foreground hover:text-foreground'
         }`}
     >
       {children}
@@ -1068,10 +1031,10 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
       <div className="space-y-4">
         {isFlexibleEligible && (
           <div className="flex items-center justify-between px-1">
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+            <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">
               {bookingModeChoice === 'custom' ? '⏱️ Sesión personalizada' : `⚡ Por bloque (${flexibleSession!.default_minutes! % 60 === 0 ? `${flexibleSession!.default_minutes! / 60}h` : `${flexibleSession!.default_minutes} min`})`}
             </p>
-            <button onClick={() => setBookingModeChoice(null)} className="text-[10px] font-bold text-primary hover:underline">
+            <button onClick={() => setBookingModeChoice(null)} className="text-xs font-bold text-primary hover:underline">
               Cambiar
             </button>
           </div>
@@ -1091,7 +1054,7 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
 
           <div className="grid grid-cols-7 text-center border-b border-border/20">
             {['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá', 'Do'].map(d => (
-              <div key={d} className="py-2 text-[10px] font-black text-muted-foreground uppercase">{d}</div>
+              <div key={d} className="py-2 text-xs font-black text-muted-foreground uppercase">{d}</div>
             ))}
           </div>
 
@@ -1157,7 +1120,7 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
 
         {selectedDate ? (
           <div className="space-y-6">
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground capitalize">
+            <p className="text-xs font-black uppercase tracking-widest text-muted-foreground capitalize">
               {format(parseISO(selectedDate), "EEEE d 'de' MMMM", { locale: es })}
               {' · '}{allSessions.filter(s => s.session_date === selectedDate).length} clases
             </p>
@@ -1178,7 +1141,7 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
                     <div className="space-y-3">
                       <div className="flex items-center gap-2 px-1 text-amber-500">
                         <Sun className="h-4 w-4" />
-                        <h4 className="text-[11px] font-black uppercase tracking-widest">Mañana</h4>
+                        <h4 className="text-xs font-black uppercase tracking-widest">Mañana</h4>
                       </div>
                       <div className="space-y-2">
                         {morning.map(group => (
@@ -1192,7 +1155,7 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
                     <div className="space-y-3">
                       <div className="flex items-center gap-2 px-1 text-orange-500">
                         <Sunset className="h-4 w-4" />
-                        <h4 className="text-[11px] font-black uppercase tracking-widest">Tarde</h4>
+                        <h4 className="text-xs font-black uppercase tracking-widest">Tarde</h4>
                       </div>
                       <div className="space-y-2">
                         {afternoon.map(group => (
@@ -1206,7 +1169,7 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
                     <div className="space-y-3">
                       <div className="flex items-center gap-2 px-1 text-indigo-500">
                         <Moon className="h-4 w-4" />
-                        <h4 className="text-[11px] font-black uppercase tracking-widest">Noche</h4>
+                        <h4 className="text-xs font-black uppercase tracking-widest">Noche</h4>
                       </div>
                       <div className="space-y-2">
                         {evening.map(group => (
@@ -1264,7 +1227,7 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
                             setBookingMode(key);
                             setDurationMinutes(confirming.default_minutes as number);
                           }}
-                          className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${
+                          className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${
                             bookingMode === key
                               ? 'bg-background text-foreground shadow-sm border border-border/40'
                               : 'text-muted-foreground hover:text-foreground'
@@ -1298,12 +1261,12 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
                               </button>
                             ))}
                           </div>
-                          <p className="text-[10px] text-muted-foreground">
+                          <p className="text-xs text-muted-foreground">
                             Sesión personalizada — útil si tienes horas acumuladas por vencer.
                           </p>
                         </>
                       ) : (
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="text-xs text-muted-foreground">
                           No hay más horas seguidas disponibles con este entrenador a partir de este horario — se agendará el bloque de {confirming.default_minutes % 60 === 0 ? `${confirming.default_minutes / 60}h` : `${confirming.default_minutes} min`}.
                         </p>
                       )
@@ -1447,7 +1410,7 @@ function PTPrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, 
 
           <div className="grid grid-cols-7 text-center border-b border-border/20">
             {['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá', 'Do'].map(d => (
-              <div key={d} className="py-2 text-[10px] font-black text-muted-foreground uppercase">{d}</div>
+              <div key={d} className="py-2 text-xs font-black text-muted-foreground uppercase">{d}</div>
             ))}
           </div>
 
@@ -1512,7 +1475,7 @@ function PTPrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, 
             <EmptyCenter icon={Calendar} title="Sin disponibilidad" desc="No hay horarios disponibles para este día. Recuerda que las sesiones deben agendarse con al menos 6 horas de anticipación." color="amber" />
           ) : (
             <div className="space-y-6">
-              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground capitalize px-1">
+              <p className="text-xs font-black uppercase tracking-widest text-muted-foreground capitalize px-1">
                 Disponibilidad para el {format(parseISO(selectedDate), "EEEE d 'de' MMMM", { locale: es })}
               </p>
               
@@ -1536,7 +1499,7 @@ function PTPrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, 
                       <div key={section.key} className="space-y-3">
                         <div className={`flex items-center gap-2 px-1 ${section.color}`}>
                           <section.icon className="h-4 w-4" />
-                          <h4 className="text-[11px] font-black uppercase tracking-widest">{section.label}</h4>
+                          <h4 className="text-xs font-black uppercase tracking-widest">{section.label}</h4>
                         </div>
                         <div className="space-y-2">
                           {section.slots.map((slot: any) => (
@@ -1556,7 +1519,7 @@ function PTPrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, 
                                   </div>
               
                                   <div className="flex-1 min-w-0">
-                                    <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                    <p className="text-xs text-muted-foreground flex items-center gap-1">
                                       <User className="h-3 w-3" /> {slot.coach.full_name}
                                     </p>
                                     <p className="text-xs font-black uppercase tracking-tight truncate mt-0.5">
@@ -1576,7 +1539,7 @@ function PTPrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, 
                                     <Badge variant="secondary">No disponible</Badge>
                                   ) : (
                                     <Button size="sm" onClick={() => handleBook(slot)} disabled={isBooking}
-                                      className="h-8 px-4 text-[10px] font-black uppercase tracking-wider rounded-xl bg-slate-900 hover:bg-black text-white">
+                                      className="h-8 px-4 text-xs font-black uppercase tracking-wider rounded-xl bg-slate-900 hover:bg-black text-white">
                                       Reservar
                                     </Button>
                                   )}
@@ -1596,7 +1559,7 @@ function PTPrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, 
       </div>
 
       <AlertDialog open={!!confirming} onOpenChange={(o) => { if (!o) setConfirming(null); }}>
-        <AlertDialogContent className="rounded-2xl border-0 shadow-2xl">
+        <AlertDialogContent className="sm:max-w-modal-sm">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
               <div className="p-2 rounded-xl bg-slate-950 text-white">
@@ -1741,12 +1704,12 @@ function SecondarySessionsTab({ enrollment, facilities, secLabel, secLeft, maxSe
       )}
 
       <div className="px-3 py-2 rounded-lg bg-blue-500/5 border border-blue-500/20 mb-3 flex items-center justify-between">
-        <p className="text-[11px] text-blue-600 font-medium flex items-center gap-1.5">
+        <p className="text-xs text-blue-600 font-medium flex items-center gap-1.5">
           <Building2 className="h-3.5 w-3.5" />
           {selectedFacility?.name} · {secLeft} de {maxSec} {secLabel} disponibles
         </p>
         {selectedSlots.length > 0 && (
-          <Button size="sm" className="h-7 text-[10px] bg-blue-600 hover:bg-blue-700" onClick={() => setIsConfirming(true)}>
+          <Button size="sm" className="h-7 text-xs bg-blue-600 hover:bg-blue-700" onClick={() => setIsConfirming(true)}>
             Agendar {selectedSlots.length} {selectedSlots.length === 1 ? 'hora' : 'horas'}
           </Button>
         )}
@@ -1763,7 +1726,7 @@ function SecondarySessionsTab({ enrollment, facilities, secLabel, secLeft, maxSe
               className={`shrink-0 flex flex-col items-center px-4 py-2.5 rounded-2xl border transition-all ${isSel ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-500/20' : 'bg-muted/30 border-border/40 hover:border-blue-400/30'
                 }`}
             >
-              <span className={`uppercase text-[9px] font-black tracking-widest ${isSel ? 'text-white/70' : 'text-muted-foreground'}`}>
+              <span className={`uppercase text-xs font-black tracking-widest ${isSel ? 'text-white/70' : 'text-muted-foreground'}`}>
                 {format(d, 'EEE', { locale: es })}
               </span>
               <span className="text-base font-black leading-tight mt-0.5">{format(d, 'd')}</span>
@@ -1792,16 +1755,16 @@ function SecondarySessionsTab({ enrollment, facilities, secLabel, secLeft, maxSe
                     <div className={`w-1 self-stretch rounded-full ${isBooked ? 'bg-green-600' : isSelected ? 'bg-blue-600' : 'bg-blue-400/30'}`} />
                     <div className="text-center shrink-0 w-16">
                       <p className="text-sm font-black leading-none">{fmtTime(slot.start + ':00')}</p>
-                      <p className="text-[9px] text-muted-foreground mt-0.5">{fmtTime(slot.end + ':00')}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{fmtTime(slot.end + ':00')}</p>
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <p className="text-xs font-semibold">{selectedFacility?.name}</p>
-                        {isBooked && <Badge className="text-[9px] h-4 px-1.5 bg-green-600">Agendada</Badge>}
-                        {isSelected && <Badge variant="outline" className="text-[9px] h-4 px-1.5 border-blue-600 text-blue-600 bg-blue-500/5">Seleccionada</Badge>}
-                        {!slot.available && !isBooked && <Badge variant="secondary" className="text-[9px] h-4 px-1.5">Ocupado</Badge>}
+                        {isBooked && <Badge className="text-xs h-4 px-1.5 bg-green-600">Agendada</Badge>}
+                        {isSelected && <Badge variant="outline" className="text-xs h-4 px-1.5 border-blue-600 text-blue-600 bg-blue-500/5">Seleccionada</Badge>}
+                        {!slot.available && !isBooked && <Badge variant="secondary" className="text-xs h-4 px-1.5">Ocupado</Badge>}
                       </div>
-                      <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                      <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                         <Clock className="h-3 w-3" /> 1 hora · Uso libre
                       </p>
                     </div>
@@ -1833,11 +1796,11 @@ function SecondarySessionsTab({ enrollment, facilities, secLabel, secLeft, maxSe
               <div className="space-y-4 pt-2">
                 <div className="rounded-2xl border border-border/50 p-4 bg-muted/20 space-y-3">
                   <div className="pb-2 border-b border-border/30">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">Instalación</p>
+                    <p className="text-xs font-black uppercase tracking-widest text-muted-foreground mb-1">Instalación</p>
                     <p className="font-bold text-foreground">{selectedFacility?.name}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">Fecha y Horarios</p>
+                    <p className="text-xs font-black uppercase tracking-widest text-muted-foreground mb-1">Fecha y Horarios</p>
                     <p className="text-foreground font-bold text-sm capitalize mb-2">{fmtDateLong(selectedDate ?? '')}</p>
                     <div className="grid grid-cols-1 gap-1.5">
                       {selectedSlots.sort((a, b) => a.start.localeCompare(b.start)).map((s, idx) => (
@@ -1856,14 +1819,14 @@ function SecondarySessionsTab({ enrollment, facilities, secLabel, secLeft, maxSe
                     </div>
                     <div>
                       <p className="font-black text-sm">Costo: {creditsNeeded} {creditsNeeded === 1 ? 'crédito' : 'créditos'}</p>
-                      <p className="text-[10px] opacity-70">
+                      <p className="text-xs opacity-70">
                         {creditsNeeded === 1 ? 'Ahorras 1 crédito por reservar horas consecutivas.' : 'Se descuentan créditos individuales por horas separadas.'}
                       </p>
                     </div>
                   </div>
                 </div>
                 <div className="bg-muted/10 p-3 rounded-xl border border-dashed border-border flex items-center gap-2 justify-center">
-                  <p className="text-[10px] font-medium text-muted-foreground">
+                  <p className="text-xs font-medium text-muted-foreground">
                     Te quedarán <span className="text-foreground font-bold">{secLeft - creditsNeeded}</span> clases {secLabel}.
                   </p>
                 </div>
@@ -1902,18 +1865,19 @@ function SecondarySessionsTab({ enrollment, facilities, secLabel, secLeft, maxSe
   );
 }
 
-// ── Tab: Mis Reservas ─────────────────────────────────────────────────────────
+// ── Pestañas Clases y Reservas ─────────────────────────────────────────────────────────
 
-function MyBookingsTab({ hasSecondary, secLabel, filter = 'all', childId, allBookings }: {
+function MyBookingsTab({ secLabel, filter = 'all', childId, allBookings }: {
   hasSecondary: boolean; secLabel: string; filter?: 'all' | 'primary' | 'secondary'; childId?: string;
   allBookings: any[];
 }) {
-  const { data: primary, isLoading: l1 } = useMyBookings(childId);
-  const { data: secondary, isLoading: l2 } = useMySecondaryBookings(childId);
+  const { data: primary, isLoading: l1, error: e1, refetch: r1 } = useMyBookings(childId);
+  const { data: secondary, isLoading: l2, error: e2, refetch: r2 } = useMySecondaryBookings(childId);
   const { mutate: cancelP, isPending: cp } = useCancelBooking(childId);
   const { mutate: cancelS, isPending: cs } = useCancelSecondaryBooking(childId);
   const { mutate: cancelPT, isPending: cpt } = useCancelPTSession(childId);
   const { toast } = useToast();
+  const [verAnteriores, setVerAnteriores] = useState(false);
 
   // ✅ Distinguir cancelación normal vs PT
   const [cancelling, setCancelling] = useState<{
@@ -1926,14 +1890,35 @@ function MyBookingsTab({ hasSecondary, secLabel, filter = 'all', childId, allBoo
 
   if (l1 || l2) return <SkeletonList />;
 
+  const queryError = (filter !== 'secondary' && e1) || (filter !== 'primary' && e2);
+  if (queryError) {
+    return (
+      <ErrorBox
+        titulo={filter === 'secondary' ? 'No pudimos cargar las reservas' : 'No pudimos cargar las clases'}
+        detalle="Esto no quiere decir que no haya nada agendado. Revisa tu conexión e inténtalo de nuevo."
+        onRetry={() => { if (filter !== 'secondary') r1(); if (filter !== 'primary') r2(); }}
+      />
+    );
+  }
+
   const primaryBookings = (filter === 'all' || filter === 'primary') ? (primary ?? []).filter((b: any) => b.status?.toLowerCase() !== 'cancelled') : [];
   const secondaryBookings = (filter === 'all' || filter === 'secondary') ? (secondary ?? []).filter((b: any) => b.status?.toLowerCase() !== 'cancelled') : [];
 
   if (primaryBookings.length === 0 && secondaryBookings.length === 0) {
-    return <EmptyCenter icon={Calendar} title="Sin reservas activas" desc="Agenda clases desde la pestaña de Grupos" />;
+    return filter === 'secondary' ? (
+      <div className="rounded-2xl border bg-card p-6 text-center">
+        <p className="font-semibold">No hay reservas</p>
+        <p className="mt-1 text-sm text-muted-foreground">Cuando reserves una instalación, aparece aquí.</p>
+      </div>
+    ) : (
+      <div className="rounded-2xl border bg-card p-6 text-center">
+        <p className="font-semibold">No hay clases agendadas</p>
+        <p className="mt-1 text-sm text-muted-foreground">Agenda desde el plan, en «Equipos y planes».</p>
+      </div>
+    );
   }
 
-  // Usar las reservas ya filtradas y unificadas del padre o filtrar aquí si es necesario
+  // Usar las reservas ya filtradas y unificadas del padre
   const bookingsToShow = allBookings.filter(b => {
     if (filter === 'primary') return b._type === 'primary';
     if (filter === 'secondary') return b._type === 'secondary';
@@ -1942,108 +1927,100 @@ function MyBookingsTab({ hasSecondary, secLabel, filter = 'all', childId, allBoo
 
   const groups: Record<string, any[]> = {};
   bookingsToShow.forEach(b => {
-    const d = b._type === 'primary' ? b.attendance_sessions?.session_date : b.reservation_date;
+    const d = bookingDate(b);
     if (!groups[d]) groups[d] = [];
     groups[d].push(b);
   });
 
-  const sortedDays = Object.keys(groups).sort();
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const proximos = Object.keys(groups).filter((d) => d >= todayStr).sort();
+  // Lo ya pasado va plegado y del más reciente al más viejo.
+  const anteriores = Object.keys(groups).filter((d) => d < todayStr).sort().reverse();
+
+  const renderDia = (dateStr: string) => {
+    const day = parseISO(dateStr);
+    const isPastDay = isBefore(day, startOfDay(new Date()));
+    return (
+      <section key={dateStr} className="space-y-2" aria-label={fmtDateLong(dateStr)}>
+        <h3 className="flex items-center gap-2 px-1 text-sm font-semibold first-letter:uppercase">
+          {fmtDateLong(dateStr)}
+          {isToday(day) && <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">Hoy</span>}
+        </h3>
+        <div className="overflow-hidden rounded-2xl border bg-card">
+          {groups[dateStr].map((b, i) => {
+            const isPrimary = b._type === 'primary';
+            const s = isPrimary ? b.attendance_sessions : b;
+            if (!s) return null;
+            const isPT = (b as any).school_type === 'personal_trainer';
+            const puedeCancelar = !isPastDay && !s.finalized && b.status === 'confirmed';
+            return (
+              <div key={b.id} className={cn('flex min-h-touch items-center gap-3 px-4 py-3', i > 0 && 'border-t', isPastDay && 'opacity-70')}>
+                <span className="flex h-touch w-touch shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary" aria-hidden="true">
+                  {isPrimary ? (isPT ? <User className="h-5 w-5" /> : <Trophy className="h-5 w-5" />) : <Building2 className="h-5 w-5" />}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">{bookingName(b)}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {fmtTime(s.start_time)}{s.end_time ? ` – ${fmtTime(s.end_time)}` : ''} · {isPrimary ? 'Clase' : secLabel}
+                  </p>
+                  {(s.finalized || b.status === 'attended' || isPT) && (
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {s.finalized && <Badge variant="secondary" className="text-xs">Finalizada</Badge>}
+                      {b.status === 'attended' && (
+                        <Badge className="border-transparent bg-emerald-100 text-xs text-emerald-800 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-300">Asistió</Badge>
+                      )}
+                      {isPT && (
+                        <Badge variant="outline" className="text-xs">{b.session_type === 'group' ? 'Grupal' : 'Personal'}</Badge>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {puedeCancelar && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="min-h-touch shrink-0 px-3 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    aria-label={`Cancelar ${bookingName(b)} del ${fmtDateShort(dateStr)}`}
+                    onClick={() => setCancelling({
+                      id: b.id,
+                      type: isPrimary ? (isPT ? 'pt' : 'p') : 's',
+                      label: fmtDateShort(dateStr),
+                      sessionDate: dateStr,
+                      sessionTime: s.start_time,
+                    })}
+                  >
+                    Cancelar
+                  </Button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    );
+  };
 
   return (
     <>
-      {/* left-[19px] a propósito: centra la línea bajo los íconos h-10 del timeline */}
-      <div className="space-y-8 relative before:absolute before:left-[19px] before:top-4 before:bottom-4 before:w-px before:bg-border/40">
-        {sortedDays.map(dateStr => {
-          const day = parseISO(dateStr);
-          const isToday_ = isToday(day);
-          const sessions = groups[dateStr];
-
-          return (
-            <div key={dateStr} className="relative pl-10">
-              {/* Indicador de Fecha en el Timeline */}
-              <div className={`absolute left-0 w-10 flex flex-col items-center justify-center py-1.5 rounded-xl border z-10 
-                ${isToday_ ? 'bg-primary text-primary-foreground border-primary shadow-md shadow-primary/20' : 'bg-card text-foreground border-border/60'}`}>
-                <span className={`text-[9px] font-black uppercase tracking-tighter leading-none ${isToday_ ? 'opacity-80' : 'text-muted-foreground'}`}>
-                  {format(day, 'EEE', { locale: es })}
-                </span>
-                <span className="text-base font-black leading-tight mt-0.5">{format(day, 'd')}</span>
-              </div>
-
-              <div className="space-y-3 pt-1">
-                {sessions.map(b => {
-                  const isPrimary = b._type === 'primary';
-                  const s = isPrimary ? b.attendance_sessions : b;
-                  if (!s) return null;
-                  
-                  const isPT = (b as any).school_type === 'personal_trainer';
-                  const isPast = isBefore(parseISO(dateStr), startOfDay(new Date()));
-                  const contextName = isPrimary
-                    ? ((b as any).booking_type === 'team' ? (b as any).enrollments?.teams?.name : (b as any).enrollments?.offering_plans?.name)
-                    : (b as any).facilities?.name;
-
-                  return (
-                    <Card key={b.id} className={`group overflow-hidden border-border/40 transition-all hover:border-primary/30 
-                      ${isPast ? 'bg-muted/10 opacity-60' : 'bg-card shadow-sm hover:shadow-md'}`}>
-                      <CardContent className="p-0">
-                        <div className="flex items-center gap-4 px-4 py-3.5">
-                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border 
-                            ${isPrimary 
-                              ? (isPT ? 'bg-indigo-500/10 text-indigo-600 border-indigo-500/20' : 'bg-purple-500/10 text-purple-600 border-purple-500/20') 
-                              : 'bg-blue-500/10 text-blue-600 border-blue-500/20'}`}>
-                            {isPrimary ? (isPT ? <User className="h-5 w-5" /> : <Trophy className="h-5 w-5" />) : <Building2 className="h-5 w-5" />}
-                          </div>
-                          
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="font-black text-sm uppercase tracking-tight truncate">{contextName || 'Sesión'}</p>
-                              {s.finalized && <Badge variant="secondary" className="text-[9px] font-bold h-4">Finalizada</Badge>}
-                              {b.status === 'attended' && <Badge className="text-[9px] font-bold h-4 bg-emerald-500">Asistió</Badge>}
-                              {!isPast && !s.finalized && b.status === 'confirmed' && (
-                                <Badge variant="outline" className="text-[9px] font-bold h-4 border-primary/30 text-primary">Próxima</Badge>
-                              )}
-                              {isPT && (
-                                <Badge variant="secondary" className="text-[9px] font-bold h-4 bg-muted/50 text-muted-foreground border-none">
-                                  {b.session_type === 'group' ? '👥 Grupal' : '👤 Personal'}
-                                </Badge>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2.5 mt-1">
-                              <p className="text-[11px] text-muted-foreground font-medium flex items-center gap-1">
-                                <Clock className="h-3 w-3" /> {fmtTime(s.start_time)} — {fmtTime(s.end_time)}
-                              </p>
-                              <span className="w-1 h-1 rounded-full bg-border" />
-                              <p className="text-[11px] text-muted-foreground font-black uppercase tracking-widest leading-none">
-                                {isPrimary ? 'Clase' : secLabel}
-                              </p>
-                            </div>
-                          </div>
-
-                          {!isPast && !s.finalized && b.status === 'confirmed' && (
-                            <Button variant="ghost" size="sm"
-                              onClick={() => setCancelling({
-                                id: b.id,
-                                type: isPrimary ? (isPT ? 'pt' : 'p') : 's',
-                                label: fmtDateShort(dateStr),
-                                sessionDate: dateStr,
-                                sessionTime: s.start_time,
-                              })}
-                              className="shrink-0 h-9 w-9 p-0 rounded-full hover:bg-destructive/10 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity">
-                              <XCircle className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
+      <div className="space-y-4">
+        {proximos.length === 0 && (
+          <p className="px-1 text-sm text-muted-foreground">
+            {filter === 'secondary' ? 'No hay reservas próximas.' : 'No hay clases próximas.'}
+          </p>
+        )}
+        {proximos.map(renderDia)}
+        {anteriores.length > 0 && (
+          <div className="space-y-4">
+            <Button variant="link" className="min-h-touch h-auto px-1 text-sm" onClick={() => setVerAnteriores((v) => !v)} aria-expanded={verAnteriores}>
+              {verAnteriores ? 'Ocultar las anteriores' : `Ver las anteriores (${anteriores.reduce((n, d) => n + groups[d].length, 0)})`}
+            </Button>
+            {verAnteriores && anteriores.map(renderDia)}
+          </div>
+        )}
       </div>
 
       <AlertDialog open={!!cancelling} onOpenChange={(o) => { if (!o) setCancelling(null); }}>
-        <AlertDialogContent className="rounded-2xl border-0 shadow-2xl">
+        <AlertDialogContent className="sm:max-w-modal-sm">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 text-destructive">
               <XCircle className="h-5 w-5" />
@@ -2149,34 +2126,36 @@ function FacilityReserveModal({ facility, enrollment, childId, onClose }: {
 
 // ─── Modal: Detalle Equipo ────────────────────────────────────────────────────
 
+const ESTADO_INSCRIPCION: Record<string, string> = {
+  active: 'Activa', pending: 'Por aprobar', paused: 'En pausa', expired: 'Vencida', cancelled: 'Cancelada',
+};
+
 function TeamDetailModal({ enrollment, onClose }: { enrollment: any; onClose: () => void }) {
   const { program } = enrollment;
+  const filas: [string, string | undefined][] = [
+    ['Escuela', program.school?.name],
+    ['Ciudad', program.school?.city],
+    ['Estado', ESTADO_INSCRIPCION[enrollment.status] ?? enrollment.status],
+  ];
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-sm p-0 overflow-hidden rounded-3xl border-0 shadow-2xl">
-        <DialogTitle className="sr-only">{program.name}</DialogTitle>
-        <div className="relative bg-gradient-to-br from-red-600 to-red-800 p-6 pb-8">
-          <p className="text-xs font-bold uppercase tracking-widest text-white/40 mb-1">Equipo activo</p>
-          <h2 className="font-black text-2xl text-white leading-tight">{program.name}</h2>
-          <p className="text-white/50 text-sm capitalize mt-1">{program.sport}</p>
-        </div>
-        <div className="p-6 space-y-4 bg-card">
-          <div className="grid grid-cols-2 gap-2.5">
-            <div className="bg-muted/30 rounded-2xl p-3.5 border border-border col-span-2">
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Escuela</p>
-              <p className="font-bold text-sm uppercase">{program.school?.name}</p>
-            </div>
-            <div className="bg-muted/30 rounded-2xl p-3.5 border border-border">
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Ciudad</p>
-              <p className="font-bold text-sm capitalize">{program.school?.city}</p>
-            </div>
-            <div className="bg-muted/30 rounded-2xl p-3.5 border border-border">
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Estado</p>
-              <p className="font-bold text-sm capitalize">{enrollment.status}</p>
-            </div>
+      <DialogContent className="sm:max-w-modal-sm">
+        <div className="flex items-start gap-3 pr-6">
+          <SportBadge sport={program.sport} trainer={program.school_type === 'personal_trainer'} />
+          <div className="min-w-0">
+            <DialogTitle className="text-lg font-bold leading-snug">{program.name}</DialogTitle>
+            <p className="text-sm capitalize text-muted-foreground">Equipo{program.sport ? ` · ${program.sport}` : ''}</p>
           </div>
-          <Button variant="ghost" className="w-full rounded-2xl h-11 font-bold" onClick={onClose}>Cerrar</Button>
         </div>
+        <dl className="overflow-hidden rounded-2xl border bg-card">
+          {filas.filter(([, v]) => !!v).map(([k, v], i) => (
+            <div key={k} className={cn('flex min-h-touch items-center justify-between gap-3 px-4 py-2', i > 0 && 'border-t')}>
+              <dt className="text-sm text-muted-foreground">{k}</dt>
+              <dd className="text-right text-sm font-semibold">{v}</dd>
+            </div>
+          ))}
+        </dl>
+        <Button variant="outline" className="min-h-touch w-full" onClick={onClose}>Cerrar</Button>
       </DialogContent>
     </Dialog>
   );
@@ -2190,16 +2169,6 @@ function SkeletonList() {
       {[1, 2, 3].map((i) => (
         <div key={i} className="h-16 rounded-xl bg-muted/40 animate-pulse border border-border/30" />
       ))}
-    </div>
-  );
-}
-
-function EmptyDashed({ icon: Icon, text, children }: { icon: any; text: string; children?: React.ReactNode }) {
-  return (
-    <div className="p-8 rounded-2xl border-2 border-dashed border-border/40 text-center space-y-4">
-      <Icon className="h-10 w-10 text-muted-foreground/30 mx-auto" />
-      <p className="text-sm font-medium text-muted-foreground">{text}</p>
-      {children}
     </div>
   );
 }

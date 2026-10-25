@@ -6,7 +6,8 @@ import {
     copToCents,
 } from '../services/wompi.service';
 import { reprocessOrphanWebhooks } from '../services/webhook-reprocess.service';
-import { autoEmitPendingInvoices, autoEmitPendingMarketplaceInvoices, autoEmitPendingOrders, reconcilePendingInvoices } from '../services/invoicing.service';
+import { autoEmitPendingInvoices, autoEmitPendingMarketplaceInvoices, autoEmitPendingOrders, reconcilePendingInvoices, FACTURA_ATASCADA_HORAS } from '../services/invoicing.service';
+
 import { runGlosaNotifications } from './glosa-notifications.job';
 import { isStoreEnabled } from '../services/store-flag.service';
 import { sendChargeCreatedEmails, sendOverdueNoticeEmails } from './payment-lifecycle-emails.job';
@@ -18,6 +19,8 @@ import { runTeamReportsCycle } from './team-reports.job';
 import { runHourBankAutoclose } from './hour-bank-autoclose.job';
 import { runHourBankOverageSuggestions } from './hour-bank-overage.job';
 import { runAccessAutoBlockCycle } from './access-auto-block.job';
+import { runHourBankBalanceNotices } from '../services/hour-bank-balance-notices.service';
+import { runHourBankOverageAutoConfirm } from '../services/hour-bank-overage-auto.service';
 import { runSaasBillingCycle } from './saas-billing-cycle.job';
 import { runBridgeHeartbeatCheck } from './bridge-heartbeat-check.job';
 import { runAccountDeletionCycle } from './account-deletion.job';
@@ -35,7 +38,12 @@ import { runInformeCarteraSemanal } from '../services/informe-cartera.service';
 import { runFranjasCortesia } from '../services/franjas-cortesia.service';
 import { anularCobrosSueltosVencidos } from '../services/ventas-servicios.service';
 import { runRecordatorioCortesia } from '../services/recordatorio-cortesia.service';
+import { runCortesiaVencida } from '../services/cortesia-vencida.service';
 import { runSeguimientoNocheCortesia, detectarInscripcionesDeLeads } from '../services/prospecto-ciclo-clase.service';
+import { runPlanChangeDetector } from './plan-change-detector.job';
+
+/** Último aviso de factura atascada por dueño (memoria del proceso; se reinicia con el deploy). */
+const ultimoAvisoFacturaAtascada = new Map<string, number>();
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -309,7 +317,17 @@ export function initMaintenanceJobs() {
         try {
             const rr = await reconcilePendingInvoices();
             if (rr.scanned > 0) {
-                console.log(`[CRON] Reconciliación de facturas: scanned=${rr.scanned} completed=${rr.completed} stillPending=${rr.stillPending} failed=${rr.failed}`);
+                console.log(`[CRON] Reconciliación de facturas: scanned=${rr.scanned} completed=${rr.completed} stillPending=${rr.stillPending} failed=${rr.failed} stuck=${rr.stuck}`);
+            }
+            // Factura atascada sin validar: bloquea al PAC para todo el dueño.
+            // Se avisa como mucho una vez cada 6 h por dueño (el cron corre cada 15 min).
+            for (const owner of rr.stuckOwners) {
+                const ultimo = ultimoAvisoFacturaAtascada.get(owner) ?? 0;
+                if (Date.now() - ultimo < 6 * 3_600_000) continue;
+                ultimoAvisoFacturaAtascada.set(owner, Date.now());
+                const msg = `[invoicing] ${rr.stuck} factura(s) llevan más de ${FACTURA_ATASCADA_HORAS} h sin validar en la DIAN (dueño ${owner}). El PAC no emite nada nuevo hasta que se resuelvan: revisar en el panel del PAC.`;
+                console.error(msg);
+                Sentry.captureMessage(msg, 'error');
             }
         } catch (err: any) {
             Sentry.captureException(err);
@@ -657,7 +675,7 @@ export function initMaintenanceJobs() {
     // ────────────────────────────────────────────────────────────────────────
     // Resumen semanal de los bots a SportMaps — lunes 07:05 COT (5 min después
     // del diario para no pedir las mismas tablas en el mismo minuto). WhatsApp
-    // por escuela + tickets de SportBot de la semana anterior. Misma
+    // por escuela + tickets de Mapi de la semana anterior. Misma
     // idempotencia en base. Kill-switch: DISABLE_BOT_RESUMEN_SEMANAL_CORREO.
     // ────────────────────────────────────────────────────────────────────────
     cron.schedule('5 7 * * 1', async () => {
@@ -762,6 +780,20 @@ export function initMaintenanceJobs() {
 
     console.log('[CRON] Cargos por horas de más del banco de horas registrado para las 03:00 COT.');
 
+    // Confirmación AUTOMÁTICA de excedentes bajo tope (08:00 COT, para que la familia reciba el aviso
+    // del cobro de día). Solo escuelas con al menos un tope definido (default NULL = apagado); lo que
+    // supere un tope, las inscripciones no activas y lo del dueño siguen `suggested` para decidir a mano.
+    cron.schedule('0 8 * * *', async () => {
+        try {
+            await runHourBankOverageAutoConfirm();
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en la confirmación automática de excedentes:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Confirmación automática de excedentes de horas registrada para las 08:00 COT.');
+
     // ────────────────────────────────────────────────────────────────────────
     // Bloqueo automático por mora (school_settings.access_auto_block_overdue_enabled,
     // migración 20260905111458). Reconcilia contra payments.status='overdue' —
@@ -780,6 +812,24 @@ export function initMaintenanceJobs() {
     });
 
     console.log('[CRON] Bloqueo automático por mora registrado (cada 15 min).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Avisos de saldo del banco de horas (escalera 50/20/10/0 %, push + correo).
+    // Plan: docs/specs/dreamers-horas-agotadas-bloqueo-y-excedentes-automaticos.md §2.1.
+    // No-op para toda escuela sin escalones configurados (default '{}') y mientras la
+    // migración 20261023194135 no esté aplicada. Solo manda de 8:00 a 19:59 hora Colombia.
+    // Nunca cobra ni bloquea nada.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('*/15 * * * *', async () => {
+        try {
+            await runHourBankBalanceNotices();
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en avisos de saldo de horas:', err?.message || err);
+        }
+    });
+
+    console.log('[CRON] Avisos de saldo de horas registrados (cada 15 min).');
 
     // ────────────────────────────────────────────────────────────────────────
     // Ciclo diario de facturación SaaS SportMaps → escuelas (Fase 1). Llama a
@@ -838,6 +888,24 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Borrado físico de cuentas registrado para las 06:30 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Terminó la semana de cortesía (escuelas con school_settings.cortesia_unica):
+    // avisa a la administración, UNA vez por inscripción, de quien sigue sin plan
+    // ni cuota. Solo informa: no cancela ni cobra. 08:30 COT.
+    // Kill-switch: DISABLE_CORTESIA_VENCIDA_CRON=true.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('30 8 * * *', async () => {
+        if (process.env.DISABLE_CORTESIA_VENCIDA_CRON === 'true') return;
+        try {
+            await runCortesiaVencida();
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en aviso de cortesías vencidas:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Aviso de cortesías vencidas registrado para las 08:30 COT.');
 
     // ────────────────────────────────────────────────────────────────────────
     // Franjas de clase de cortesía desde los entrenamientos (teams.schedule).
@@ -973,4 +1041,26 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Ciclo de la clase de cortesía registrado (seguimiento 20:00-21:45 COT; cruce de inscripciones 21:30 COT).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Detector de cambio de plan: la familia paga el valor de otro plan sin avisar.
+    // Cambia el plan solo con dos periodos seguidos al mismo valor de UN único plan;
+    // si no, avisa a la dueña una vez. Solo para las escuelas de
+    // PLAN_CHANGE_AUTO_SCHOOL_IDS (vacía = no hace nada). Kill-switch:
+    // DISABLE_PLAN_CHANGE_DETECTOR=true.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('20 9 * * *', async () => {
+        if (process.env.DISABLE_PLAN_CHANGE_DETECTOR === 'true') return;
+        try {
+            const r = await runPlanChangeDetector();
+            if (r.cambiados > 0 || r.avisados > 0 || r.errores > 0) {
+                console.log(`[CRON] Cambio de plan: revisados=${r.revisados} cambiados=${r.cambiados} avisados=${r.avisados} errores=${r.errores}`);
+            }
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en el detector de cambio de plan:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Detector de cambio de plan registrado (09:20 COT, solo escuelas de PLAN_CHANGE_AUTO_SCHOOL_IDS).');
 }

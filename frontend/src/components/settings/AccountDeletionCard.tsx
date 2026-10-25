@@ -60,7 +60,15 @@ function formatDate(iso: string): string {
     }
 }
 
-export function AccountDeletionCard() {
+interface AccountDeletionCardProps {
+    /**
+     * 'v2' = presentación de «Mi cuenta» del acudiente: sin la tarjeta roja de
+     * «Zona de peligro», una frase y un botón. La lógica es la misma.
+     */
+    variant?: 'default' | 'v2';
+}
+
+export function AccountDeletionCard({ variant = 'default' }: AccountDeletionCardProps = {}) {
     const { toast } = useToast();
     const [request, setRequest] = useState<DeletionRequest | null>(null);
     const [loading, setLoading] = useState(true);
@@ -138,6 +146,99 @@ export function AccountDeletionCard() {
         }
     };
 
+    const dialogo = (
+        <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>¿Eliminar tu cuenta de SportMaps?</AlertDialogTitle>
+                    <AlertDialogDescription asChild>
+                        <div className="space-y-3">
+                            <p>
+                                Programaremos el borrado de tu cuenta y de tus datos en{' '}
+                                <strong>30 días</strong>. De inmediato cancelamos tus cobros
+                                recurrentes y desactivamos tus medios de pago.
+                            </p>
+                            <p>
+                                Si eres acudiente, esto también afecta los perfiles de los
+                                deportistas que registraste a tu cargo.
+                            </p>
+                            <p className="text-muted-foreground">
+                                Podrás cancelar la solicitud desde esta misma pantalla mientras no
+                                se cumpla el plazo.
+                            </p>
+                        </div>
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+
+                <div className="space-y-2">
+                    <Label htmlFor="deletion-reason">Motivo (opcional)</Label>
+                    <Textarea
+                        id="deletion-reason"
+                        value={reason}
+                        onChange={(e) => setReason(e.target.value.slice(0, 500))}
+                        placeholder="Nos ayuda a mejorar, pero puedes dejarlo vacío."
+                        rows={3}
+                    />
+                </div>
+
+                <AlertDialogFooter>
+                    <AlertDialogCancel disabled={submitting}>Conservar mi cuenta</AlertDialogCancel>
+                    <AlertDialogAction
+                        onClick={(e) => {
+                            // Evita que el dialog se cierre antes de saber si funcionó.
+                            e.preventDefault();
+                            void handleRequest();
+                        }}
+                        disabled={submitting}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90 gap-2"
+                    >
+                        {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                        Sí, eliminar mi cuenta
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+    );
+
+    if (variant === 'v2') {
+        return (
+            <section aria-labelledby="eliminar-cuenta-titulo" className="space-y-3 border-t pt-5">
+                <h3 id="eliminar-cuenta-titulo" className="text-base font-semibold">Eliminar cuenta</h3>
+                {loading ? (
+                    <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                        Consultando el estado de tu cuenta…
+                    </p>
+                ) : pending ? (
+                    <>
+                        <p className="text-sm text-muted-foreground">
+                            Tu cuenta se borrará el <strong className="text-foreground">{formatDate(request!.scheduled_for)}</strong>.
+                            Tus cobros recurrentes ya están cancelados. Puedes arrepentirte hasta esa fecha.
+                        </p>
+                        <Button variant="outline" onClick={handleCancel} disabled={submitting} className="min-h-touch w-full gap-2 sm:w-auto">
+                            {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                            Cancelar la eliminación
+                        </Button>
+                    </>
+                ) : (
+                    <>
+                        <p className="text-sm text-muted-foreground">
+                            Borramos tus datos en 30 días y cancelamos tus cobros recurrentes de inmediato.
+                        </p>
+                        <Button
+                            variant="outline"
+                            onClick={() => setConfirmOpen(true)}
+                            className="min-h-touch w-full border-destructive/40 text-destructive hover:bg-destructive hover:text-destructive-foreground sm:w-auto"
+                        >
+                            Eliminar mi cuenta
+                        </Button>
+                    </>
+                )}
+                {dialogo}
+            </section>
+        );
+    }
+
     return (
         <Card className="border-destructive/20 bg-destructive/5">
             <CardHeader>
@@ -192,57 +293,7 @@ export function AccountDeletionCard() {
                 )}
             </CardContent>
 
-            <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>¿Eliminar tu cuenta de SportMaps?</AlertDialogTitle>
-                        <AlertDialogDescription asChild>
-                            <div className="space-y-3">
-                                <p>
-                                    Programaremos el borrado de tu cuenta y de tus datos en{' '}
-                                    <strong>30 días</strong>. De inmediato cancelamos tus cobros
-                                    recurrentes y desactivamos tus medios de pago.
-                                </p>
-                                <p>
-                                    Si eres acudiente, esto también afecta los perfiles de los
-                                    deportistas que registraste a tu cargo.
-                                </p>
-                                <p className="text-muted-foreground">
-                                    Podrás cancelar la solicitud desde esta misma pantalla mientras no
-                                    se cumpla el plazo.
-                                </p>
-                            </div>
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-
-                    <div className="space-y-2">
-                        <Label htmlFor="deletion-reason">Motivo (opcional)</Label>
-                        <Textarea
-                            id="deletion-reason"
-                            value={reason}
-                            onChange={(e) => setReason(e.target.value.slice(0, 500))}
-                            placeholder="Nos ayuda a mejorar, pero puedes dejarlo vacío."
-                            rows={3}
-                        />
-                    </div>
-
-                    <AlertDialogFooter>
-                        <AlertDialogCancel disabled={submitting}>Conservar mi cuenta</AlertDialogCancel>
-                        <AlertDialogAction
-                            onClick={(e) => {
-                                // Evita que el dialog se cierre antes de saber si funcionó.
-                                e.preventDefault();
-                                void handleRequest();
-                            }}
-                            disabled={submitting}
-                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90 gap-2"
-                        >
-                            {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                            Sí, eliminar mi cuenta
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
+            {dialogo}
         </Card>
     );
 }

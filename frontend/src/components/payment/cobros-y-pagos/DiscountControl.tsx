@@ -67,7 +67,7 @@ export function DiscountControl({
 
     return (
         <div className={cn('rounded-lg border border-violet-300/60 bg-violet-50/40 dark:bg-violet-950/20 p-3 space-y-2', className)} data-testid={`${idPrefix}-discount`}>
-            <div className="grid grid-cols-[minmax(0,6rem)_auto_minmax(0,1fr)] gap-2 items-center">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-center">
                 <Label htmlFor={`${idPrefix}-dval`} className="sr-only">Valor del descuento</Label>
                 <Input
                     id={`${idPrefix}-dval`}
@@ -90,7 +90,7 @@ export function DiscountControl({
                     <ToggleGroupItem value="valor" aria-label="Valor fijo" className="h-9 px-2.5">$</ToggleGroupItem>
                 </ToggleGroup>
                 <Select value={d.reason_code || undefined} onValueChange={(v) => set({ reason_code: v as ReasonCode })}>
-                    <SelectTrigger className="h-9 text-sm" aria-label="Motivo del descuento">
+                    <SelectTrigger className="h-9 text-sm col-span-2 w-full" aria-label="Motivo del descuento">
                         <SelectValue placeholder="Motivo" />
                     </SelectTrigger>
                     <SelectContent>

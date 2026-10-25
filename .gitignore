@@ -233,7 +233,7 @@ Datos Plataforma Sede Suba.xlsx
 .env*
 
 # Capturas crudas de los manuales: se regeneran con capture.mjs; el HTML/PDF ya las lleva embebidas
-docs/manuales/_src/**/shots/
+docs/manuales/_src/**/shots*/
 docs/manuales/_src/**/video-raw/
 
 # Gemelo local (QA): volcado de esquema de la viva y logs de carga. Se regeneran
@@ -247,3 +247,10 @@ frontend/playwright-report-gemelo/
 
 # Auditoría responsive: capturas y resultados (pesan; se regeneran)
 scripts/qa-responsive/out/
+
+# Datos personales de menores/clientes: no versionar
+scripts/monster-volley-norte-import/data/
+docs/gym-rm-atletas-sin-plan-*.csv
+
+# Volcados reales de usuarios de los lectores (datos personales): no se commitean
+scripts/dreamers-bridge/usuarios_*.csv

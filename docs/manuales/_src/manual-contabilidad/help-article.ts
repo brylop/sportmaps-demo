@@ -1,5 +1,5 @@
 /**
- * Contenido para Sportbot / Centro de Ayuda — versión ACADEMIAS del manual
+ * Contenido para Mapi / Centro de Ayuda — versión ACADEMIAS del manual
  * docs/manuales/academias/manual-contabilidad.pdf (2026-10-05).
  *
  * Cómo usarlo: artículo NUEVO para pegar en `helpArticles` de

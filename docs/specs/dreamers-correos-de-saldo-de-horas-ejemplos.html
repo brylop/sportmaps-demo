@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dreamers — correos de saldo de horas (ejemplos)</title>
+<style>
+  :root{--bg:#f3f5f1;--ink:#1d2a1f;--muted:#5d6b5f;--green:#1f7a3a;--green-dk:#165a2b;--amber:#b45309;--red:#b91c1c;--card:#fff;--line:#dfe5dc}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:760px;margin:0 auto;padding:24px 16px 64px}
+  h1{font-size:26px;margin:8px 0 4px}
+  .lead{color:var(--muted);margin:0 0 20px}
+  .note{background:#fff8e6;border:1px solid #f0d58a;border-radius:10px;padding:12px 14px;font-size:14px;margin:0 0 28px}
+  h2{font-size:18px;margin:36px 0 4px}
+  .when{color:var(--muted);font-size:14px;margin:0 0 12px}
+  .mail{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+  .meta{background:#f8faf7;border-bottom:1px solid var(--line);padding:10px 16px;font-size:13px;color:var(--muted)}
+  .meta b{color:var(--ink)}
+  .head{padding:16px 20px;background:var(--green-dk);color:#fff;font-weight:700;letter-spacing:.2px}
+  .body{padding:20px}
+  .body p{margin:0 0 12px}
+  .bar{height:14px;border-radius:99px;background:#e6ece3;overflow:hidden;margin:6px 0 4px}
+  .bar i{display:block;height:100%;background:var(--green)}
+  .bar.warn i{background:#d97706}.bar.crit i{background:var(--red)}
+  .kpis{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 16px}
+  .kpi{flex:1 1 140px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fbfcfa}
+  .kpi small{display:block;color:var(--muted);font-size:12px}
+  .kpi strong{font-size:20px}
+  .btn{display:inline-block;background:var(--green);color:#fff;text-decoration:none;padding:12px 20px;border-radius:10px;font-weight:700}
+  .btn.alt{background:#fff;color:var(--green);border:1px solid var(--green)}
+  .foot{padding:14px 20px;border-top:1px solid var(--line);font-size:12px;color:var(--muted);background:#fafbf9}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin:8px 0 14px}
+  th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}
+  th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+  .tag{display:inline-block;font-size:12px;font-weight:700;border-radius:99px;padding:2px 9px}
+  .t-ok{background:#e4f3e8;color:var(--green-dk)}.t-warn{background:#fdebd0;color:var(--amber)}.t-crit{background:#fde2e2;color:var(--red)}
+  .callout{border-left:4px solid var(--amber);background:#fff8ee;padding:10px 12px;border-radius:0 8px 8px 0;margin:0 0 14px;font-size:14px}
+  .callout.red{border-color:var(--red);background:#fff3f3}
+  .toc{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:0 0 8px;font-size:14px}
+  .toc li{margin:2px 0}
+  @media(max-width:520px){.body{padding:16px}h1{font-size:22px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Correos de saldo de horas</h1>
+<p class="lead">Así se verían los avisos que reciben las familias de Dreamers Gymnastics, y los que recibe la escuela.</p>
+<p class="note"><b>Son ejemplos.</b> Los nombres, horas y valores son inventados para mostrar el diseño (plan de 36 horas al mes, hora a $26.778). Todavía no se envía ninguno: la escuela decide qué avisos activar, con qué porcentajes y si usa el correo.</p>
+
+<ol class="toc">
+  <li>Llevas la mitad de tus horas (50 %)</li>
+  <li>Entraste con 20 % o menos</li>
+  <li>Te queda una clase más (10 %)</li>
+  <li>Se acabaron tus horas (0 %)</li>
+  <li>Mañana no podrás entrar (aviso previo al bloqueo)</li>
+  <li>Ya no puedes entrar por horas (bloqueo)</li>
+  <li>Varias hijas en un solo correo</li>
+  <li>Horas de más: cobro generado</li>
+  <li>Para la escuela: excedentes por confirmar</li>
+</ol>
+
+<!-- 1 -->
+<h2>1. Llevas la mitad de tus horas</h2>
+<p class="when">Cuándo: al terminar una visita en la que el saldo baja de la mitad. Una sola vez por mes.</p>
+<div class="mail">
+  <div class="meta"><b>De:</b> Dreamers Gymnastics &nbsp;·&nbsp; <b>Para:</b> familia.perez@correo.com<br><b>Asunto:</b> Camila ya usó la mitad de sus horas de octubre</div>
+  <div class="head">Dreamers Gymnastics</div>
+  <div class="body">
+    <p>Hola, familia de <b>Camila</b>.</p>
+    <p>Hoy terminó su clase de <b>2 h</b>. Ya lleva la mitad de las horas de su plan de octubre.</p>
+    <div class="bar"><i style="width:50%"></i></div>
+    <div class="kpis">
+      <div class="kpi"><small>Usó hoy</small><strong>2 h</strong></div>
+      <div class="kpi"><small>Le quedan</small><strong>18 h</strong></div>
+      <div class="kpi"><small>Se renuevan</small><strong>1 nov.</strong></div>
+    </div>
+    <p>Las horas que no se usen en el mes no pasan al siguiente.</p>
+    <p><a class="btn alt" href="#">Ver el saldo de Camila</a></p>
+  </div>
+  <div class="foot">Plan PGC12x3 · 36 h al mes · Powered by SportMaps</div>
+</div>
+
+<!-- 2 -->
+<h2>2. Entraste con 20 % o menos</h2>
+<p class="when">Cuándo: en el momento en que marca la entrada y el saldo es del 20 % o menos. Se repite una vez al salir, con el saldo ya descontado.</p>
+<div class="mail">
+  <div class="meta"><b>De:</b> Dreamers Gymnastics &nbsp;·&nbsp; <b>Para:</b> familia.perez@correo.com<br><b>Asunto:</b> A Camila le quedan 7 h de octubre</div>
+  <div class="head">Dreamers Gymnastics</div>
+  <div class="body">
+    <p>Hola, familia de <b>Camila</b>.</p>
+    <p>Camila acaba de entrar a su clase de las <b>4:00 p. m.</b> y le quedan pocas horas este mes.</p>
+    <div class="bar warn"><i style="width:80%"></i></div>
+    <div class="kpis">
+      <div class="kpi"><small>Usadas</small><strong>29 h</strong></div>
+      <div class="kpi"><small>Le quedan</small><strong>7 h</strong></div>
+      <div class="kpi"><small>Se renuevan</small><strong>1 nov.</strong></div>
+    </div>
+    <div class="callout">Si necesita más horas antes del 1 de noviembre, puede comprarlas con anticipación: cada hora cuesta <b>$26.778</b>.</div>
+    <p><a class="btn" href="#">Comprar horas</a> &nbsp; <a class="btn alt" href="#">Ver saldo</a></p>
+  </div>
+  <div class="foot">Recibes este aviso porque eres el acudiente de Camila. · Powered by SportMaps</div>
+</div>
+
+<!-- 3 -->
+<h2>3. Te queda una clase más</h2>
+<p class="when">Cuándo: al entrar, con el 10 % o menos. Avisa que alcanza para una clase.</p>
+<div class="mail">
+  <div class="meta"><b>De:</b> Dreamers Gymnastics &nbsp;·&nbsp; <b>Para:</b> familia.perez@correo.com<br><b>Asunto:</b> Camila: queda una clase más este mes</div>
+  <div class="head">Dreamers Gymnastics</div>
+  <div class="body">
+    <p>Hola, familia de <b>Camila</b>.</p>
+    <p>Después de la clase de hoy le quedarán <b>3 h 36 min</b>, que alcanzan para <b>una clase más</b> de 2 h.</p>
+    <div class="bar warn"><i style="width:90%"></i></div>
+    <div class="callout">Si se queda más tiempo del incluido, esas horas de más se cobran por <b>hora completa</b> a <b>$26.778</b>.</div>
+    <p><a class="btn" href="#">Comprar horas por adelantado</a></p>
+  </div>
+  <div class="foot">Plan PGC12x3 · Powered by SportMaps</div>
+</div>
+
+<!-- 4 -->
+<h2>4. Se acabaron tus horas</h2>
+<p class="when">Cuándo: al terminar la visita que deja el saldo en cero.</p>
+<div class="mail">
+  <div class="meta"><b>De:</b> Dreamers Gymnastics &nbsp;·&nbsp; <b>Para:</b> familia.perez@correo.com<br><b>Asunto:</b> Camila ya usó todas sus horas de octubre</div>
+  <div class="head">Dreamers Gymnastics</div>
+  <div class="body">
+    <p>Hola, familia de <b>Camila</b>.</p>
+    <p>Con la clase de hoy, Camila <b>usó las 36 horas</b> de su plan de octubre.</p>
+    <div class="bar crit"><i style="width:100%"></i></div>
+    <p><b>Para seguir entrenando antes del 1 de noviembre:</b></p>
+    <table>
+      <tr><th>Opción</th><th>Cómo</th></tr>
+      <tr><td>Comprar horas</td><td>Cada hora a $26.778. Se suman al saldo cuando el pago queda registrado.</td></tr>
+      <tr><td>Esperar el 1 de noviembre</td><td>El saldo se renueva con la mensualidad del mes.</td></tr>
+    </table>
+    <p><a class="btn" href="#">Comprar horas</a></p>
+  </div>
+  <div class="foot">¿Dudas? Escríbenos a la escuela. · Powered by SportMaps</div>
+</div>
+
+<!-- 5 -->
+<h2>5. Mañana no podrás entrar</h2>
+<p class="when">Cuándo: el día anterior, solo si la escuela activó el bloqueo por horas y el saldo está en cero.</p>
+<div class="mail">
+  <div class="meta"><b>De:</b> Dreamers Gymnastics &nbsp;·&nbsp; <b>Para:</b> familia.perez@correo.com<br><b>Asunto:</b> Aviso: mañana Camila no podrá entrar si no renuevan sus horas</div>
+  <div class="head">Dreamers Gymnastics</div>
+  <div class="body">
+    <div class="callout red"><b>Camila no tiene horas disponibles.</b> A partir de mañana el torniquete no la dejará entrar hasta que renueven.</div>
+    <p>No se borra nada: su inscripción y sus datos siguen igual. Solo se pausa la entrada.</p>
+    <p><b>Para evitarlo hoy mismo:</b></p>
+    <p><a class="btn" href="#">Comprar horas</a></p>
+  </div>
+  <div class="foot">Si ya compraron horas, ignoren este aviso. · Powered by SportMaps</div>
+</div>
+
+<!-- 6 -->
+<h2>6. Ya no puedes entrar por horas</h2>
+<p class="when">Cuándo: cuando el bloqueo queda aplicado en el lector.</p>
+<div class="mail">
+  <div class="meta"><b>De:</b> Dreamers Gymnastics &nbsp;·&nbsp; <b>Para:</b> familia.perez@correo.com<br><b>Asunto:</b> La entrada de Camila está pausada por horas</div>
+  <div class="head">Dreamers Gymnastics</div>
+  <div class="body">
+    <p>Hola, familia de <b>Camila</b>.</p>
+    <p>Su entrada está <b>pausada</b> porque no le quedan horas este mes. En cuanto se registre la compra de horas, la entrada se habilita sola, en unos <b>15 minutos</b>.</p>
+    <table>
+      <tr><th>Cómo volver a entrar</th><th></th></tr>
+      <tr><td>Comprar horas</td><td><span class="tag t-ok">Se habilita al registrarse el pago</span></td></tr>
+      <tr><td>Esperar la renovación</td><td><span class="tag t-warn">1 de noviembre</span></td></tr>
+      <tr><td>Hablar con la escuela</td><td><span class="tag t-ok">Puede habilitar la entrada por hoy</span></td></tr>
+    </table>
+    <p><a class="btn" href="#">Comprar horas</a></p>
+  </div>
+  <div class="foot">Powered by SportMaps</div>
+</div>
+
+<!-- 7 -->
+<h2>7. Varias hijas en un solo correo</h2>
+<p class="when">Cuándo: si un acudiente tiene más de una hija con aviso el mismo día, recibe un solo mensaje.</p>
+<div class="mail">
+  <div class="meta"><b>De:</b> Dreamers Gymnastics &nbsp;·&nbsp; <b>Para:</b> familia.gomez@correo.com<br><b>Asunto:</b> Saldo de horas de sus hijas — octubre</div>
+  <div class="head">Dreamers Gymnastics</div>
+  <div class="body">
+    <p>Hola, familia Gómez. Así van las horas de octubre:</p>
+    <table>
+      <tr><th>Deportista</th><th>Usadas</th><th>Quedan</th><th>Estado</th></tr>
+      <tr><td>Emma</td><td>30 h</td><td>6 h</td><td><span class="tag t-warn">20 % o menos</span></td></tr>
+      <tr><td>Sofía</td><td>20 h</td><td>28 h</td><td><span class="tag t-ok">Bien</span></td></tr>
+      <tr><td>Valeria</td><td>16 h</td><td>0 h</td><td><span class="tag t-crit">Sin horas</span></td></tr>
+    </table>
+    <p><a class="btn" href="#">Ver saldos y comprar horas</a></p>
+  </div>
+  <div class="foot">Se envía un solo correo por familia y por día. · Powered by SportMaps</div>
+</div>
+
+<!-- 8 -->
+<h2>8. Horas de más: cobro generado</h2>
+<p class="when">Cuándo: cuando la escuela confirma el excedente del período (o se confirma solo, si dentro del tope que la escuela fije).</p>
+<div class="mail">
+  <div class="meta"><b>De:</b> Dreamers Gymnastics &nbsp;·&nbsp; <b>Para:</b> familia.perez@correo.com<br><b>Asunto:</b> Cobro por horas adicionales de octubre — Camila</div>
+  <div class="head">Dreamers Gymnastics</div>
+  <div class="body">
+    <p>Hola, familia de <b>Camila</b>.</p>
+    <p>En octubre Camila entrenó <b>1 hora por encima</b> de las 36 de su plan. Se cobra por hora completa:</p>
+    <table>
+      <tr><th>Concepto</th><th>Valor</th></tr>
+      <tr><td>1 hora adicional × $26.778</td><td>$26.778</td></tr>
+      <tr><td><b>Total a pagar</b></td><td><b>$26.778</b></td></tr>
+    </table>
+    <p>Vence el <b>5 de noviembre</b>. Puedes pagar por transferencia o en la escuela.</p>
+    <p><a class="btn" href="#">Ver el cobro</a></p>
+  </div>
+  <div class="foot">Si crees que hay un error, responde este correo o habla con la escuela. · Powered by SportMaps</div>
+</div>
+
+<!-- 9 -->
+<h2>9. Para la escuela: excedentes por confirmar</h2>
+<p class="when">Cuándo: al cerrar el período. Es el correo que recibe la dueña, no las familias.</p>
+<div class="mail">
+  <div class="meta"><b>De:</b> SportMaps &nbsp;·&nbsp; <b>Para:</b> dueña de Dreamers Gymnastics<br><b>Asunto:</b> Cierre de octubre: 3 excedentes de horas por confirmar</div>
+  <div class="head">Dreamers Gymnastics · resumen de horas</div>
+  <div class="body">
+    <p>Hola. Al cerrar octubre, estas deportistas pasaron de sus horas incluidas:</p>
+    <table>
+      <tr><th>Deportista</th><th>Plan</th><th>Horas de más</th><th>Valor</th></tr>
+      <tr><td>Camila</td><td>PGC12x3</td><td>1 h</td><td>$26.778</td></tr>
+      <tr><td>Antonia</td><td>PGA8x2</td><td>2 h</td><td>$44.126</td></tr>
+      <tr><td>Luciana</td><td>PGR4x2</td><td>1 h</td><td>$35.625</td></tr>
+      <tr><td><b>Total</b></td><td></td><td><b>4 h</b></td><td><b>$106.529</b></td></tr>
+    </table>
+    <div class="callout">No incluye dueños ni inscripciones canceladas. Nada se cobra hasta que confirmes.</div>
+    <p><a class="btn" href="#">Revisar y cobrar todos</a> &nbsp; <a class="btn alt" href="#">Descartar</a></p>
+  </div>
+  <div class="foot">Con la confirmación automática encendida, los excedentes dentro del tope que fijes se cobran solos y aquí solo ves el resumen. · Powered by SportMaps</div>
+</div>
+
+</div>
+</body>
+</html>

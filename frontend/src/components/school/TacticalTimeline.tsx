@@ -114,6 +114,8 @@ export interface TacticalTimelineProps {
    *  ayuda ni la fila de mover/tiempo/velocidad), para que la cancha no quede
    *  angosta. Al cerrar la hoja vuelve todo. */
   compact?: boolean;
+  /** Celular horizontal (~400 px de alto): botones y cuadros de 36 px, menos relleno. */
+  dense?: boolean;
 }
 
 const BTN = 'h-11 min-w-11 shrink-0 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1 px-2 transition-colors disabled:opacity-30 disabled:pointer-events-none';
@@ -124,7 +126,7 @@ export function TacticalTimeline(props: TacticalTimelineProps) {
   const {
     mode, frames, currentIndex, playState, clock, totalMs, speed, loop,
     onPlayPause, onSeek, onSpeedChange, onLoopChange,
-    onSelect, onAdd, onDelete, onMove, onDurationChange, compact = false,
+    onSelect, onAdd, onDelete, onMove, onDurationChange, compact = false, dense = false,
   } = props;
   const n = frames.length;
   const playing = playState === 'playing';
@@ -181,7 +183,7 @@ export function TacticalTimeline(props: TacticalTimelineProps) {
   };
 
   return (
-    <div data-board-chrome="" className="shrink-0 border-t border-white/10 bg-black/30 px-2 sm:px-3 pt-1.5 pb-1.5 space-y-1.5" aria-label="Línea de tiempo">
+    <div data-board-chrome="" className={`shrink-0 border-t border-white/10 bg-black/30 px-2 sm:px-3 ${dense ? 'pt-1 pb-1 space-y-1 [&_button.h-11]:h-9 [&_button.min-w-11]:min-w-9 [&_button.h-12]:h-9 [&_button.w-11]:w-9' : 'pt-1.5 pb-1.5 space-y-1.5'}`} aria-label="Línea de tiempo">
       {n > 1 && !compact && <ProgressBar clock={clock} frames={frames} totalMs={totalMs} onSeek={onSeek} />}
       <div className="flex items-center gap-1.5 overflow-x-auto overscroll-x-contain [scrollbar-width:thin]">
         {playBtn}

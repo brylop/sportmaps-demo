@@ -62,11 +62,11 @@ export const BrandedEmailTemplates = {
                     <p>La escuela <strong>${branding.schoolName}</strong> ha registrado
                     a <strong>${safeChild}</strong> en su sistema.</p>
                     <p>Para ver el progreso, realizar pagos y recibir notificaciones,
-                    aceptá la invitación y completa tu registro.</p>
+                    acepta la invitación y completa tu registro.</p>
                 `,
                 cta: { label: 'Aceptar Invitación', url: params.inviteLink },
                 closingHtml: `
-                    <p>Si ya tenés cuenta en SportMaps, el deportista se asociará
+                    <p>Si ya tienes cuenta en SportMaps, el deportista se asociará
                     automáticamente cuando inicies sesión con este correo.</p>
                 `,
             }),
@@ -535,6 +535,40 @@ export const BrandedEmailTemplates = {
 
     // ── Intento de pago online rechazado (Wompi/MercadoPago) ─────────────────
     /** El banco rechazó el intento → acudiente: puede reintentar ya mismo. */
+    /**
+     * Saldo del banco de horas (escalera de avisos). UN correo por acudiente con TODAS las
+     * hijas que cruzaron un escalón en esta corrida (hermanas = un solo mensaje).
+     * Plan: docs/specs/dreamers-horas-agotadas-bloqueo-y-excedentes-automaticos.md §2.1.
+     */
+    hourBankBalance: async (params: {
+        recipientName: string;
+        items: { athlete: string; title: string; body: string; severity: 'info' | 'aviso' | 'critico' }[];
+        link: string;
+        schoolId: string | null;
+    }): Promise<{ subject: string; html: string }> => {
+        const branding = await resolveSchoolBranding(params.schoolId);
+        const one = params.items.length === 1 ? params.items[0] : null;
+        const color = (sev: string) => (sev === 'critico' ? '#b91c1c' : sev === 'aviso' ? '#b45309' : '#166534');
+        const bloques = params.items.map((it) => `
+            <div style="border-left: 4px solid ${color(it.severity)}; padding: 4px 0 4px 12px; margin: 14px 0;">
+                <p style="margin: 0 0 4px; font-weight: 700;">${escapeHtml(it.title)}</p>
+                <p style="margin: 0;">${escapeHtml(it.body)}</p>
+            </div>`).join('');
+        return {
+            subject: one
+                ? `${one.title} — ${branding.schoolName.replace(/&amp;/g, '&')}`
+                : `Saldo de horas de tus deportistas — ${branding.schoolName.replace(/&amp;/g, '&')}`,
+            html: buildBrandedEmail({
+                branding,
+                title: 'Saldo de horas',
+                greeting: `Hola ${escapeHtml(params.recipientName)},`,
+                bodyHtml: `<p>Así va el banco de horas de este mes:</p>${bloques}`,
+                cta: { label: 'Ver el saldo', url: params.link },
+                closingHtml: 'Si necesitas más horas, escríbele a la escuela.',
+            }),
+        };
+    },
+
     paymentAttemptFailed: async (params: {
         parentName: string; concept: string; amount: string; bankReason: string | null;
         link: string; schoolId: string | null;
@@ -552,10 +586,10 @@ export const BrandedEmailTemplates = {
                         params.bankReason ? `: <em>${escapeHtml(params.bankReason)}</em>` : '.'
                     }</p>
                     <p>No te preocupes: el cobro sigue disponible, no perdiste el intento.
-                    Podés volver a intentarlo con el mismo medio o con otro.</p>
+                    Puedes volver a intentarlo con el mismo medio o con otro.</p>
                 `,
                 cta: { label: 'Reintentar pago', url: params.link },
-                closingHtml: 'Si el problema persiste, contactá directamente a la escuela.',
+                closingHtml: 'Si el problema persiste, contacta directamente a la escuela.',
             }),
         };
     },
@@ -629,9 +663,9 @@ export const BrandedEmailTemplates = {
                 title: '¡Bienvenido a SportMaps!',
                 greeting: `Hola ${escapeHtml(params.name)},`,
                 bodyHtml: `
-                    <p>Estamos emocionados de tenerte con nosotros. Ahora podés gestionar
+                    <p>Estamos emocionados de tenerte con nosotros. Ahora puedes gestionar
                     las actividades deportivas de tus hijos de forma fácil y rápida.</p>
-                    <p>Explorá las escuelas cercanas y encontrá el programa perfecto.</p>
+                    <p>Explora las escuelas cercanas y encuentra el programa perfecto.</p>
                 `,
                 cta: { label: 'Explorar Programas', url: 'https://app.sportmaps.co/explorar' },
             }),
@@ -908,7 +942,7 @@ export const EmailTemplates = {
         <div style="background-color: #F3F4F6; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center;">
           <a href="${escapeHtml(inviteLink)}" style="background-color: #248223; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">Aceptar Invitación y Crear Cuenta</a>
         </div>
-        <p>Si ya tenés cuenta, el deportista se asociará automáticamente cuando inicies sesión con este correo.</p>
+        <p>Si ya tienes cuenta, el deportista se asociará automáticamente cuando inicies sesión con este correo.</p>
         <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 30px 0;" />
         <p style="color: #6B7280; font-size: 12px;">SportMaps - Gestión Deportiva</p>
       </div>

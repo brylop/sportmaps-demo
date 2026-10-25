@@ -182,7 +182,14 @@ export function normalizeReference(reference: string | null | undefined): string
  */
 export function normalizeDestination(destination: string | null | undefined): string | null {
     if (!destination) return null;
-    const norm = destination.toUpperCase().replace(/[\s.-]/g, '');
+    let norm = destination.toUpperCase().replace(/[\s.-]/g, '');
+    // La llave Bre-B / Nequi se imprime con «@» delante («@3204298969»): es el mismo
+    // número que la cuenta registrada (Dynasty 10-18).
+    norm = norm.replace(/^@+/, '');
+    // El OCR confunde la O con el 0 (y la I/L con el 1) en una cuenta numérica:
+    // «OO89455111» es la 0089455111 (Dynasty 10-14). Solo si son todo dígitos y
+    // esas letras; una llave alfanumérica («XJI669») no se toca.
+    if (/^[0-9OIL]{6,}$/.test(norm) && /\d{4}/.test(norm)) norm = norm.replace(/O/g, '0').replace(/[IL]/g, '1');
     return norm.length > 0 ? norm : null;
 }
 

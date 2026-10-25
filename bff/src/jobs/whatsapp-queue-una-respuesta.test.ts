@@ -215,8 +215,8 @@ describe('…9ed973 / …b62e3f: familia con cuenta, una foto', () => {
         expect(sendTextMessageMock).not.toHaveBeenCalled();
         const [, , cuerpo, botones] = sendInteractiveButtonsMock.mock.calls[0];
         expect(cuerpo.startsWith('Hola 👋 soy el asistente automático')).toBe(true);
-        expect(cuerpo).toContain('Recibí tu comprobante y lo apliqué a *Mensualidad 10/2026*');
-        expect(cuerpo.indexOf('lo apliqué')).toBeLessThan(cuerpo.indexOf('Responde *SÍ*'));
+        expect(cuerpo).toContain('Listo: comprobante de *$180.000* para *octubre*. La escuela lo confirma.');
+        expect(cuerpo.indexOf('Listo: comprobante')).toBeLessThan(cuerpo.indexOf('Responde *SÍ*'));
         expect(botones).toEqual(BOTONES);
         // Ni la pregunta aparte ni el acuse.
         expect(ofrecerConsentimientoMock).not.toHaveBeenCalled();
@@ -232,7 +232,7 @@ describe('…9ed973 / …b62e3f: familia con cuenta, una foto', () => {
         await runWhatsAppQueue();
         expect(mensajesDelBot()).toBe(1);
         expect(sendInteractiveButtonsMock).not.toHaveBeenCalled();
-        expect(enviados()[0]).toMatch(/^Recibí tu comprobante y lo apliqué/);
+        expect(enviados()[0]).toMatch(/^Listo: comprobante de \*\$180\.000\* para \*octubre\*/);
     });
 
     it('si Meta rechaza los botones, sale el MISMO mensaje como texto (uno, no dos)', async () => {
@@ -410,12 +410,12 @@ describe('Bandeja: número desconocido', () => {
         expect(mensajesDelBot()).toBe(0);
     });
 
-    it('contacto PERSONAL: ni se baja ni se lee ni se responde', async () => {
+    it('contacto PERSONAL: se lee (un comprobante nunca se ignora por el tipo de contacto, 2026-10-24) pero NUNCA se le responde', async () => {
         state.atencion = { atender: false, tipo: 'personal', botEncendido: true };
         state.textos = [{ text_body: 'te mando el pago' }];
         await runWhatsAppQueue();
-        expect(downloadMediaMock).not.toHaveBeenCalled();
-        expect(extractReceiptMock).not.toHaveBeenCalled();
+        // Sin cuentas de la escuela con qué cruzar el destino: no se guarda ni se escala.
+        expect(updatesCola.some((u) => typeof u.storage_path === 'string')).toBe(false);
         expect(mensajesDelBot()).toBe(0);
     });
 });

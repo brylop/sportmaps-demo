@@ -242,6 +242,15 @@ export interface NewLineDraft {
     period: { year: number; month: number } | null;
     enrollment_id: string | null;
     overage_charge_id: string | null;
+    /** Horas adicionales vendidas por adelantado (null = no es una venta de horas). */
+    extra_hours: number | null;
+    /**
+     * Línea «Horas adicionales»: 'usadas' = ya las consumió, solo se cobra (el banco NO cambia);
+     * 'adelantado' = las paga antes de usarlas y se suman al banco. null = sin elegir todavía.
+     */
+    horas_modo: 'usadas' | 'adelantado' | null;
+    /** «Ya las usó»: cuántas horas se cobran (solo informativo y para calcular el valor; NUNCA viaja como extra_hours). */
+    horas_usadas: number | null;
     discount: DiscountDraft | null;
     /** «No cobrar» (exoneración, §6.5). */
     exonerate: { reason_text: string } | null;
@@ -291,6 +300,9 @@ export function newLineDraft(partial: Partial<NewLineDraft> & Pick<NewLineDraft,
         period: null,
         enrollment_id: null,
         overage_charge_id: null,
+        extra_hours: null,
+        horas_modo: null,
+        horas_usadas: null,
         discount: null,
         exonerate: null,
         pay: true,
@@ -345,6 +357,8 @@ export interface OperationCalc {
     toPay: { n: number; total: number };
     discountsTotal: number;
     lateFeeWaived: number;
+    /** Recargo por mora que va DENTRO de lo que se registra hoy (ya sumado en `toPay`; no se suma otra vez). */
+    lateFeeIncluded: number;
     exonerated: number;
     /** Pendientes marcados que solo reciben ajustes (sin pago). */
     adjustOnly: number;
@@ -458,7 +472,23 @@ export function computeSingle(input: SingleInput): OperationCalc {
         if (amount > 20_000_000) errors.push('El valor no puede pasar de $20.000.000.');
         if (!l.concept.trim()) errors.push('Escribe el detalle del cobro.');
         if (l.category === 'mensualidad' && !l.period) errors.push('Elige el mes de la mensualidad.');
-        if (l.category === 'excedente' && !l.overage_charge_id) errors.push('Elige el período de horas adicionales.');
+        if (l.category === 'excedente') {
+            if (l.horas_modo == null && l.extra_hours == null && !l.overage_charge_id) {
+                errors.push('Elige si las horas ya las usó (solo se cobran) o si las paga por adelantado (se suman al banco).');
+            } else if (l.horas_modo === 'usadas') {
+                // Solo cobra: ni suma horas ni exige pago. Sin período del banco es un cobro libre.
+                if (l.extra_hours != null) errors.push('Las horas que ya usó no se suman al banco: quita las horas vendidas.');
+            } else if (l.extra_hours != null) {
+                if (!(l.extra_hours > 0)) errors.push('Escribe cuántas horas se vendieron.');
+                else if (Math.abs(l.extra_hours * 4 - Math.round(l.extra_hours * 4)) > 1e-9) errors.push('Las horas se venden de a 15 minutos (0,25 h).');
+                else if (l.extra_hours > 24) errors.push('Máximo 24 horas por venta.');
+                if (!l.enrollment_id) errors.push('Elige a cuál inscripción se le suman las horas.');
+                // Las horas se suman al banco solo con el cobro pagado: sin pago no hay horas.
+                if (!(input.paymentOn && l.pay && !l.exonerate)) errors.push('Las horas se venden pagadas: activa «Ya lo pagaron» y deja marcado «Pagar».');
+            } else if (!l.overage_charge_id) {
+                errors.push('Elige el período de horas adicionales o escribe cuántas horas se vendieron.');
+            }
+        }
         const exonerated = !!l.exonerate;
         const auto = input.autoDiscounts?.[`new:${idx}`];
         const autoAmt = Math.min(Math.max(0, Math.round(auto?.amount ?? 0)), amount);
@@ -614,6 +644,7 @@ export function computeSingle(input: SingleInput): OperationCalc {
         toPay: { n: 0, total: 0 },
         discountsTotal: 0,
         lateFeeWaived: 0,
+        lateFeeIncluded: 0,
         exonerated: 0,
         adjustOnly: 0,
         listTotal: 0,
@@ -635,6 +666,7 @@ export function computeSingle(input: SingleInput): OperationCalc {
         if (c.payAmount > 0) {
             out.toPay.n += 1;
             out.toPay.total += c.payAmount;
+            if (c.kind === 'pending' && !c.exonerated) out.lateFeeIncluded += Math.max(0, c.lateFee - c.waived);
         }
         if (c.exonerated) out.exonerated += 1;
         else out.discountsTotal += c.lineDiscount + c.generalShare + c.closingDiscount;
@@ -796,15 +828,18 @@ function discountPayload(d: DiscountDraft | null | undefined): DiscountPayload |
 
 function linePayload(l: NewLineDraft, mode: 'single' | 'multi', calc?: LineCalc): ChargeLinePayload {
     const notes = l.notes.trim();
+    // «Ya las usó» sin período del banco = cobro libre: viaja como «Otro cobro» y nunca suma horas.
+    const horasUsadasLibre = l.category === 'excedente' && l.horas_modo === 'usadas' && !l.overage_charge_id;
     const p: ChargeLinePayload = {
-        category: l.category,
+        category: horasUsadasLibre ? 'otro' : l.category,
         due_date: l.due_date,
         concept: l.concept.trim(),
         ...(l.amount != null ? { amount: Math.round(l.amount) } : {}),
         ...(notes ? { notes } : {}),
         ...(l.category === 'mensualidad' && l.period ? { period: l.period } : {}),
-        ...(l.enrollment_id ? { enrollment_id: l.enrollment_id } : {}),
+        ...(l.enrollment_id && !horasUsadasLibre ? { enrollment_id: l.enrollment_id } : {}),
         ...(l.overage_charge_id ? { overage_charge_id: l.overage_charge_id } : {}),
+        ...(l.category === 'excedente' && l.horas_modo !== 'usadas' && l.extra_hours != null ? { extra_hours: l.extra_hours } : {}),
     };
     if (l.exonerate) {
         p.exonerate = { reason_text: l.exonerate.reason_text.trim() };
@@ -963,4 +998,28 @@ export function addDays(ymd: string, days: number): string {
 /** Meses entre el período y hoy (positivo = futuro). Q4: hasta 3 adelante, hasta 12 atrás. */
 export function monthsFromToday(period: { year: number; month: number }, today: { year: number; month: number }): number {
     return (period.year * 12 + period.month) - (today.year * 12 + today.month);
+}
+
+// ── Horas adicionales vendidas por adelantado ────────────────────────────────
+
+/** 1 → «1», 1.5 → «1,5», 2.25 → «2,25». */
+export function formatHoras(horas: number): string {
+    return String(Math.round(horas * 100) / 100).replace('.', ',');
+}
+
+/** Mismo texto que arma el BFF (`conceptoHorasAdicionales`): el servidor lo vuelve a fijar. */
+export function conceptoHorasAdicionales(horas: number): string {
+    return `Horas adicionales · ${formatHoras(horas)} h`;
+}
+
+/** Valor sugerido de N horas con la tarifa del plan (null si el plan no tiene tarifa). */
+export function montoDeHoras(horas: number, tarifaPorHora: number | null | undefined): number | null {
+    if (!(horas > 0) || !(Number(tarifaPorHora) > 0)) return null;
+    return Math.round(horas * Number(tarifaPorHora));
+}
+
+/** Suma 0,25 h de a pasos, sin pasar de 24 ni bajar de 0,25. */
+export function pasoDeHoras(horas: number, delta: number): number {
+    const n = Math.round((horas + delta) * 4) / 4;
+    return Math.min(24, Math.max(0.25, n));
 }

@@ -31,6 +31,10 @@ const state = {
     mensajes: [] as any[],
     ultimoEntrante: null as string | null,
     bot: true,
+    /** `enrollments` de los deportistas (pago esperado, 2026-10-24). */
+    inscripciones: [] as any[],
+    /** Nombres de los hijos de la escuela. */
+    hijos: [{ id: 'child-1', full_name: 'Laura Peña' }] as any[],
 };
 
 function resultado(o: Op): { data: any; error: any } {
@@ -47,7 +51,8 @@ function resultado(o: Op): { data: any; error: any } {
     if (o.table === 'children' && o.cols?.includes('parent_phone_temp')) {
         return { data: state.fichas, error: null };
     }
-    if (o.table === 'children') return { data: [{ id: 'child-1' }], error: null };
+    if (o.table === 'enrollments') return { data: state.inscripciones, error: null };
+    if (o.table === 'children') return { data: state.hijos, error: null };
     if (o.table === 'unregistered_athletes') return { data: state.sinRegistrar, error: null };
     if (o.table === 'whatsapp_conversations') return { data: { id: 'conv-1', last_inbound_at: state.ultimoEntrante }, error: null };
     if (o.table === 'whatsapp_messages') return { data: state.mensajes, error: null };
@@ -171,6 +176,8 @@ beforeEach(() => {
     state.mensajes = [];
     state.ultimoEntrante = null;
     state.bot = true;
+    state.inscripciones = [];
+    state.hijos = [{ id: 'child-1', full_name: 'Laura Peña' }];
     extraer.mockReset();
     extraer.mockImplementation(() => Promise.resolve({ ...OCR }));
 });
@@ -624,5 +631,116 @@ describe('recuperarFilaDeCola con las reglas nuevas (efectos)', () => {
         const r2 = await recuperarFilaDeCola({ ...FILA }, WA, { aplicar: false, ocrFn, cache: {} });
         expect(r2.pago?.id).toBe('aaaabbbb-0000-0000-0000-000000000000');
         expect(ops.filter((o) => o.op !== 'select')).toEqual([]);
+    });
+});
+
+// ─── Pago esperado, deportista por nombre, torneos y propuesta (2026-10-24) ──
+
+describe('los casos reales sin ficha (decidirRecuperacion)', () => {
+    const base = { ocr: OCR, destinoDeLaEscuela: true, yaUsadoEn: null, pagadosQueCubren: [] as PagoRegistrado[], pendientes: [] as any[] };
+    for (const amount of [360000, 160000, 90000]) {
+        it(`$${amount.toLocaleString('es-CO')} de un número que no está en ninguna ficha → sin_familia (a la bandeja, nunca ignorado)`, () => {
+            const d = decidirRecuperacion({ ...base, familia: { tipo: 'desconocido' }, ocr: { ...OCR, amount } });
+            expect(d.decision).toBe('sin_familia');
+            // sin_familia cae en escalated, no en ignored/none.
+            const cierre = cierreDeFila({ ...d, ocr: { ...OCR, amount }, parentId: null }, '2026-10-24T00:00:00Z');
+            expect(cierre).toMatchObject({ status: 'ignored', result_type: 'escalated' });
+        });
+    }
+    it('$1.249.334 a la cuenta de otra persona → destino_ajeno (a la bandeja)', () => {
+        const d = decidirRecuperacion({ ...base, familia: { tipo: 'desconocido' }, destinoDeLaEscuela: false, ocr: { ...OCR, amount: 1249334, destination: '3119998888' } });
+        expect(d.decision).toBe('destino_ajeno');
+        expect(cierreDeFila({ ...d, ocr: OCR, parentId: null }, 'x')).toMatchObject({ status: 'ignored', result_type: 'escalated' });
+    });
+});
+
+describe('torneos en la recuperación (spec 3.6)', () => {
+    const base = {
+        familia: { tipo: 'identificado', parentId: 'parent-1' } as const,
+        destinoDeLaEscuela: true, yaUsadoEn: null, pagadosQueCubren: [] as PagoRegistrado[], pendientes: [PEND('p-oct', 180000)],
+        ocr: { ...OCR, amount: 80000, originName: 'Carolina Gómez' }, pie: 'pago del torneo interclubes',
+    };
+    it('sin catálogo: otro_concepto con quién pagó visible y «registrar a mano»', () => {
+        const d = decidirRecuperacion({ ...base, deportista: 'Laura Peña' });
+        expect(d.decision).toBe('otro_concepto');
+        expect(d.motivo.startsWith('otro_concepto: torneo')).toBe(true);
+        expect(d.motivo).toContain('pagó: Carolina Gómez');
+        expect(d.motivo).toContain('deportista: Laura Peña');
+        expect(d.motivo).toContain('no tiene torneos cargados');
+    });
+    it('con catálogo y monto menor con cuotas permitidas: abono propuesto', () => {
+        const d = decidirRecuperacion({
+            ...base, ocr: { ...base.ocr, amount: 30000 },
+            torneos: [{ id: 'i1', name: 'Torneo Interclubes Dynasty', price: 80000, per_athlete: true, allow_installments: true, event_id: null }],
+        });
+        expect(d.motivo).toContain('Torneo Interclubes Dynasty');
+        expect(d.motivo).toMatch(/abono de \$30\.000 \(saldo \$50\.000\)/);
+    });
+    it('el cierre de la fila lo deja en la bandeja como otro_concepto con el motivo completo', () => {
+        const d = decidirRecuperacion({ ...base });
+        const c = cierreDeFila({ ...d, ocr: base.ocr, parentId: 'parent-1' }, 'x')!;
+        expect(c).toMatchObject({ status: 'ignored', result_type: 'escalated' });
+        expect(String(c.error_message)).toMatch(/^recuperado: otro_concepto — otro_concepto: torneo/);
+    });
+});
+
+describe('recuperarFilaDeCola: la propuesta va en el motivo (simulación, nada se escribe)', () => {
+    const sinEscrituras = () => expect(ops.filter((o) => o.op !== 'select')).toEqual([]);
+
+    it('sin cobro del mes: propone el mes del comprobante y «crear el cobro» (no se crea solo)', async () => {
+        state.pendientes = [];
+        state.inscripciones = [{ child_id: 'child-1', unregistered_athlete_id: null, monthly_fee: 150000, fee_is_manual: false, status: 'active', plan: null, team: null }];
+        ocrFn.mockImplementationOnce(() => Promise.resolve({ ...OCR, amount: 150000, originName: 'Carolina Gómez' }));
+        const r = await recuperarFilaDeCola({ ...FILA }, WA, { aplicar: false, ocrFn, cache: {} });
+        expect(r.decision).toBe('sin_pendientes');
+        expect(r.motivo).toContain('Propuesta → deportista: Laura Peña');
+        expect(r.motivo).toContain('mes del comprobante: octubre 2026');
+        expect(r.motivo).toContain('crear el cobro de ese mes de Laura Peña y aplicarlo (no se crea solo)');
+        expect(r.motivo).toContain('pagó: Carolina Gómez');
+        expect(r.propuesta).toBeTruthy();
+        sinEscrituras();
+    });
+
+    it('monto menor con VARIOS cobros: sigue en el buzón, pero con la propuesta de abono (el plan no se cambia)', async () => {
+        state.pendientes = [PEND('p-sep', 180000), PEND('p-oct', 180000)];
+        state.inscripciones = [{ child_id: 'child-1', unregistered_athlete_id: null, monthly_fee: 180000, fee_is_manual: false, status: 'active', plan: { name: 'PRO', price: 150000, registration_fee: null }, team: null }];
+        ocrFn.mockImplementationOnce(() => Promise.resolve({ ...OCR, amount: 150000 }));
+        const r = await recuperarFilaDeCola({ ...FILA }, WA, { aplicar: false, ocrFn, cache: {} });
+        expect(r.decision).toBe('varios_cobros');
+        expect(r.motivo).toContain('abono a cuota de Laura');
+        expect(r.motivo).toContain('el plan NO se cambia');
+        expect(r.motivo).not.toMatch(/cambia(r)? de plan/i);
+        sinEscrituras();
+    });
+
+    it('número sin ficha cuyo pie nombra UN deportista → se sigue como familia con ficha: en revisión, nunca aprobado', async () => {
+        state.porTelefono = { estado: 'no_encontrado' };
+        state.pendientes = [{ ...PEND('p-oct', 180000), atleta: 'Laura Peña' }];
+        const r = await recuperarFilaDeCola({ ...FILA, wa_phone_number: '573009998877', media_caption: 'Mensualidad de Laura Peña' }, WA, { aplicar: false, ocrFn, cache: {} });
+        expect(r.decision).toBe('en_revision');
+        expect(r.pago?.id).toBe('p-oct');
+        expect(r.motivo).toContain('deportista identificado por el nombre del comprobante');
+        sinEscrituras();
+    });
+
+    it('número sin ficha y sin nombre que lo señale: sin_familia con «deportista: sin identificar» y quién pagó', async () => {
+        state.porTelefono = { estado: 'no_encontrado' };
+        state.pendientes = [];
+        ocrFn.mockImplementationOnce(() => Promise.resolve({ ...OCR, amount: 360000, originName: 'Pedro Gómez' }));
+        const r = await recuperarFilaDeCola({ ...FILA, wa_phone_number: '573009998877' }, WA, { aplicar: false, ocrFn, cache: {} });
+        expect(r.decision).toBe('sin_familia');
+        expect(r.motivo).toContain('pagó: Pedro Gómez');
+        expect(r.motivo).toContain('deportista: sin identificar');
+        sinEscrituras();
+    });
+
+    it('número sin ficha cuyo nombre se parece a DOS deportistas: la propuesta los nombra para elegir', async () => {
+        state.hijos = [{ id: 'c1', full_name: 'Sofía Pérez Gómez' }, { id: 'c2', full_name: 'Sofía Ramírez Ortiz' }];
+        state.porTelefono = { estado: 'no_encontrado' };
+        state.pendientes = [];
+        const r = await recuperarFilaDeCola({ ...FILA, wa_phone_number: '573009998877', media_caption: 'pago de Sofia' }, WA, { aplicar: false, ocrFn, cache: {} });
+        expect(r.decision).toBe('sin_familia');
+        expect(r.motivo).toContain('¿Sofía Pérez Gómez o Sofía Ramírez Ortiz?');
+        sinEscrituras();
     });
 });

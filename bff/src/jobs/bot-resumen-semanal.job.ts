@@ -10,7 +10,7 @@
  *     - escaladas (paso 'escalated', o prospecto sin enlace de inscripción)
  *     - mediana de minutos hasta la primera respuesta HUMANA
  *     - familias que hoy llevan más de 24 h sin respuesta
- *   Y los tickets de SportBot creados en la semana.
+ *   Y los tickets de Mapi creados en la semana.
  *
  * Sin esto no hay forma de saber si el bot sirve: el buzón muestra el día a
  * día, no la tendencia. Las cuentas se hacen sobre `wa_timestamp` (no
@@ -231,7 +231,7 @@ export async function runBotResumenSemanal(ahora = Date.now()): Promise<'enviado
                 titulo: `Resumen semanal de los bots — ${semana}`,
                 lineas: [
                     ...escuelas.map((e) => `${e.nombre}: ${e.conversaciones} conversaciones · ${fmt(e.pctSinHumano, '%')} de familias resueltas sin humano · ${e.escaladas} escaladas · mediana a primera respuesta humana ${fmt(e.medianaPrimeraRespuestaMin, ' min')} · ${e.sinResponder24h} sin responder > 24 h`),
-                    `SportBot: ${resumenTickets.total} tickets · ${resumenTickets.botHandled} resueltos por el bot · ${resumenTickets.waitingHuman} esperando a una persona · ${resumenTickets.conRespuestaHumana} con respuesta humana`,
+                    `Mapi: ${resumenTickets.total} tickets · ${resumenTickets.botHandled} resueltos por el bot · ${resumenTickets.waitingHuman} esperando a una persona · ${resumenTickets.conRespuestaHumana} con respuesta humana`,
                 ],
                 enlace: { url: `${base}/admin/support`, texto: 'Abrir la bandeja de soporte' },
             },

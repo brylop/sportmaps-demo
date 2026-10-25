@@ -3,7 +3,7 @@
  * Montado en AuthLayout: visible en toda la app autenticada, cualquier rol.
  */
 import { useState } from "react";
-import { Headset } from "lucide-react";
+import { MapiAvatar } from "@/components/brand/MapiAvatar";
 import { SupportChatModal } from "@/components/support/SupportChatModal";
 import { useFabSoporteOculto } from "@/lib/supportFab";
 
@@ -17,10 +17,13 @@ export function SupportChatButton() {
             {!oculto && (
             <button
                 onClick={() => setIsOpen(true)}
-                className="fixed bottom-20 right-4 sm:bottom-6 sm:right-6 z-40 flex items-center justify-center w-14 h-14 bg-primary hover:bg-primary/90 text-primary-foreground rounded-full shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105 active:scale-95"
-                aria-label="Abrir chat de soporte"
+                // En celular sube por encima del aviso de notificaciones mientras
+                // está a la vista (--aviso-push-h, ver PushPermissionBanner); sin
+                // aviso, la variable no existe y queda en bottom-20 como siempre.
+                className="fixed bottom-[max(5rem,calc(var(--aviso-push-h,0rem)+1rem))] right-4 sm:bottom-6 sm:right-6 z-40 flex items-center justify-center w-14 h-14 bg-background ring-2 ring-primary rounded-full shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105 active:scale-95 overflow-hidden"
+                aria-label="Abrir chat con Mapi, el asistente de SportMaps"
             >
-                <Headset className="w-6 h-6" />
+                <MapiAvatar className="w-full h-full" />
             </button>
             )}
 

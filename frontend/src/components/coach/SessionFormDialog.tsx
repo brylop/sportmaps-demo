@@ -581,7 +581,14 @@ export function SessionFormDialog({
           ) : (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <Label>Ejercicios</Label>
+                <div>
+                  <Label>Ejercicios</Label>
+                  {hasTacticalBoard === false && (
+                    <p className="text-xs text-muted-foreground mt-0.5" data-testid="session-no-board-hint">
+                      Este deporte aún no tiene pizarra táctica: registra aquí los ejercicios de la sesión.
+                    </p>
+                  )}
+                </div>
                 <Button type="button" variant="outline" size="sm" onClick={addDrill}>
                   <Plus className="h-4 w-4 mr-1" />
                   Agregar Ejercicio

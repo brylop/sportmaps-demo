@@ -369,7 +369,10 @@ const CONTEXTO_FAMILIA = /\b(entren\w*|clases?|escuela|club|categorias?|equipo|v
  * El 3 va antes que el 4 para que «mi hija quiere info de horarios de vóley»
  * reciba el enlace y no un pedido de correo.
  */
-export function temaEscolar(texto: string | null | undefined): TemaEscolar | null {
+export function temaEscolar(
+    texto: string | null | undefined,
+    opciones: { sinFamiliaImplicita?: boolean } = {},
+): TemaEscolar | null {
     if (!texto) return null;
     const t = normalizarTexto(texto);
     if (!t) return null;
@@ -381,9 +384,24 @@ export function temaEscolar(texto: string | null | undefined): TemaEscolar | nul
     const deEscuela = Object.values(CONCEPTOS_DE_ESCUELA).filter((re) => re.test(t)).length;
     if (deEscuela >= 1 && genericos + deEscuela >= 2) return 'inscripcion';
 
-    if (MI_HIJO.test(t) && CONTEXTO_FAMILIA.test(t)) return 'pagos';
+    // Regla 4. Con `sinFamiliaImplicita` (el DESCONOCIDO, 2026-10-24) no se
+    // supone que «mi hija» + escuela sea una familia: «mi hija se quiere meter
+    // en la academia de voleibol» es un prospecto y recibía «No reconozco este
+    // número entre las familias… tus cobros son datos privados». Quien llega
+    // sin señal propia de cliente pasa por la puerta única (whatsapp-puerta-desconocido).
+    if (!opciones.sinFamiliaImplicita && mencionaFamiliaConEscuela(texto)) return 'pagos';
 
     return null;
+}
+
+/**
+ * «Mi hijo/hija» + algo de la escuela («mi hija no va a ir al entrenamiento»):
+ * habla de la escuela, aunque no diga si es familia. Sirve de señal para NO
+ * callar un pedido real y, sin `sinFamiliaImplicita`, es la regla 4 de `temaEscolar`.
+ */
+export function mencionaFamiliaConEscuela(texto: string | null | undefined): boolean {
+    const t = normalizarTexto(texto || '');
+    return !!t && MI_HIJO.test(t) && CONTEXTO_FAMILIA.test(t);
 }
 
 /**
@@ -451,6 +469,11 @@ const CONTEXTO_PROSPECTO =
     /\b(club|academia|escuela|clases?|curso|cursos|grupos?|categorias?|entren\w*|practicar|jugar|voley|volley|voleibol|volleyball|deportes?|iniciar|iniciacion|empezar|comenzar|entrar|ingresar|inscrib\w*|conocer|instalaciones|formacion|ninos?|ninas?|adultos?|menores|hij[oa]s?)\b/;
 
 const PROSPECTO_FUERTE: RegExp[] = [
+    // Los botones de WhatsApp de la web del club precargan el mensaje y lo cierran con
+    // «(ref: web)», «(ref: web-torneos)»… (Dynasty 2026-10-21). Quien llega por ahí
+    // pidió hablar con el club: «quiero información» y «quiero saber el calendario
+    // de torneos» no tienen ninguna palabra de escuela, y sin esto el bot callaba.
+    /\bref web( agendar| inscripcion| torneos)?$/,
     /\binscrib\w*/,
     /\binscripcion(es)?\b/,
     /\bmatricul\w*/,
@@ -477,7 +500,18 @@ const PROSPECTO_FUERTE: RegExp[] = [
     /\bedad(es)? (permitidas?|minimas?|maximas?|requeridas?|para (entrar|entrenar|inscrib\w*|ingresar|jugar))\b/,
     /\b(hasta|desde) (que|cual) edad\b/,
     /\b(una|la|a la|a una) cortesia\b/,
+    // Dynasty 2026-10-24 (informe de conversación v2): «mi hija se quiere meter en
+    // la academia de voleibol» recibió «No reconozco este número entre las familias».
+    /\b(quiere|quieren|quisiera|quisieran|queremos|quiero|desea|desean|deseo|gustaria)\s+(meter|meterse|meterla|meterlo|apuntar|apuntarse|apuntarla|apuntarlo|unir|unirse|unirla|unirlo|vincular|vincularse|vincularla|vincularlo|entrar|ingresar)\b(\s+\w+){0,4}\s+(academia|escuela|club|equipo|clases?|grupo|voley|volley|voleibol|volleyball|entrenamientos?)\b/,
+    /\b(meter|meterla|meterlo|apuntar|apuntarla|apuntarlo|vincular|vincularla|vincularlo|unir|unirla|unirlo)\b(\s+\w+){0,3}\s+(a|en) (la |el )?(academia|escuela|club|equipo|clases?|grupo)\b/,
+    // «Noo mi hija no es de la escuela»: aclara que NO es cliente; es prospecto (o ajeno), no familia.
+    /\bno (es|esta|estudia|pertenece|hace parte)\b(\s+\w+){0,3}\s+(de |en |a )?(la |el )?(escuela|club|academia)\b/,
+    // «papá de Sofía Gómez Uribe para información»
+    /\b(papa|mama|madre|padre|abuel[oa]|tio|tia) de\b(\s+\w+){1,5}\s+(para )?(info|informacion|informes)\b/,
 ];
+
+/** «Soy nuevo», «somos nuevos»: prospecto solo con contexto de escuela/deporte. */
+const SOY_NUEVO = /\b(soy|somos) nuev[oa]s?\b/;
 
 /** «averiguar / averiguando»: con contexto de escuela, o casi solo («quiero averiguar»). */
 const AVERIGUAR = /\baverigu\w*/;
@@ -523,6 +557,7 @@ export function intencionDeProspecto(texto: string | null | undefined): boolean 
     if (YA_LE_PAGA.some((re) => re.test(t))) return false;
 
     if (PROSPECTO_FUERTE.some((re) => re.test(t))) return true;
+    if (SOY_NUEVO.test(t) && CONTEXTO_PROSPECTO.test(t)) return true;
 
     if (INTERES.test(t) && !INTERES_NEGADO.test(t)) {
         // «esoty interesada», «Estoy interesado en iniciar»: corto o con contexto.

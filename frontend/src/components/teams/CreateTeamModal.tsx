@@ -41,6 +41,7 @@ import { ImageUpload } from '@/components/common/ImageUpload';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { buildTeamWritePayload, fetchCoachTeams, isSchoolAdminRole, type TeamFormValues } from '@/lib/coachTeamScope';
+import { FootballModalitySelect } from './FootballModalitySelect';
 
 /**
  * Nombre legible del grupo de categorias que trae el catalogo. Las llaves son
@@ -122,6 +123,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
         name: '',
         description: '',
         sport: '',
+        sport_modality: '',
         level: '',
         max_students: 20 as number | '',
         location: '',
@@ -219,6 +221,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                 name: team.name || '',
                 description: team.description || '',
                 sport: team.sport || '',
+                sport_modality: team.sport_modality || '',
                 level: team.level || '',
                 max_students: team.max_students || 20,
                 location: team.location || '',
@@ -241,6 +244,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                 name: '',
                 description: '',
                 sport: '',
+                sport_modality: '',
                 level: '',
                 max_students: 20,
                 location: '',
@@ -512,6 +516,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                 name: '',
                 description: '',
                 sport: '',
+                sport_modality: '',
                 level: '',
                 max_students: 20,
                 location: '',
@@ -581,6 +586,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                                     setFormData({ 
                                         ...formData, 
                                         sport: value,
+                                        sport_modality: '',
                                         level: '' // Reset level when sport changes
                                     });
                                 }}
@@ -722,6 +728,12 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                             )}
                         </div>
                     </div>
+
+                    <FootballModalitySelect
+                        sport={formData.sport}
+                        value={formData.sport_modality}
+                        onChange={(v) => setFormData({ ...formData, sport_modality: v })}
+                    />
 
                     <div className="space-y-2">
                         <Label htmlFor="description">Descripción / Objetivos</Label>

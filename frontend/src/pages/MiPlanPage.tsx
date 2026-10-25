@@ -106,7 +106,7 @@ const PLAN_UI: Partial<Record<TierCode, PlanUI>> = {
         aiQuota: 500,
         features: [
             'Portal interactivo para padres',
-            'WhatsApp AI: cobranza + recordatorios',
+            'Mapi en WhatsApp: cobranza + recordatorios',
             'Dotación e inventario',
             'Control de ingresos y egresos',
             'Reportes financieros y operativos',
@@ -119,7 +119,7 @@ const PLAN_UI: Partial<Record<TierCode, PlanUI>> = {
         features: [
             'Multi-sede + roles avanzados',
             'Torneos, tienda y contabilidad incluidos',
-            'WhatsApp AI a gran escala',
+            'Mapi en WhatsApp a gran escala',
             'API e integraciones',
             'Migración de datos VIP',
             'Gerente de cuenta dedicado',
@@ -570,7 +570,7 @@ export default function MiPlanPage() {
 
                             {ui?.aiQuota && (
                                 <span className="mt-3 inline-flex w-fit items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-                                    💬 {ui.aiQuota.toLocaleString('es-CO')} conversaciones AI/mes
+                                    💬 {ui.aiQuota.toLocaleString('es-CO')} conversaciones de Mapi/mes
                                 </span>
                             )}
 

@@ -300,6 +300,72 @@ describe('idempotencia (client_request_id)', () => {
     });
 });
 
+describe('mismo cobro desde otra pantalla (COBRO_DUPLICADO_RECIENTE)', () => {
+    const hace = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+    const loteAjeno = (extra: Record<string, unknown> = {}) => ({
+        id: LOTE, school_id: ESCUELA, client_request_id: '99999999-9999-4999-8999-999999999999',
+        mode: 'single', target: { kind: 'athlete', ids: [NINO] },
+        lines: [{ idx: 0, category: 'torneo', amount: 80000, concept: 'Torneo Copa Pony', due_date: VENCE, pay_amount: 0 }],
+        created_by: DUENO, created_at: hace(3), annulled_at: null, total_amount: 80000, ...extra,
+    });
+
+    it('create: otro lote idéntico de hace 3 min → 409 con quién y cuándo, y NO llama la RPC', async () => {
+        estado.ref.tablas.charge_batches = [loteAjeno()];
+        const r = await llamar('POST', '/', ADMIN, crear());
+        expect(r.status).toBe(409);
+        expect(r.body.code).toBe('COBRO_DUPLICADO_RECIENTE');
+        expect(r.body.duplicates).toHaveLength(1);
+        expect(r.body.duplicates[0]).toMatchObject({ batch_id: LOTE, created_by_name: 'Dueña', minutes_ago: 3 });
+        expect(r.body.error).toMatch(/ya se registró hace 3 min por Dueña/i);
+        expect(rpcLlamadas('create_charge_batch')).toHaveLength(0);
+    });
+
+    it('confirmar_duplicado:true → crea igual, con el mismo client_request_id', async () => {
+        estado.ref.tablas.charge_batches = [loteAjeno()];
+        const r = await llamar('POST', '/', ADMIN, crear({ confirmar_duplicado: true }));
+        expect(r.status).toBe(200);
+        const [c] = rpcLlamadas('create_charge_batch');
+        expect(c.args.p_client_request_id).toBe('11111111-1111-4111-8111-111111111111');
+        expect(c.args).not.toHaveProperty('confirmar_duplicado');
+    });
+
+    it('el reintento del MISMO client_request_id jamás cae en el bloqueo (sigue idempotente)', async () => {
+        estado.ref.tablas.charge_batches = [loteAjeno({ client_request_id: '11111111-1111-4111-8111-111111111111' })];
+        const r = await llamar('POST', '/', ADMIN, crear());
+        expect(r.status).toBe(200);
+        expect(rpcLlamadas('create_charge_batch')).toHaveLength(1);
+    });
+
+    it.each([
+        ['de hace 20 min (fuera de la ventana)', { created_at: hace(20) }],
+        ['anulado', { annulled_at: hace(1) }],
+        ['con otro valor', { lines: [{ idx: 0, category: 'torneo', amount: 90000, concept: 'Torneo Copa Pony', due_date: VENCE, pay_amount: 0 }] }],
+        ['con otro concepto', { lines: [{ idx: 0, category: 'torneo', amount: 80000, concept: 'Torneo Otra Copa', due_date: VENCE, pay_amount: 0 }] }],
+        ['de otro atleta', { target: { kind: 'athlete', ids: [NINO_OTRA] } }],
+        ['de otra escuela', { school_id: OTRA }],
+    ])('un lote %s no bloquea', async (_n, extra) => {
+        estado.ref.tablas.charge_batches = [loteAjeno(extra)];
+        expect((await llamar('POST', '/', ADMIN, crear())).status).toBe(200);
+    });
+
+    it('preview: avisa con recent_duplicates (no bloquea) y sin coincidencias no agrega la clave', async () => {
+        estado.ref.tablas.charge_batches = [loteAjeno()];
+        const con = await llamar('POST', '/preview', ADMIN, pedido());
+        expect(con.status).toBe(200);
+        expect(con.body.preview_hash).toBe('h1');
+        expect(con.body.recent_duplicates).toHaveLength(1);
+        estado.ref.tablas.charge_batches = [];
+        const sin = await llamar('POST', '/preview', ADMIN, pedido());
+        expect(sin.body).not.toHaveProperty('recent_duplicates');
+    });
+
+    it('si la consulta de lotes recientes falla, no frena una operación legítima', async () => {
+        estado.ref.tablas.charge_batches = [loteAjeno()];
+        estado.ref.erroresTabla = { charge_batches: { code: 'XX000', message: 'boom' } };
+        expect((await llamar('POST', '/', ADMIN, crear())).status).toBe(200);
+    });
+});
+
 describe('errores de la RPC → HTTP + mensaje en español', () => {
     const casos: [string, any, number][] = [
         ['PREVIEW_STALE', { code: 'P0001', message: 'PREVIEW_STALE' }, 409],
@@ -424,6 +490,20 @@ describe('anular, historial, destinos y buscador', () => {
         const r = await llamar('GET', `/${LOTE}`, ADMIN);
         expect(r.body.annul_preview).toEqual({ annullable_count: 1, annullable_total: 80000, kept_count: 1 });
         expect(r.body.batch.created_by_name).toBe('Dueña');
+    });
+
+    it('historial: cada lote trae el nombre de su destino (atleta o equipo), no «Un atleta»', async () => {
+        estado.ref.tablas.charge_batches = [
+            { id: 'b-atleta', school_id: ESCUELA, mode: 'single', target: { kind: 'athlete', ids: [NINO] }, created_by: DUENO, created_at: '2026-10-10T00:00:02Z' },
+            { id: 'b-equipo', school_id: ESCUELA, mode: 'multi', target: { kind: 'team', ids: [EQUIPO] }, created_by: DUENO, created_at: '2026-10-10T00:00:01Z' },
+            { id: 'b-lista', school_id: ESCUELA, mode: 'multi', target: { kind: 'list', ids: [] }, created_by: DUENO, created_at: '2026-10-10T00:00:00Z' },
+        ];
+        const r = await llamar('GET', '/', ADMIN);
+        expect(r.status).toBe(200);
+        const por = Object.fromEntries(r.body.items.map((i: any) => [i.id, i.target_label]));
+        expect(por['b-atleta']).toBe('Niño Uno');
+        expect(por['b-equipo']).toBe('Equipo Sub-12');
+        expect(por['b-lista']).toBeNull(); // sin ids: el front cae a «Varios atletas»
     });
 
     it('historial sin la tabla (F1 sin aplicar) → 503 claro', async () => {

@@ -14,8 +14,12 @@ import {
     computeSingle,
     discountPesos,
     distributeProportional,
+    conceptoHorasAdicionales,
+    formatHoras,
     formatPesos,
+    montoDeHoras,
     newLineDraft,
+    pasoDeHoras,
     newPendingDraft,
     primaryButtonState,
     stackSequential,
@@ -453,5 +457,100 @@ describe('vista previa: debounce, dedupe y reintento tras 429', () => {
         expect(rateLimitRetryDelayMs(12)).toBe(12000);
         expect(rateLimitRetryDelayMs(3600)).toBe(60000);
         expect(rateLimitRetryDelayMs(Number.NaN)).toBe(3000);
+    });
+});
+
+describe('horas adicionales vendidas por adelantado', () => {
+    const venta = (over: Partial<NewLineDraft> = {}) =>
+        line({ category: 'excedente', extra_hours: 2, enrollment_id: 'enr-1', amount: 30_625, concept: conceptoHorasAdicionales(2), ...over });
+    const errores = (l: NewLineDraft) => {
+        const c = computeSingle({ pending: [], lines: [l], global: null, paymentOn: true });
+        return (c.lines.find((x) => x.ref === 'new:0') as { errors: string[] } | undefined)?.errors ?? [];
+    };
+
+    it('helpers: formato es-CO, concepto, monto y pasos de 15 minutos con tope', () => {
+        expect(formatHoras(2)).toBe('2');
+        expect(formatHoras(1.5)).toBe('1,5');
+        expect(conceptoHorasAdicionales(1.25)).toBe('Horas adicionales · 1,25 h');
+        expect(montoDeHoras(2, 15_312.5)).toBe(30_625);
+        expect(montoDeHoras(1, 32_250)).toBe(32_250);
+        expect(montoDeHoras(2, null)).toBeNull();
+        expect(montoDeHoras(0, 100)).toBeNull();
+        expect(pasoDeHoras(1, 1)).toBe(2);
+        expect(pasoDeHoras(1, -1)).toBe(0.25);   // no baja de 15 min
+        expect(pasoDeHoras(24, 1)).toBe(24);     // no pasa de 24 h
+    });
+    it('una venta completa (horas + inscripción + valor) no tiene errores', () => {
+        expect(errores(venta())).toEqual([]);
+    });
+    it('sin inscripción, con horas inválidas o sin ninguna fuente, avisa', () => {
+        expect(errores(venta({ enrollment_id: null })).join(' ')).toContain('cuál inscripción');
+        expect(errores(venta({ extra_hours: 1.1 })).join(' ')).toContain('15 minutos');
+        expect(errores(venta({ extra_hours: 0 })).join(' ')).toContain('cuántas horas');
+        expect(errores(venta({ extra_hours: 30 })).join(' ')).toContain('24');
+        expect(errores(line({ category: 'excedente', amount: 5_000, concept: 'Horas adicionales' })).join(' ')).toContain('ya las usó');
+    });
+    it('sin elegir «Ya las usó» / «Por adelantado» no se puede confirmar', () => {
+        const e = errores(line({ category: 'excedente', amount: 30_000, concept: 'Hora adicional consumida', horas_modo: null }));
+        expect(e.join(' ')).toContain('Elige si las horas ya las usó');
+    });
+    it('las horas se venden pagadas: sin «Ya lo pagaron» o con «Pagar» desmarcado avisa', () => {
+        expect(errores(venta({ pay: false })).join(' ')).toContain('pagadas');
+        const c = computeSingle({ pending: [], lines: [venta()], global: null, paymentOn: false });
+        expect((c.lines.find((x) => x.ref === 'new:0') as { errors: string[] }).errors.join(' ')).toContain('pagadas');
+        expect(errores(venta({ exonerate: { reason_text: 'beca' } })).join(' ')).toContain('pagadas');
+    });
+    it('un excedente con su período sigue sin errores de horas', () => {
+        const e = errores(line({ category: 'excedente', overage_charge_id: 'ov-1', amount: 50_000, concept: 'Horas adicionales sept' }));
+        expect(e.join(' ')).not.toContain('horas se vendieron');
+        expect(e).toEqual([]);
+    });
+    it('el payload lleva extra_hours y enrollment_id; el excedente no', () => {
+        const lines = [venta()];
+        const calc = computeSingle({ pending: [], lines, global: null, paymentOn: true });
+        const body = buildSingleRequest({ athlete: { type: 'child', id: 'a' }, newAthlete: null, pending: [], lines, global: null, payment: { method: 'cash', payment_date: '2026-10-20' }, calc });
+        expect(body.lines[0]).toMatchObject({ category: 'excedente', extra_hours: 2, enrollment_id: 'enr-1', amount: 30_625, concept: 'Horas adicionales · 2 h', pay_amount: 30_625 });
+        const lines2 = [line({ category: 'excedente', overage_charge_id: 'ov-1', amount: 50_000, concept: 'Horas adicionales sept' })];
+        const calc2 = computeSingle({ pending: [], lines: lines2, global: null, paymentOn: false });
+        const body2 = buildSingleRequest({ athlete: { type: 'child', id: 'a' }, newAthlete: null, pending: [], lines: lines2, global: null, payment: null, calc: calc2 });
+        expect(body2.lines[0]).toHaveProperty('overage_charge_id', 'ov-1');
+        expect(body2.lines[0]).not.toHaveProperty('extra_hours');
+    });
+    describe('«Ya las usó» (caso Zoe: la hora ya se consumió, solo se cobra)', () => {
+        const usadas = (over: Partial<NewLineDraft> = {}) =>
+            line({ category: 'excedente', horas_modo: 'usadas', amount: 30_625, concept: 'Hora adicional consumida', ...over });
+        const cuerpo = (l: NewLineDraft, paymentOn = false) => {
+            const calc = computeSingle({ pending: [], lines: [l], global: null, paymentOn });
+            return buildSingleRequest({
+                athlete: { type: 'child', id: 'a' }, newAthlete: null, pending: [], lines: [l], global: null,
+                payment: paymentOn ? { method: 'cash', payment_date: '2026-10-20' } : null, calc,
+            });
+        };
+
+        it('sin período del banco es un cobro libre válido, sin exigir pago ni inscripción', () => {
+            expect(errores(usadas({ pay: false }))).toEqual([]);
+        });
+        it('viaja como «Otro cobro»: sin extra_hours, sin enrollment_id y sin overage_charge_id', () => {
+            const l = usadas({ enrollment_id: 'enr-1', extra_hours: 3 });
+            const p = cuerpo(l, true).lines[0];
+            expect(p).toMatchObject({ category: 'otro', amount: 30_625, concept: 'Hora adicional consumida' });
+            expect(p).not.toHaveProperty('extra_hours');
+            expect(p).not.toHaveProperty('enrollment_id');
+            expect(p).not.toHaveProperty('overage_charge_id');
+        });
+        it('con el excedente del período sigue siendo «excedente» con su overage_charge_id (tampoco suma horas)', () => {
+            const p = cuerpo(usadas({ overage_charge_id: 'ov-1', amount: 50_000, concept: 'Horas adicionales sept' })).lines[0];
+            expect(p).toMatchObject({ category: 'excedente', overage_charge_id: 'ov-1' });
+            expect(p).not.toHaveProperty('extra_hours');
+        });
+        it('«Por adelantado» sigue mandando excedente + extra_hours', () => {
+            expect(cuerpo(venta({ horas_modo: 'adelantado' }), true).lines[0]).toMatchObject({ category: 'excedente', extra_hours: 2, enrollment_id: 'enr-1' });
+        });
+    });
+    it('una línea que NO es horas adicionales nunca manda extra_hours, aunque el borrador lo arrastre', () => {
+        const lines = [line({ category: 'torneo', extra_hours: 2, amount: 10_000 })];
+        const calc = computeSingle({ pending: [], lines, global: null, paymentOn: false });
+        const body = buildSingleRequest({ athlete: { type: 'child', id: 'a' }, newAthlete: null, pending: [], lines, global: null, payment: null, calc });
+        expect(body.lines[0]).not.toHaveProperty('extra_hours');
     });
 });

@@ -30,6 +30,7 @@ import { getMetricCatalog, type MetricDefinition } from '../../services/metric-c
 import { deliverPublishedReports } from '../../services/report-delivery.service';
 import { userClient } from '../../utils/userClient';
 import { resolverAccesoEquipo } from '../../services/team-access.service';
+import { puedePublicarInformeEquipo, puedeEscribirNotaBloque, resolverDeportistaPropio } from '../../services/report-access.service';
 import { resolveSchoolBranding } from '../../utils/schoolBrandingResolver';
 import {
     INK, MUTED,
@@ -577,12 +578,15 @@ router.get(
 
 // ── POST /api/v1/school/reports/team/:teamId/publish { year, month } ────────
 // Crea (si no existe) el borrador del periodo, arma el snapshot en vivo y
-// publica. Solo admin — igual que el informe por atleta, publicar es de la
-// escuela, escribir la nota es del coach (D1/D2 del spec original).
+// publica. La administración siempre; el entrenador solo si la escuela le
+// delegó la publicación (reports_release_by = 'coach', el mismo ajuste que ya
+// gobierna el informe por atleta y el envío) y solo en sus equipos — B6 de
+// docs/specs/entrenador-deportista-v2.md. El gate es puedePublicarInformeEquipo:
+// publish_team_report_system exige service_role y no mira al caller.
 router.post(
     '/reports/team/:teamId/publish',
     requireAuth,
-    requireRole(...ADMIN_ROLES),
+    requireRole(...STAFF_ROLES),
     async (req: AuthenticatedRequest, res: Response) => {
         const parsed = TeamPeriodSchema.safeParse(req.body ?? {});
         if (!parsed.success) {
@@ -591,14 +595,10 @@ router.post(
         const { year, month } = parsed.data;
         const teamId = paramId(req.params.teamId);
 
-        const { data: equipo } = await userClient(req)
-            .from('teams')
-            .select('id')
-            .eq('id', teamId)
-            .eq('school_id', req.schoolId)
-            .maybeSingle();
-
-        if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado.' });
+        const permiso = await puedePublicarInformeEquipo(
+            supabase, { role: req.role, schoolId: req.schoolId, userId: req.user?.id }, teamId,
+        );
+        if (!permiso.ok) return res.status(permiso.status).json({ error: permiso.error });
 
         try {
             // find-or-create del borrador. Sin RPC de por medio: es un INSERT
@@ -632,7 +632,7 @@ router.post(
             const snapshot = await buildTeamReportSnapshot({ schoolId: req.schoolId, teamId, year, month });
 
             // service client: publish_team_report_system exige service_role
-            // (el gate de "quién puede publicar" ya lo hizo requireRole arriba).
+            // (el gate de "quién puede publicar" ya lo hizo puedePublicarInformeEquipo).
             const { error: pubErr } = await supabase.rpc('publish_team_report_system', {
                 p_report_id: reportId,
                 p_snapshot: snapshot,
@@ -672,6 +672,25 @@ router.put(
         if (!parsed.success) {
             return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
         }
+
+        // IDOR (B6): el report_id llega del body. Tiene que ser un informe de
+        // ESTA escuela y, para un coach, de un equipo suyo / un atleta suyo.
+        const permiso = await puedeEscribirNotaBloque(
+            supabase,
+            { role: req.role, schoolId: req.schoolId, userId: req.user?.id },
+            { report_type: parsed.data.report_type, report_id: parsed.data.report_id },
+            async (reportId) => {
+                // Como el usuario: la RLS de athlete_reports (coach_can_see_report)
+                // decide si el coach lo ve.
+                const { data } = await userClient(req)
+                    .from('athlete_reports')
+                    .select('id')
+                    .eq('id', reportId)
+                    .maybeSingle();
+                return !!data;
+            },
+        );
+        if (!permiso.ok) return res.status(permiso.status).json({ error: permiso.error });
 
         const { data: coachRow } = req.user?.id
             ? await supabase
@@ -723,11 +742,14 @@ router.put(
 // que el coach todavía puede corregir no es "publicar", es filtrar.
 // =============================================================================
 
+// child_id opcional (B4 de docs/specs/entrenador-deportista-v2.md): sin él, el
+// que pide es el propio deportista (adulto con cuenta o ficha vinculada a su
+// cuenta) y se resuelve con resolverDeportistaPropio. Con él, todo sigue igual.
 const ParentTeamPreviewSchema = PeriodSchema.extend({
-    child_id: z.string().uuid(),
+    child_id: z.string().uuid().optional(),
 });
 
-// ── GET /api/v1/school/reports/team/:teamId/preview-for-parent?child_id&year&month
+// ── GET /api/v1/school/reports/team/:teamId/preview-for-parent?[child_id]&year&month
 router.get(
     '/reports/team/:teamId/preview-for-parent',
     requireAuth,
@@ -739,33 +761,46 @@ router.get(
         const { year, month, child_id } = parsed.data;
         const teamId = paramId(req.params.teamId);
 
-        // 1) child_id tiene que ser hijo de quien llama. Como el usuario, no
-        // como el servicio: la RLS de `children` es la que de verdad decide
-        // "es tu hijo", no un filtro que se pueda pasar por alto pasando el
-        // id de un hijo ajeno.
-        const { data: hijo } = await userClient(req)
-            .from('children')
-            .select('id, full_name, school_id')
-            .eq('id', child_id)
-            .maybeSingle();
+        let sujeto: { schoolId: string; subjectType: SubjectType; subjectId: string; name: string };
 
-        if (!hijo) {
-            return res.status(403).json({ error: 'No tienes acceso a este atleta.' });
-        }
+        if (child_id) {
+            // 1) child_id tiene que ser hijo de quien llama. Como el usuario, no
+            // como el servicio: la RLS de `children` es la que de verdad decide
+            // "es tu hijo", no un filtro que se pueda pasar por alto pasando el
+            // id de un hijo ajeno.
+            const { data: hijo } = await userClient(req)
+                .from('children')
+                .select('id, full_name, school_id')
+                .eq('id', child_id)
+                .maybeSingle();
 
-        // 2) Ese hijo tiene que estar inscrito ACTIVAMENTE en teamId — sin
-        // esto, un padre podría ver el agregado de un equipo donde su hijo
-        // nunca estuvo, con solo adivinar un teamId de la misma escuela.
-        const { data: inscripcion } = await userClient(req)
-            .from('enrollments')
-            .select('id')
-            .eq('child_id', child_id)
-            .eq('team_id', teamId)
-            .eq('status', 'active')
-            .maybeSingle();
+            if (!hijo) {
+                return res.status(403).json({ error: 'No tienes acceso a este atleta.' });
+            }
 
-        if (!inscripcion) {
-            return res.status(403).json({ error: 'Tu hijo no está inscrito activamente en este equipo.' });
+            // 2) Ese hijo tiene que estar inscrito ACTIVAMENTE en teamId — sin
+            // esto, un padre podría ver el agregado de un equipo donde su hijo
+            // nunca estuvo, con solo adivinar un teamId de la misma escuela.
+            const { data: inscripcion } = await userClient(req)
+                .from('enrollments')
+                .select('id')
+                .eq('child_id', child_id)
+                .eq('team_id', teamId)
+                .eq('status', 'active')
+                .maybeSingle();
+
+            if (!inscripcion) {
+                return res.status(403).json({ error: 'Tu hijo no está inscrito activamente en este equipo.' });
+            }
+            sujeto = { schoolId: hijo.school_id, subjectType: 'child', subjectId: child_id, name: hijo.full_name };
+        } else {
+            // El deportista para sí mismo. Service client filtrando por SU
+            // auth.uid(): el id sale del token, no de la query.
+            const propio = await resolverDeportistaPropio(supabase, req.user?.id, teamId);
+            if (!propio) {
+                return res.status(403).json({ error: 'No estás inscrito activamente en este equipo.' });
+            }
+            sujeto = propio;
         }
 
         try {
@@ -777,7 +812,7 @@ router.get(
             const { data: informe } = await supabase
                 .from('team_reports')
                 .select('id, status')
-                .eq('school_id', hijo.school_id)
+                .eq('school_id', sujeto.schoolId)
                 .eq('team_id', teamId)
                 .eq('period_year', year)
                 .eq('period_month', month)
@@ -793,7 +828,7 @@ router.get(
             const { data: escuela } = await supabase
                 .from('schools')
                 .select('category_id')
-                .eq('id', hijo.school_id)
+                .eq('id', sujeto.schoolId)
                 .maybeSingle();
             const sportCategoryId = (escuela as any)?.category_id as string | null;
             const definiciones = sportCategoryId
@@ -809,8 +844,8 @@ router.get(
             // agregado del punto anterior — es la pieza que la ruta de staff
             // no necesita y esta sí.
             const [team_snapshot, child_metrics] = await Promise.all([
-                buildTeamReportSnapshot({ schoolId: hijo.school_id, teamId, year, month }),
-                loadSessionMetrics(hijo.school_id, 'child', child_id, periodStart, periodEnd, catalogo),
+                buildTeamReportSnapshot({ schoolId: sujeto.schoolId, teamId, year, month }),
+                loadSessionMetrics(sujeto.schoolId, sujeto.subjectType, sujeto.subjectId, periodStart, periodEnd, catalogo),
             ]);
 
             // Único contenido del coach que cruza al padre: la nota general
@@ -820,7 +855,7 @@ router.get(
             const { data: notaGeneral } = await supabase
                 .from('report_section_notes')
                 .select('body')
-                .eq('school_id', hijo.school_id)
+                .eq('school_id', sujeto.schoolId)
                 .eq('report_type', 'team')
                 .eq('report_id', (informe as any).id)
                 .eq('section_key', 'general')
@@ -829,7 +864,7 @@ router.get(
             res.json({
                 team_snapshot,
                 child_metrics,
-                child_name: hijo.full_name,
+                child_name: sujeto.name,
                 coach_note: (notaGeneral as any)?.body ?? null,
             });
         } catch (err: any) {

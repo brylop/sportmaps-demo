@@ -32,10 +32,13 @@ import {
 import { Loader2, GraduationCap, CheckCircle2 } from 'lucide-react';
 import { NumberStepper } from '../ui/number-stepper';
 import { SPORTS_LIST } from '@/lib/constants/sportsCatalog';
+import { FootballModalitySelect } from '@/components/teams/FootballModalitySelect';
+import { modalityToSave } from '@/lib/sports/footballModality';
 
 interface ProgramFormData {
   name: string;
   sport: string;
+  sport_modality?: string;
   description?: string;
   schedule: string;
   price_monthly: number;
@@ -55,6 +58,7 @@ interface ProgramFormDialogProps {
     id: string;
     name: string;
     sport: string;
+    sport_modality?: string | null;
     description?: string | null;
     schedule?: string | null;
     price_monthly: number;
@@ -86,6 +90,7 @@ export function ProgramFormDialog({
     defaultValues: {
       name: program?.name || '',
       sport: program?.sport || '',
+      sport_modality: program?.sport_modality || '',
       description: program?.description || '',
       schedule: program?.schedule || '',
       price_monthly: program?.price_monthly ?? ('' as any),
@@ -142,6 +147,7 @@ export function ProgramFormDialog({
           .update({
             name: data.name,
             sport: data.sport,
+            sport_modality: modalityToSave(data.sport, data.sport_modality),
             description: data.description || null,
             schedule: data.schedule,
             price_monthly: data.price_monthly === '' as any ? 0 : Number(data.price_monthly),
@@ -161,6 +167,7 @@ export function ProgramFormDialog({
           school_id: schoolId,
           name: data.name,
           sport: data.sport,
+          sport_modality: modalityToSave(data.sport, data.sport_modality),
           description: data.description || null,
           schedule: data.schedule,
           price_monthly: data.price_monthly === '' as any ? 0 : Number(data.price_monthly),
@@ -269,7 +276,7 @@ export function ProgramFormDialog({
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Deporte</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select onValueChange={(v) => { field.onChange(v); form.setValue('sport_modality', ''); }} defaultValue={field.value}>
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder="Seleccionar" />
@@ -308,6 +315,12 @@ export function ProgramFormDialog({
                     )}
                   />
                 </div>
+
+                <FootballModalitySelect
+                  sport={form.watch('sport')}
+                  value={form.watch('sport_modality')}
+                  onChange={(v) => form.setValue('sport_modality', v, { shouldDirty: true })}
+                />
 
                 <FormField
                   control={form.control}

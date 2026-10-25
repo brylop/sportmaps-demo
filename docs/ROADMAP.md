@@ -1,11 +1,105 @@
 # SportMaps — Roadmap Maestro
 
-**Versión:** 2.37 · **Fecha:** 2026-10-14 · **Rama:** `develop`
+**Versión:** 2.38 · **Fecha:** 2026-10-23 · **Rama:** `develop`
 
 > **Este es el único roadmap.** Todo lo demás en `docs/` es *spec* (qué se construye y por qué),
 > *plan de fase* (cómo se migra), *doctrina de arquitectura* (cómo se hace) o *auditoría* (qué está
 > mal). Ninguno de esos documentos define prioridades: las define esta cola. Si un pendiente no
 > aparece aquí, no existe.
+
+**Cambios v2.37 → v2.38** (2026-10-14 → 23). Se unifican en este documento los pendientes de todas las sesiones y se abre el **plan de cierre**: antes de empezar cualquier ola nueva del track V2, se cierra lo que ya está construido o prometido. Este bloque manda sobre el orden inmediato de v2.37.
+
+*Entregado entre el 14 y el 23 de octubre (109 commits sin merges):*
+- **Pizarra táctica M1–M6** completa (multideporte, 3D con 11 cámaras, IA con tope por entrenador, paquetes, equipos y videos), más manual v2 (`docs/manuales/academias/pizarra-tactica.pdf`) y video v2 (`docs/manuales/video/pizarra-tactica-v2.mp4`, 8:21, sin commitear).
+- **Torneos:** la escuela inscribe hijos y adultos, torneo gratis, medios de pago por torneo, catálogo vinculado.
+- **Cobranza y mora:** la mora no cancela; recordatorios por correo (−3/0/+3/+10/+20); el enlace público cobra el saldo; checkout cobra el saldo.
+- **Cobros y pagos (Dreamers):** horas «Ya las usó» y «Por adelantado», bloqueo de comprobante menor al total, aviso 409 de cobro duplicado, cerrojo anti doble clic, horas adicionales prepagadas.
+- **Otros:** Mapi (ex SportBot), multirol y multisede F1, acuerdos comerciales SaaS, directorio público de clubes, oferta incluida en todos los planes, SportMaps Canchas F0, cortesía única Besser/Dynasty, tienda (vitrina, cupones, compra sin cuenta), seguridad (RLS de `enrollments`, Node 22, CI con permisos mínimos).
+- **22–23 oct, esta sesión:**
+  - *Reporte del partido (Besser):* base aplicada y probada (2 tablas, 5 RPC, flag `share_match_reports` encendido solo en Besser); pantallas del entrenador/admin y de la familia escritas, `tsc` y eslint en verde, **sin commitear**.
+  - *Pizarra:* `admin` y `school_admin` ya editan (aplicada). Besser no lo necesitaba: su administración es un `owner`.
+  - *Tienda:* aviso al local de pedido nuevo (aplicada).
+  - *Dynasty:* 43 fichas sin datos creadas desde la proyección 2027 y 14 fechas de nacimiento corregidas.
+
+*Verificado el 23-oct contra la base viva (consultas puntuales):*
+- **Migraciones:** de las 66 «sin registro», 58 ya están vivas por el editor de SQL, las 2 con objetos faltantes se aplicaron hoy y quedan 6 sin forma de verificar por existencia (solo cambian policies, datos o cuerpos). Se **cierra el ítem 8 de v2.36** (las 10 locales del 13-oct).
+- **Ítem 1 sigue abierto:** Dynasty, 17 enlaces desde el 13-oct, 0 pagados, 15 pendientes.
+- **Ítem 4 sigue abierto:** `get_school_athletes` (las dos firmas) no usa `user_staff_school_ids()`.
+- **Ítem 14 empeoró:** Besser tiene **21 cobros sin pagador ($6.840.000)**, antes 14 ($4.970.000).
+- **Ítem 2 mejoró a medias:** Monster tiene la autocancelación apagada, pero solo 12 de 145 inscripciones activas tienen monto.
+- **Ítem 9 de §4 anterior sigue:** `open_month` y demás, sin cambio medido.
+
+**Cola de cierre unificada** (se suma a v2.36/v2.37; los números 1–15 conservan su significado):
+
+| # | Crit. | Qué | Hecho cuando |
+|---|---|---|---|
+| 16 | 🔴 P0 | **Commitear y publicar lo construido y sin subir:** reporte del partido (front), 3 migraciones con su ledger, manual y video v2 de la pizarra. Commit solo de lo propio (hay trabajo de otras sesiones en el índice) | Commit hecho, `migrations:check` verde, prueba real de la familia en dev |
+| 17 | 🔴 P0 | **Ítem 1 · Checkout de Dynasty:** registrar el webhook, hacer un pago real y quitar el fallback `VITE_WOMPI_PUBLIC_KEY` | 1 pago en línea `paid` y 0 fallbacks |
+| 18 | 🔴 P0 | **Ítem 14 · Besser:** resolver los 21 cobros sin pagador ($6,84 M) antes de cualquier mensaje del bot; luego alistamiento de WhatsApp | 0 cobros sin pagador |
+| 19 | 🔴 P0 | **Becados de Monster.** Deportistas: Deivis Valle, Samuel López, Miguel Hernández, Felipe Sandoval, María José Vasquez, Paola Ramírez, Laura Ladino (**50 %**), Isabella Silva. Profes: Julián Torres, Tatiana Díaz, Ana Forero, Sebastián Hurtado, Felipe Sossa. Hoy solo están cargados Deivis Valle y Laura Ladino (ambos con $145.000 pendiente y sin marcar como beca), y de los profes solo Sebastián Hurtado e Iván Felipe Sossa. **Falta definir qué significa «profe becado»** (¿entrena sin pagar?) | Beca = inscripción con `fee_is_manual=true` y cuota 0 (Laura: la mitad, 72.500); los que faltan, cargados |
+| 20 | 🔴 P0 | **Ítem 2 · Monster:** cargar monto o beca a las 133 inscripciones activas sin monto y las cuentas de recaudo | 145/145 con monto o beca |
+| 21 | 🔴 P0 | **Ítem 3 · Dreamers:** confirmar con la dueña los 95 PIN antes del 01-nov. Además opera en Nex y ese plan vence el 25-oct | Decisión escrita de la dueña |
+| 22 | 🟠 P1 | **Ítem 4:** gate de `get_school_athletes` a `user_staff_school_ids()` o enmascarar `parent_name`/`parent_email` | Un padre ya no lista acudientes de otros |
+| 23 | 🟠 P1 | **Reporte del partido, lo que falta:** el aviso a la familia al publicar (hoy no sale ningún push ni correo), manual de una página y encendido en otra escuela solo si la pide | Decisión del canal de aviso |
+| 24 | 🟠 P1 | **Dynasty, datos:** 5 fichas dudosas (Bermúdez Reinoso, Medina Bermúdez, Mendoza Flórez, Sánchez Rubiano, Rojas Kristien), 9 nombres con varias coincidencias, SENIORS sin fecha, y rellenar las 43 fichas con el bot y Milena | Fichas sin datos = 0 |
+| 25 | 🟠 P1 | **Ítems 5, 6, 7:** comprobantes por WhatsApp que se pierden, conciliación DKIM y MFA de super_admin | Como en v2.36 |
+| 26 | 🟡 P2 | Seis migraciones sin forma de verificar por existencia (`indices_duplicados_y_parciales`, `rol_facility_manager`, `acuerdo_monster_volley`, `plantillas_ejercicios_otros_deportes`, `pizarra_ia_revoca_grant_creditos_firma_vieja`, `cerrar_rls_enrollments_staff_manage`): comprobar a mano con `pg_policies`/`pg_proc` | Las 6 confirmadas |
+| 27 | 🟡 P2 | Mantener este documento: de ahora en adelante una migración nueva se aplica por una vía que deje registro (`apply_migration` o CLI), no por el editor | `migrations:pendientes` sin falsos positivos |
+
+**Novedades del 23-oct, noche (reemplazan lo dicho arriba donde choquen):**
+- **#21 Dreamers: en pausa por decisión del usuario.** Siguen en pruebas con Dreamers y la dueña va a cambiar el software que usa. No se decide nada de PIN, Nex ni facturación hasta que ella defina. La fecha del 25-oct de Nex y la del 01-nov dejan de ser urgentes para SportMaps.
+- **#25 Comprobantes de Dynasty: el reproceso falló.** Se devolvieron las 4 filas a `pending` y el worker las tomó, pero **Meta responde que los archivos ya no existen**. No son recuperables: las 4 familias deben reenviar el comprobante. Queda el endurecimiento opcional (`locked_by` y compuerta de la llave).
+- **#19 Monster:** el usuario confirmó que la lista de becados estaba completa. Se crearon las 6 fichas que faltaban (Samuel López, Miguel Hernández, Felipe Sandoval, María José Vasquez, Paola Ramirez, Isabella Silva) como `unregistered_athletes` sin equipo, marcadas `beca=true` en `intake_form_data`. **No tienen inscripción, así que todavía no hay beca aplicada**: falta el equipo de cada una. Felipe Sossa sigue siendo solo personal.
+- **Asistentes de Monster:** Tatiana Díaz, Ana Sofía Forero y Julián Torres quedaron cargados como coach con su equipo y su invitación. Los 4 correos de entrenadores se reenviaron con el enlace correcto (el primer envío salió con `localhost`; ver la lección en memoria).
+- **#17 Prueba de pago de Dynasty:** la cuenta de pruebas del usuario (Brayan Steven López Romero, «Hijo Pruebas») tiene un cobro de $180.000 vencido y **su enlace de pago venció el 22-oct a las 7:19 a. m.**; por eso no sale el botón. La mora expira los enlaces pendientes. Para probar hace falta un cobro nuevo de monto bajo o regenerar el enlace.
+
+**Frentes nuevos (23-oct, noche), decididos o por decidir:**
+
+| # | Crit. | Qué | Estado |
+|---|---|---|---|
+| 29 | 🟠 P1 | **Código único de escuela, regenerable, para todos los roles.** En 60 días se registraron 184 padres y atletas y 39 (21 %) quedaron sin escuela; solo 12 tienen pista (Dynasty 8, Dreamers 3, Besser 1) y 27 no se pueden ubicar; 13 entraron con Google. El registro no pide ningún código (`code` es un parámetro oculto que nada resuelve). Diseño acordado: código corto único por escuela, campo «Código de tu escuela» tras iniciar sesión (cubre Google) y en «Mi cuenta»; la persona entra **«por clasificar»** (sin equipo, categoría ni cobro) y el administrador aprueba el rol y asigna categoría y valor; los entrenadores y demás roles de staff nunca reciben permisos por el solo código; vincular con la ficha existente para no duplicar | Decisiones tomadas; falta spec y construcción |
+| 30 | 🟠 P1 | **Documentos y firmas para todas las escuelas.** Hoy hay dos caminos: la familia sube solo 2 tipos (identidad y EPS) y quedan solo en almacenamiento, sin fila; la escuela sube los 10 tipos de Monster a `athlete_documents` (1.009 documentos, 1 sola escuela, 0 verificados) y solo el administrador puede escribir. Las firmas son imágenes subidas, sin evidencia. Propuesta: catálogo de requisitos configurable por escuela, la familia sube todo desde la app, revisión con verificado o rechazo, lista de pendientes y aviso, firma en pantalla con evidencia (fecha, texto aceptado, red y dispositivo) y firma del documento por enlace de un solo uso | Esperando 4 decisiones: validez (firma simple u OTP), quién firma por el menor, quién configura los requisitos y consentimiento de datos sensibles |
+
+**Plan de ejecución de #29 y #30** (specs escritas el 23-oct con agentes y revisión de auditoría y pruebas; construir **todo de corrido** por frente: DB + BFF + frontend + pruebas, sin ramas por fase salvo que el usuario las pida):
+
+| Documento | Qué cubre |
+|---|---|
+| [`specs/codigo-unico-de-escuela.md`](specs/codigo-unico-de-escuela.md) | #29: código de 8 caracteres único (incluido el historial), 3 tablas, 7 RPC, solicitud «por clasificar» **aparte de `school_members`**, bandeja del administrador, límites de intentos por el BFF. 10 puntos «A CONFIRMAR» |
+| [`specs/documentos-y-firmas.md`](specs/documentos-y-firmas.md) | #30: producto, roles, catálogo por escuela, flujos de familia y administrador, estados, dos formas de firmar, avisos, fases F0–F4. Línea base: 1.009 documentos, 144 deportistas, 1 escuela de 371, 0 verificados |
+| [`specs/documentos-y-firmas-datos-y-auditoria.md`](specs/documentos-y-firmas-datos-y-auditoria.md) | Diseño de datos, policies, invariantes I8–I15 y 20 pruebas negativas |
+| [`specs/documentos-y-firmas-firma-y-legal.md`](specs/documentos-y-firmas-firma-y-legal.md) | Firma electrónica simple reforzada (enlace de un solo uso + código + firma dibujada + PDF con hash, evidencia solo-insertar). **5 puntos a validar con abogado** |
+| [`specs/plan-de-pruebas-codigo-escuela-y-documentos.md`](specs/plan-de-pruebas-codigo-escuela-y-documentos.md) | Matriz por 9 roles, concurrencia, seguridad, datos antes/después, UI celular, e2e y auditoría a los 7 días. Lo destructivo corre en el gemelo local |
+
+*Hallazgos de la auditoría de #30 (sobre lo que ya está vivo):*
+1. **El bucket `identity-documents` no tiene límite de tamaño ni de tipo**, y sus policies de escritura solo exigen que el segundo segmento de la ruta sea el `auth.uid()`: cualquier autenticado sube, reemplaza y borra cualquier archivo dentro de su propia carpeta.
+2. **Los 70 archivos que suben las familias (42 padres) no tienen fila en la base**: sin estado ni revisión, el tipo se deduce del prefijo del nombre.
+3. **La familia no puede leer los 1.009 documentos de Monster** que la escuela cargó por ella: siguen en `unregistered_athletes/<id de la ficha>/` y no hay policy de lectura para ella.
+4. `athlete_documents.uploaded_by` es nulo en todos los documentos, y la policy `school_staff_manage_athlete_documents` es `FOR ALL` para `public`: debe reemplazarse por policies por comando. (`is_school_admin()` **sí** incluye `school_admin`; coach y staff no leen documentos, y es lo correcto.)
+5. El código de reservas usa `Math.random()`: para firmas debe ser `crypto.randomInt`.
+
+*Orden y esfuerzo:* 8 pasos, unos 11 días con #29 y la spec de #30 en paralelo; ninguna fase cierra sin 0 violaciones críticas en `seguridad:invariantes`, cero residuos en la base, rollback ensayado y el número de antes y de después. **Decisiones abiertas del usuario antes de construir #30:** validez de la firma (simple u OTP), quién firma por el menor, si «completo» exige verificado, desde cuándo vence el EPS, si el coach ve el estado, retención de evidencias y vencimiento del enlace sin cuenta.
+
+**Plan de cierre, en orden** (cada paso se cierra con su número «antes y después»):
+1. **#16** — dejar el árbol limpio y publicado.
+2. **#18 y #19 y #20** — dinero que hoy no se cobra o se cobra mal: Besser primero, luego Monster.
+3. **#17** — el pago en línea de Dynasty.
+4. **#21** — decisión de Dreamers, con fecha dura el 01-nov.
+5. **#22 y #25** — seguridad y comprobantes.
+6. **#23 y #24** — pulido del reporte y datos de Dynasty.
+7. Solo después de cerrar 16–22, se retoma el orden inmediato de v2.37 (Comunicaciones F0/F1 y prueba con 5 personas).
+
+**Estado de la cola de cierre al 23-oct, tarde** (informes en `docs/cierre-2026-10-23/`):
+
+| # | Estado | Qué quedó |
+|---|---|---|
+| 16 | ✅ Hecho | Commit `1c77e179` (sin push). |
+| 18 | 🟡 Parcial | Sin pagador: de 21 ($6.840.000) a 18 ($6.320.000). Se asignó el acudiente a 3 cobros de 2 personas con cuenta. Los 18 restantes son de 12 deportistas sin cuenta (`unregistered_athletes`, no es un defecto del generador): se cobran por WhatsApp/llamada o se invita a registrarse. Falta confirmar con Besser que siguen activos y revisar el cobro de $140.000 de Dilan Samuel Gómez. |
+| 19 | ✅ Aplicado | Becas en Monster: Deivis Valle y cuatro profes que entrenan como atletas (Julián Torres, Tatiana Díaz, Ana Forero, Sebastián Hurtado) en cuota 0 con su cobro de octubre anulado; Laura Ladino al 50 % ($72.500). **Faltan crear** Samuel López, Miguel Hernández, Felipe Sandoval, María José Vásquez, Paola Ramírez e Isabella Silva (equipo y datos por definir) y Felipe Sossa, que es solo staff. «Profe becado» = profe que también entrena como atleta. |
+| 20 | 🔁 Reescrito | **El planteamiento estaba mal:** las 145 inscripciones sí tienen monto. El problema real es que **Monster no tiene cuenta de recaudo cargada** y hay cobros de octubre emitidos sin dónde pagar: tras las becas quedan 140 pendientes por $20.737.500, 0 pagados. Nuevo #20: cargar la cuenta de recaudo y decidir qué se hace con los cobros de octubre antes del corte del 1-nov (noviembre emitiría otros 140). |
+| 21 | 🟡 Ficha lista | Los «95 PIN» eran 102 órdenes sobre 3 códigos (6-oct), sin desbloqueos posteriores. La plataforma solo ve 5 niñas activas; la operación está en Nex (plan vence el **25-oct**). Ficha de decisión en `21-dreamers-decision-1-nov.md`. |
+| 22 | ✅ Aplicado | `get_school_athletes(uuid, uuid)` con gate de staff (`20261023093127`). Probado antes/después en Besser: el padre pasó de 82 filas con 71 correos a error 42501. La de 1 argumento solo la ejecuta `service_role` y no se tocó. Nota: el coach de Besser ve los 71 correos porque el enmascarado de contacto no está activo allí. |
+| 25 | 🟡 Causa cerrada | Un BFF local con código viejo y otra llave tomó la cola; ya no ocurre desde el 13-oct (`e63b36d6`). 0 mensajes perdidos por retraso; el único hueco (13,7 h) es la caída de Disk IO. **Quedan 4 comprobantes de Dynasty por reprocesar antes del 09-nov** (SQL listo en el informe, sin ejecutar) y 4 de octubre-3 a 5 que la familia debe reenviar. |
+| 17 | 🟡 Código listo, falta el panel de Wompi | Se quitó el respaldo `VITE_WOMPI_PUBLIC_KEY` de `wompi.ts` (falla claro si la escuela no tiene llave propia); tsc, eslint y 14/14 pruebas del flujo en verde. Wompi **no ha llamado al webhook** (último evento de cualquier escuela: 07-oct): el problema es que falta registrar la URL de eventos y un pago real. A cargo del usuario: URL `https://sportmaps-bff-prod.onrender.com/api/v1/webhooks/wompi/webhook` (el `/webhook` final es obligatorio), evento `transaction.updated`, mismo secreto de eventos en el panel y en SportMaps, y un pago real de monto bajo. Al publicar, borrar `VITE_WOMPI_PUBLIC_KEY` de Vercel. Ningún código pasa el estado a `connected` (cosmético). |
 
 **Cambios v2.36 → v2.37** (2026-10-14, tarde). Tres cosas: (a) cómo quedó la caída de Disk IO; (b) qué le falta a Besser para conectar su WhatsApp; (c) **el track V2: cómo se ejecuta el rediseño, en qué orden y con qué compuerta**. Este bloque y el de v2.36 mandan juntos sobre §4. Los ítems nuevos se suman a la cola v2.36 con sus números.
 
@@ -118,7 +212,7 @@ Lo que incluye la ola 0:
   - canal de plataforma, ajustes por escuela e informe de calidad y costo;
   - bot con Claude;
   - el comprobante elige el cobro por el pie de foto.
-- Informe de cartera, SportBot y ventas por WA F0.
+- Informe de cartera, Mapi y ventas por WA F0.
 - Seguimiento deportivo F1–F6 y pizarra T1/T3/T4.
 - Carnets: plantilla predeterminada y privacidad.
 - Seguridad: alcance del coach, lista blanca de roles en el registro y `/admin` solo para plataforma.
@@ -1457,6 +1551,7 @@ priorizar acá:
 | **MOD-23** | **Sitio público del club con subdominio propio.** Detectado al leer a Controla.Club: «Página Web del Club» (marcada NUEVA en su panel) — plantilla + subdominio, conectado a la data del club, para que la escuela tenga presencia pública sin depender de Instagram. No arranca de cero: el patrón de subdominio (`<slug>.sportmaps.co`) y los dominios propios para Enterprise (`CUSTOM_DOMAINS_SETUP.md`, Fase 5 white-label) ya resuelven el enrutamiento y la verificación DNS. Falta el generador de sitio (plantillas, editor, qué datos de la escuela se publican — cruza con la regla de `docs/` de que RLS filtra filas, no columnas: una página pública necesita una vista `_publico`, no exponer la tabla completa). Sin spec todavía; sin decidir si es addon de un tier de branding existente (`project_white_label_tiers`) o producto nuevo. | ⚪ | spec + decisión de producto | detectado 2026-08-21, `sportmaps-strategic-roadmap.md` §2.1 |
 | **MOD-24** | **Comunidad/red social entre clubes y atletas («Social Controla»-equivalente).** Verificado el 2026-08-25 con fetch directo (no capturas): tienen una red social en producción con foros temáticos, sistema de reputación tipo Reddit, «Noticias del Club» y una capa **pública trans-fronteriza** que conecta clubes/coaches/atletas de toda LatAm. Es el gap más grande de los tres nuevos — no tenemos nada construido, y se acerca conceptualmente a `F6.2 Comunidad` del roadmap estratégico (posts, rutas, retos, grupos), que hoy es idea sin fecha ni spec. No se abre spec todavía: primero decidir si el foco es la capa privada por escuela (moat de retención, más barato) o la capa pública trans-escuela (moat de red, mucho más caro y con moderación de contenido de por medio). | ⚪ | spec + decisión de producto | verificado 2026-08-25, memoria `project_competitor_controla_club` |
 | **MOD-25** | **GEO — publicar `/llms.txt` propio.** ✅ **Entregado el 2026-08-25** — ver [§1.6](#16-lo-entregado-el-25-de-agosto-tarde). `llms.txt`/`llms-full.txt` ya vivían en la landing; se sumó `llms-faq.txt` (el tercer archivo que faltaba frente a Controla.Club), se referenciaron las 6 comparativas y se corrigió `robots.txt` con ~20 user-agents de IA explícitos. Complementa `N4` (SEO técnico local), que no contemplaba este ángulo. | ✅ | — | §1.6 · memoria `project_competitor_controla_club` |
+| **MOD-36** | **Técnica de voleibol por video (SportMaps Body — piloto de saque y remate).** Reusa el módulo `biomech` que ya existe (MediaPipe en el navegador, `BiomechCaptureModal`) y le suma dos analizadores: `volleyball_serve` y `volleyball_spike` ([`lib/biomech/volleyball.ts`](../frontend/src/lib/biomech/volleyball.ts), con pruebas). Métricas, de la más a la menos fiable: **ángulo del codo** y **extensión del brazo** en el punto de contacto (coordenadas *world* 3D, no se deforman por la cámara), y **altura de salto por tiempo de vuelo** (`h = g·t²/8`, despegue y aterrizaje detectados con tobillos y talones, **sin depender de la escala**; corrige el umbral de despegue y reporta la incertidumbre). Registra los **fps** y **avisa por debajo de 60**. **✅ Fase 1 (prototipo) construida** — ruta `/coach/voleibol-pose`, sin enlace en el menú, para probarla con ~10 videos con el entrenador de Dynasty. ⛔ **Cumplimiento de `G-IMAGEN` para el piloto: solo métricas, sin video.** El video se procesa **en el dispositivo** y se descarta; **no se sube, no se guarda ni pasa por el BFF**, y en Fase 1 **tampoco se persisten las métricas** (el resultado vive en pantalla). Está escrito en el encabezado de `volleyball.ts` y del modal. Si alguna fase futura necesita **almacenar video**, `G-IMAGEN` vuelve a aplicar y bloquea. **Fase 2 — SOLO si el entrenador lo valida:** mapear a `performance_entries` por **las dos rutas** (`school` y `athlete`, ver `MOD-10`) para que salga en evolución e informe mensual; el catálogo de voleibol ya trae `fis_salto_remate` (altura de salto en el remate) como destino de la altura de salto — el codo y la extensión **no tienen métrica en el catálogo** y habría que definirlas (con `higher_is_better`, rango y bandas) antes de mapear. ⚠️ **Límites conocidos:** cámara fija y de lado; un celular a 30 fps pierde precisión (la pantalla lo dice); la cámara lenta del iPhone reescribe el tiempo del video y falsea el vuelo; los videos a más de 60 fps se procesan a 0,5× y el dispositivo puede saltar cuadros (se avisa). **No es diagnóstico ni medición clínica.** Sin gate de addon todavía. Pedido de una escuela de fútbol: verbal, **fuera de este alcance**. | 🟡 | F1 hecha · F2 ~1 sem tras validar | piloto 2026-10-14 · reusa `biomech` · `MOD-10` · `G-IMAGEN` |
 | **MOD-26** | **LMS (contenido formativo/cursos) — gap sin mapear.** Verificado el 2026-08-25: aparece en su feature list declarada (`llms-full.txt`) y no tiene ningún equivalente ni idea abierta en ningún documento nuestro — a diferencia de gamificación (`N2`) y fitness tracking (Bloque D de `project_gym_member_app`), que ya estaban mapeados y solo suben de prioridad. No hay decisión de producto: ¿contenido para coaches, certificaciones para escuelas, o cursos vendibles a padres/atletas? Sin esa respuesta no hay spec posible. | ⚪ | decisión de producto | verificado 2026-08-25, memoria `project_competitor_controla_club` |
 | — | ⚠️ **Página de ataque directo — corrección ya publicada, no solo documentada.** `controla.club/blog/controlaclub-vs-sportmaps` nos compara por nombre con pricing mezclado (el plan Pro que nos atribuyen es exacto; el Start y un plan «Crecimiento» que ya no existe están mal) y nombra a nuestro CEO. ✅ **25-ago:** `/comparar/controla-club` (nueva) tiene el pricing real de ambos lados, y `llms-full.txt` lleva una nota fechada explicando que su artículo cita planes desactualizados — para que un LLM que lea ambas fuentes prefiera la nuestra. El battlecard sigue siendo la referencia para conversaciones de venta: [`competitor-battlecard-controla-club.md`](competitor-battlecard-controla-club.md) §4-5. | ✅ publicado | — | §1.6 · verificado 2026-08-25 |
 
@@ -2019,7 +2114,7 @@ esfuerzo real todavía no está acotado.
 | Decisión | Bloquea | Nota |
 |---|---|---|
 | **D-V2NAV** — el lienzo se contradice en el menú de la escuela: ¿«Dinero» o «Cobros»?, ¿«Deportivo» o «Entrenadores»?, ¿y qué va en la barra inferior? | V2-0d y todo el track V2 | La navegación de 13-oct usa Cobros + Entrenadores, y el spec de Comunicaciones lo asume. Hay que confirmarlo y dibujarlo una sola vez en `Navegacion`, `Sidebar` y `TabBar` |
-| **D-COM** — cuatro decisiones de [Comunicaciones V2](specs/comunicaciones-rediseno-v2.md) §8: (1) ¿responder desde el WhatsApp personal de la dueña (relevo)?; (2) ¿«SportBot» o «el asistente» ante la escuela?; (3) ¿horario de atención por defecto L–S 8–18, o copiado de los entrenos?; (4) confirmar «Cobros» | Comunicaciones F2 (1) y F0 (2–4) | El relevo queda fuera de alcance por riesgo de suplantación; si se quiere, necesita su propio spec de seguridad |
+| **D-COM** — cuatro decisiones de [Comunicaciones V2](specs/comunicaciones-rediseno-v2.md) §8: (1) ¿responder desde el WhatsApp personal de la dueña (relevo)?; (2) ¿«Mapi» o «el asistente» ante la escuela?; (3) ¿horario de atención por defecto L–S 8–18, o copiado de los entrenos?; (4) confirmar «Cobros» | Comunicaciones F2 (1) y F0 (2–4) | El relevo queda fuera de alcance por riesgo de suplantación; si se quiere, necesita su propio spec de seguridad |
 | Las 4 de `DIN-1` §8 | P0 completo | `students.ts:829` · las 16 huérfanas · backfill de `period_*` · GYM RM |
 | `D9/D11` de `NIV-4` — ¿bloqueo real por día vía grupos de acceso del F22, o solo log/aviso en el BFF? | `NIV-4` | El BFF no controla la puerta; automatizar bloqueo real es proyecto aparte — [spec §8.2](specs/dreamers-niveles-por-horas-y-progresion.md) |
 | **D-FPAY** — Factus Pay: ¿solo para la facturación SaaS de SportMaps (una cuenta, la plata entra a SportMaps) o también para mensualidades (cuenta por escuela)? ¿Tiene webhook o hay que hacer polling? | `DIN-23` F2–F3 | Sin webhook, cada cobro pendiente cuesta consultas periódicas; con cuenta única, la plata de las familias le entraría a SportMaps y habría que girarla — lo mismo que ya se descartó con Wompi |

@@ -13,6 +13,8 @@ import { BrandingSettingsForm } from '@/components/settings/BrandingSettingsForm
 import { SchoolInfoSection } from '@/components/settings/SchoolInfoSection';
 import { SchoolMetricsSettings } from '@/components/settings/SchoolMetricsSettings';
 import { Skeleton } from '@/components/ui/skeleton';
+import { CuentaAcudienteV2 } from '@/components/settings/v2/CuentaAcudienteV2';
+import { esAcudienteV2 } from '@/lib/vistaAcudiente';
 import { 
   User, 
   Bell, 
@@ -40,7 +42,8 @@ export default function SettingsPage() {
     updatePrivacyPreferences,
     updateBranding,
     updateSchoolInfo,
-    changePassword 
+    changePassword,
+    refresh
   } = useSettings();
 
   const { currentUserRole } = useSchoolContext();
@@ -52,9 +55,28 @@ export default function SettingsPage() {
   // Fallback: profile role from Auth
   const isSchoolAdmin = ['owner', 'admin', 'school_admin', 'school', 'super_admin'].includes(currentUserRole || profile?.role || '');
 
+  // Acudiente V2: «Mi cuenta» en una columna (components/settings/v2). La
+  // escuela y los demás roles siguen con esta pantalla tal cual.
+  const acudienteV2 = esAcudienteV2(currentUserRole ?? profile?.role);
+
   useEffect(() => {
-    document.title = "Configuración - SportMaps";
-  }, []);
+    document.title = acudienteV2 ? "Mi cuenta - SportMaps" : "Configuración - SportMaps";
+  }, [acudienteV2]);
+
+  if (acudienteV2) {
+    return (
+      <CuentaAcudienteV2
+        loading={loading}
+        saving={saving}
+        data={data}
+        onRetry={() => { void refresh(); }}
+        updateProfile={updateProfile}
+        updateNotificationPreferences={updateNotificationPreferences}
+        updatePrivacyPreferences={updatePrivacyPreferences}
+        changePassword={changePassword}
+      />
+    );
+  }
 
   if (loading) {
     return (
@@ -85,7 +107,9 @@ export default function SettingsPage() {
               </div>
               <h1 className="text-4xl font-black text-foreground tracking-tight">Configuración</h1>
               <p className="text-muted-foreground text-lg">
-                Gestiona tu cuenta, preferencias y la identidad de tu academia.
+                {isSchoolAdmin
+                  ? 'Gestiona tu cuenta, preferencias y la identidad de tu academia.'
+                  : 'Tus datos, tus avisos, tu privacidad y tu contraseña.'}
               </p>
             </div>
             

@@ -75,7 +75,8 @@ const UpdateOfferingSchema = z.object({
 const CreatePlanSchema = z.object({
     name: z.string().min(1).max(200),
     description: z.string().optional(),
-    max_sessions: z.number().int().positive().nullable().optional(),
+    // 0 = sin tope (∞): se acepta y se guarda como NULL.
+    max_sessions: z.preprocess((v) => (v === 0 ? null : v), z.number().int().positive().nullable().optional()),
     max_secondary_sessions: z.number().int().min(0).optional().default(0),
     duration_days: z.number().int().positive().default(30),
     price: z.number().min(0),
@@ -101,7 +102,8 @@ const CreatePlanSchema = z.object({
 const UpdatePlanSchema = z.object({
     name: z.string().min(1).max(200).optional(),
     description: z.string().optional(),
-    max_sessions: z.number().int().positive().nullable().optional(),
+    // 0 = sin tope (∞): se acepta y se guarda como NULL.
+    max_sessions: z.preprocess((v) => (v === 0 ? null : v), z.number().int().positive().nullable().optional()),
     max_secondary_sessions: z.number().int().min(0).optional(),
     duration_days: z.number().int().positive().optional(),
     price: z.number().min(0).optional(),

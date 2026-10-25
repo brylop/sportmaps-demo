@@ -1,0 +1,53 @@
+-- =============================================================================
+-- 20261024211852_attendance_sheet_storage_policies.sql
+-- Autor: Brayan Steven Lopez   Fecha: 2026-10-25   Versión anterior: 20261024211848
+-- Objetivo: policies de Storage para las fotos de planillas de asistencia en el
+--   bucket privado identity-documents, path attendance_sheet_intake/{id}/hoja.ext.
+--   Mismo patrón que 20260917131343 (postgres puede crear policies sobre
+--   storage.objects directamente en este proyecto).
+--   Solo SELECT e INSERT para staff de la escuela dueña del intake
+--   (user_staff_school_ids(): coach incluido, sin padres/atletas). Sin DELETE
+--   desde clientes: el borrado/retención lo hace service_role. El BFF (WhatsApp)
+--   sube con service_role, que no pasa por estas policies.
+-- Depende de: 20261024211848 (attendance_sheet_intake).
+-- Radio: 2 policies nuevas con nombre propio sobre storage.objects; no tocan
+--   las existentes del bucket. Verificar después:
+--   select policyname from pg_policies where tablename='objects' and policyname like 'identity_docs_att_sheet%';
+-- =============================================================================
+
+BEGIN;
+
+DROP POLICY IF EXISTS "identity_docs_att_sheet_insert" ON storage.objects;
+CREATE POLICY "identity_docs_att_sheet_insert"
+ON storage.objects FOR INSERT TO authenticated
+WITH CHECK (
+    bucket_id = 'identity-documents'
+    AND (storage.foldername(name))[1] = 'attendance_sheet_intake'
+    AND EXISTS (
+        SELECT 1 FROM public.attendance_sheet_intake asi
+        WHERE asi.id::text = (storage.foldername(name))[2]
+          AND asi.school_id = ANY (public.user_staff_school_ids())
+    )
+);
+
+DROP POLICY IF EXISTS "identity_docs_att_sheet_select" ON storage.objects;
+CREATE POLICY "identity_docs_att_sheet_select"
+ON storage.objects FOR SELECT TO authenticated
+USING (
+    bucket_id = 'identity-documents'
+    AND (storage.foldername(name))[1] = 'attendance_sheet_intake'
+    AND EXISTS (
+        SELECT 1 FROM public.attendance_sheet_intake asi
+        WHERE asi.id::text = (storage.foldername(name))[2]
+          AND asi.school_id = ANY (public.user_staff_school_ids())
+    )
+);
+
+COMMENT ON POLICY "identity_docs_att_sheet_insert" ON storage.objects IS
+    'Staff de la escuela dueña del intake puede subir la foto de la planilla de asistencia.';
+COMMENT ON POLICY "identity_docs_att_sheet_select" ON storage.objects IS
+    'Staff de la escuela dueña del intake ve la foto de la planilla en la bandeja de revision.';
+
+NOTIFY pgrst, 'reload config';
+
+COMMIT;

@@ -188,10 +188,14 @@ export function PaymentCheckoutModal({
       const enabled = !!(settings as any)?.tournament_charges_enabled;
       setTournEnabled(enabled);
       if (!enabled) { setTournCatalog([]); return; }
-      const { data: items } = await supabase.from('school_tournament_items' as any)
+      // Un cobro vinculado a un torneo (event_id) se paga inscribiendo, no como cobro suelto.
+      // Si la columna aún no existe (migración sin aplicar), se pide el catálogo como siempre.
+      const base = () => supabase.from('school_tournament_items' as any)
         .select('id, name, price')
         .eq('school_id', schoolId).eq('active', true)
         .order('sort_order', { ascending: true });
+      let { data: items, error: itemsError } = await base().is('event_id', null);
+      if (itemsError) ({ data: items } = await base());
       setTournCatalog((items as any) || []);
     })();
   }, [open, schoolId, mode]);
@@ -1163,7 +1167,7 @@ export function PaymentCheckoutModal({
                     )}
                     {conceptType === 'articulos' && (
                       <div className="space-y-2">
-                        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Elegí los artículos</Label>
+                        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Elige los artículos</Label>
                         <div className="space-y-1.5">
                           {merchCatalog.map((item) => {
                             const sel = merchSelected[item.id];
@@ -1207,7 +1211,7 @@ export function PaymentCheckoutModal({
                     )}
                     {conceptType === 'torneo' && (
                       <div className="space-y-2">
-                        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Elegí los cobros</Label>
+                        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Elige los cobros</Label>
                         <div className="space-y-1.5">
                           {tournCatalog.map((item) => {
                             const sel = tournSelected[item.id];

@@ -171,9 +171,20 @@ export function filaConPagoDeFamilia(fila: FilaCruda): boolean {
  * marcar es decir «esto no es de la escuela». Con «también es familia» sí
  * entran, y `clasificarFila` decide el grupo.
  */
-export function filaCuentaEnBandeja(tipoContacto?: string | null, tambienFamilia?: boolean | null): boolean {
+export function filaCuentaEnBandeja(
+    tipoContacto?: string | null, tambienFamilia?: boolean | null, errorMessage?: string | null,
+): boolean {
+    // Un pago REAL guardado de un contacto que el asistente no atiende (el worker
+    // lo cierra `sin_familia: contacto_no_atendido (tipo): comprobante de $X a una
+    // cuenta de la escuela`, con quién pagó) NO se oculta aunque el contacto sea
+    // personal/negocio/otro club: es plata que llegó a la escuela y alguien tiene
+    // que mirarla (conversación v2 §3.4). Las fotos sin pago siguen escondidas.
+    if (typeof errorMessage === 'string' && errorMessage.startsWith(PREFIJO_PAGO_DE_CONTACTO_NO_ATENDIDO)) return true;
     return !esContactoSinContenido(tipoContacto, tambienFamilia);
 }
+
+/** Prefijo del `error_message` de un comprobante real de un contacto no atendido (lo escribe whatsapp-queue.job). */
+export const PREFIJO_PAGO_DE_CONTACTO_NO_ATENDIDO = 'sin_familia: contacto_no_atendido';
 
 /**
  * Grupo final de la fila. `tipoContacto` es `whatsapp_conversations.contact_kind`

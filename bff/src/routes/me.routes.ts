@@ -82,6 +82,7 @@ router.get('/entitlements', requireAuth, async (req: Request, res: Response) => 
                 coach_attendance_retro_days: 7,
                 coach_can_upload_enrollment_forms: false,
                 coach_can_upload_attendance_sheets: false,
+                coach_can_remove_enrollments: false,
                 registration_zk_pin_enabled: false,
             });
         }
@@ -99,6 +100,18 @@ router.get('/entitlements', requireAuth, async (req: Request, res: Response) => 
             if (fotosErr) req.log?.warn({ err: fotosErr, schoolId }, 'permisos de fotos del coach no legibles; quedan en false');
             data.coach_can_upload_enrollment_forms = (fotos as any)?.coach_can_upload_enrollment_forms === true;
             data.coach_can_upload_attendance_sheets = (fotos as any)?.coach_can_upload_attendance_sheets === true;
+        }
+
+        // Coach remueve deportistas de SUS equipos (mig 20261021…). Select aparte:
+        // sin la migración falla solo esta lectura y queda en false.
+        {
+            const { data: rem, error: remErr } = await supabase
+                .from('school_settings')
+                .select('coach_can_remove_enrollments')
+                .eq('school_id', schoolId)
+                .maybeSingle();
+            if (remErr) req.log?.warn({ err: remErr, schoolId }, 'coach_can_remove_enrollments no legible; queda en false');
+            data.coach_can_remove_enrollments = (rem as any)?.coach_can_remove_enrollments === true;
         }
 
         // ID del torniquete en el registro (Dreamers, mig 20261013…). Select APARTE por

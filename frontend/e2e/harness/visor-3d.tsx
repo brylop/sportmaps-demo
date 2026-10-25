@@ -115,6 +115,11 @@ function App() {
   return (
     <div style={{ position: 'fixed', inset: 0 }}>
       {fallback && <p data-testid="harness-fallback" style={{ color: 'white' }}>Caída a 2D: {fallback}</p>}
+      {!open && (
+        <p data-testid="harness-cerrado" style={{ color: 'white', padding: 16 }}>
+          Aquí estaría el tablero 2D. <button type="button" onClick={() => setOpen(true)}>Reabrir el visor 3D</button>
+        </p>
+      )}
       {open && (
         <Tactical3DViewer
           sport={sport}

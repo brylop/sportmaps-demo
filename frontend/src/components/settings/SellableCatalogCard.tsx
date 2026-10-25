@@ -4,7 +4,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { Loader2, Plus, Pencil, ShieldOff, X, ShoppingBag, MessageCircle } from 'lucide-react';
+import { Loader2, Plus, Pencil, ShieldOff, X, ShoppingBag, MessageCircle, Trophy, Link2Off } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { bffClient } from '@/lib/api/bffClient';
+import { useEntitlements } from '@/hooks/useEntitlements';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 
@@ -33,7 +36,12 @@ interface CatalogItem {
   ends_at?: string | null;
   capacity?: number | null;
   per_athlete?: boolean | null;
+  /** Torneo interno (events) al que está vinculado el cobro; null = cobro suelto. */
+  event_id?: string | null;
 }
+
+/** Torneo interno de la escuela, para vincular un cobro del catálogo. */
+interface TorneoOpcion { id: string; title: string; status: string }
 
 interface SellableCatalogCardProps {
   schoolId: string;
@@ -55,6 +63,12 @@ interface SellableCatalogCardProps {
    * está aplicada, la tarjeta se ve como antes.
    */
   withServiceFields?: boolean;
+  /**
+   * Cobros de torneo: permite crear el torneo en el módulo de Torneos desde el ítem, o
+   * vincularlo a uno existente. Un ítem vinculado ya no se vende como cobro suelto: se
+   * inscribe en el torneo (así no se cobra dos veces). Solo en la vista de la propia escuela.
+   */
+  linkTournaments?: boolean;
 }
 
 /** ISO → valor de <input type="datetime-local"> en la hora del navegador. */
@@ -77,7 +91,7 @@ function formatWhen(item: CatalogItem): string | null {
 }
 
 const BASE_COLS = 'id, name, price, active';
-const SERVICE_COLS = 'id, name, price, active, description, kind, image_url, starts_at, ends_at, capacity, per_athlete';
+const SERVICE_COLS = 'id, name, price, active, description, kind, image_url, starts_at, ends_at, capacity, per_athlete, event_id';
 
 /**
  * CRUD de un catálogo vendible (artículos deportivos, cobros de torneo) que la
@@ -86,8 +100,11 @@ const SERVICE_COLS = 'id, name, price, active, description, kind, image_url, sta
  * (self-service de la escuela) — ver migración 20260908152538.
  */
 export function SellableCatalogCard({
-  schoolId, table, enabled, title, description, itemLabel, withSizesAndImage = false, withServiceFields = false,
+  schoolId, table, enabled, title, description, itemLabel, withSizesAndImage = false, withServiceFields = false, linkTournaments = false,
 }: SellableCatalogCardProps) {
+  const navigate = useNavigate();
+  const { hasAddon } = useEntitlements();
+  const [torneos, setTorneos] = useState<TorneoOpcion[]>([]);
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -108,6 +125,8 @@ export function SellableCatalogCard({
   const [waSales, setWaSales] = useState<boolean | null>(null);
 
   const showService = withServiceFields && serviceReady;
+  // Vincular requiere el módulo de Torneos y la columna event_id (migración 20261020122827).
+  const canLink = linkTournaments && hasAddon('tournaments');
 
   const resetForm = () => {
     setEditingId(null);
@@ -157,6 +176,27 @@ export function SellableCatalogCard({
     if (enabled && schoolId) void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schoolId, enabled, table]);
+
+  // Torneos internos de la escuela (para «Vincular»). Si falla, solo se pierde esa opción.
+  useEffect(() => {
+    if (!enabled || !canLink) return;
+    bffClient.get<(TorneoOpcion & { tournament_scope: string | null })[]>('/api/v1/events/school-tournaments')
+      .then((rows) => setTorneos((rows ?? []).filter((t) => t.tournament_scope === 'internal' && t.status !== 'cancelled')))
+      .catch(() => setTorneos([]));
+  }, [enabled, canLink, schoolId]);
+
+  const linkEvent = async (item: CatalogItem, eventId: string | null) => {
+    setSaving(true);
+    const { error } = await supabase.from(table as any).update({ event_id: eventId }).eq('id', item.id);
+    setSaving(false);
+    if (error) {
+      const dup = /school_tournament_items_event_uq|duplicate key/i.test(error.message);
+      toast({ title: 'No se pudo vincular', description: dup ? 'Ese torneo ya está vinculado a otro cobro.' : error.message, variant: 'destructive' });
+      return;
+    }
+    toast({ title: eventId ? 'Cobro vinculado al torneo' : 'Cobro desvinculado', description: item.name });
+    await load();
+  };
 
   const startEdit = (item: CatalogItem) => {
     setEditingId(item.id);
@@ -225,7 +265,7 @@ export function SellableCatalogCard({
     setSaving(false);
     if (error) { toast({ title: 'No se pudo cambiar', description: error.message, variant: 'destructive' }); return; }
     setWaSales(value);
-    toast({ title: value ? 'El asistente de WhatsApp ya vende estos servicios' : 'Ventas por WhatsApp apagadas' });
+    toast({ title: value ? 'Mapi ya vende estos servicios por WhatsApp' : 'Ventas por WhatsApp apagadas' });
   };
 
   return (
@@ -253,7 +293,7 @@ export function SellableCatalogCard({
                   <div>
                     <p className="text-sm font-medium">Vender por WhatsApp</p>
                     <p className="text-xs text-muted-foreground">
-                      El asistente responde precio, fecha y cupos de estos servicios y, a las familias identificadas, les manda el link de pago con 1 hora para pagar.
+                      Mapi responde precio, fecha y cupos de estos servicios y, a las familias identificadas, les manda el link de pago con 1 hora para pagar.
                     </p>
                   </div>
                 </div>
@@ -270,11 +310,44 @@ export function SellableCatalogCard({
                         <span className="text-sm font-medium truncate">{item.name}</span>
                         {item.size_options && <span className="text-[11px] text-muted-foreground">{item.size_options}</span>}
                         {showService && item.kind && <Badge variant="outline" className="text-[10px]">{KIND_LABEL[item.kind] ?? item.kind}</Badge>}
+                        {item.event_id && <Badge variant="secondary" className="text-[10px]" title="Se paga inscribiendo en el torneo; no se vende como cobro suelto">Torneo vinculado</Badge>}
                       </div>
                       <div className="text-xs text-primary font-semibold">
                         ${item.price.toLocaleString('es-CO')}
                         {showService && formatWhen(item) && <span className="ml-2 font-normal text-muted-foreground">{formatWhen(item)}</span>}
                         {showService && item.capacity ? <span className="ml-2 font-normal text-muted-foreground">{item.capacity} cupos</span> : null}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1 mt-1">
+                      {canLink && showService && (item.kind ?? 'torneo') === 'torneo' && (
+                        item.event_id ? (
+                          <>
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-[11px] shrink-0" onClick={() => navigate(`/school/tournaments/${item.event_id}`)}>
+                              <Trophy className="h-3 w-3 mr-1" /> Ver torneo
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 shrink-0" title="Desvincular del torneo" disabled={saving} onClick={() => linkEvent(item, null)}>
+                              <Link2Off className="h-3.5 w-3.5" />
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-[11px] shrink-0" disabled={saving} onClick={() => navigate(`/school/tournaments/new?from_item=${item.id}`)}>
+                              <Trophy className="h-3 w-3 mr-1" /> Crear en Torneos
+                            </Button>
+                            {torneos.filter((t) => !items.some((o) => o.event_id === t.id)).length > 0 && (
+                              <select
+                                aria-label={`Vincular ${item.name} a un torneo`}
+                                value=""
+                                disabled={saving}
+                                onChange={(e) => e.target.value && void linkEvent(item, e.target.value)}
+                                className="h-7 rounded-md border border-input bg-background px-1 text-[11px] max-w-[130px] shrink-0"
+                              >
+                                <option value="">Vincular…</option>
+                                {torneos.filter((t) => !items.some((o) => o.event_id === t.id)).map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
+                              </select>
+                            )}
+                          </>
+                        )
+                      )}
                       </div>
                     </div>
                     <Badge variant={item.active ? 'secondary' : 'outline'} className="text-[10px] shrink-0">

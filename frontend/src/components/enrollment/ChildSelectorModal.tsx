@@ -165,7 +165,10 @@ export function ChildSelectorModal({
 
     // Auto-show form if no children. Con invitación pendiente NO se auto-abre:
     // el camino correcto es aceptarla, no crear al atleta a mano.
+    // Solo con el modal abierto: montado y cerrado, las consultas están apagadas
+    // (children = []) y el formulario quedaba abierto, tapando la lista de hijos.
     if (
+        open &&
         !showNewChildForm &&
         children.length === 0 &&
         !isLoading &&

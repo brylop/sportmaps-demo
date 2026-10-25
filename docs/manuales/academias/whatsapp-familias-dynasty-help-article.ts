@@ -1,5 +1,5 @@
 /**
- * Artículo NUEVO para `bff/src/data/help-articles.ts` (Sportbot / Centro de
+ * Artículo NUEVO para `bff/src/data/help-articles.ts` (Mapi / Centro de
  * Ayuda). Slug nuevo `whatsapp-asistente-familias`: no reemplaza ninguno
  * (ningún slug existente habla del asistente de WhatsApp para acudientes).
  *

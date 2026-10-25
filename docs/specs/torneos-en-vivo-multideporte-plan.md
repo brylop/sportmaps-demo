@@ -1,0 +1,419 @@
+# Torneos en vivo para todos los deportes — plan v2
+
+**Fecha:** 2026-10-24 · **Versión:** 2.1 (v2 + cuatro huecos cerrados tras revisión; la v1 queda en el historial de git) · **Estado:** PLAN para aprobar. No hay código ni migración escritos.
+**Cómo leer:** §1 y §2 describen lo que hay HOY (verificado en la base y el código el 2026-10-24). Desde §3 todo es propuesta. Los tamaños (S/M/L) son relativos, no fechas.
+
+---
+
+## Estado de implementación (2026-10-24)
+
+El usuario pidió construir **todo de una** (los tres formatos independientes, partidos y sorteo configurables, anotador, página pública y pruebas) para probar y descartar. Se construyó:
+
+- **Migración única `20261024084549_torneos_en_vivo_formatos`** (aplicada): reemplaza el plan de M1+M2 por una sola. Agrega `events.live_enabled/scoring_config/format_config/stream_url`; `tournament_matches` (`live`, `stage`, `group_label`, `home_ref/away_ref`, `court`, `version`, `live_state`, anotador); `tournament_match_log`, `tournament_scorekeepers` y la RPC `apply_tournament_match_action` (todo cerrado a `anon` y `authenticated`). **No se creó `tournament_match_sets`**: los sets se derivan de la secuencia de puntos guardada en `live_state`.
+- **Motores puros** en `bff/src/services/tournament/`: `scoring.shared.ts` (goles y sets; copia en `frontend/src/lib/tournamentScoring.ts` con prueba de paridad), `standings.shared.ts`, `fixtures.shared.ts` (liga, copa y grupos + fase final; sorteo aleatorio con semilla o manual; partidos por equipo; ida y vuelta; tercer puesto; canchas y horas).
+- **Servicio y rutas**: `tournament-live.service.ts` y `routes/tournament-live.route.ts` (`/api/v1/tournament-live`): ajustes, calendario por formato, acción única con versión + log + idempotencia, anotador por token, lectura pública con caché de 5 s y ETag. Interruptor global `TOURNAMENT_LIVE_DISABLED=true`.
+- **Rutas heredadas** (`events.route.ts`) delegan al motor: `PATCH /matches/:matchId` (con `scoring_config` o sin él), generate-fixtures, standings y public-results. Cambio de comportamiento: **un empate en eliminatoria se rechaza** (antes se guardaba y no avanzaba a nadie).
+- **Formatos independientes**: cada categoría puede usar uno distinto (`stage` por partido); `competition_format` del torneo guarda el último usado.
+- **Pruebas**: motores (75), servicio con base simulada (33: torneo completo grupos → fase final → final, idempotencia, conflictos, anotadores, privacidad pública, carga), rutas HTTP (8) y `scripts/torneos-carga.mjs` (carga real; correr solo con torneo de prueba y fuera de horario).
+
+Pendiente de decisión del cliente: torneo real de Monster, fecha, canchas y reglamento por categoría (§10).
+
+## Resumen
+
+- **Primera entrega concreta: vóley en vivo para un torneo real de Monster's Volley.** «Todos los deportes» es la arquitectura (modelos de marcador), no la primera entrega.
+- **MVP = F0 + F1 + F2 + ensayo en cancha:** motor de tabla único, modelo de sets, estado «en juego», anotador para el admin del club y página pública que se refresca sola. El anotador sin cuenta (enlace) llega en F3, salvo que la mesa la maneje alguien externo.
+- **Nada cambia para lo existente:** `live_enabled = false` y `scoring_config = NULL` dan exactamente el comportamiento de hoy.
+- **Riesgos principales:** la señal en el coliseo y que dev, staging y producción comparten una sola base.
+- **Para arrancar F1 se necesitan 4 respuestas (§10, 1–4).** Cada decisión trae un valor por defecto: si te sirve, basta con aprobarlo.
+
+---
+
+## 0. Qué queremos
+
+Que un torneo creado en SportMaps genere **en vivo** su calendario, marcadores, tabla y cuadro, para cualquier deporte, con:
+
+1. **Interruptor por torneo** para lo «en vivo» (apagado = solo el resultado final, como hoy).
+2. **Página pública** sin login, con enlace y QR, que se actualiza sola.
+3. **Anotador en la cancha** desde el celular.
+4. **Más adelante, transmisión:** modo pantalla grande y enlace al video que el club ya transmite (YouTube/Facebook).
+
+**Para quién**
+- **Mesa o admin del club:** anota rápido, corrige sin miedo.
+- **Familias:** ven el marcador y la tabla sin instalar nada.
+- **Otros clubes y público:** descubren SportMaps. La página pública es también un canal de adquisición.
+
+**Principios:** genérico por **modelo de marcador** (no una pantalla por deporte); **opt-in** por torneo; lo que funciona hoy no cambia; **una sola vía para cambiar un marcador**; **funciona con mala señal**; sin datos de menores en lo público.
+
+### 0.1 Cómo sabremos que funcionó (primer torneo real)
+
+| Métrica | Meta |
+|---|---|
+| Resultados finales correctos sin arreglos a mano en la base | 100 % |
+| Partidos anotados en vivo (no solo el resultado final) | ≥ 90 % |
+| Tiempo hasta que un cambio aparece en la página pública | ≤ 15 s (p95) en F2; ≤ 2 s en F4 |
+| Visitas únicas a la página pública | ≥ 1 por deportista inscrito (ajustar con el club) |
+| Clics en «Organiza tu torneo con SportMaps» | Medir; es la línea base de adquisición |
+| Datos de menores expuestos en lo público | 0 |
+
+---
+
+## 1. Lo que ya hay (verificado el 2026-10-24)
+
+**Base de datos**
+- `events`: 12 eventos (11 de escuela). Campos útiles: `competition_format` (liga, copa, grupos, americano), `tournament_scope`, `sport`, `slug`, `school_id`, `visibility`, `status`.
+- `tournament_matches`: local/visitante, marcador, ronda, `scheduled_at`, `venue`. **`status` solo admite** `scheduled`, `played`, `walkover`, `cancelled`. Hoy hay 5 partidos: 2 programados, 2 jugados, 1 walkover.
+- `tournament_match_events`: goles y tarjetas (`goal`, `own_goal`, `yellow`, `red`, `assist`). Pensado para fútbol.
+- Equipos, delegaciones, categorías y pagos de inscripción.
+- Plantillas de categorías para **9 deportes** (atletismo, baloncesto, cheerleading, fútbol, futsal, gimnasia, natación, porras, voleibol). El catálogo tiene **100 deportes**.
+- RLS solo para `authenticated`. **Nada para `anon`:** la página pública pasa por el BFF.
+- `tournament_matches` **no** está en el tiempo real de Supabase.
+
+**BFF (`events.route.ts`)**
+- Crear torneo de escuela (exige el complemento `tournaments`).
+- Calendario: **liga** (todos contra todos) y **copa** (eliminación directa con byes y avance del ganador).
+- Cargar resultado: marca `played`, avanza al ganador en copa (salvo empate) y notifica a los integrantes de los dos equipos.
+- Tabla, goleadores y página pública de resultados sin login.
+- **La tabla está escrita dos veces** y es **solo de fútbol** (3/1/0, empates, diferencia de gol).
+- Solo `school` / `school_admin` cargan resultados.
+- Hoy el resultado entra por `PATCH /matches/:matchId` (`events.route.ts`): guarda el marcador **sin versión ni log**, avanza al ganador en copa **comparando `home_score` con `away_score`** y avisa a las familias.
+- El calendario solo genera **liga** y **copa** (`format === 'copa' ? 'copa' : 'liga'`). **`grupos` y `americano` existen en el campo `competition_format`, pero no tienen generador ni cruces: no están implementados** (verificado el 2026-10-24).
+
+**Frontend**
+- Pestaña **Resultados** en el detalle del torneo.
+- Página pública `/tournaments/:id/results`: **solo la tabla, carga una vez**, con botón de compartir.
+
+**Gating:** el complemento Torneos está **apagado en Monster**.
+
+---
+
+## 2. Lo que falta
+
+| # | Brecha | Por qué importa |
+|---|---|---|
+| B1 | No hay modelo de marcador: todo es fútbol | Vóley, tenis, baloncesto, gimnasia y natación no caben |
+| B2 | No hay estado «en juego» | Sin eso no hay marcador en vivo |
+| B3 | No hay marcador por set | El vóley se puntúa por sets |
+| B4 | La página pública no se actualiza y solo muestra la tabla | No muestra partidos, marcadores ni cuadro |
+| B5 | Solo la escuela carga resultados, con cuenta | En la cancha a veces anota otra persona |
+| B6 | Sin interruptor «en vivo» ni reglas por torneo | No se puede activar o desactivar |
+| B7 | Tabla duplicada en dos rutas | Cada regla nueva hay que cambiarla dos veces |
+| B8 | Sin enlace de transmisión | Para ver el video junto al marcador |
+| B9 | Sin corrección auditada | En vivo se corrige seguido |
+| B10 | Puntos de tabla fijos en 3/1/0 | Baloncesto usa 2/1 sin empates; vóley usa 3/2/1/0 |
+| B11 | Las reglas no cambian por categoría | Iniciación e infantil suelen jugar distinto que juvenil |
+| B12 | No hay concepto de cancha *(por confirmar si `venue` alcanza)* | El anotador y «siguiente en cancha» lo necesitan |
+| B13 | Nada contempla la mala señal | En un coliseo la conexión se cae; sin cola ni reintento se pierden puntos o se duplican |
+| B14 | Walkover y abandono sin reglas por deporte | El resultado de un walkover en vóley no es igual al de fútbol |
+| B15 | La ruta vieja `PATCH /matches/:matchId` escribe sin versión ni log | Si sigue abierta, un admin se salta el motor y el log |
+| B16 | La copa avanza al ganador por `home_score > away_score` | Con sets hay que usar `matchOutcome`, no el marcador entero |
+| B17 | No existe el formato «grupos + fase final» (ni generador ni cruces) | Es el formato típico del vóley; hoy solo hay liga y copa |
+
+---
+
+## 3. Diseño propuesto
+
+### 3.1 Modelos de marcador
+
+| Modelo | Deportes | Cómo se anota | Fase |
+|---|---|---|---|
+| `goals` | fútbol, futsal, balonmano, hockey, baloncesto | Goles o puntos corridos; empate permitido o no según el deporte | Ya existe (se parametriza en F0) |
+| `sets` | vóley, pádel, bádminton, tenis de mesa; tenis solo por games | Unidades por set (puntos o games); gana quien llega a N sets | **F1** |
+| `judged` | gimnasia, porras, patinaje, artes marciales | Nota de jueces | F5 |
+| `timed` | atletismo, natación, ciclismo | Tiempo o puesto | F5 |
+
+Cada torneo guarda su configuración en `events.scoring_config` (jsonb), con **valores por defecto por deporte** en código y **ajustes por categoría**. Ejemplo de vóley:
+
+```json
+{
+  "model": "sets",
+  "best_of": 3,
+  "set_points": 25,
+  "deciding_set_points": 15,
+  "win_by": 2,
+  "cap": null,
+  "standings_points": { "win": 3, "win_deciding_set": 2, "loss_deciding_set": 1, "loss": 0 },
+  "walkover": { "loser_points": 0, "set_score": [25, 0] },
+  "tiebreakers": ["wins", "points", "set_ratio", "point_ratio", "head_to_head"],
+  "by_category": { "<category_id>": { "set_points": 15, "deciding_set_points": 15 } }
+}
+```
+
+- `win_deciding_set` reemplaza llaves como `"3-2"`: sirve igual para partidos a 2 de 3 y a 3 de 5.
+- Los desempates siguen como referencia el orden FIVB (partidos ganados, puntos, ratio de sets, ratio de puntos, enfrentamiento directo). La v1 ponía los puntos primero. Lo decide el reglamento del torneo (§10).
+- `scoring_config = NULL` = fútbol con 3/1/0, igual que hoy.
+- **Compatibilidad en `sets`:** `home_score` y `away_score` guardan los **sets ganados** (ej. 3-1), no los puntos. Así lo que ya lee `tournament_matches` sigue teniendo sentido. El detalle por set vive en `tournament_match_sets`. **El ganador, la tabla y el avance de copa salen de `matchOutcome`, nunca de comparar `home_score` con `away_score`.**
+- En la interfaz la escuela elige de una **plantilla por deporte**; nunca edita JSON.
+
+### 3.2 Datos: dos migraciones pequeñas, cada una con aprobación
+
+Las migraciones son inmutables y se aplican a mano. Por eso conviene no crear hoy tablas que solo se usan en F3: si el diseño cambia después del ensayo en cancha, habría que corregirlas con otra migración.
+
+**M1 (F1)**
+- `events.live_enabled boolean not null default false`.
+- `events.scoring_config jsonb null`.
+- `tournament_matches`: agregar `live` al CHECK de `status`; columnas `started_at`, `finished_at`, `version int not null default 0` y `court text null` (si `venue` no alcanza).
+- Ciclo de estados: `scheduled → live → played`; `walkover` y `cancelled` desde `scheduled`. Corregir un partido `played` queda en el log.
+- `tournament_match_sets`: `match_id`, `set_number`, `home_points`, `away_points`, `finished`; único por (`match_id`, `set_number`); puntos ≥ 0.
+- `tournament_match_log`: `match_id`, `actor_type` (`user` | `scorekeeper` | `system`), `actor_id`, `action`, `before` y `after` (jsonb), `client_action_id`, `created_at`; único por (`match_id`, `client_action_id`) para que un reintento no se aplique dos veces.
+
+**M2 (F3/F6)**
+- `tournament_scorekeepers`: torneo, cancha opcional, etiqueta («Mesa cancha 1»), **hash del token**, `expires_at`, `revoked_at`, `last_used_at`.
+- `tournament_matches.stream_url`.
+
+**En ambas:** `search_path` fijo, `GRANT` explícito, estados como `text + CHECK`, **nada expuesto a `anon`**.
+
+### 3.3 BFF
+
+**Motor puro `tournament-scoring.shared.ts`**, con la misma interfaz para cada modelo:
+- `applyAction(estado, acción, config)`: valida y devuelve el nuevo estado o un error claro.
+- `matchOutcome(partido, config)`: ganador, sets y puntos, para la tabla.
+- `standings(partidos, config)`: tabla genérica con puntos y desempates configurables.
+
+Reemplaza la tabla duplicada.
+
+**Una sola vía de escritura:** `POST /matches/:id/actions`, con acciones `start`, `point`, `undo`, `end_set`, `finish`, `correct` y `walkover`. En cada acción:
+1. Autentica al usuario del club o al token de anotador.
+2. Verifica que `live_enabled` esté encendido.
+3. Aplica idempotencia (`client_action_id`) y la versión.
+4. Llama al motor.
+5. Guarda el estado y el log en **una transacción**.
+6. Notifica **después**, sin demorar la respuesta.
+
+**Ruta heredada `PATCH /matches/:matchId`** (decidido):
+- Torneo **sin** `scoring_config`: sigue exactamente igual que hoy.
+- Torneo **con** `scoring_config`: no escribe por su cuenta; **delega por dentro a la vía única del motor** (versión, log, avance de copa y avisos). Así ninguna ruta se salta el log.
+- Se cubre con prueba de regresión (§5) y se revisa en el inventario de F0.
+
+**`tournament_match_events` no se toca.** Sigue siendo solo de fútbol (goles y tarjetas), convive con `sets` y no se migra ni se reutiliza para puntos de vóley.
+
+**Lectura pública:** `GET /public/tournaments/:slug/live`.
+- Usa el `slug`, no el id interno. La ruta vieja redirige.
+- Caché de **5 s** en el BFF y `ETag`.
+- Responde solo con equipos, marcadores, horarios y cancha.
+
+**Refresco del cliente:**
+- Cada **10 s** si hay partidos en juego y cada 60 s si no.
+- Solo con la pestaña visible.
+- Peor caso: ~15 s.
+- Carga estimada: 500 espectadores son ~50 solicitudes/s al BFF, pero máximo **1 consulta a la base cada 5 s por torneo**.
+
+### 3.4 Frontend
+
+**Ajustes del torneo**
+- Plantilla por deporte.
+- Ajustes por categoría.
+- Interruptor «en vivo».
+- Enlace de transmisión (F6).
+
+**Anotador** (web móvil)
+- **F1:** dentro de la app, para `school` / `school_admin`. Alcanza para el primer torneo si la mesa es del club.
+- **F3:** enlace o QR sin cuenta.
+- Botones grandes por equipo y **deshacer siempre visible**.
+- Confirmación al cerrar set y partido.
+- Pantalla siempre encendida (Wake Lock).
+- **Un anotador activo por partido:** quien lo abre lo «toma». Otro puede tomarlo con confirmación, lo que evita choques de versión punto a punto.
+- **Cola local con reintento** cuando se cae la señal, con indicador «sincronizado / pendiente».
+
+**Página pública en vivo**
+- «En juego ahora» arriba, «Siguiente en cada cancha», resultados, tabla por categoría o grupo, cuadro de copa y QR.
+- Hora de Colombia.
+- `noindex` por defecto.
+- Pie con marca SportMaps y botón **«Organiza tu torneo con SportMaps»** con UTM para medir.
+
+**Modo TV** (`/tournaments/:slug/tv`): solo lectura, letra grande, rota entre canchas.
+
+**Textos:** en español colombiano. El aviso actual dice «podés»; se corrige.
+
+### 3.5 Privacidad y seguridad
+
+- **Lo público** muestra equipos, marcadores, horarios y cancha. **No** muestra nombres de menores, documentos, contactos ni pagos. Hay una prueba automática que falla si alguno aparece.
+- **Ley 1581 de 2012:** si más adelante se muestran nombres de deportistas (§10), el club debe tener la autorización de padres o acudientes. Ese permiso es por torneo y está apagado por defecto.
+- **Transmisión:** el club es responsable del video y de la autorización de las familias. SportMaps solo enlaza, y lo avisa al pegar el enlace.
+- **Token de anotador:** largo, guardado como hash, vence al terminar el torneo + 24 h, revocable, con alcance de un torneo (y opcionalmente de una cancha).
+- **Límite de frecuencia** en los endpoints públicos y de anotador.
+- **Interruptores de emergencia:**
+  - Por torneo (`live_enabled`).
+  - **Global** (variable de entorno), que apaga lo «en vivo» en todos los torneos sin desplegar.
+- **Enlace de video:** solo dominios permitidos (YouTube, Facebook, Vimeo).
+
+### 3.6 Avisos a las familias
+
+- Solo eventos que importan: **resultado final** y, opcionalmente, **inicio del partido**. Nunca punto a punto.
+- Canal: **notificación de la app primero**.
+- WhatsApp solo con opt-in. Desde el 1 de octubre de 2026, los avisos que inicia el club por WhatsApp se cobran desde el primer mensaje. Los 1.000 mensajes gratis al mes cubren solo las respuestas de servicio.
+
+### 3.7 Transmisión
+
+- **Incluido:** la escuela pega el enlace de su transmisión (por partido o por cancha) y el video se ve junto al marcador. También el modo TV.
+- **No incluido:** video propio de SportMaps, que tiene infraestructura y costo aparte.
+
+---
+
+## 4. Fases
+
+| Fase | Entrega | Criterio de aceptación | Tamaño |
+|---|---|---|---|
+| **F0** | Inventario de todo lo que asume los 4 estados actuales y de todas las rutas que escriben un marcador (incluida `PATCH /matches/:matchId`). Motor de tabla puro con puntos configurables (por defecto 3/1/0). Borrar la copia | `standings` y `public-results` devuelven lo mismo que antes con los 5 partidos (snapshot) | S |
+| **F1** | Modelo `sets`, estado `live`, reglas por torneo y categoría, anotador para el admin, log y M1 | Partidos a 2 de 3 y a 3 de 5 con tabla correcta; casos borde (§5) en verde; deshacer funciona; un torneo de fútbol existente se ve igual. **Con sets, `home_score`/`away_score` guardan los sets ganados (ej. 3-1) y el ganador y el avance de copa salen de `matchOutcome`** (prueba: copa 2-1 en sets avanza al ganador correcto). **`PATCH /matches/:matchId` con `scoring_config` delega al motor y deja log** | M |
+| **F1b** | Formato **«grupos + fase final»**: generador de grupos (todos contra todos por grupo), tabla por grupo y cruces a la fase final (ej. 1.º A vs 2.º B). Depende de la decisión 10 | Con N grupos y los clasificados definidos, el cuadro final se arma solo con los cruces acordados; empates entre grupos resueltos por los desempates de la config; liga y copa existentes no cambian | M |
+| **F2** | Página pública en vivo: en juego, siguiente por cancha, tabla, cuadro, QR, interruptor, marca y CTA | Apagado = igual que hoy; encendido, cambio visible ≤ 15 s (p95); prueba de carga de §5 dentro de meta; sin datos sensibles | M |
+| **Ensayo** | Partido amistoso de Monster con la señal real del coliseo | Un partido completo anotado sin perder ni duplicar puntos; familias viéndolo por QR | — |
+| **F3** | Anotador sin cuenta (enlace/QR), toma de partido, cola offline y M2 | Con el celular 2 min sin señal, los puntos se sincronizan al volver sin duplicarse; un segundo anotador tiene que «tomar» el partido; revocar corta al instante | M |
+| **F4** | Tiempo real (Broadcast desde el BFF), modo TV y avisos de inicio y final | Cambio visible ≤ 2 s sin recargar; la carga de la base no crece con los espectadores | M |
+| **F6** | Enlace de transmisión por partido o cancha | Se ve el video; solo dominios permitidos | S |
+| **F5** | Modelos `judged` y `timed` | Gimnasia con notas y natación con tiempos, con su clasificación | L |
+
+**MVP para el primer torneo:** F0 → F1 → F2 → ensayo. **F1b entra al MVP si el torneo de Monster es «grupos + fase final»** (decisión 10); si es liga o copa, no. F3 entra al MVP solo si la mesa la maneja alguien sin cuenta del club. Después: F4 → F6. F5 cuando un torneo real de un deporte calificado o cronometrado lo pida.
+
+---
+
+## 5. Pruebas
+
+- **Motor de vóley (casos borde):**
+  - 25-23 cierra el set.
+  - 25-24 sigue.
+  - 26-24 cierra.
+  - 31-29 cierra (sin tope).
+  - Set decisivo 15-13 cierra y 15-14 sigue.
+  - No se puede sumar a un set cerrado.
+  - Deshacer el último punto de un set cerrado lo reabre.
+  - El partido termina al llegar a ⌈best_of/2⌉ sets.
+  - Walkover según config.
+- **Ruta heredada:** `PATCH /matches/:matchId` en un torneo sin `scoring_config` da el mismo resultado de hoy; con `scoring_config` delega al motor y escribe en el log (versión incrementada).
+- **Copa con sets:** un 2-1 en sets avanza al ganador por `matchOutcome`; un marcador de sets nunca se compara como goles.
+- **Grupos + fase final (F1b):** generación de grupos, tabla por grupo y cruces (1.º A vs 2.º B), con empates entre clasificados.
+- **Tabla:** empate a puntos resuelto por cada desempate en orden; regresión de fútbol con los 5 partidos.
+- **Concurrencia e idempotencia:**
+  - Dos acciones con la misma versión: una se aplica y la otra recibe conflicto.
+  - El mismo `client_action_id` dos veces se aplica una sola vez.
+- **Carga:** JMeter o k6 contra el endpoint público con 500 espectadores, refresco de 10 s y 30 min. Se mide p95 y consultas a la base. **Correrla con un torneo de prueba y fuera de horario, porque la base es la misma de producción.**
+- **Seguridad:**
+  - La respuesta pública no contiene campos sensibles (prueba automática).
+  - Un token vencido o revocado se rechaza.
+  - El límite de frecuencia responde 429.
+- **Campo:** el ensayo de §4.
+
+---
+
+## 6. Día del torneo
+
+- **Antes:**
+  - Reglas confirmadas y `live_enabled` encendido.
+  - QR impreso por cancha.
+  - Celular de la mesa cargado, con batería externa y datos de respaldo.
+  - Prueba rápida de anotar y deshacer.
+- **Durante:**
+  - Alguien de SportMaps de guardia, con acceso al log.
+  - **Plan B:** si lo «en vivo» falla, se apaga `live_enabled` y se cargan los resultados finales como hoy.
+- **Después:** revisar el log de correcciones y las métricas de §0.1, y ajustar antes del siguiente torneo.
+
+---
+
+## 7. Lo que tengo para hacerlo
+
+**Tengo:**
+- Acceso al repo y al módulo actual (ya leído).
+- Consultas a la base.
+- Migraciones con aprobación y verificación.
+- Pruebas automáticas del BFF y del frontend.
+- Agentes en paralelo por archivos distintos.
+- Entorno de desarrollo con datos de prueba.
+
+**Necesito de ti:**
+- Las respuestas de §10.
+- Un torneo real de Monster y un partido amistoso para el ensayo.
+- El enlace de transmisión, si lo hay.
+
+**No tengo:**
+- El reglamento de cada deporte.
+- Credenciales de YouTube o Facebook (no hacen falta: solo se enlaza).
+
+---
+
+## 8. Riesgos
+
+| Riesgo | Cobertura |
+|---|---|
+| Se cae la señal en el coliseo | Cola local, reintento, idempotencia, ensayo previo y plan B |
+| La página pública golpea la única base (dev, staging y producción comparten) | Caché de 5 s y `ETag`, solo torneos con `live_enabled`, Broadcast en F4, prueba de carga controlada |
+| Exponer tablas a `anon` | No se exponen: todo pasa por el BFF |
+| Dos anotadores en el mismo partido | Un anotador activo por partido, `version` optimista y log |
+| Código que asume solo 4 estados | Inventario en F0, tipos exhaustivos y regresión |
+| Reglas distintas por federación o categoría | `scoring_config` por torneo con ajustes por categoría, no en el código |
+| Datos de menores en lo público | Solo equipos y marcadores; prueba automática; nombres solo con autorización |
+| Costo de los avisos por WhatsApp | Notificación de la app primero; WhatsApp solo con opt-in |
+| «Todos los deportes» infla el alcance | Multideporte es arquitectura; se entrega vóley primero |
+| Una migración mal hecha | Dos migraciones pequeñas, revisadas antes de aplicar |
+
+---
+
+## 9. Fuera de alcance
+
+- Video propio de SportMaps.
+- Estadísticas individuales de vóley (ataques, bloqueos, saques).
+- Tenis con puntos 15-30-40.
+- Penales en copa de fútbol. Hoy un empate en copa no avanza a nadie; queda en el backlog.
+- Acta digital firmada por árbitros.
+- App nativa del anotador (es web móvil).
+
+---
+
+## 10. Decisiones abiertas (con valor por defecto)
+
+**Bloquean F1** (la 10 bloquea F1b)
+
+| # | Pregunta | Propuesta por defecto |
+|---|---|---|
+| 1 | ¿Qué torneo primero, en qué fecha, cuántas canchas y cuántos partidos? | Sin propuesta: se necesita la respuesta |
+| 2 | Reglamento de vóley por categoría | Menores: 2 de 3 sets a 25 y el tercero a 15. Mayores: 3 de 5 y el quinto a 15. Diferencia de 2, sin tope. Tabla 3/2/1/0. Desempates FIVB. Walkover 25-0 por set y 0 puntos |
+| 3 | ¿Quién anota y cuántas canchas a la vez? | Mesa del club con cuenta `school_admin` en el MVP; enlace sin cuenta en F3 |
+| 4 | ¿Monster activa el complemento Torneos? | Sí, primero con un torneo de prueba |
+| 10 | **Formato del torneo y cruces:** liga, copa o grupos + fase final. Si es grupos: cuántos grupos, cuántos clasifican y qué cruces (ej. 1.º A vs 2.º B) | Grupos de 4 equipos, clasifican los 2 primeros, cruces 1.º A vs 2.º B y 1.º B vs 2.º A. Si el torneo es de pocos equipos, liga |
+
+**Bloquean F2**
+
+| # | Pregunta | Propuesta por defecto |
+|---|---|---|
+| 5 | ¿Para quién es lo público? ¿Nombres de deportistas? | Familias y público; solo equipos y marcadores; `noindex` |
+| 6 | ¿Torneos solo del club o con otros clubes? | Con otros clubes (revisar si las delegaciones actuales lo cubren); solo se muestra el nombre del equipo |
+
+**Pueden esperar**
+
+| # | Pregunta | Propuesta por defecto |
+|---|---|---|
+| 7 | ¿Hay transmisión? | Enlace de YouTube o Facebook del club, en F6 |
+| 8 | Avisos a las familias | Resultado final por la app; WhatsApp solo con opt-in |
+| 9 | ¿Lo «en vivo» va dentro del complemento Torneos o se cobra aparte? | Incluido en el piloto con Monster; precio después de medir el uso |
+
+---
+
+## 11. Primer paso si se aprueba
+
+**F0:**
+1. Hacer el inventario de usos de `status` en el BFF y el frontend.
+2. Extraer la tabla a un motor puro con puntos configurables.
+3. Comprobar con snapshot que los 5 partidos actuales dan exactamente lo mismo.
+
+No toca la base ni cambia lo que ven los usuarios. Después viene F1, con la migración M1 presentada para revisión antes de aplicarla.
+
+---
+
+## Cambios de la v2.1 frente a la v2
+
+- **Ruta heredada:** `PATCH /matches/:matchId` sin `scoring_config` no cambia; con `scoring_config` delega por dentro al motor (B15).
+- **Sets y marcador:** `home_score`/`away_score` guardan sets ganados; ganador y avance de copa salen de `matchOutcome` (B16, criterio de F1).
+- **Grupos:** verificado que `grupos` **no está implementado**; se agrega la brecha B17, la fase F1b y la decisión 10 de formato y cruces.
+- **`tournament_match_events`:** explícito que no se toca.
+
+## Cambios frente a la v1
+
+- **Foco:** primera entrega en vóley para un torneo real de Monster, con MVP explícito y ensayo en cancha.
+- **Nuevas secciones:** métricas de éxito, pruebas, día del torneo y fuera de alcance.
+- **Brechas nuevas:** B10–B14 (puntos de tabla por deporte, reglas por categoría, canchas, mala señal y walkover).
+- **Configuración:** `standings_points` genérico (sirve a 2 de 3 y a 3 de 5), desempates con referencia FIVB y ajustes por categoría.
+- **Migraciones:** dos pequeñas en lugar de una grande.
+- **Anotador:** uno activo por partido, cola offline e idempotencia por `client_action_id`.
+- **Página pública:** por `slug`, caché de 5 s con refresco de 10 s (≤ 15 s), `noindex`, marca y CTA.
+- **Privacidad:** Ley 1581, responsabilidad del club sobre el video e interruptor global.
+- **Avisos:** solo inicio y final; WhatsApp con opt-in por costo.
+- **Decisiones:** cada una con valor por defecto, ordenadas por lo que bloquean.

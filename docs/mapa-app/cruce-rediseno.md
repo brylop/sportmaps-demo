@@ -355,7 +355,7 @@
 | admin\|super_admin | Gestion Global › Reportes (alias de ReportsPage de escuela) | `/admin/reports` | duplicated | no medido | — | — | se elimina (sin uso o muerta) | Alias o duplicados. |
 | admin\|super_admin | Sistema › Configuracion (alias de SettingsPage) | `/admin/config` | duplicated | no medido | — | — | se elimina (sin uso o muerta) | Alias o duplicados. |
 | super_admin | Sistema › Parametros de nomina | `/admin/payroll-config` | works | no medido | — | — (hereda V1) | **falta en el rediseño** |  |
-| super_admin | Sistema › Bandeja de soporte (SportBot + humano) | `/admin/support` | hidden | no medido | Menú lateral › admin › Soporte | — (hereda V1) | vive en el rediseño | Hoy solo desde /admin. |
+| super_admin | Sistema › Bandeja de soporte (Mapi + humano) | `/admin/support` | hidden | no medido | Menú lateral › admin › Soporte | — (hereda V1) | vive en el rediseño | Hoy solo desde /admin. |
 | admin\|super_admin | Sin menu › Solicitudes de upgrade | `/admin/upgrade-requests` | hidden | no medido | — | — | se elimina (sin uso o muerta) | 0 solicitudes. |
 | admin\|super_admin | Sin menu › Clubes (duplica /branches) | `/admin/clubs` | dead | no medido | — | — | se elimina (sin uso o muerta) | Alias o duplicados. |
 | admin\|super_admin | Sin menu › Logs (alias de NotificationsPage) | `/admin/logs` | dead | no medido | — | — | se elimina (sin uso o muerta) | Alias o duplicados. |
@@ -390,7 +390,7 @@
 | public | Entrenador › Perfil publico del entrenador | `/entrenador/:userId` | works | no medido | — | — | fuera de alcance (pública/sistema; la URL se conserva) | Pública; se conserva. |
 | public | Legales › Terminos / Privacidad / Eliminar cuenta | `/terminos-y-condiciones \| /politica-de-privacidad \| /eliminar-cuenta (+ /terms /privacy /delete-account)` | works | no medido | — | — | fuera de alcance (pública/sistema; la URL se conserva) |  |
 | public | Sistema › 404 | `*` | works | no medido | — | — | fuera de alcance (pública/sistema; la URL se conserva) | 404. |
-| any logged (AuthLayout) | SportBot / Soporte › Chat de soporte (SportBot) | `(boton flotante en AuthLayout)` | works | no medido | **Acudiente · Más** (V1); Mapa del rediseño › soporte dentro de «Más» | — (hereda V1) | vive en el rediseño | «Hablar con SportBot». |
+| any logged (AuthLayout) | Mapi / Soporte › Chat de soporte (Mapi) | `(boton flotante en AuthLayout)` | works | no medido | **Acudiente · Más** (V1); Mapa del rediseño › soporte dentro de «Más» | — (hereda V1) | vive en el rediseño | «Hablar con Mapi». |
 
 ## 2. Cada tablero del rediseño: qué reemplaza y qué necesita
 
@@ -693,7 +693,7 @@
 - **Necesita:**
   - Mensajes con la escuela — **roto hoy** · `messages` = 0; no se puede redactar
   - Centro de ayuda — **oculto hoy** · `/ayuda` hidden (otros-roles)
-  - Hablar con SportBot — **existe** · botón flotante
+  - Hablar con Mapi — **existe** · botón flotante
   - Invita a otra familia (+5.000) — **no existe** · `create_school_referral` no está en ninguna migración (`InvitationsManagementPage.tsx:666`)
   - Tienda del club — **falta en el tablero** · Espacios la pone en Inicio y «Más»; PadreMas no la lista
 

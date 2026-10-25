@@ -145,6 +145,9 @@ export default defineConfig(({ mode }) => ({
   },
   test: {
     globals: true,
+    // Con ~100 archivos en paralelo, renderizar un modal completo pasa de los 5 s por defecto
+    // y falla por tiempo aunque la logica este bien (cada prueba pasa sola).
+    testTimeout: 20000,
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],

@@ -143,7 +143,9 @@ export function Scene3D(p: Scene3DProps) {
 // ─── fps ────────────────────────────────────────────────────────────────────
 
 function FpsProbe({ minFps, onVerdict }: { minFps: number; onVerdict: Scene3DProps['onFpsVerdict'] }) {
-  const meter = useMemo(() => createFpsMeter(undefined, minFps), [minFps]);
+  // 1,2 s de calentamiento (shaders y texturas) y dos ventanas lentas seguidas
+  // antes de rendirse: una sola ventana mala no debe echar al usuario del 3D.
+  const meter = useMemo(() => createFpsMeter(undefined, minFps, { warmupMs: 1200, windows: 2 }), [minFps]);
   const gl = useThree((s) => s.gl);
   const cb = useRef(onVerdict);
   cb.current = onVerdict;

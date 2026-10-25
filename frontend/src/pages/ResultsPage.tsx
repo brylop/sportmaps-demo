@@ -7,11 +7,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { Trophy, Plus, TrendingUp, Minus, Equal, Trash2, Pencil } from 'lucide-react';
+import { Trophy, Plus, TrendingUp, Minus, Equal, Trash2, Pencil, FileText } from 'lucide-react';
 import { MatchResultFormDialog } from '@/components/coach/MatchResultFormDialog';
 import { CompetitionResultFormDialog } from '@/components/coach/CompetitionResultFormDialog';
 import { CompetitionResultsList } from '@/components/coach/CompetitionResultsList';
 import { LevelProgressionPanel } from '@/components/coach/LevelProgressionPanel';
+import { MatchReportDialog } from '@/components/coach/MatchReportDialog';
+import { useMatchReports } from '@/hooks/useMatchReports';
 import { useToast } from '@/hooks/use-toast';
 import {
   AlertDialog,
@@ -34,6 +36,7 @@ export default function ResultsPage() {
   const [editingMatch, setEditingMatch] = useState<any | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [competitionDialogOpen, setCompetitionDialogOpen] = useState(false);
+  const [reportMatch, setReportMatch] = useState<any | null>(null);
 
   const { schoolId, activeBranchId, currentUserRole } = useSchoolContext();
   // Corregir un resultado ya guardado queda restringido a la dirección de la
@@ -205,6 +208,9 @@ export default function ResultsPage() {
     },
   });
 
+  // Reportes de los partidos del historial (para el distintivo y el diálogo).
+  const { data: reportsByMatch } = useMatchReports((results ?? []).map((m: any) => m.id));
+
   // 'scheduled' = partido cargado sin marcador todavía (ahora se puede dejar
   // en blanco al registrar/editar, ver MatchResultFormDialog) -- sin esto,
   // `null > null` y `null < null` son ambos false y caía en 'draw' por
@@ -367,6 +373,22 @@ export default function ResultsPage() {
                           </Badge>
                         </div>
                         <Badge variant="outline">{match.match_type}</Badge>
+                        {reportsByMatch?.[match.id] && (
+                          <Badge variant={reportsByMatch[match.id].published_at ? 'default' : 'secondary'}>
+                            {reportsByMatch[match.id].published_at ? 'Publicado' : 'Con reporte'}
+                          </Badge>
+                        )}
+                        {canEditResults && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1"
+                            onClick={() => setReportMatch(match)}
+                          >
+                            <FileText className="h-4 w-4" />
+                            Reporte
+                          </Button>
+                        )}
                         {canEditResults && (
                           <Button
                             variant="ghost"
@@ -455,6 +477,13 @@ export default function ResultsPage() {
           teamId={selectedTeamId}
         />
       )}
+
+      <MatchReportDialog
+        open={!!reportMatch}
+        onOpenChange={(open) => { if (!open) setReportMatch(null); }}
+        match={reportMatch}
+        report={reportMatch ? reportsByMatch?.[reportMatch.id] ?? null : null}
+      />
 
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>

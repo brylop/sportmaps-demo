@@ -277,18 +277,21 @@ class ClassesAPI {
    * Unenroll a student from a program
    */
   async unenrollStudent(classId: string, studentId: string): Promise<void> {
-    const { error } = await supabase
+    const { data: rows, error } = await supabase
       .from('enrollments')
-      .update({ status: 'cancelled' })
+      .select('id')
       .eq('team_id', classId)
       .or(`child_id.eq.${studentId},user_id.eq.${studentId},unregistered_athlete_id.eq.${studentId}`)
       .eq('status', 'active');
 
-    // Antes esto era un console.warn y la baja fallida pasaba por exitosa.
-    // RLS solo deja escribir enrollments a owner/admin: a un entrenador le falla
-    // siempre, y el llamador tiene que poder decírselo.
     if (error) {
       throw new Error(error.message || 'No se pudo dar de baja la inscripción');
+    }
+
+    // Cancelar anula cobros pendientes: va por el BFF (owner/admin), no por un
+    // UPDATE directo. Un fallo se propaga para que el llamador pueda decirlo.
+    for (const row of rows ?? []) {
+      await bffClient.delete(`/api/v1/enrollments/${row.id}`);
     }
   }
 

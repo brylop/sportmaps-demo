@@ -302,14 +302,14 @@ describe('runWhatsAppQueue — la puerta de atención', () => {
         expect(ultimoCierre()).toMatchObject({ status: 'ignored', result_type: 'escalated', error_message: 'numero_ambiguo' });
     });
 
-    it('personal: silencio, sin OCR, fila ignored/contacto_no_atendido', async () => {
+    it('personal: nunca se le responde; se lee, y sin cuenta de la escuela con qué cruzar queda ignored/contacto_no_atendido', async () => {
         state.atencion = { atender: false, tipo: 'personal', botEncendido: true };
 
         await runWhatsAppQueue();
 
+        // 2026-10-24: un comprobante NUNCA se ignora por el tipo de contacto, así que se lee.
         expect(sendTextMessageMock).not.toHaveBeenCalled();
-        expect(downloadMediaMock).not.toHaveBeenCalled();
-        expect(extractReceiptMock).not.toHaveBeenCalled();
+        expect(extractReceiptMock).toHaveBeenCalledTimes(1);
         expect(ultimoCierre()).toMatchObject({ status: 'ignored', error_message: 'contacto_no_atendido' });
     });
 

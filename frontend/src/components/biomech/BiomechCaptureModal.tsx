@@ -2,14 +2,23 @@
  * BiomechCaptureModal.tsx
  * Flujo: loading → ready → recording → processing → done | error
  * Requiere: npm install @mediapipe/tasks-vision
+ *
+ * Analizadores de voleibol (volleyball_serve / volleyball_spike) — PILOTO, Fase 1:
+ * G-IMAGEN: todo se procesa en el dispositivo y NO se guarda ni se sube video; tampoco se llama
+ * al BFF (no se persiste nada, ni siquiera las métricas). El resultado vive solo en pantalla.
+ * Lógica en lib/biomech/volleyball.ts.
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Camera, CheckCircle2, AlertTriangle, Square, Activity, RefreshCw, Zap, Upload, Video, SwitchCamera } from 'lucide-react';
+import { Loader2, Camera, CheckCircle2, AlertTriangle, Square, Activity, RefreshCw, Zap, Upload, Video, SwitchCamera, Info } from 'lucide-react';
 import { bffClient } from '@/lib/api/bffClient';
+import {
+  analyzeVolleyball, isVolleyballAnalyzer,
+  type Arm, type PoseSample, type VolleyballAnalysis,
+} from '@/lib/biomech/volleyball';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 interface Landmark { x: number; y: number; z: number; visibility?: number; }
@@ -26,10 +35,11 @@ export interface BiomechCaptureModalProps {
   open:           boolean;
   onClose:        () => void;
   onComplete:     (result: BiomechCaptureResult) => void;
-  analyzerCode:   'hack_squat' | 'incline_press' | 'row';
+  analyzerCode:   'hack_squat' | 'incline_press' | 'row' | 'volleyball_serve' | 'volleyball_spike';
   sessionPlanId?: string;
   enrollmentId?:  string;
-  schoolId:       string;
+  /** No se usa en los analizadores de voleibol (no persisten). */
+  schoolId?:      string;
   blockIndex?:    number;
 }
 
@@ -43,13 +53,19 @@ const ANALYZER_META: Record<string, { label: string; tip: string }> = {
   hack_squat:    { label: 'Sentadilla Hack',  tip: 'Posicionarte de frente a la cámara. Cuerpo completo visible — rodillas y pies incluidos.' },
   incline_press: { label: 'Press Inclinado',  tip: 'Posicionarte de lado a la cámara. Hombros, codos y muñecas deben estar visibles.' },
   row:           { label: 'Remo',             tip: 'Posicionarte de lado a la cámara. Hombros, caderas y codos deben estar visibles.' },
+  volleyball_serve: { label: 'Saque de voleibol', tip: 'Cámara fija, de lado y a 3–5 m, con el cuerpo completo (pies incluidos) durante todo el gesto. Graba a 60 fps o más.' },
+  volleyball_spike: { label: 'Remate de voleibol', tip: 'Cámara fija, de lado y a 4–6 m, con el cuerpo completo (pies incluidos) desde la carrera hasta el aterrizaje. Graba a 60 fps o más.' },
 };
 
 const KEY_LANDMARKS: Record<string, number[]> = {
   hack_squat:    [23, 24, 25, 26, 27, 28],
   incline_press: [11, 12, 13, 14, 15, 16],
   row:           [11, 12, 13, 14, 23, 24],
+  volleyball_serve: [11, 12, 13, 14, 15, 16, 27, 28],
+  volleyball_spike: [11, 12, 13, 14, 15, 16, 27, 28],
 };
+
+const POSE_MODEL_BASE = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker';
 
 const SKELETON_CONNECTIONS = [
   [11,12],[11,13],[13,15],[12,14],[14,16],
@@ -153,7 +169,22 @@ export function BiomechCaptureModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [initKey, setInitKey] = useState(0);
 
-  const meta = ANALYZER_META[analyzerCode] ?? { label: analyzerCode, tip: '' };
+  // Voleibol (piloto): muestras con tiempo + coordenadas world; nada de esto sale del navegador.
+  const isVolley = isVolleyballAnalyzer(analyzerCode);
+  const analyzerRef = useRef(analyzerCode);
+  analyzerRef.current = analyzerCode;
+  const captureSourceRef = useRef<'camera' | 'upload'>('camera');
+  captureSourceRef.current = captureSource;
+  const recordedSamples = useRef<PoseSample[]>([]);
+  const sourceFpsRef = useRef<number | null>(null);
+  const [armChoice, setArmChoice] = useState<'auto' | Arm>('auto');
+  const armChoiceRef = useRef<'auto' | Arm>('auto');
+  armChoiceRef.current = armChoice;
+  const [volleyAnalysis, setVolleyAnalysis] = useState<VolleyballAnalysis | null>(null);
+  // triggerStop tiene deps [] a propósito; llama por aquí para no usar un processAndSend viejo.
+  const processRef = useRef<() => void>(() => {});
+
+  const meta =ANALYZER_META[analyzerCode] ?? { label: analyzerCode, tip: '' };
 
   const drawSkeleton = useCallback((ctx: CanvasRenderingContext2D, lms: Frame, w: number, h: number, mirror: boolean) => {
     const keyIdxs = KEY_LANDMARKS[analyzerCode] ?? [];
@@ -179,13 +210,15 @@ export function BiomechCaptureModal({
     isRecordingRef.current = false;
     recordingStart.current = 0;
     cancelAnimationFrame(rafRef.current);
-    if (recordedFrames.current.length === 0) {
-      setErrorMsg('No se detectó ninguna pose. Asegurate de estar completamente visible en la cámara.');
+    const captured = isVolleyballAnalyzer(analyzerRef.current)
+      ? recordedSamples.current.length : recordedFrames.current.length;
+    if (captured === 0) {
+      setErrorMsg('No se detectó ninguna pose. Asegúrate de estar completamente visible en la cámara.');
       setModalState('error');
       return;
     }
     setModalState('processing');
-    setTimeout(() => processAndSend(), 50);
+    setTimeout(() => processRef.current(), 50);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const startDetectionLoop = useCallback(() => {
@@ -214,8 +247,21 @@ export function BiomechCaptureModal({
             drawSkeleton(ctx, landmarks, canvas.width, canvas.height, mirror);
             if (isRecordingRef.current) {
               frameCountRef.current++;
-              if (frameCountRef.current % SAMPLE_EVERY_N_FRAMES === 0) recordedFrames.current.push([...landmarks]);
-              const remaining = Math.max(0, MAX_RECORDING_SECONDS - (nowMs - recordingStart.current) / 1000);
+              const upload = captureSourceRef.current === 'upload';
+              if (isVolleyballAnalyzer(analyzerRef.current)) {
+                // Todos los cuadros (el tiempo de vuelo necesita la tasa completa). Tiempo del
+                // archivo si es subida (el video va a 0,5×); reloj si es cámara en vivo.
+                recordedSamples.current.push({
+                  t: upload ? video.currentTime : nowMs / 1000,
+                  lms: [...landmarks],
+                  world: result.worldLandmarks?.[0] ? [...result.worldLandmarks[0]] : undefined,
+                });
+              } else if (frameCountRef.current % SAMPLE_EVERY_N_FRAMES === 0) {
+                recordedFrames.current.push([...landmarks]);
+              }
+              // En subida el reloj de pared no sirve (reproducción a 0,5×): se usa el del video.
+              const elapsedS = upload ? video.currentTime : (nowMs - recordingStart.current) / 1000;
+              const remaining = Math.max(0, MAX_RECORDING_SECONDS - elapsedS);
               setCountdown(Math.ceil(remaining));
               if (remaining <= 0) triggerStop();
             }
@@ -243,7 +289,8 @@ export function BiomechCaptureModal({
       if (cancelled) return;
 
       setModalState('loading'); setErrorMsg('');
-      recordedFrames.current = []; frameCountRef.current = 0; isRecordingRef.current = false;
+      recordedFrames.current = []; recordedSamples.current = []; frameCountRef.current = 0; isRecordingRef.current = false;
+      const volley = isVolleyballAnalyzer(analyzerRef.current);
 
       try {
         const { FilesetResolver, PoseLandmarker } = await import('@mediapipe/tasks-vision');
@@ -254,7 +301,8 @@ export function BiomechCaptureModal({
 
         const landmarker = await PoseLandmarker.createFromOptions(vision, {
           baseOptions: {
-            modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+            // Voleibol: el modelo "full" sigue mejor un brazo que se mueve rápido que el "lite".
+            modelAssetPath: `${POSE_MODEL_BASE}/pose_landmarker_${volley ? 'full' : 'lite'}/float16/1/pose_landmarker_${volley ? 'full' : 'lite'}.task`,
           },
           runningMode: 'VIDEO', numPoses: 1,
           minPoseDetectionConfidence: 0.5,
@@ -267,7 +315,10 @@ export function BiomechCaptureModal({
         landmarkerRef.current = landmarker;
 
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: facingMode, width: { ideal: 640 }, height: { ideal: 480 } },
+          video: {
+            facingMode: facingMode, width: { ideal: 640 }, height: { ideal: 480 },
+            ...(volley ? { frameRate: { ideal: 60 } } : {}),
+          },
           audio: false,
         });
 
@@ -302,7 +353,20 @@ export function BiomechCaptureModal({
     };
   }, [open, initKey, facingMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const processVolleyball = () => {
+    // Sin BFF, sin storage: solo cálculo local (G-IMAGEN). Las muestras se descartan al salir.
+    const samples = recordedSamples.current;
+    const analysis = analyzeVolleyball(samples, analyzerCode as 'volleyball_serve' | 'volleyball_spike', {
+      hittingArm: armChoiceRef.current === 'auto' ? undefined : armChoiceRef.current,
+      sourceFps: sourceFpsRef.current,
+    });
+    recordedSamples.current = [];
+    setVolleyAnalysis(analysis);
+    setModalState('done');
+  };
+
   const processAndSend = async () => {
+    if (isVolleyballAnalyzer(analyzerCode)) { processVolleyball(); return; }
     try {
       const frames = recordedFrames.current;
       const metrics = computeMetrics(frames, analyzerCode);
@@ -320,13 +384,18 @@ export function BiomechCaptureModal({
     }
   };
 
-  const handleClose = () => { cleanup(); setModalState('loading'); setFinalMetrics({}); setFinalFlags([]); setErrorMsg(''); setFacingMode('user'); onClose(); };
+  processRef.current = processAndSend;
+
+  const handleClose = () => { cleanup(); recordedSamples.current = []; setVolleyAnalysis(null); setModalState('loading'); setFinalMetrics({}); setFinalFlags([]); setErrorMsg(''); setFacingMode('user'); onClose(); };
   const handleSwitchCamera = useCallback(() => {
     cleanup();
     setModalState('loading');
     setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
   }, [cleanup]);
-  const handleStartRecording = () => { recordedFrames.current = []; frameCountRef.current = 0; isRecordingRef.current = true; recordingStart.current = performance.now(); setCountdown(MAX_RECORDING_SECONDS); setModalState('recording'); };
+  const handleStartRecording = () => {
+    recordedSamples.current = [];
+    sourceFpsRef.current = streamRef.current?.getVideoTracks()[0]?.getSettings().frameRate ?? null;
+    recordedFrames.current = []; frameCountRef.current = 0; isRecordingRef.current = true; recordingStart.current = performance.now(); setCountdown(MAX_RECORDING_SECONDS); setModalState('recording'); };
 
   const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -360,10 +429,31 @@ export function BiomechCaptureModal({
 
       // Procesar igual que la grabación en vivo
       recordedFrames.current  = [];
+      recordedSamples.current = [];
+      sourceFpsRef.current    = null;
       frameCountRef.current   = 0;
       isRecordingRef.current  = true;
       recordingStart.current  = performance.now();
       setModalState('recording');
+      if (isVolleyballAnalyzer(analyzerCode)) {
+        // A 0,5× la inferencia alcanza a ver cada cuadro de un video de 60 fps; el tiempo de
+        // cada muestra sale de video.currentTime, así que la velocidad no altera las métricas.
+        video.playbackRate = 0.5;
+        // fps reales del archivo: cuadros presentados / segundos de video transcurridos.
+        const v = video as HTMLVideoElement & {
+          requestVideoFrameCallback?: (cb: (now: number, meta: { mediaTime: number; presentedFrames: number }) => void) => number;
+        };
+        if (v.requestVideoFrameCallback) {
+          let first: { mediaTime: number; presentedFrames: number } | null = null;
+          const tick = (_now: number, meta: { mediaTime: number; presentedFrames: number }) => {
+            first = first ?? meta;
+            const dm = meta.mediaTime - first.mediaTime;
+            if (dm > 0.5) sourceFpsRef.current = (meta.presentedFrames - first.presentedFrames) / dm;
+            if (isRecordingRef.current) v.requestVideoFrameCallback!(tick);
+          };
+          v.requestVideoFrameCallback(tick);
+        }
+      }
       await video.play();
 
       // Detener automáticamente cuando termine el video
@@ -465,6 +555,26 @@ export function BiomechCaptureModal({
                       : meta.tip}
                   </p>
                 </div>
+                {isVolley && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Brazo que golpea</span>
+                      <div className="flex rounded-lg border border-border/40 overflow-hidden p-0.5 bg-muted/20 gap-0.5 ml-auto">
+                        {([['auto', 'Auto'], ['right', 'Derecho'], ['left', 'Izquierdo']] as const).map(([v, label]) => (
+                          <button
+                            key={v}
+                            onClick={() => setArmChoice(v)}
+                            className={`px-3 py-1 rounded-md text-xs font-bold transition-colors ${armChoice === v ? 'bg-background shadow-sm text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                          >{label}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground leading-relaxed flex items-start gap-1.5">
+                      <Info className="h-3 w-3 shrink-0 mt-0.5" />
+                      El video se procesa en este dispositivo y no se guarda ni se sube. Solo se muestran las métricas en pantalla.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
             <div className="relative rounded-2xl overflow-hidden bg-black border border-border/40 shadow-xl aspect-video">
@@ -554,8 +664,64 @@ export function BiomechCaptureModal({
             )}
           </div>
 
+          {/* Done — voleibol (piloto: solo en pantalla, nada se guarda) */}
+          {modalState === 'done' && isVolley && volleyAnalysis && (() => {
+            const a = volleyAnalysis, m = a.metrics;
+            const cards: Array<{ label: string; value: number | undefined; unit: string; hint?: string }> = [
+              { label: 'Ángulo del codo en el contacto', value: m.elbow_angle_contact, unit: '°', hint: '180° = brazo recto' },
+              { label: 'Extensión del brazo', value: m.arm_extension_contact, unit: '%', hint: '100% = brazo recto' },
+              { label: 'Altura de salto', value: m.jump_height_cm, unit: ' cm', hint: m.jump_height_uncertainty_cm != null ? `± ${m.jump_height_uncertainty_cm} cm · por tiempo de vuelo` : 'por tiempo de vuelo' },
+              { label: 'Tiempo de vuelo', value: m.flight_time_s, unit: ' s' },
+            ];
+            return (
+              <div className="space-y-4">
+                <div className={`flex items-center gap-3 p-4 rounded-xl border ${a.ok ? 'bg-green-500/10 border-green-500/20' : 'bg-amber-500/10 border-amber-500/20'}`}>
+                  {a.ok ? <CheckCircle2 className="h-6 w-6 text-green-500 shrink-0" /> : <AlertTriangle className="h-6 w-6 text-amber-500 shrink-0" />}
+                  <div>
+                    <p className="font-bold text-sm">{a.ok ? 'Análisis listo' : 'No se pudo medir'}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {a.ok ? 'Resultado solo en pantalla: no se guardó nada, ni el video ni las métricas.' : 'Revisa las notas y vuelve a intentarlo.'}
+                    </p>
+                  </div>
+                </div>
+                {a.ok && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {cards.map(c => (
+                      <div key={c.label} className={`p-3 rounded-xl border ${c.value == null ? 'bg-muted/10 border-border/20 opacity-60' : 'bg-muted/30 border-border/30'}`}>
+                        <p className="text-[9px] uppercase font-black tracking-widest text-muted-foreground">{c.label}</p>
+                        <p className="font-black text-lg text-primary mt-0.5 leading-none">
+                          {c.value == null ? '—' : <>{c.value}<span className="text-xs font-normal text-muted-foreground">{c.unit}</span></>}
+                        </p>
+                        {c.value != null && c.hint && <p className="text-[9px] text-muted-foreground mt-1">{c.hint}</p>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[10px] text-muted-foreground">
+                  {a.hittingArm && <>Brazo: <b>{a.hittingArm === 'right' ? 'derecho' : 'izquierdo'}</b> ({a.hittingArmSource === 'auto' ? 'automático' : 'indicado'}) · </>}
+                  {a.contactTimeS != null && <>contacto en {a.contactTimeS} s · </>}
+                  {m.frames_analyzed} cuadros · <b>{a.fps} fps</b> analizados{a.sourceFps ? <> · {a.sourceFps} fps del video</> : null}
+                </p>
+                {a.notes.length > 0 && (
+                  <div className="space-y-1.5">
+                    {a.notes.map((n, i) => (
+                      <div key={i} className={`flex items-start gap-2 p-2.5 rounded-lg border text-xs leading-relaxed ${n.level === 'warn' ? 'bg-amber-500/10 border-amber-500/20 text-amber-700 dark:text-amber-400' : 'bg-muted/20 border-border/30 text-muted-foreground'}`}>
+                        {n.level === 'warn' ? <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" /> : <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />}
+                        <span>{n.text}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <Button onClick={() => { setVolleyAnalysis(null); handleRetry(); }} variant="outline" className="flex-1 h-11 font-bold gap-2"><RefreshCw className="h-4 w-4" /> Analizar otro</Button>
+                  <Button onClick={handleClose} className="flex-1 h-11 font-black gap-2"><Zap className="h-4 w-4" /> Listo</Button>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Done */}
-          {modalState === 'done' && (
+          {modalState === 'done' && !isVolley && (
             <div className="space-y-4">
               <div className="flex items-center gap-3 p-4 bg-green-500/10 border border-green-500/20 rounded-xl">
                 <CheckCircle2 className="h-6 w-6 text-green-500 shrink-0" />

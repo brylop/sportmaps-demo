@@ -74,6 +74,8 @@ export interface ChargeLinePayload {
     enrollment_id?: string;
     fee_id?: string;
     overage_charge_id?: string;
+    /** Horas adicionales vendidas por adelantado (múltiplos de 0,25). Va con `enrollment_id`. */
+    extra_hours?: number;
     discount?: DiscountPayload;
     exonerate?: { reason_text: string };
     /**
@@ -145,6 +147,17 @@ export interface ChargeBatchCreateRequest extends ChargeBatchRequest {
     preview_hash: string;
     overrides?: ChargeOverride[];
     notify_families?: boolean;
+    /** El usuario vio que el mismo cobro ya se registró hace poco y confirma que es otro. */
+    confirmar_duplicado?: boolean;
+}
+
+/** Un lote idéntico registrado hace pocos minutos (aviso del preview y detalle del 409 COBRO_DUPLICADO_RECIENTE). */
+export interface CobroRecienteAviso {
+    batch_id: string;
+    created_at: string;
+    minutes_ago: number;
+    created_by_name: string | null;
+    total_amount: number | null;
 }
 
 // ── Tipos de respuesta ────────────────────────────────────────────────────────
@@ -234,12 +247,27 @@ export interface ChargeBatchPreview {
     warnings_count?: Record<string, number>;
     lines?: PreviewLine[];
     duplicates?: AthleteDuplicate[];
+    /** Otra pantalla registró lo mismo hace pocos minutos (aviso, no bloqueo). */
+    recent_duplicates?: CobroRecienteAviso[];
     errors?: { ref?: string; code: string; message?: string }[];
+}
+
+/** Resultado de sumar las horas vendidas al banco (solo si la operación llevaba una venta de horas). */
+export interface HourBankGrantResult {
+    ok: boolean;
+    minutes?: number;
+    hours?: number;
+    available_minutes?: number;
+    duplicated?: boolean;
+    /** sin_cobro: no se creó el cobro. sin_pago: quedó pendiente. error: falló la suma. */
+    reason?: 'sin_cobro' | 'sin_pago' | 'error';
+    message?: string;
 }
 
 export interface ChargeBatchResult {
     batch_id: string;
     duplicated: boolean;
+    hour_bank_grant?: HourBankGrantResult;
     rows_created: number;
     total_amount: number;
     payment_ids?: string[];
@@ -317,6 +345,11 @@ export interface EnrollmentOption {
     is_primary?: boolean;
     monthly_amount: number | null;
     active?: boolean;
+    /** El plan lleva banco de horas (se pueden vender horas adicionales). */
+    hours_plan?: boolean;
+    /** Precio del plan ÷ horas incluidas: la misma tarifa del cobro de excedentes. */
+    hourly_rate?: number | null;
+    included_minutes?: number | null;
 }
 
 export interface ChargeSuggestions {
@@ -418,6 +451,7 @@ export type ChargeBatchErrorCode =
     | 'EXCEDENTE_YA_FACTURADO'
     | 'TOPE_EXCEDIDO'
     | 'ESCUELA_NO_OPERATIVA'
+    | 'COBRO_DUPLICADO_RECIENTE'
     | 'RATE_LIMIT'
     | 'FORBIDDEN'
     | 'VALIDATION'
@@ -448,6 +482,7 @@ const KNOWN_CODES: readonly ChargeBatchErrorCode[] = [
     'PREVIEW_STALE', 'COBRO_CAMBIO', 'EN_REVISION', 'PAGO_EN_CURSO', 'COBRO_CERRADO', 'DESCUENTO_EXCEDE',
     'ATLETA_DUPLICADO', 'SOBREPAGO', 'MULTI_NO_PAGA', 'EXONERACION_CON_PAGO', 'ANNUL_STALE', 'PERIODO_DUPLICADO',
     'YA_REVERTIDO', 'LOTE_ANULADO', 'EXCEDENTE_YA_FACTURADO', 'TOPE_EXCEDIDO', 'ESCUELA_NO_OPERATIVA',
+    'COBRO_DUPLICADO_RECIENTE',
 ];
 
 /** Códigos del BFF de F2 (charge-batches.service.ts / middlewares) que el modal agrupa. */
@@ -487,6 +522,7 @@ export const CHARGE_BATCH_ERROR_MESSAGE: Record<ChargeBatchErrorCode, string> = 
     EXCEDENTE_YA_FACTURADO: 'Esas horas adicionales ya se facturaron o se descartaron.',
     TOPE_EXCEDIDO: 'El lote supera el máximo (200 atletas o 600 cobros). Divide por equipo o plan.',
     ESCUELA_NO_OPERATIVA: 'La escuela está inhabilitada: no se pueden registrar operaciones.',
+    COBRO_DUPLICADO_RECIENTE: 'Este mismo cobro ya se registró hace pocos minutos. Si de verdad es otro, confirma para crearlo igual.',
     RATE_LIMIT: 'Demasiadas operaciones seguidas. Espera unos minutos e intenta de nuevo.',
     FORBIDDEN: 'Solo el dueño o la administración de la escuela pueden hacer esto.',
     VALIDATION: 'Revisa los datos marcados.',
@@ -623,6 +659,9 @@ export function normalizeSuggestions(r: any): ChargeSuggestions {
         is_primary: !!e.is_primary,
         monthly_amount: numOrNull(e.monthly_amount ?? e.suggested_monthly_amount),
         active: e.active ?? (e.status ? e.status === 'active' : true),
+        hours_plan: !!(e.hours_plan ?? e.plan?.hours_plan),
+        hourly_rate: numOrNull(e.hourly_rate ?? e.plan?.hourly_rate),
+        included_minutes: numOrNull(e.included_minutes ?? e.plan?.included_minutes),
     }));
     const primary = raw.find((e) => e.is_primary) ?? raw.find((e) => e.status === 'active') ?? raw[0];
     const amount = numOrNull(r?.suggested_monthly?.amount ?? primary?.suggested_monthly_amount ?? primary?.monthly_amount);
@@ -735,6 +774,24 @@ function previewErrorMessage(e: any): string {
     return e.detail ? `${base} (${e.detail})` : base;
 }
 
+/** `recent_duplicates` del preview o `duplicates` del 409 COBRO_DUPLICADO_RECIENTE → lista tipada (o undefined si no hay). */
+export function normalizeCobrosRecientes(raw: any): CobroRecienteAviso[] | undefined {
+    if (!Array.isArray(raw) || raw.length === 0) return undefined;
+    return raw.map((d: any) => ({
+        batch_id: String(d?.batch_id ?? ''),
+        created_at: String(d?.created_at ?? ''),
+        minutes_ago: num(d?.minutes_ago),
+        created_by_name: d?.created_by_name ?? null,
+        total_amount: numOrNull(d?.total_amount),
+    }));
+}
+
+/** «hace 3 min por Edna» (para el aviso y el diálogo de confirmación). */
+export function textoCobroReciente(c: CobroRecienteAviso): string {
+    const hace = c.minutes_ago <= 0 ? 'hace menos de un minuto' : `hace ${c.minutes_ago} min`;
+    return `${hace}${c.created_by_name ? ` por ${c.created_by_name}` : ''}`;
+}
+
 export function normalizePreview(r: any): ChargeBatchPreview {
     const items: any[] = [
         ...(Array.isArray(r?.items) ? r.items : []),
@@ -784,6 +841,7 @@ export function normalizePreview(r: any): ChargeBatchPreview {
             warnings: Array.isArray(it.warnings) ? it.warnings : [],
         })),
         duplicates: Array.isArray(r?.duplicates) ? r.duplicates.map(normalizeDuplicate) : undefined,
+        recent_duplicates: normalizeCobrosRecientes(r?.recent_duplicates),
         errors: errors.map((e) => ({ ref: e.ref, code: e.code, message: e.message ?? previewErrorMessage(e) })),
     };
 }
@@ -839,6 +897,11 @@ export const chargeBatchesApi = {
 
     get: (batchId: string) =>
         call(async () => normalizeBatchDetail(await bffClient.get<unknown>(`${BASE}/${encodeURIComponent(batchId)}`))),
+
+    /** Reintenta sumar al banco las horas de una venta ya creada y pagada (solo el dueño; idempotente por pago). */
+    retryHourBankGrant: (batchId: string, body: { athlete: AthleteRef; enrollment_id: string; extra_hours: number }) =>
+        call(async () => (await bffClient.post<{ hour_bank_grant: HourBankGrantResult }>(
+            `${BASE}/${encodeURIComponent(batchId)}/hour-bank`, body)).hour_bank_grant),
 
     annul: (batchId: string, body: { reason: string; expected_count: number }) =>
         call(() => bffClient.post<{ annulled?: number; kept?: { payment_id: string; status: string }[] }>(

@@ -161,7 +161,7 @@ export function HourBankBalanceCard({ enrollmentId, showHistory = false, fetcher
 
         {isOver && (
           <p className="text-[11px] font-medium text-red-600">
-            Saldo excedido — hablá con la escuela para completar horas.
+            Saldo excedido — habla con la escuela para completar horas.
           </p>
         )}
 

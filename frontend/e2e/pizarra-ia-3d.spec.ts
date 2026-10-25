@@ -179,7 +179,7 @@ test('(a) analizar → lectura sin «p5» → contraataque en 2D → «Ver en 3D
     // Pasado el arranque (2 s de medición de fps) sigue en 3D: no cayó a 2D.
     await page.waitForTimeout(3_000);
     await expect(viewer).toBeVisible();
-    await expect(page.getByText('Tu celular no soporta bien el 3D; seguimos en 2D')).toHaveCount(0);
+    await expect(page.getByText('Tu dispositivo no soporta bien el 3D; seguimos en 2D')).toHaveCount(0);
     const gl = await viewer.locator('canvas').evaluate((c: HTMLCanvasElement) => {
         const ctx = c.getContext('webgl2');
         return ctx ? { w: ctx.drawingBufferWidth, h: ctx.drawingBufferHeight } : null;

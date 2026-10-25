@@ -16,6 +16,8 @@ import { useToast } from '@/hooks/use-toast';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 import { studentsAPI, Student } from '@/lib/api/students';
 import { supabase } from '@/integrations/supabase/client';
+import { bffClient } from '@/lib/api/bffClient';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { Search, Loader2, UserPlus, Check, Users, Trash2 } from 'lucide-react';
 import { PlanChangeDialog, fetchPlanChangePreview, type PlanChangePreview, type PlanChangeChargeMode } from '@/components/students/PlanChangeDialog';
 
@@ -67,6 +69,9 @@ export function EnrollPlanStudentModal({
     const [enrolling, setEnrolling] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const { toast } = useToast();
+    // Los planes los maneja la administración: el coach no cancela inscripciones de plan.
+    const { currentUserRole } = useSchoolContext();
+    const puedeRemover = currentUserRole !== 'coach';
 
     useEffect(() => {
         if (open && schoolId) {
@@ -244,13 +249,9 @@ export function EnrollPlanStudentModal({
             }
 
             // ✅ Usar el enrollmentId específico para remover
-            const { error } = await (supabase
-                .from('enrollments') as any)
-                .update({ status: 'cancelled' })
-                .eq('id', enrollment.id)
-                .eq('offering_plan_id', plan.id);
-
-            if (error) throw error;
+            // Cancelar anula cobros pendientes: va por el BFF (owner/admin),
+            // no por un UPDATE directo con la sesión del usuario.
+            await bffClient.delete(`/api/v1/enrollments/${enrollment.id}`);
 
             toast({
                 title: 'Inscripción cancelada',
@@ -388,7 +389,7 @@ export function EnrollPlanStudentModal({
                                                                 )}
                                                             </div>
                                                         </div>
-                                                        <Button
+                                                        {puedeRemover && <Button
                                                             variant="outline"
                                                             size="sm"
                                                             onClick={() => handleUnenroll(student)}
@@ -403,7 +404,7 @@ export function EnrollPlanStudentModal({
                                                                     <span>Remover</span>
                                                                 </>
                                                             )}
-                                                        </Button>
+                                                        </Button>}
                                                     </div>
                                                 </CardContent>
                                             </Card>

@@ -1,0 +1,26 @@
+/dashboard|Dashboard
+/students|Deportistas
+/school/enrollment-intake|Matrículas por revisar
+/staff|Entrenadores
+/invitations|Invitaciones
+/seguimiento-deportivo|Seguimiento deportivo
+/calendar|Calendario
+/informe-mensual|Informe Mensual
+/results-overview|Resultados
+/school/equipment|Dotación
+/disponibilidad-medica|Disponibilidad médica
+/teams|Mis Equipos
+/offerings|Mis Planes
+/training-plans|Métricas y Rendimiento
+/school/routines|Gestión de Rutinas
+/attendance-supervision|Supervisión
+/attendance-history|Histórico
+/dashboard/polls|Encuestas
+/payments-automation|Pagos
+/recepcion|Modo Recepción
+/branches|Sedes
+/facilities|Instalaciones
+/school/access-control|Control de Acceso
+/school/public-profile|Mi Perfil Público
+/mi-plan|Facturación
+/settings|Configuración

@@ -49,6 +49,9 @@ import {
   auditEnrollmentFeeWaiver,
   findActiveInsurance,
 } from '../services/enrollmentBilling';
+import {
+  resolverAtleta, verCobrosUnicos, cobrarUnicosDespues, CobroUnicoError, type AthleteType,
+} from '../services/enrollment-fees-edit.service';
 
 
 const router = Router();
@@ -1449,6 +1452,73 @@ router.post(
       });
     } catch (err: any) {
       req.log?.error({ err: err.message || err }, 'Error en first-payment-preview');
+      return res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+  }
+);
+
+// ─── Inscripción y seguro DESPUÉS del alta (ficha de edición) ────────────────
+// GET  /:id/enrollment-fees?athlete_type=child|adult|unregistered
+//      → plan activo y, por concepto, si se puede cobrar, ya está cobrado o pagado.
+// POST /:id/enrollment-fees { athlete_type, inscripcion?, seguro? }
+//      → crea el cobro único con el valor del plan (una inscripción por atleta).
+// Solo administración (el coach no cobra ni exonera). El plan define el valor.
+const FeesAthleteType = z.enum(['child', 'adult', 'unregistered']);
+
+router.get(
+  '/:id/enrollment-fees',
+  requireAuth,
+  requireRole('owner', 'admin', 'super_admin', 'school_admin', 'school'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const id = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id) as string;
+    const type = FeesAthleteType.safeParse(req.query.athlete_type);
+    const { schoolId } = req;
+    if (!type.success || !z.string().uuid().safeParse(id).success || !schoolId) {
+      return res.status(400).json({ error: 'Datos inválidos.' });
+    }
+    try {
+      const athlete = await resolverAtleta(schoolId, id, type.data as AthleteType);
+      if (!athlete) return res.status(403).json({ error: 'Acceso denegado.' });
+      return res.json(await verCobrosUnicos(schoolId, athlete));
+    } catch (err: any) {
+      req.log?.error({ err: err.message || err }, 'Error leyendo inscripción/seguro del atleta');
+      return res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+  }
+);
+
+const ChargeFeesSchema = z.object({
+  athlete_type: FeesAthleteType,
+  inscripcion: z.boolean().optional(),
+  seguro: z.boolean().optional(),
+});
+
+router.post(
+  '/:id/enrollment-fees',
+  requireAuth,
+  requireRole('owner', 'admin', 'super_admin', 'school_admin', 'school'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const id = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id) as string;
+    const parsed = ChargeFeesSchema.safeParse(req.body);
+    const { schoolId } = req;
+    if (!parsed.success || !z.string().uuid().safeParse(id).success || !schoolId) {
+      return res.status(400).json({ error: 'Datos inválidos.' });
+    }
+    try {
+      const athlete = await resolverAtleta(schoolId, id, parsed.data.athlete_type as AthleteType);
+      if (!athlete) return res.status(403).json({ error: 'Acceso denegado.' });
+      const out = await cobrarUnicosDespues({
+        schoolId,
+        profileId: req.user?.id ?? null,
+        athlete,
+        inscripcion: parsed.data.inscripcion === true,
+        seguro: parsed.data.seguro === true,
+        log: req.log,
+      });
+      return res.status(201).json({ ...out, ...(await verCobrosUnicos(schoolId, athlete)) });
+    } catch (err: any) {
+      if (err instanceof CobroUnicoError) return res.status(err.status).json({ error: err.message });
+      req.log?.error({ err: err.message || err }, 'Error cobrando inscripción/seguro después del alta');
       return res.status(500).json({ error: 'Error interno del servidor.' });
     }
   }

@@ -1,4 +1,5 @@
 import { BranchChip } from '@/components/common/BranchChip';
+import { ENTRENADOR_V2 } from '@/lib/feature-flags';
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -44,6 +45,7 @@ import { EpsCombobox } from '@/components/common/EpsCombobox';
 import { TSHIRT_SIZES, BLOOD_TYPES } from '@/lib/athlete-options';
 import { CreateChildModal } from '@/components/students/CreateChildModal';
 import { SiblingFamilySection } from '@/components/students/siblings';
+import { EnrollmentFeesSection, NO_FEES_MARKED, cobrarInscripcionSeguro, type FeesMarked } from '@/components/students/EnrollmentFeesSection';
 import { ZkPinField } from '@/components/students/ZkPinField';
 import { CreateAdultAthleteModal } from '@/components/students/CreateAdultAthleteModal';
 import { CobrosYPagosModal } from '@/components/payment/CobrosYPagosModal';
@@ -66,7 +68,7 @@ import {
   mesLegible,
 } from '@/hooks/usePauses';
 import { studentsAPI, StudentViewRow } from '@/lib/api/students';
-import { daysDiffFromToday } from '@/lib/dateUtils';
+import { getPaymentState, type PaymentState } from '@/lib/studentPaymentState';
 import { groupOpenDebtByAthlete, type AthleteOpenDebt } from '@/lib/paymentCartera';
 import { chargeLabel } from '@/lib/payment-accounts';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
@@ -141,7 +143,6 @@ function ZkPinInfoRow({ schoolId, athleteId, athleteType }: {
 type StudentFormData = z.infer<typeof studentSchema>;
 
 // ── Helpers de filtrado (puros, compartidos por los filtros y los badges) ─────
-type PaymentState = 'paid' | 'overdue' | 'pending' | 'none' | 'other';
 
 const PAYMENT_STATE_LABELS: Record<PaymentState, string> = {
   paid:    'Al día',
@@ -215,37 +216,6 @@ const HEALTH_SCREENING_LABELS: Record<string, string> = {
   alergia_alimento:                  'Alergia alimentaria',
 };
 
-/** Misma lógica que el badge de la tabla, para que filtro y badge nunca difieran. */
-const getPaymentState = (student: any): PaymentState => {
-  const ps  = student.payment_status;
-  const due = student.payment_due_date;
-  if (!ps) return 'none';
-  // Estados terminales = no hay nada que cobrar, NO una categoría propia. La vista
-  // school_athletes ya los excluye (mig 20260804125913), pero antes su cobro
-  // anulado era el más reciente y caía en 'other': al anular 5 duplicados el
-  // contador "OTROS" saltó de 1 a 6 con atletas que no debían nada. Defensa en
-  // profundidad: si otra vía los reintroduce, no vuelven a inventar un bucket.
-  if (ps === 'cancelled' || ps === 'rejected' || ps === 'failed') return 'none';
-  if (ps === 'paid' || ps === 'approved') return 'paid';
-  // `due` es un YYYY-MM-DD (columna date). `new Date(due)` lo parsea como MEDIANOCHE
-  // UTC, y compararlo contra `new Date()` (instante local) marcaba vencido desde las
-  // 19:00 hora Colombia del día ANTERIOR y durante todo el día de vencimiento: ~29 horas
-  // de falso vencido. Misma familia del bug que cerró 035dff3.
-  //
-  // El umbral es > 0 y no >= 0 para alinearse con el motor de mora, que exige
-  // `due_date + payment_grace_days < today` (apply_late_fees): el día de vencimiento
-  // NO cuenta como vencido — se puede pagar el día 10.
-  //
-  // DIVERGENCIA CONOCIDA: esto ignora `school_settings.payment_grace_days`. Con días de
-  // gracia > 0 el badge dice "Vencido" antes de que el motor marque la fila y cobre el
-  // recargo. La fuente autoritativa es `status = 'overdue'`, que ya se honra arriba;
-  // este cálculo solo lo anticipa. Cerrarlo requiere traer el setting a esta pantalla.
-  if (ps === 'overdue' || ((ps === 'pending' || ps === 'awaiting_approval') && due && daysDiffFromToday(due) > 0))
-    return 'overdue';
-  if (ps === 'pending' || ps === 'awaiting_approval') return 'pending';
-  return 'other';
-};
-
 /**
  * Equipo del atleta tal como se muestra en la tabla: si no hay `team_name` la
  * fila se pinta "Sin asignar", así que tampoco cuenta como equipo para el filtro
@@ -294,7 +264,11 @@ export default function SchoolStudentsManagementPage() {
   const coachUploadsEnrollmentForms = profile?.role === 'coach' && coachCanUploadEnrollmentForms;
 
   // Besser: el coach no ve mensualidad ni estado de pago en ninguna pantalla.
-  const hideFinancials = profile?.role === 'coach' && coachHideFinancialInfo;
+  // Entrenador V2 (decisión 10-25): ningún coach ve montos, solo al día /
+  // pendiente / vencido en su app. 0 coaches registraron o aprobaron pagos en
+  // los últimos 90 días, así que no se pierde un flujo en uso.
+  // Con VITE_ENTRENADOR_V2=false vuelve a depender solo de la escuela.
+  const hideFinancials = profile?.role === 'coach' && (coachHideFinancialInfo || ENTRENADOR_V2);
 
   // «Estado de cuenta»: registrar desde el listado un pago que la familia hizo
   // por fuera de la app (efectivo o transferencia directa). Es el mismo modal de
@@ -635,6 +609,17 @@ export default function SchoolStudentsManagementPage() {
       .finally(() => setLoadingPlanInfo(false));
   }, [viewingStudent]);
 
+  // Días de gracia de la escuela: el badge «Vencido» y el filtro esperan lo mismo que el motor de mora.
+  const { data: graceDays = 0 } = useQuery({
+    queryKey: ['school-payment-grace-days', schoolId],
+    enabled: !!schoolId,
+    staleTime: 10 * 60_000,
+    queryFn: async () => {
+      const { data } = await supabase.from('school_settings').select('payment_grace_days').eq('school_id', schoolId!).maybeSingle();
+      return Math.max(0, Number((data as { payment_grace_days?: number } | null)?.payment_grace_days) || 0);
+    },
+  });
+
   const { data: students = [], isLoading, isFetching, refetch } = useQuery({
     queryKey: ['school-students', schoolId, activeBranchId, coachId],
     queryFn: async () => {
@@ -798,12 +783,15 @@ export default function SchoolStudentsManagementPage() {
     },
   });
 
+  // Inscripción / seguro marcados en la ficha: se cobran al guardar (después del PUT).
+  const [feesMarked, setFeesMarked] = useState<FeesMarked>(NO_FEES_MARKED);
+
   const updateStudentMutation = useMutation({
     mutationFn: async (data: StudentFormData & { plan_change_charge?: PlanChangeChargeMode }) => {
-      if (!editingStudent || !schoolId) return;
+      if (!editingStudent || !schoolId) return [] as string[];
 
       const { bffClient } = await import('@/lib/api/bffClient');
-      await bffClient.put(`/api/v1/students/${editingStudent.id}`, {
+      const saved = await bffClient.put<{ warnings?: string[] }>(`/api/v1/students/${editingStudent.id}`, {
         athlete_type: editingAthleteType,
         // ID del torniquete: solo si cambió; vacío = no tocar (quitarlo se hace en Control de acceso).
         ...(registrationZkPinEnabled && data.zk_pin && Number(data.zk_pin) !== currentZkPin
@@ -840,14 +828,39 @@ export default function SchoolStudentsManagementPage() {
           ...(data.plan_change_charge ? { plan_change_charge: data.plan_change_charge } : {}),
         },
       });
+
+      // Inscripción / seguro marcados en la ficha: el atleta ya quedó guardado; si el
+      // cobro falla se avisa aparte (guardar de nuevo no duplica: el BFF no repite).
+      if ((feesMarked.inscripcion || feesMarked.seguro) && editingAthleteType) {
+        try {
+          await cobrarInscripcionSeguro(editingStudent.id, editingAthleteType, feesMarked);
+        } catch (e: any) {
+          toast({
+            title: 'El atleta se guardó, pero no se pudo cobrar',
+            description: e?.message || 'Intenta de nuevo desde la ficha.',
+            variant: 'destructive',
+          });
+        }
+      }
+      return saved?.warnings ?? [];
     },
-    onSuccess: () => {
+    onSuccess: (warnings) => {
       queryClient.invalidateQueries({ queryKey: ['school-students'] });
+      setFeesMarked(NO_FEES_MARKED);
       setPlanChangePrompt(null);
       setDialogOpen(false);
       setEditingStudent(null);
       setEditingAthleteType(null);
       toast({ title: '✅ Atleta actualizado' });
+      // Avisos del BFF (p. ej. el cobro del plan nuevo no se pudo emitir): antes se
+      // perdían y el admin creía que todo había salido bien.
+      if (warnings?.length) {
+        toast({
+          title: 'Revisa los cobros de este atleta',
+          description: warnings.join(' '),
+          variant: 'destructive',
+        });
+      }
     },
     onError: (error: any) => {
       toast({
@@ -908,6 +921,7 @@ export default function SchoolStudentsManagementPage() {
     const athleteType = getAthleteType(student);
     setEditingStudent(student);
     setEditingAthleteType(athleteType);
+    setFeesMarked(NO_FEES_MARKED);
     let extraFields = { tshirt_size: '', blood_type: '', eps_name: '' };
     if (athleteType === 'child') {
       const { data } = await (supabase as any).from('children').select('tshirt_size, blood_type, eps_name').eq('id', student.id).maybeSingle();
@@ -1172,7 +1186,7 @@ export default function SchoolStudentsManagementPage() {
       if (teamKey) bump(teamMap, teamKey, s.team_name); else noTeam++;
       const planKey = getPlanKey(s);
       if (planKey) bump(planMap, planKey, s.plan_name); else noPlan++;
-      const pState = getPaymentState(s);
+      const pState = getPaymentState(s, graceDays);
       paymentCounts.set(pState, (paymentCounts.get(pState) || 0) + 1);
     }
 
@@ -1191,7 +1205,7 @@ export default function SchoolStudentsManagementPage() {
       noPlan,
       withPlan: tabStudents.length - noPlan,
     };
-  }, [tabStudents]);
+  }, [tabStudents, graceDays]);
 
   // Membresias del club (CAR-4). Solo se pinta la insignia si esa persona TIENE
   // membresia: asi el listado de las escuelas que no usan la funcion queda igual
@@ -1263,7 +1277,7 @@ export default function SchoolStudentsManagementPage() {
       else if (planKey !== planFilter) return false;
     }
 
-    if (paymentFilter !== 'all' && getPaymentState(student) !== paymentFilter) return false;
+    if (paymentFilter !== 'all' && getPaymentState(student, graceDays) !== paymentFilter) return false;
 
     return true;
   });
@@ -1301,7 +1315,7 @@ export default function SchoolStudentsManagementPage() {
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(amount);
 
   const getPaymentBadge = (student: any) => {
-    switch (getPaymentState(student)) {
+    switch (getPaymentState(student, graceDays)) {
       case 'none':    return <Badge variant="secondary" className="text-xs bg-muted text-muted-foreground">Sin cobro</Badge>;
       case 'paid':    return <Badge className="bg-green-500 dark:bg-green-600 text-xs text-white">Al día</Badge>;
       case 'overdue': return <Badge variant="destructive" className="text-xs">Vencido</Badge>;
@@ -1349,7 +1363,7 @@ export default function SchoolStudentsManagementPage() {
             <User className="h-4 w-4 mr-2" /> Editar deportista
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setAccountStudentId(student.id)}>
-            <FileText className="h-4 w-4 mr-2" /> Editar estado de cuenta
+            <FileText className="h-4 w-4 mr-2" /> {cobrosYPagosOn ? 'Cobros y pagos' : 'Editar estado de cuenta'}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -2077,7 +2091,7 @@ export default function SchoolStudentsManagementPage() {
                   {!isCategoryOnlyCoach && (
                   <div className="space-y-1">
                     <Label htmlFor="team_monthly_fee" className="text-xs text-muted-foreground">Mensualidad equipo (COP)</Label>
-                    <Input id="team_monthly_fee" type="number" step={1000}
+                    <Input id="team_monthly_fee" type="number" step={1}
                       disabled={editingIsInactive || !!form.watch('offering_plan_id') || !!form.watch('fee_is_manual')}
                       {...form.register('team_monthly_fee', { valueAsNumber: true })} />
                     {form.watch('offering_plan_id') ? (
@@ -2160,7 +2174,7 @@ export default function SchoolStudentsManagementPage() {
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="plan_monthly_fee" className="text-xs text-muted-foreground">Mensualidad plan (COP)</Label>
-                    <Input id="plan_monthly_fee" type="number" step={1000}
+                    <Input id="plan_monthly_fee" type="number" step={1}
                       disabled={editingIsInactive || !!form.watch('fee_is_manual')}
                       {...form.register('plan_monthly_fee', { valueAsNumber: true })} />
                   </div>
@@ -2271,6 +2285,19 @@ export default function SchoolStudentsManagementPage() {
               </div>
               )}
             </div>
+
+            {/* Inscripción y seguro del plan: se cobran después del alta si no se marcaron
+                (o se desmarcaron por error). Solo administración; el BFF vuelve a exigirlo. */}
+            {editingStudent && editingAthleteType && schoolId && !editingIsInactive
+              && profile?.role !== 'coach' && canManageCharges(schoolRole) && (
+              <EnrollmentFeesSection
+                athleteId={editingStudent.id}
+                athleteType={editingAthleteType}
+                marked={feesMarked}
+                onMarkedChange={setFeesMarked}
+                disabled={updateStudentMutation.isPending}
+              />
+            )}
 
             {/* F2 hermanos: familia del menor (vínculo manual para acudientes sin
                 cuenta). Solo administración; la RPC vuelve a exigirlo. */}
@@ -2740,6 +2767,7 @@ export default function SchoolStudentsManagementPage() {
           open={!!accountStudentId}
           onOpenChange={(o) => { if (!o) setAccountStudentId(null); }}
           initialAthleteId={accountStudentId ?? undefined}
+          onViewOperations={() => navigate('/payments-automation?tab=operaciones')}
           onSuccess={() => {
             queryClient.invalidateQueries({ queryKey: ['school-students'] });
             queryClient.invalidateQueries({ queryKey: ['school-payments'] });

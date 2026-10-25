@@ -11,8 +11,18 @@ function when(iso: string) {
   return new Date(iso).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 }
 
+const STATUS_ORDER = ['pending_payment', 'awaiting_approval', 'paid', 'preparing', 'ready_for_pickup', 'shipped', 'delivered', 'cancelled'];
+const rank = (s: string) => { const i = STATUS_ORDER.indexOf(s); return i === -1 ? STATUS_ORDER.length : i; };
+
+/** Cronológico; si dos estados caen en el mismo segundo (cobro en efectivo = pagado + entregado), manda el orden del flujo. */
+export function sortHistory(history: StatusHistoryRow[]): StatusHistoryRow[] {
+  return [...history].sort((a, b) =>
+    new Date(a.created_at).getTime() - new Date(b.created_at).getTime() || rank(a.to_status) - rank(b.to_status));
+}
+
 /** Pasos del camino feliz + historial real (order_status_history). */
-export function OrderTimeline({ order, history }: { order: OrderLike; history: StatusHistoryRow[] }) {
+export function OrderTimeline({ order, history: rawHistory }: { order: OrderLike; history: StatusHistoryRow[] }) {
+  const history = sortHistory(rawHistory);
   const steps = buyerTimeline(order);
   return (
     <div className="space-y-4">

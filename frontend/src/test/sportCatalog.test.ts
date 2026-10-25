@@ -264,3 +264,61 @@ describe('M6f: sinónimos de los deportes de cancha', () => {
     expect(resolveSport('Hockeyh Sobre Hielo').key).toBe('desconocido');
   });
 });
+
+describe('lista que escoge el usuario (sportsCatalog.ts) → pizarra', () => {
+  it('Frontón (Handball Mural) NO abre la pizarra de balonmano', () => {
+    expect(resolveSport('Frontón (Handball Mural)')).toMatchObject({ key: 'fronton', boardLevel: 'ninguna', match: 'exacto' });
+    expect(hasTacticalBoard('Frontón (Handball Mural)')).toBe(false);
+    expect(resolveSport('Balonmano').boardLevel).toBe('completa');
+  });
+
+  it('todo deporte de la lista se reconoce (ninguno queda «desconocido»)', async () => {
+    const { SPORTS_LIST } = await import('@/lib/constants/sportsCatalog');
+    const sinMapear = SPORTS_LIST.filter((n) => resolveSport(n).match === 'ninguno');
+    expect(sinMapear).toEqual([]);
+  });
+
+  it('Polo no se confunde con Waterpolo', () => {
+    expect(resolveSport('Polo').boardLevel).toBe('ninguna');
+    expect(resolveSport('Waterpolo')).toMatchObject({ boardLevel: 'cancha', tacticalSport: 'waterpolo' });
+  });
+});
+
+describe('equipo SIN deporte: vale el nombre o la categoría', () => {
+  it('«Tenis Sub 12» y «Escuela Pádel» abren su cancha, no la de fútbol', () => {
+    expect(teamBoardAccess({ sport: null, name: 'Tenis Sub 12' })).toMatchObject({ sport: 'tenis', hasTacticalBoard: true, hasExerciseLibrary: false });
+    expect(teamBoardAccess({ sport: '', name: 'Escuela Pádel' })).toMatchObject({ sport: 'padel', hasTacticalBoard: true });
+  });
+  it('fútbol 11/7/5 sin deporte escrito NO cambia (lo fija sportFromTeamLegacy); futsal sí abre su pizarra', () => {
+    expect(teamBoardAccess({ sport: '', name: 'Fútbol 7 Sub 10' })).toMatchObject({ sport: 'futbol7', hasTacticalBoard: false });
+    expect(teamBoardAccess({ sport: '', name: 'Futsal Sub 12' })).toMatchObject({ sport: 'futsal', hasTacticalBoard: true });
+  });
+  it('sin pista en el nombre sigue como antes (fútbol 11, sin pizarra)', () => {
+    expect(teamBoardAccess({ sport: '', name: 'Sub 12' })).toMatchObject({ sport: 'futbol', hasTacticalBoard: false });
+  });
+  it('con deporte escrito, el nombre no lo pisa', () => {
+    expect(teamBoardAccess({ sport: 'Natación', name: 'Tenis Sub 12' })).toMatchObject({ hasTacticalBoard: false });
+  });
+});
+
+describe('teams.sport_modality manda sobre el nombre', () => {
+  it('Fútbol + modalidad 7 / 5 / 11 → su cancha, aunque el nombre no diga nada', () => {
+    expect(boardSportFromTeam({ sport: 'Fútbol', name: 'Sub 10', sport_modality: '7' })).toBe('futbol7');
+    expect(boardSportFromTeam({ sport: 'Fútbol', name: 'Sub 8', sport_modality: '5' })).toBe('futbol5');
+    expect(boardSportFromTeam({ sport: 'Fútbol', name: 'F7 Sub 10', sport_modality: '11' })).toBe('futbol');
+  });
+  it('sin modalidad (NULL o valor raro) se deduce del nombre, como antes', () => {
+    expect(boardSportFromTeam({ sport: 'Fútbol', name: 'F7 Sub 10', sport_modality: null })).toBe('futbol7');
+    expect(boardSportFromTeam({ sport: 'Fútbol', name: 'Sub 10', sport_modality: '9' })).toBe('futbol');
+  });
+  it('en otro deporte la modalidad no hace nada', () => {
+    expect(boardSportFromTeam({ sport: 'Voleibol', name: 'Sub 14', sport_modality: '7' })).toBe('voleibol');
+    expect(boardSportFromTeam({ sport: 'Natación', name: 'Sub 14', sport_modality: '7' })).toBe('generico');
+  });
+  it('Futsal en el nombre gana a la modalidad', () => {
+    expect(boardSportFromTeam({ sport: 'Fútbol', name: 'Futsal Sub 12', sport_modality: '7' })).toBe('futsal');
+  });
+  it('la modalidad es de fútbol: teamBoardAccess la respeta y sigue siendo fútbol', () => {
+    expect(teamBoardAccess({ sport: 'Fútbol', name: 'Sub 10', sport_modality: '5' })).toMatchObject({ sport: 'futbol5', hasTacticalBoard: true, isFootball: true });
+  });
+});

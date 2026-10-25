@@ -246,7 +246,7 @@ describe('pagos únicos del alta', () => {
         extractReceiptMock.mockResolvedValue(comprobante(35000));
         await runWhatsAppQueue();
         expect(evaluatePaymentReceiptMock).toHaveBeenCalledWith('p-seg', undefined);
-        expect(enviados()[0]).toContain('lo apliqué a *Seguro de accidentes');
+        expect(enviados()[0]).toContain('Listo: comprobante de *$35.000* de *Atleta* para *seguro de accidentes*');
         // Lo que queda se nombra: la mensualidad y la inscripción siguen vivas.
         expect(enviados()[0]).toContain('Te quedan pendientes');
         expect(cierre()).toMatchObject({ status: 'done', result_ref_id: 'p-seg' });
@@ -280,7 +280,7 @@ describe('excedente y cuentas por fuera de SportMaps (2026-10-13)', () => {
         extractReceiptMock.mockResolvedValue(comprobante(200000));
         await runWhatsAppQueue();
         expect(evaluatePaymentReceiptMock).toHaveBeenCalledWith('p-men', undefined);
-        expect(enviados()[0]).toContain('lo apliqué a *Plan PGX');
+        expect(enviados()[0]).toContain('Listo: comprobante de *$200.000* de *Atleta* para *octubre*');
         expect(enviados()[0]).toContain('$20.000 de más');
         expect(enviados()[0]).toContain('saldo a favor');
         expect(cierre()).toMatchObject({ status: 'done', result_type: 'payment_receipt', result_ref_id: 'p-men' });

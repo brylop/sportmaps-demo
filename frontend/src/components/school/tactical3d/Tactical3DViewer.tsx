@@ -26,7 +26,7 @@ import type { TacticalFrame } from '@/lib/school/tacticalFrames';
 import type { AnimationCurve } from '@/lib/school/tacticalBoardSettings';
 import { sportDef, type TacticalSport } from '@/lib/school/tacticalSports';
 import {
-  collectPlayerKeys, court3D, MIN_FPS, OVERLAY_COLOR, playerVisual,
+  collectPlayerKeys, court3D, defaultMinFps, OVERLAY_COLOR, playerVisual,
   prefersReducedMotion, TEAM_COLOR, teamVisual, type CameraMode, type PlayerVisual,
 } from '@/lib/school/tactical3d';
 import type { TacticalTeamsConfig } from '@/lib/school/tacticalTeams';
@@ -97,7 +97,7 @@ const speedLabel = (s: number) => `${String(s).replace('.', ',')}×`;
 export default function Tactical3DViewer({
   sport, frames, playerLabels, playerJerseys, teamColor = TEAM_COLOR,
   overlayFrames = null, overlayColor = OVERLAY_COLOR, overlayLabels, overlayJerseys,
-  overlayName = 'Contraataque del rival', title, onClose, onFallback, minFps = MIN_FPS, onStats,
+  overlayName = 'Contraataque del rival', title, onClose, onFallback, minFps = defaultMinFps(), onStats,
   initialCamera = 'tv', initialTimeMs = 0, autoPlay = false, initialDirector = false, teams = null, curve, watermark = true,
 }: Tactical3DViewerProps) {
   const court = useMemo(() => court3D(sport), [sport]);
@@ -162,8 +162,11 @@ export default function Tactical3DViewer({
   const onFpsVerdict = useCallback((verdict: 'ok' | 'slow', fps: number, info: Omit<Tactical3DStats, 'fps'>) => {
     statsRef.current?.({ fps, ...info });
     if (debug) (window as unknown as { __TACTICAL3D_FPS__?: number }).__TACTICAL3D_FPS__ = fps;
-    if (verdict === 'slow') fallback('slow');
-  }, [fallback, debug]);
+    if (verdict === 'slow') {
+      console.info(`[3D] cayó a 2D: ${fps.toFixed(1)} fps medidos (piso ${minFps}), ${info.programs} programas, ${info.textures} texturas`);
+      fallback('slow');
+    }
+  }, [fallback, debug, minFps]);
 
   const onShot = useCallback((k: CameraKind) => {
     setOnAir(k);
@@ -267,7 +270,7 @@ export default function Tactical3DViewer({
       <CanvasBoundary onError={() => fallback('error')}>
         <Canvas
           className="!absolute inset-0"
-          dpr={[1, 2]}
+          dpr={[1, 1.5]}
           camera={{ fov: 45, near: 0.1, far: 3000, position: [0, court.lengthM, court.lengthM] }}
           gl={{ antialias: true, powerPreference: 'high-performance' }}
           onCreated={({ gl }) => {

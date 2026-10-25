@@ -8,7 +8,7 @@
 |---|---|---:|---|
 | [escuela.md](./escuela.md) · [escuela.json](./escuela.json) | Dueño (owner/`school`) y `school_admin`: 11 módulos del menú + shell + tienda + rutas huérfanas | 69 | extractor estático (TypeScript compiler API); uso por tabla principal (s90 / r90 / tot) |
 | [entrenador-acudiente-deportista.md](./entrenador-acudiente-deportista.md) · [.json](./entrenador-acudiente-deportista.json) | Entrenador (coach y vendedor), entrenador personal, acudiente, deportista, y lo que ven fuera del layout: públicas, PWA y entradas por WhatsApp/correo/notificación | 156 | revisión manual por agentes; uso de `usage.json` pegado por tabla, RPC o ruta |
-| [otros-roles-y-publicas.md](./otros-roles-y-publicas.md) · [.json](./otros-roles-y-publicas.json) | Profesional de salud, tienda/marketplace, organizador, «facility_manager», Super Admin, auth, onboarding, públicas y SportBot | 117 | revisión manual; uso como texto por pantalla y acción |
+| [otros-roles-y-publicas.md](./otros-roles-y-publicas.md) · [.json](./otros-roles-y-publicas.json) | Profesional de salud, tienda/marketplace, organizador, «facility_manager», Super Admin, auth, onboarding, públicas y Mapi | 117 | revisión manual; uso como texto por pantalla y acción |
 | [mapa-app.json](./mapa-app.json) | Los tres anteriores en un solo arreglo, **sin repetir pantallas compartidas** (clave = ruta + archivo; `roles[]`, `variants[]` por rol y acciones con `roles[]` y `statusByRole` cuando el estado cambia según el rol) | 226 únicas (85 compartidas) | JSON |
 | [cruce-rediseno.md](./cruce-rediseno.md) | Dónde vive cada pantalla en la V1 y la V2, qué necesita cada tablero y las cuatro listas priorizadas | 342 entradas · 49 tableros | — |
 
@@ -33,7 +33,7 @@ Pantallas = entradas del mapa (una ruta puede aparecer en varios roles). Accione
 | otros-roles-y-publicas | Tienda / marketplace | 21 | 23 | 39 | 27 | 4 | 0 | 0 | 5 | 1 | 2 |
 | otros-roles-y-publicas | Super Admin / admin de plataforma | 17 | 30 | 42 | 22 | 8 | 2 | 1 | 3 | 4 | 2 |
 | otros-roles-y-publicas | Organizador y eventos | 13 | 22 | 26 | 5 | 4 | 1 | 0 | 15 | 1 | 0 |
-| otros-roles-y-publicas | Auth, onboarding, públicas y SportBot | 33 | 33 | 43 | 27 | 8 | 2 | 0 | 2 | 3 | 1 |
+| otros-roles-y-publicas | Auth, onboarding, públicas y Mapi | 33 | 33 | 43 | 27 | 8 | 2 | 0 | 2 | 3 | 1 |
 | otros-roles-y-publicas | facility_manager (rol inexistente) | 5 | 7 | 19 | 13 | 4 | 0 | 0 | 0 | 1 | 1 |
 | **Total** | | **342** | **533** | **3028** | **2360** | **118** | **31** | **338** | **62** | **112** | **7** |
 
@@ -118,7 +118,7 @@ Ordenadas por amplitud (escuelas distintas con actividad en 90 días) y después
 | 14 | Control de acceso (ZKTeco) | `/school/access-control` | `access_events` **10.376** en 90 d (3.438 en 30 d), 4 escuelas | escuela.json, otros |
 | 15 | Pago por enlace sin login | `/p/:token` | 929 enlaces creados, 211 abiertos, 418 aperturas, 2 escuelas | usage.json |
 
-Mucho volumen en pocas escuelas: QR de inscripción (1.727 escaneos, 226 registros, 61 pagados), carnets (508 en 90 d, 3 escuelas; 0 impresos), facturación electrónica (324, 2), WhatsApp (292 conversaciones, 2), calendario (106, 5), prospectos (28 en 30 d), SportBot (36 mensajes en 30 d).
+Mucho volumen en pocas escuelas: QR de inscripción (1.727 escaneos, 226 registros, 61 pagados), carnets (508 en 90 d, 3 escuelas; 0 impresos), facturación electrónica (324, 2), WhatsApp (292 conversaciones, 2), calendario (106, 5), prospectos (28 en 30 d), Mapi (36 mensajes en 30 d).
 
 ## Las 15 funciones nunca usadas
 

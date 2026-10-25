@@ -12,6 +12,7 @@ import { currentPeriodBogota, formatPeriodLabel, parsePeriodKey, periodKey, shif
 import { formatPesos, monthsFromToday, newLineDraft, type LineCalc, type MultiLineCalc, type NewLineDraft } from '@/lib/cobrosYPagos';
 import type { ChargeSuggestions } from '@/lib/api/chargeBatches';
 import { DiscountControl } from './DiscountControl';
+import { HorasAdicionalesLine } from './HorasAdicionalesLine';
 import { DiscountTags } from './DiscountTags';
 
 interface NewChargeLinesProps {
@@ -64,8 +65,15 @@ export function NewChargeLines({
 
     const changeCategory = (idx: number, category: PaymentChargeCategory) => {
         const l = lines[idx];
-        const patch: Partial<NewLineDraft> = { category, concept: CHARGE_CATEGORY_LABEL[category], overage_charge_id: null };
-        if (category === 'mensualidad') {
+        const patch: Partial<NewLineDraft> = { category, concept: CHARGE_CATEGORY_LABEL[category], overage_charge_id: null, extra_hours: null, horas_modo: null };
+        if (category === 'excedente') {
+            // «Horas adicionales» puede ser cobrar lo que ya usó o vender por adelantado: no se elige
+            // por el usuario. La línea nace sin modo y HorasAdicionalesLine lo pide (sin banco de horas
+            // pasa sola a «Ya las usó»).
+            patch.period = null;
+            patch.enrollment_id = null;
+            if (l.category === 'mensualidad') patch.amount = null;
+        } else if (category === 'mensualidad') {
             const p = suggestions?.next_period ?? today;
             patch.period = p;
             patch.concept = `Mensualidad ${formatPeriodLabel(p.year, p.month)}`;
@@ -83,6 +91,15 @@ export function NewChargeLines({
         onChange([...lines, newLineDraft({ category: 'torneo', due_date: defaultDue, amount: null, pay: paymentOn })]);
     };
 
+    // Atajo «+ Horas adicionales»: abre la línea de horas (sin modo: el usuario elige «Ya las usó» o
+    // «Por adelantado»; sin banco de horas pasa sola a «Ya las usó») en vez de la fila de Torneo vacía.
+    // Solo el dueño, un atleta, y una línea de horas por operación.
+    const puedeVenderHoras = canOverage && mode === 'single'
+        && !lines.some((l) => l.category === 'excedente');
+    const addHoras = () => {
+        onChange([...lines, newLineDraft({ category: 'excedente', due_date: defaultDue, pay: paymentOn })]);
+    };
+
     return (
         <div className="space-y-2" data-testid="cyp-new-lines">
             {lines.map((l, idx) => {
@@ -95,7 +112,7 @@ export function NewChargeLines({
                 const errors = single?.errors ?? multi?.errors ?? [];
                 return (
                     <div key={l.key} className="rounded-xl border p-3 space-y-2 bg-background" data-testid={`cyp-line-${idx}`}>
-                        <div className="grid gap-2 grid-cols-2 sm:grid-cols-[10rem_minmax(0,1fr)_8rem_9rem_auto]">
+                        <div className="grid gap-2 grid-cols-2 sm:grid-cols-[13rem_minmax(0,1fr)_8rem_9rem_auto]">
                             <Select value={l.category} onValueChange={(v) => changeCategory(idx, v as PaymentChargeCategory)}>
                                 <SelectTrigger className="h-10 text-sm" aria-label="Tipo de cobro"><SelectValue /></SelectTrigger>
                                 <SelectContent>
@@ -122,6 +139,7 @@ export function NewChargeLines({
                                     value={l.concept}
                                     placeholder="Ej. Copa Pony 2026 — Sub-12"
                                     maxLength={120}
+                                    readOnly={l.category === 'excedente' && l.extra_hours != null}
                                     onChange={(e) => update(idx, { concept: e.target.value })}
                                 />
                             )}
@@ -193,17 +211,7 @@ export function NewChargeLines({
                         )}
                         {pastMonth && <p className="text-[11px] text-amber-700 dark:text-amber-400">Ese mes ya pasó: se crea solo si no existe, y vence desde hoy.</p>}
                         {l.category === 'excedente' && mode === 'single' && (
-                            <Select value={l.overage_charge_id ?? undefined} onValueChange={(v) => {
-                                const o = suggestions?.overages?.find((x) => x.id === v);
-                                update(idx, { overage_charge_id: v, amount: o?.amount ?? l.amount, concept: o ? `Horas adicionales ${o.period_label}` : l.concept });
-                            }}>
-                                <SelectTrigger className="h-9 text-sm" aria-label="Período de horas adicionales">
-                                    <SelectValue placeholder={(suggestions?.overages?.length ?? 0) > 0 ? 'Elige el período' : 'No hay excedentes por facturar'} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {(suggestions?.overages ?? []).map((o) => <SelectItem key={o.id} value={o.id}>{o.period_label} — {formatPesos(o.amount)}</SelectItem>)}
-                                </SelectContent>
-                            </Select>
+                            <HorasAdicionalesLine line={l} suggestions={suggestions} onPatch={(patch) => update(idx, patch)} />
                         )}
 
                         <div className="flex flex-wrap items-center gap-2">
@@ -263,9 +271,16 @@ export function NewChargeLines({
                     </div>
                 );
             })}
-            <Button type="button" variant="ghost" size="sm" onClick={addLine} data-testid="cyp-add-line">
-                <Plus className="h-4 w-4 mr-1" /> Agregar cobro
-            </Button>
+            <div className="flex flex-wrap items-center gap-1">
+                <Button type="button" variant="ghost" size="sm" onClick={addLine} data-testid="cyp-add-line">
+                    <Plus className="h-4 w-4 mr-1" /> Agregar cobro
+                </Button>
+                {puedeVenderHoras && (
+                    <Button type="button" variant="ghost" size="sm" onClick={addHoras} data-testid="cyp-add-horas">
+                        <Plus className="h-4 w-4 mr-1" /> Horas adicionales
+                    </Button>
+                )}
+            </div>
         </div>
     );
 }

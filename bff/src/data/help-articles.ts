@@ -1590,7 +1590,7 @@ export const helpArticles: HelpArticle[] = [
         type: "callout",
         variant: "tip",
         content:
-          "Pegá tu link público en tu bio de Instagram y en la firma de WhatsApp Business. Es el cambio más rentable que harás en este perfil.",
+          "Pega tu link público en tu bio de Instagram y en la firma de WhatsApp Business. Es el cambio más rentable que harás en este perfil.",
       },
     ],
     related: ["trainer-onboarding", "trainer-disponibilidad-tarifas"],
@@ -1909,7 +1909,7 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "Boletería QR: cada inscrito tiene un código único. En la puerta usás la app móvil para escanearlo y marcar 'Asistió'. Lista exportable a Excel/PDF.",
+          "Boletería QR: cada inscrito tiene un código único. En la puerta usas la app móvil para escanearlo y marcar 'Asistió'. Lista exportable a Excel/PDF.",
       },
     ],
     related: ["organizer-crear-evento", "organizer-reportes-evento"],
@@ -2229,7 +2229,7 @@ export const helpArticles: HelpArticle[] = [
           "Encuentra el evento en /eventos o en el mapa",
           "Click en 'Inscribirme' y elige tu categoría (sub-12, juvenil, élite, etc.)",
           "Llenamos datos del atleta (los traemos del perfil si ya estás logueado)",
-          "Subí documentos requeridos: cédula/TI, EPS, autorización si es menor",
+          "Sube los documentos requeridos: cédula/TI, EPS, autorización si es menor",
           "Elige método de pago: tarjeta (Wompi), PSE, Nequi o transferencia",
           "Si eliges transferencia: haces la transferencia y subes el comprobante (max 5MB)",
         ],
@@ -2571,7 +2571,7 @@ export const helpFAQs: HelpFAQ[] = [
   {
     question: "¿Cómo recupero mi contraseña?",
     answer:
-      "En la pantalla de login (app.sportmaps.co/auth), hacé clic en '¿Olvidaste tu contraseña?'. Recibirás un email con un link para restablecerla. El link es válido por 1 hora.",
+      "En la pantalla de login (app.sportmaps.co/auth), haz clic en '¿Olvidaste tu contraseña?'. Recibirás un email con un link para restablecerla. El link es válido por 1 hora.",
   },
   {
     question: "¿SportMaps funciona en celular?",

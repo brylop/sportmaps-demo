@@ -165,3 +165,27 @@ Pasos:
 | `<aside className="w-[248px]">` | `<aside className="w-sidebar">` |
 | `<span className="max-w-[90px] truncate">` | `<span className="max-w-[5.5rem] truncate">` (único, en rem) o `min-w-0 flex-1 truncate` |
 | `<input className="text-sm …">` | `<input className="text-input md:text-sm …">` |
+
+## 5. Respuesta y movimiento
+
+Base tomada de la skill *apple-design* (gethamster/skills, MIT; WWDC *Designing Fluid Interfaces* y *The Details of UI Typography*), adaptada a SportMaps. Lo global vive en `src/index.css` (`@layer base`) y en `src/components/ui/button.tsx`.
+
+| Regla | Dónde | Valor |
+|---|---|---|
+| Respuesta al tocar, no al soltar | `button.tsx` (base) | `motion-safe:active:scale-[0.97]`, 100 ms |
+| Sin espera de doble toque ni destello gris | `html` | `touch-action: manipulation`, `-webkit-tap-highlight-color: transparent` |
+| Resorte por defecto **sin rebote** | `--transition-spring` | `0.35s cubic-bezier(0.2, 0, 0, 1)`. Rebote solo si un gesto trae impulso (soltar una tarjeta, lanzar una hoja) |
+| Tracking por tamaño | `h1`/`h2`/`h3` | `-0.02em` / `-0.015em` / `-0.01em`, leading 1.15 / 1.2 / 1.3, `text-wrap: balance`; cuerpo en 0 |
+| Movimiento reducido | `prefers-reduced-motion` | Entradas como fundido (sin escala ni deslizamiento); transiciones solo de color y opacidad; sin `bounce`/`ping` |
+| Transparencia reducida | `prefers-reduced-transparency` | Lo que tiene `backdrop-blur` pasa a fondo sólido (no aplica a las capas de los modales) |
+| Más contraste | `prefers-contrast: more` | `--border`, `--input` y `--muted-foreground` más oscuros |
+
+Reglas para pantallas nuevas (se revisan en code review, no hay lint):
+
+- **Deshacer en vez de «¿Seguro?».** La acción se hace al instante y se ofrece «Deshacer» unos 8 s con `toast` de `sonner` (`action: { label: "Deshacer" }`). Se confirma antes solo lo que borra o anula dinero.
+- **Lo que entra por un lado sale por el mismo.** Una hoja que sube desde abajo se cierra hacia abajo; un menú nace del botón que lo abrió (`transform-origin` en el disparador).
+- **Arrastrar = seguir el dedo 1:1 y poder soltar o devolver a mitad de camino.** En celular, para hojas usar `Drawer` (`vaul`), que ya lo hace; no animar con `@keyframes` lo que el usuario puede agarrar.
+- **Retroalimentación con sentido.** Vibración (`navigator.vibrate`) solo en momentos que cierran algo (lista guardada, pago aprobado), en el mismo instante que el cambio visual.
+- **Desenfoque con medida.** `backdrop-blur` cuesta en Android de gama media (MOV-12): solo en barras fijas pequeñas, nunca en listas ni tarjetas.
+
+Lo que **no** se adopta de la skill: la fuente del sistema (SportMaps usa Poppins por marca) y librerías de resortes con velocidad (`motion`/`framer-motion`) mientras `vaul` y CSS alcancen; se reconsidera para la pizarra si se agrega lanzar jugadores con impulso.

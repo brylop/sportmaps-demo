@@ -15,24 +15,32 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Bot, Send, User, Loader2, Headset } from "lucide-react";
+import { Send, User, Loader2, Headset } from "lucide-react";
+import { MapiAvatar } from "@/components/brand/MapiAvatar";
 import { bffClient } from "@/lib/api/bffClient";
 
 // El bot no manda markdown, pero SI puede citar un link de un artículo de
 // ayuda (/ayuda/slug) dentro del texto — sin esto quedaría como texto plano
 // sin poder tocarlo. Partimos el body en pedazos y solo el pedazo /ayuda/...
 // se vuelve un <Link> de router (navegación SPA, no recarga completa).
-const HELP_LINK_RE = /(\/ayuda\/[a-z0-9-]+)/g;
+//
+// Mapi sí usa **negrita** para los nombres de menús y botones (así lo pide su
+// prompt) y a veces envuelve el link como [texto](/ayuda/slug): se deja solo la
+// ruta y la negrita se dibuja, para que no queden asteriscos ni corchetes sueltos.
+const HELP_LINK_RE = /(\/ayuda\/[a-z0-9-]+|\*\*[^*\n]+\*\*)/g;
+const MD_HELP_LINK_RE = /\[[^\]\n]*\]\((\/ayuda\/[a-z0-9-]+)\)/g;
 
 function MessageBody({ body }: { body: string }) {
     // split() con grupo de captura intercala texto plano y coincidencias en
     // orden — los índices impares son SIEMPRE lo que matcheó el grupo, sin
     // volver a testear el regex (evita el gotcha de estado de un regex /g).
-    const parts = body.split(HELP_LINK_RE);
+    const parts = body.replace(MD_HELP_LINK_RE, '$1').split(HELP_LINK_RE);
     return (
         <>
             {parts.map((part, i) =>
-                i % 2 === 1 ? (
+                i % 2 === 1 && part.startsWith('**') ? (
+                    <strong key={i}>{part.slice(2, -2)}</strong>
+                ) : i % 2 === 1 ? (
                     <Link
                         key={i}
                         to={part}
@@ -70,8 +78,8 @@ interface SupportChatModalProps {
 }
 
 const STATUS_CHIP: Record<string, { label: string; className: string }> = {
-    open: { label: "SportBot", className: "bg-primary/10 text-primary" },
-    bot_handled: { label: "SportBot", className: "bg-primary/10 text-primary" },
+    open: { label: "Mapi", className: "bg-primary/10 text-primary" },
+    bot_handled: { label: "Mapi", className: "bg-primary/10 text-primary" },
     waiting_human: { label: "Esperando a soporte", className: "bg-amber-500/10 text-amber-600" },
     waiting_user: { label: "Te respondieron", className: "bg-emerald-500/10 text-emerald-600" },
     resolved: { label: "Resuelto", className: "bg-muted text-muted-foreground" },
@@ -170,14 +178,13 @@ export function SupportChatModal({ isOpen, onClose }: SupportChatModalProps) {
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
             <DialogContent className="max-w-lg h-[37.5rem] max-h-sheet flex flex-col p-0 gap-0 overflow-hidden">
-                <DialogHeader className="px-4 py-3 border-b bg-muted/40">
+                {/* pr-12: deja libre la X de cerrar, que tapaba la etiqueta de estado. */}
+                <DialogHeader className="pl-4 pr-12 py-3 border-b bg-muted/40">
                     <DialogTitle className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center shrink-0">
-                                <Headset className="w-5 h-5 text-primary-foreground" />
-                            </div>
+                            <MapiAvatar className="w-10 h-10" />
                             <div className="text-left">
-                                <span className="text-base font-semibold">Soporte SportMaps</span>
+                                <span className="text-base font-semibold">Mapi · Soporte SportMaps</span>
                                 <p className="text-xs text-muted-foreground font-normal">Un solo chat, siempre la misma conversación</p>
                             </div>
                         </div>
@@ -197,7 +204,7 @@ export function SupportChatModal({ isOpen, onClose }: SupportChatModalProps) {
                             <div className="flex gap-3 justify-start">
                                 <BotAvatar />
                                 <div className="max-w-[80%] rounded-2xl rounded-bl-md px-4 py-2.5 text-sm bg-muted">
-                                    ¡Hola! 👋 Soy el asistente de soporte de SportMaps. Cuéntame qué necesitas y te ayudo, o te paso con una persona del equipo si hace falta.
+                                    ¡Hola! 👋 Soy Mapi, el asistente de IA de SportMaps. Cuéntame qué necesitas y te ayudo, o te paso con una persona del equipo si hace falta.
                                 </div>
                             </div>
                         )}
@@ -258,9 +265,10 @@ export function SupportChatModal({ isOpen, onClose }: SupportChatModalProps) {
 }
 
 function BotAvatar({ isAgent = false }: { isAgent?: boolean }) {
+    if (!isAgent) return <MapiAvatar />;
     return (
         <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center shrink-0">
-            {isAgent ? <Headset className="w-4 h-4 text-primary-foreground" /> : <Bot className="w-4 h-4 text-primary-foreground" />}
+            <Headset className="w-4 h-4 text-primary-foreground" />
         </div>
     );
 }

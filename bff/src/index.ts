@@ -14,6 +14,7 @@ dotenv.config();
 import studentsRouter from './routes/students';
 import createOneRouter from './routes/students-create-one.route';
 import enrollmentIntakeRouter from './routes/enrollment-intake.routes';
+import attendanceSheetIntakeRouter from './routes/attendance-sheet-intake.routes';
 import enrollmentsRouter from './routes/enrollments';
 import invitationsRouter from './routes/invitations.routes';
 import reportsRouter from './routes/reports';
@@ -65,6 +66,7 @@ import { initMaintenanceJobs } from './jobs/maintenance.job';
 import { debenCorrerLosCrons } from './jobs/crons-solo-en-render';
 import organizerRouter from './routes/organizers.route';
 import eventsRouter from './routes/events.route';
+import tournamentLiveRouter from './routes/tournament-live.route';
 import templatesRouter from './routes/templates';
 import pollsRouter from './routes/polls';
 import schoolDelegationsRouter from './routes/school-delegations.route';
@@ -130,6 +132,8 @@ import internalNotificationsRouter from './routes/internal-notifications.routes'
 import internalAutopayRouter from './routes/internal-autopay.routes';
 import autopayRouter from './routes/autopay.routes';
 import chargeBatchesRouter from './routes/charge-batches.routes';
+import planChangesRouter from './routes/plan-changes.routes';
+import { iniciarPlanPorAsistenciaCron } from './jobs/plan-por-asistencia.job';
 import paymentAdjustmentsRouter from './routes/payment-adjustments.routes';
 import athleteChargesRouter from './routes/athlete-charges.routes';
 import { requireStoreEnabled } from './services/store-flag.service';
@@ -317,6 +321,7 @@ app.use('/api/v1', requireOperationalSchool);
 app.use('/api/v1/students', generalLimiter, studentsRouter);
 app.use('/api/v1/students', generalLimiter, createOneRouter);
 app.use('/api/v1/enrollment-intake', generalLimiter, enrollmentIntakeRouter);
+app.use('/api/v1/attendance-sheet-intake', generalLimiter, attendanceSheetIntakeRouter);
 app.use('/api/v1/enrollments', generalLimiter, enrollmentsRouter);
 app.use('/api/v1/invitations', generalLimiter, invitationsRouter);
 app.use('/api/v1/reports', generalLimiter, reportsRouter);
@@ -408,6 +413,7 @@ app.use('/api/v1/payments', paymentLimiter, paymentsRouter);
 // 60/min, escritura 20/min) + los topes de Q11 al confirmar (chargeBatchRateLimit.ts:
 // 10 lotes/10 min por usuario, 2.000 cobros/hora por escuela).
 app.use('/api/v1/charge-batches', chargeBatchesRouter);
+app.use('/api/v1/plan-changes', generalLimiter, planChangesRouter);
 app.use('/api/v1/payment-adjustments', paymentAdjustmentsRouter);
 app.use('/api/v1/admin/payments', generalLimiter, adminPaymentsRouter);
 // payment-tokens y recurring: state-changing → CSRF header + cap especifico
@@ -434,6 +440,8 @@ app.use('/api/v1/admin', generalLimiter, adminPayoutsRouter);
 app.use('/api/v1/system', systemRouter);
 app.use('/api/v1/organizer', generalLimiter, organizerRouter);
 app.use('/api/v1/events', generalLimiter, eventsRouter);
+// Torneos en vivo: límites propios (varias familias comparten la wifi del coliseo; la carga la contiene la caché de 5 s).
+app.use('/api/v1/tournament-live', tournamentLiveRouter);
 app.use('/api/v1/school/delegations', generalLimiter, schoolDelegationsRouter);
 app.use('/api/v1/school', generalLimiter, schoolPerformanceRouter);
 app.use('/api/v1/school', generalLimiter, schoolCompetitionResultsRouter);
@@ -561,6 +569,7 @@ const httpServer = app.listen(PORT, () => {
     // local comparte la base de producción y tomaba la cola de WhatsApp.
     if (debenCorrerLosCrons()) {
         initMaintenanceJobs();
+        iniciarPlanPorAsistenciaCron();
     } else {
         console.log('   Crons APAGADOS: este BFF no corre en Render (CRONS_LOCALES=true para probarlos).');
     }

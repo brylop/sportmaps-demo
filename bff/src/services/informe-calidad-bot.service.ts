@@ -160,7 +160,7 @@ export interface InformeCalidadBot {
     desde: string;
     hasta: string;
     escuelas: InformeEscuela[];
-    /** Consumo sin escuela (SportBot sin escuela, OCR fuera de la cola, scripts). */
+    /** Consumo sin escuela (Mapi sin escuela, OCR fuera de la cola, scripts). */
     sinEscuela: ResumenCostos;
     total: ResumenCostos;
     /** Fecha del primer registro de `llm_usage` (null = la tabla está vacía o no existe). */

@@ -5,7 +5,7 @@
  * buildAltaPayments + emit_enrollment_fees):
  *   · la mensualidad del mes de entrada con su vencimiento real;
  *   · la inscripción y el seguro del plan (solo si el plan los tiene), cada uno
- *     con «No cobrar …» (exoneración por alta: esa fila no se crea);
+ *     con «Cobrar …» (opt-in: sin marcar, esa fila no se crea);
  *   · el seguro vigente (últimos 12 meses) como «ya tiene seguro vigente», sin sumarlo;
  *   · el «Total primer cobro».
  *
@@ -27,6 +27,15 @@ export interface FeeWaivers {
 
 export const NO_FEE_WAIVERS: FeeWaivers = { registration: false, insurance: false };
 
+/**
+ * Inscripción y seguro del plan son OPT-IN en el alta: quien da el alta los marca
+ * («Cobrar inscripción / seguro») y solo entonces se crea el cobro. Cada escuela
+ * decide si los cobra y cuánto (el valor sale de su plan). Quien no puede exonerar
+ * (coach) no ve las casillas y el BFF los cobra como siempre.
+ */
+export const defaultFeeWaivers = (canWaive = true): FeeWaivers =>
+  canWaive ? { registration: true, insurance: true } : NO_FEE_WAIVERS;
+
 /** Campos del payload de create-one / first-payment-preview. Sin exoneración = nada. */
 export function feeWaiversPayload(w: FeeWaivers): { waive_registration_fee?: true; waive_insurance_fee?: true } {
   return {
@@ -38,7 +47,7 @@ export function feeWaiversPayload(w: FeeWaivers): { waive_registration_fee?: tru
 interface Props {
   startDate: string;
   monthlyFee: number;
-  billing: { billing_cycle_type: BillingCycleType; payment_cutoff_day: number };
+  billing: { billing_cycle_type: BillingCycleType; payment_cutoff_day: number; late_fee_skip_signup_month?: boolean };
   discountPct: number;
   onDiscountChange: (pct: number) => void;
   registrationFee?: number;
@@ -74,6 +83,7 @@ export function AltaFirstChargeCard({
     monthlyFee,
     cycleType: billing.billing_cycle_type,
     cutoffDay: billing.payment_cutoff_day,
+    firstChargeNextCutoff: !!billing.late_fee_skip_signup_month,
     discountPct: discountEnabled ? discountPct : 0,
     registrationFee,
     insuranceFee,
@@ -135,20 +145,20 @@ export function AltaFirstChargeCard({
         line={r.registration}
         tone="orange"
         canWaive={canWaive}
-        waiveLabel="No cobrar inscripción"
+        waiveLabel="Cobrar inscripción"
         checkboxId={`waive-registration${idSuffix}`}
-        checked={waivers.registration}
-        onCheckedChange={v => onWaiversChange({ ...waivers, registration: v })}
+        checked={!waivers.registration}
+        onCheckedChange={v => onWaiversChange({ ...waivers, registration: !v })}
       />
       <FeeRow
         label="Seguro de accidentes (pago único)"
         line={r.insurance}
         tone="sky"
         canWaive={canWaive}
-        waiveLabel="No cobrar seguro"
+        waiveLabel="Cobrar seguro"
         checkboxId={`waive-insurance${idSuffix}`}
-        checked={waivers.insurance}
-        onCheckedChange={v => onWaiversChange({ ...waivers, insurance: v })}
+        checked={!waivers.insurance}
+        onCheckedChange={v => onWaiversChange({ ...waivers, insurance: !v })}
         activeNote={insuranceActiveSince ? `Ya tiene seguro vigente (desde ${fmtDate(insuranceActiveSince)}): no se cobra otra vez.` : undefined}
       />
       {hasFees && (r.registration.charged > 0 || r.insurance.charged > 0) && (

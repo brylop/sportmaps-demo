@@ -101,6 +101,8 @@ interface EntitlementsResponse {
     /** true → el coach podrá subir fotos de planillas de asistencia (F1 aún sin
      *  construir). `school_settings.coach_can_upload_attendance_sheets`. */
     coach_can_upload_attendance_sheets?: boolean;
+    /** true → el coach puede remover deportistas de SUS equipos (anula cobros). `school_settings.coach_can_remove_enrollments`. */
+    coach_can_remove_enrollments?: boolean;
     /**
      * true → esta escuela ofrece el descuento "Fuerza Militar 10%" al editar
      * un atleta (`school_settings.military_discount_enabled`, caso Besser).
@@ -225,6 +227,9 @@ export interface Entitlements {
     /** El coach podrá subir fotos de planillas de asistencia (`coach_can_upload_attendance_sheets`). Default false. */
     coachCanUploadAttendanceSheets: boolean;
 
+    /** El coach puede remover deportistas de sus equipos (`coach_can_remove_enrollments`). Default false. */
+    coachCanRemoveEnrollments: boolean;
+
     /** Esta escuela ofrece el descuento "Fuerza Militar 10%" al editar un
      *  atleta (`military_discount_enabled`, caso Besser). Default false. */
     militaryDiscountEnabled: boolean;
@@ -315,6 +320,7 @@ const EMPTY_ENTITLEMENTS: Entitlements = {
     coachCanEditCategories: false,
     coachCanUploadEnrollmentForms: false,
     coachCanUploadAttendanceSheets: false,
+    coachCanRemoveEnrollments: false,
     militaryDiscountEnabled: false,
     registrationZkPinEnabled: false,
     allowSecondaryTeamEnrollment: false,
@@ -435,6 +441,7 @@ export function useEntitlements(): Entitlements & EntitlementsHelpers & {
             coachCanEditCategories: data.coach_can_edit_categories === true,
             coachCanUploadEnrollmentForms: data.coach_can_upload_enrollment_forms === true,
             coachCanUploadAttendanceSheets: data.coach_can_upload_attendance_sheets === true,
+            coachCanRemoveEnrollments: data.coach_can_remove_enrollments === true,
             militaryDiscountEnabled: data.military_discount_enabled === true,
             registrationZkPinEnabled: data.registration_zk_pin_enabled === true,
             allowSecondaryTeamEnrollment: data.allow_secondary_team_enrollment === true,

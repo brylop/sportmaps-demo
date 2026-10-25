@@ -38,7 +38,7 @@ import {
 } from '@/components/students/FirstPaymentModeSection';
 import { formatCOP } from '@/lib/prorationUtils';
 import {
-  AltaFirstChargeCard, FeeWaivers, NO_FEE_WAIVERS, feeWaiversPayload,
+  AltaFirstChargeCard, FeeWaivers, feeWaiversPayload, defaultFeeWaivers,
 } from '@/components/students/AltaFirstChargeCard';
 import { Search, CheckCircle2, Calendar as CalendarIcon } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -89,6 +89,8 @@ interface CreateChildModalProps {
 interface BillingSettings {
   payment_cutoff_day: number;
   billing_cycle_type: 'prorated' | 'fixed_calendar' | 'rolling_30';
+  /** «Primer cobro sin recargo»: la base mueve el primer cobro al próximo corte (trigger). */
+  late_fee_skip_signup_month?: boolean;
 }
 
 // ─── Section wrapper ──────────────────────────────────────────────────────────
@@ -155,7 +157,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveF
   const [selectedPlanRegistrationFee, setSelectedPlanRegistrationFee] = useState(0);
   const [selectedPlanInsuranceFee, setSelectedPlanInsuranceFee] = useState(0);
   // Exoneración por alta: «No cobrar inscripción / seguro» (se reinicia al cambiar de plan).
-  const [feeWaivers, setFeeWaivers] = useState<FeeWaivers>(NO_FEE_WAIVERS);
+  const [feeWaivers, setFeeWaivers] = useState<FeeWaivers>(() => defaultFeeWaivers(canWaiveFees));
   // Alta a mitad de mes por clases restantes (F7). Flag por escuela, leído aparte
   // para que una base sin la columna no tumbe la lectura de billing.
   const [remainingClassesEnabled, setRemainingClassesEnabled] = useState(false);
@@ -185,7 +187,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveF
       supabase.from('teams').select('id, name, sport, price_monthly').eq('school_id', schoolId).eq('status', 'active').order('name'),
       supabase.from('offering_plans').select('id, name, price, duration_days, registration_fee, insurance_fee, offering_id, offerings(id, name)').eq('school_id', schoolId).eq('is_active', true).order('sort_order'),
       supabase.from('school_branches').select('id, name').eq('school_id', schoolId).order('name'),
-      supabase.from('school_settings').select('payment_cutoff_day, billing_cycle_type').eq('school_id', schoolId).maybeSingle(),
+      supabase.from('school_settings').select('payment_cutoff_day, billing_cycle_type, late_fee_skip_signup_month').eq('school_id', schoolId).maybeSingle(),
     ]).then(([teamsRes, plansRes, branchesRes, settingsRes]) => {
       setTeams((teamsRes.data as Team[]) ?? []);
       const flatPlans: PlanOption[] = ((plansRes.data as any[]) ?? []).map(row => ({
@@ -201,7 +203,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveF
       setPlans(flatPlans);
       setBranches((branchesRes.data as Branch[]) ?? []);
       if (settingsRes.data) {
-        setBilling(settingsRes.data as BillingSettings);
+        setBilling(settingsRes.data as unknown as BillingSettings);
       }
     });
     supabase.from('school_settings').select('remaining_classes_billing_enabled').eq('school_id', schoolId).maybeSingle()
@@ -221,7 +223,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveF
   // Cuando se selecciona plan, guardar offering_id y precio
   const handlePlanSelect = (planId: string) => {
     setSelectedPlanId(planId);
-    setFeeWaivers(NO_FEE_WAIVERS);
+    setFeeWaivers(defaultFeeWaivers(canWaiveFees));
     if (!planId || planId === 'none') {
       setSelectedOfferingId('');
       setSelectedPlanPrice(0);
@@ -248,7 +250,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveF
     setBranchId('none'); setTeamId('none');
     setSelectedPlanId('none'); setSelectedOfferingId(''); setSelectedPlanPrice(0); setSelectedPlanRegistrationFee(0); setSelectedPlanInsuranceFee(0);
     setFirstPayment(DEFAULT_FIRST_PAYMENT_CHOICE);
-    setFeeWaivers(NO_FEE_WAIVERS);
+    setFeeWaivers(defaultFeeWaivers(canWaiveFees));
     setStartDate(todayColombia()); setMonthlyFee('');
     setDiscountPct(0);
     setHasSibling(false); setSiblingOfChildId(null); setSiblingPreview(null);

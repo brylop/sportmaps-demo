@@ -47,7 +47,7 @@ Equipos y a quién pertenecen:
 | 7 | Sesiones de entrenamiento | Existen (`training_sessions` + mesociclos) por equipo en "Métricas y Rendimiento" | El nombre del menú no dice "sesiones"; entrada "Sesiones de entrenamiento" | XS | 1 |
 | 8 | Ver en el owner las sesiones creadas por los entrenadores | El owner ya entra a `/training-plans`, elige equipo y las ve. No hay vista consolidada por entrenador/semana | Vista "Sesiones de la semana" para el owner: equipo, entrenador, fecha, objetivo, mesociclo. Solo lectura | M | 2 |
 | 9 | Informe de asistencias dentro del reporte global de desempeño | `/school-reports` → Resumen: Ocupación global, Ingresos, Crecimiento. Nada de asistencia, y dos tarjetas de dinero que a Carmel le sobran | Bloque de asistencia (% por equipo del mes, atletas con más faltas, tendencia) reusando `GET /attendance/history`; ocultar tarjetas de dinero cuando `has_billing=false` | M | 2 |
-| 10 | Manual de funciones del entrenador, personalizado | Hay manuales de tomar asistencia, asignar categoría (Besser) y evaluación post-entrenamiento | Manual del entrenador **de Carmel** (crea categorías, crea/mueve atletas, sin dinero), dos versiones + artículo del Sportbot, capturas reales | Doc | 2 |
+| 10 | Manual de funciones del entrenador, personalizado | Hay manuales de tomar asistencia, asignar categoría (Besser) y evaluación post-entrenamiento | Manual del entrenador **de Carmel** (crea categorías, crea/mueve atletas, sin dinero), dos versiones + artículo Mapi, capturas reales | Doc | 2 |
 | 11 | "Solo para visualizar el informe" | Dos lecturas posibles (familia / directivo). Rol `reporter` existe pero es de cartera, no deportivo | Confirmar con Carmel antes de construir | ? | pregunta |
 | 12 | Limpieza de datos (no lo pidieron, pero bloquea) | 3 niños nacidos en "2026", equipo `Carmel Club` suelto con 1 atleta y sin entrenador, nombres con espacios y mayúsculas | Que Carmel corrija desde la app; nosotros solo señalamos | XS | 1 |
 
@@ -136,7 +136,7 @@ El 19-sep se apagaron los 8 módulos de finanzas y afines. Lo que Carmel sigue v
 
 ### 2.10 Manual del entrenador de Carmel (#10)
 
-Se arma con el patrón único de PDFs (capturas reales, dos versiones interna/academias, artículo para el Sportbot). Capítulos, según lo que Carmel tiene prendido:
+Se arma con el patrón único de PDFs (capturas reales, dos versiones interna/academias, artículo para Mapi). Capítulos, según lo que Carmel tiene prendido:
 
 1. Mis Equipos: ver mis categorías, crear una nueva (Carmel lo permite), agregar un entrenador adicional (solo admin).
 2. Deportistas: registrar uno nuevo (Carmel lo permite), mover de categoría (camino de la ficha hasta que salga el fix de 2.1).
@@ -180,7 +180,7 @@ Para que Carmel lo haga desde la app; nosotros no borramos ni corregimos datos d
 > - **#8 hecho:** panel "Sesiones de la semana" para owner/admin en Métricas y Rendimiento: todas las `training_sessions` de todos los equipos, con entrenador, objetivo, bloques y marca de mesociclo; un clic selecciona el equipo.
 > - **#3 no necesita código:** el coach ya tiene asistencia por atleta (por equipo y mes) en Reportes → Asistencia. Queda solo la pregunta a Carmel de si quieren el % en la ficha.
 > - **#6 y #7 (menú del owner):** pendientes a propósito. Otra sesión del usuario tiene `navigation.ts`, `module-catalog.ts`, `App.tsx` y `ModuleGate.tsx` modificados sin commitear (hizo la parte del coach: "Sesiones de Entrenamiento" al frente y `moduleKey` para "Mis Planes" del coach). Tocar esos archivos en paralelo era pisarle el trabajo; van cuando ese cambio esté commiteado.
-> - **#10 hecho:** `docs/manuales/academias/entrenador-carmel.pdf` (13 páginas, para Carmel) y `docs/manuales/interno/entrenador-carmel.pdf` (14, con notas internas), más `entrenador-carmel-help-article.ts` para el Sportbot. Capturas reales en stg con el tenant demo y los flags de Carmel prendidos temporalmente (apagados al terminar). Fuentes en `docs/manuales/_src/entrenador-carmel/`.
+> - **#10 hecho:** `docs/manuales/academias/entrenador-carmel.pdf` (13 páginas, para Carmel) y `docs/manuales/interno/entrenador-carmel.pdf` (14, con notas internas), más `entrenador-carmel-help-article.ts` para Mapi. Capturas reales en stg con el tenant demo y los flags de Carmel prendidos temporalmente (apagados al terminar). Fuentes en `docs/manuales/_src/entrenador-carmel/`.
 
 **Tanda 1 — esta semana, sin migraciones**
 1. Paliativo arqueros: coach adicional en las 5 categorías (Carmel, desde la app).

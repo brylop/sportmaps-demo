@@ -17,6 +17,7 @@ import {
     interpretarEleccion, loQueQueda, etiquetaDeCobro, resumenParaLaEscuela, TEXTO_REVISION_ESCUELA,
 } from './whatsapp-eleccion-de-pago.service';
 import { resolverRespuestaDeDeportista, botonesDeCobros } from './whatsapp-comprobante-de-ficha.service';
+import { resolverRespuestaGuiada } from './whatsapp-comprobante-guiado.service';
 import { describirPago, type PagoPendiente } from './whatsapp-receipt-matching.service';
 import { soloSaludoOCortesia } from './whatsapp-atencion.service';
 import { cargarRecargos, montoEsperado } from './whatsapp-excedente.service';
@@ -66,8 +67,9 @@ interface FilaEsperando {
         storagePath: string | null;
         /** null: familia sin cuenta (cobros por ficha). */
         parentId: string | null;
-        /** 'deportista': se preguntó de qué deportista es (número sin ficha). */
-        tipo?: 'deportista';
+        /** 'deportista': se preguntó de qué deportista es. 'mes' / 'concepto': preguntas guiadas (spec 3.3). */
+        tipo?: 'deportista' | 'mes' | 'concepto';
+        guia?: any;
         /** Meses que la familia dijo que YA pagó en respuestas anteriores («agosto»). */
         dice_pagado?: string[];
     } | null;
@@ -112,6 +114,14 @@ export async function resolverRespuestaDeCobro(
     if (await laEscuelaTomoLaConversacion(integration.id, contactWaId, fila.pregunta_at)) {
         await cerrarPregunta(fila.id, MOTIVO_ESCUELA_TOMO);
         return true;
+    }
+
+    // «¿De qué mes es?» / «¿Es de mensualidad, inscripción u otro?» (spec 3.3): la
+    // respuesta es una opción de la guía. Nunca por audio: solo botón, número o texto.
+    if (fila.pregunta_ocr?.tipo === 'mes' || fila.pregunta_ocr?.tipo === 'concepto') {
+        const edad = fila.pregunta_at ? (Date.now() - new Date(fila.pregunta_at).getTime()) / 3_600_000 : Infinity;
+        if (edad > VIGENCIA_H) return false;
+        return resolverRespuestaGuiada(fila as any, texto, responder);
     }
 
     // «¿De qué deportista es este pago?» (número sin ficha): la respuesta es un

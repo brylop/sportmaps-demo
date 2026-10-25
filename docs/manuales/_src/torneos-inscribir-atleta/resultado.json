@@ -1,0 +1,45 @@
+{
+  "checks": [
+    {
+      "name": "A: torneo gratis creado como borrador interno",
+      "ok": false,
+      "extra": {
+        "is_paid": false,
+        "status": "active"
+      }
+    },
+    {
+      "name": "A: la lista de inscritos muestra al atleta",
+      "ok": true
+    },
+    {
+      "name": "B: torneo con costo creado",
+      "ok": true,
+      "extra": {
+        "is_paid": true,
+        "medios": [
+          "efectivo"
+        ]
+      }
+    },
+    {
+      "name": "B: el modal dice «Se crea el cobro al acudiente»",
+      "ok": true
+    },
+    {
+      "name": "B: inscripción aprobada con cobro de $50.000 pendiente",
+      "ok": false,
+      "extra": {
+        "reg": "approved"
+      }
+    }
+  ],
+  "ids": {
+    "gratis": "72fd078d-ceb5-4ac7-bb09-5049b3ae21fd",
+    "conCosto": "91ba5147-5c88-4d84-8e5e-f922236c2cd4",
+    "titulos": [
+      "Copa Interna Demo 10201621",
+      "Copa Con Costo Demo 10201621"
+    ]
+  }
+}

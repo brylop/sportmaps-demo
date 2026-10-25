@@ -2,6 +2,10 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { esAcudienteV2 } from '@/lib/vistaAcudiente';
+import { whatsappDeLaEscuela } from '@/lib/whatsappEscuela';
+import { MensajesV2 } from '@/components/messages/MensajesV2';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -28,12 +32,14 @@ interface Conversation {
 }
 
 export default function MessagesPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
+  const { currentUserRole, schoolId, schoolName } = useSchoolContext();
+  const acudienteV2 = esAcudienteV2(currentUserRole ?? profile?.role);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
 
   // Fetch real messages from Supabase
-  const { data: messages, isLoading } = useQuery({
+  const { data: messages, isLoading, isError, refetch } = useQuery({
     queryKey: ['messages', user?.id],
     queryFn: async () => {
       if (!user?.id) return [];
@@ -47,9 +53,12 @@ export default function MessagesPage() {
         .or(`sender_id.eq.${user.id},recipient_id.eq.${user.id}`)
         .order('created_at', { ascending: false });
 
+      // Antes devolvía [] y un error se veía igual que «sin mensajes». Lanzar
+      // no cambia la vista de siempre (sigue saliendo el estado vacío), pero
+      // la V2 del acudiente sí puede mostrar el error con «Reintentar».
       if (sentError) {
         console.error('Error fetching messages:', sentError);
-        return [];
+        throw sentError;
       }
 
       if (!sentMessages || sentMessages.length === 0) return [];
@@ -96,6 +105,31 @@ export default function MessagesPage() {
   }, []);
 
   const hasMessages = conversations.length > 0;
+
+  // Celular del club para el acudiente (misma consulta y caché que «Más»).
+  const { data: schoolPhone } = useQuery({
+    queryKey: ['parent-more-school-phone', schoolId],
+    enabled: acudienteV2 && !!schoolId,
+    staleTime: 10 * 60 * 1000,
+    queryFn: async () => {
+      const { data } = await supabase.from('schools').select('phone').eq('id', schoolId!).maybeSingle();
+      return (data?.phone as string | null) ?? null;
+    },
+  });
+
+  if (acudienteV2) {
+    return (
+      <MensajesV2
+        userId={user?.id}
+        messages={messages ?? []}
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={() => { void refetch(); }}
+        whatsapp={whatsappDeLaEscuela(schoolPhone)}
+        schoolName={schoolName}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">

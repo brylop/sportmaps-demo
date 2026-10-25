@@ -14,10 +14,15 @@ import { usePwaTenantSync } from "@/hooks/usePwaTenantSync";
 import { PushPermissionBanner } from "@/components/PushPermissionBanner";
 import { TrialStatusBanner } from "@/components/entitlements/TrialStatusBanner";
 import { SupportChatButton } from "@/components/support/SupportChatButton";
+import { VolverAcudiente } from "@/components/parent/v2/VolverAcudiente";
+import { pestanasDeRol } from "@/lib/acudienteTabs";
+import { useRolActivo } from "@/hooks/useRolActivo";
+import { CoachListasSync } from "@/components/coach/v2/CoachListasSync";
 
 export default function AuthLayout() {
   const { user, profile } = useAuth();
   const { schoolId, schoolName, currentUserRole, schoolBranding } = useSchoolContext();
+  const pestanasV2 = pestanasDeRol(useRolActivo());
   const entitlements = useEntitlements();
   // Registrar device del usuario al loguearse (Fase 6.1).
   // Hoy solo web/PWA; cuando se instale Capacitor (Fase 7) detecta nativo.
@@ -101,7 +106,7 @@ export default function AuthLayout() {
                     {profile?.full_name || user?.email?.split('@')[0]}
                   </span>
                   <span className="text-[10px] text-muted-foreground capitalize">
-                    {profile?.role === 'parent' ? 'Padre' :
+                    {profile?.role === 'parent' ? 'Acudiente' :
                       profile?.role === 'athlete' ? 'Deportista' :
                         profile?.role === 'coach' ? 'Entrenador' :
                           profile?.role === 'personal_trainer' ? 'Entrenador Personal' :
@@ -120,8 +125,15 @@ export default function AuthLayout() {
 
           {/* ── Main content ───────────────────────────────────────────── */}
           {/* Reserva el alto del bottom nav (h-16) + el home indicator de iOS — antes era un pb-20 fijo que en iPhone se quedaba 18px corto */}
-          <main className="flex-1 p-3 sm:p-4 lg:p-6 overflow-auto pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-6 w-full max-w-full">
-            <div className="w-full max-w-full overflow-x-hidden">
+          {/* V2: sm:pb-24 deja que la última acción («Guardar lista», «Cerrar sesión»)
+              pase por encima del botón flotante de Mapi en tablet y escritorio. */}
+          <main className={`flex-1 p-3 sm:p-4 lg:p-6 overflow-auto pb-[calc(5rem+env(safe-area-inset-bottom))] w-full max-w-full ${pestanasV2 ? 'sm:pb-24 lg:pb-24' : 'sm:pb-6'}`}>
+            {/* overflow-x-clip (no -hidden): recorta igual, pero -hidden crea un
+                contenedor de scroll que no se mueve y ningún `sticky` de adentro se
+                pegaba («Guardar lista», pestañas del equipo). El clip va en style:
+                un navegador que no lo entiende (iOS < 16) ignora el valor y se
+                queda con el overflow-x-hidden de la clase. */}
+            <div className="w-full max-w-full overflow-x-hidden" style={{ overflowX: 'clip' }}>
               {/* Aviso de fin del periodo de prueba (contador → bloqueo).
                   Va aquí, en el layout, y no página por página: así ninguna
                   pantalla queda sin el aviso. El componente decide solo si
@@ -133,6 +145,10 @@ export default function AuthLayout() {
                   - rol es de escuela (no super_admin)
                   - tier incluye whitelabel (Pro+ via entitlements)
                   Si no aplica, renderiza children sin envolver. */}
+              {/* Acudiente V2: toda pantalla interna tiene «Volver». */}
+              {/* V2 (acudiente, entrenador, deportista): toda pantalla interna tiene «Volver». */}
+              {pestanasV2 && <VolverAcudiente pestanas={pestanasV2} />}
+
               <BrandingScope>
                 <Outlet />
               </BrandingScope>
@@ -140,6 +156,10 @@ export default function AuthLayout() {
           </main>
         </div>
       </div>
+      {/* Entrenador: las listas guardadas sin señal suben solas, esté en la pestaña que esté.
+          Va también con la reversa (VITE_ENTRENADOR_V2=false): si se apaga la V2 con
+          listas en cola, no se pueden quedar sin subir. Con la cola vacía no hace nada. */}
+      {(currentUserRole ?? profile?.role) === 'coach' && <CoachListasSync />}
       <PushPermissionBanner />
       <SupportChatButton />
     </SidebarProvider>

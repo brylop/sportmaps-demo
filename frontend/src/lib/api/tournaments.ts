@@ -38,6 +38,10 @@ export interface IndividualRegistration {
     participant_name: string;
     participant_role: string;
     category_id: string;
+    /** Hijo inscrito (null si es un atleta adulto). */
+    child_id: string | null;
+    /** Quien figura en la inscripción: el acudiente (hijo) o el propio atleta adulto. */
+    user_id: string | null;
     status: string;
     team_id: string | null;
     created_at: string;
@@ -110,7 +114,7 @@ export const getPublicResults = (eventId: string, categoryId?: string) =>
 export const getIndividualRegistrations = (eventId: string) =>
     bffClient.get<IndividualRegistration[]>(`${BASE}/school-tournaments/${eventId}/individual-registrations`);
 
-/** La escuela inscribe a un atleta (hijo de su escuela). Queda aprobada; si el torneo es pago crea el cobro al acudiente. */
+/** La escuela inscribe a un atleta (hijo o adulto de su escuela). Queda aprobada; si el torneo es pago crea el cobro al acudiente. */
 export interface SchoolRegistrationResult {
     registration_id: string;
     already_registered?: boolean;
@@ -120,7 +124,7 @@ export interface SchoolRegistrationResult {
     is_paid: boolean;
 }
 
-export const registerAthleteBySchool = (eventId: string, body: { category_id: string; child_id: string }) =>
+export const registerAthleteBySchool = (eventId: string, body: { category_id: string; child_id?: string; athlete_user_id?: string }) =>
     bffClient.post<SchoolRegistrationResult>(`${BASE}/school-tournaments/${eventId}/register-athlete`, body);
 
 export const assignTeams = (

@@ -233,13 +233,22 @@ export function plazoVencido(creadaAt: string | number | Date, plazoMin: number,
     return ahora - t >= plazoMin * 60_000;
 }
 
-/** Lo que se le dice a la familia cuando el plazo venció sin respuesta. Pura. */
+/**
+ * Lo que se le dice a la familia cuando el plazo venció sin respuesta, o null
+ * = no se le dice nada. Pura.
+ *
+ * Conversación v2 (Dynasty 2026-10-24): «Todavía nadie de la escuela ha podido
+ * contestarte… Ya les volví a avisar» era un no-respuesta (a la gente le llegaba
+ * una hora después y no decía nada nuevo). Lo normal ahora es una HORA CONCRETA
+ * (fuera de horario, cuándo atienden) o callarse: el aviso al equipo (in-app,
+ * push y el SLA por correo) sale igual. Lo urgente sí se le dice siempre.
+ */
 export function textoSinRespuesta(p: {
     urgencia: Urgencia;
     categoria: CategoriaUrgente | null;
     fueraDeHorario: boolean;
     proximaAtencion?: string | null;
-}): string {
+}): string | null {
     if (p.urgencia === 'urgente') {
         const emergencia = p.categoria === 'lesion' || p.categoria === 'seguridad'
             ? '\n\nSi alguien está lastimado o en peligro, no esperes este chat: llama ya a la línea de emergencias *123*.'
@@ -247,13 +256,12 @@ export function textoSinRespuesta(p: {
         return 'Todavía nadie de la escuela ha podido contestarte 🙏 Ya les volví a avisar como *urgente*. ' +
             'Apenas alguien lo vea, te escribe por aquí.' + emergencia;
     }
-    if (p.fueraDeHorario) {
-        return 'Todavía nadie de la escuela ha podido contestarte 🙏 Ahora están fuera del horario de atención' +
-            (p.proximaAtencion ? `, así que lo más probable es que te respondan ${p.proximaAtencion}.` : '.') +
-            ' Tu mensaje ya está con ellos.';
+    // Con una hora concreta: «Tu mensaje quedó con la escuela… te responden mañana a las 16:00».
+    if (p.fueraDeHorario && p.proximaAtencion) {
+        return `Tu mensaje quedó con la escuela 🙏 Ahora están fuera del horario de atención, así que te responden ${p.proximaAtencion}.`;
     }
-    return 'Todavía nadie de la escuela ha podido contestarte 🙏 Ya les volví a avisar. ' +
-        'Apenas alguien lo vea, te escribe por aquí.';
+    // Sin hora que decir, no hay nada nuevo que contarle: se calla.
+    return null;
 }
 
 /** owner + owner/admin/school_admin activos de la escuela, sin repetir. */
@@ -285,6 +293,16 @@ export interface AvisoDeEscalacion {
     push: boolean;
     /** 'retiro': el aviso lo dice explícito («Solicitud de retiro: …»). */
     tema?: TemaEscalacion;
+    /**
+     * Minutos (hábiles) sin respuesta humana que dice el aviso del 'reaviso'. Sin
+     * esto dice el plazo corto de siempre (10/30 min); el SLA de 2 h hábiles lo pasa.
+     */
+    minSinRespuesta?: number;
+}
+
+/** «30 min» / «2 h» para los avisos. */
+function duracionLegible(min: number): string {
+    return min >= 60 && min % 60 === 0 ? `${min / 60} h` : `${min} min`;
 }
 
 const ETIQUETA_CATEGORIA: Record<CategoriaUrgente, string> = {
@@ -296,14 +314,15 @@ const ETIQUETA_CATEGORIA: Record<CategoriaUrgente, string> = {
 
 /** Título y cuerpo del aviso al equipo. Pura. */
 export function textoDelAvisoAlEquipo(
-    a: Pick<AvisoDeEscalacion, 'etapa' | 'urgencia' | 'categoria' | 'tema'>,
+    a: Pick<AvisoDeEscalacion, 'etapa' | 'urgencia' | 'categoria' | 'tema' | 'minSinRespuesta'>,
     quien: string,
 ): { titulo: string; cuerpo: string } {
     const urgente = a.urgencia === 'urgente';
+    const espera = duracionLegible(a.minSinRespuesta ?? PLAZO_ESCALACION_MIN[a.urgencia]);
     if (a.tema === 'retiro') {
         return a.etapa === 'reaviso'
             ? { titulo: `Solicitud de retiro sin respuesta: ${quien}`,
-                cuerpo: `Pasaron ${PLAZO_ESCALACION_MIN[a.urgencia]} min y nadie le ha respondido por WhatsApp. ` +
+                cuerpo: `Pasaron ${espera} y nadie le ha respondido por WhatsApp. ` +
                     'Pide retirar a un deportista y que no le sigan cobrando.' }
             : { titulo: `Solicitud de retiro: ${quien}`,
                 cuerpo: 'Pide retirar a un deportista y que no le sigan cobrando. ' +
@@ -313,7 +332,7 @@ export function textoDelAvisoAlEquipo(
         ? (urgente ? `URGENTE sin respuesta: ${quien}` : `${quien} sigue esperando respuesta`)
         : (urgente ? `URGENTE en WhatsApp: ${quien}` : `${quien} pidió hablar con la escuela`);
     const cuerpo = a.etapa === 'reaviso'
-        ? `Pasaron ${PLAZO_ESCALACION_MIN[a.urgencia]} min y nadie le ha respondido por WhatsApp.` +
+        ? `Pasaron ${espera} y nadie le ha respondido por WhatsApp.` +
           (a.categoria ? ` Motivo: ${ETIQUETA_CATEGORIA[a.categoria]}.` : '')
         : (a.categoria ? `Motivo: ${ETIQUETA_CATEGORIA[a.categoria]}. ` : '') +
           'El asistente le dijo que una persona le responde. Abre WhatsApp en SportMaps.';

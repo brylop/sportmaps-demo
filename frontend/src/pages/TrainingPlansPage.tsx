@@ -90,7 +90,7 @@ export default function TrainingPlansPage() {
 
       const { data: teamsData, error } = await (supabase
         .from('teams')
-        .select('id, name, coach_id, age_group, sport, branch_id, image_url, team_coaches(coach_id)')
+        .select('id, name, coach_id, age_group, sport, sport_modality, branch_id, image_url, team_coaches(coach_id)')
         .eq('school_id', schoolId) as any);
 
       if (error) throw error;

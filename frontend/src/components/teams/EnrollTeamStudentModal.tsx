@@ -17,6 +17,7 @@ import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 import { studentsAPI, Student } from '@/lib/api/students';
 import { classesAPI } from '@/lib/api/classes';
 import { supabase } from '@/integrations/supabase/client';
+import { bffClient } from '@/lib/api/bffClient';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import * as AlertDialogPrimitive from '@radix-ui/react-alert-dialog';
@@ -60,7 +61,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
     const [searchQuery, setSearchQuery] = useState('');
     const [teamFee, setTeamFee] = useState<number | null>(null);
     const { toast } = useToast();
-    const { allowSecondaryTeamEnrollment, coachHideFinancialInfo } = useEntitlements();
+    const { allowSecondaryTeamEnrollment, coachHideFinancialInfo, coachCanRemoveEnrollments } = useEntitlements();
     // Besser (coach_hide_financial_info): el coach no ve montos en ninguna pantalla.
     const { currentUserRole } = useSchoolContext();
     const ocultarDinero = currentUserRole === 'coach' && coachHideFinancialInfo;
@@ -299,17 +300,11 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                 .maybeSingle();
 
             if (enrollment?.id) {
-                // El error se tiene que propagar. RLS solo deja escribir
-                // enrollments a owner/admin, así que a un entrenador esta
-                // actualización le falla — y antes el resultado se descartaba y
-                // el toast de éxito salía igual: la UI decía "removido" y el
-                // atleta seguía en el equipo.
-                const { error: cancelError } = await supabase
-                    .from('enrollments')
-                    .update({ status: 'cancelled' })
-                    .eq('id', enrollment.id);
-
-                if (cancelError) throw cancelError;
+                // Cancelar una inscripción anula los cobros pendientes del atleta,
+                // así que va por el BFF (owner/admin) y no por un UPDATE directo
+                // con la sesión del usuario. El error se propaga: antes se
+                // descartaba y el toast de éxito salía igual.
+                await bffClient.delete(`/api/v1/enrollments/${enrollment.id}`);
             }
 
             toast({
@@ -492,6 +487,9 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                                                             <span className="text-xs text-muted-foreground text-right block max-w-[9rem]">
                                                                 Entra al aprobar su primer pago
                                                             </span>
+                                                        ) : enrolled && currentUserRole === 'coach' && !coachCanRemoveEnrollments ? (
+                                                            // El coach solo remueve si la escuela lo habilitó: anula cobros.
+                                                            <Badge variant="secondary">Inscrito</Badge>
                                                         ) : enrolled ? (
                                                             <Button
                                                                 variant="outline"

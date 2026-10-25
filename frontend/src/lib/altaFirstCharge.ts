@@ -51,6 +51,12 @@ export interface AltaFirstChargeInput {
   monthlyFee: number;
   cycleType: BillingCycleType;
   cutoffDay: number;
+  /**
+   * Escuela con «primer cobro sin recargo» (late_fee_skip_signup_month): el trigger
+   * fn_payments_primer_cobro_vence_prox_corte mueve el vencimiento del primer cobro
+   * al día de corte del mes SIGUIENTE al período (solo si vencía dentro del período).
+   */
+  firstChargeNextCutoff?: boolean;
   discountPct?: number;
   registrationFee?: number | null;
   insuranceFee?: number | null;
@@ -75,11 +81,21 @@ export function altaFeesDueDate(startDate: string, today: string): string {
   return startDate > today ? startDate : today;
 }
 
+/** Espejo del trigger de la base: el primer cobro vence en el corte del mes siguiente al período. */
+export function firstChargeDue(dueDate: string, periodYear: number, periodMonth: number, cutoffDay: number): string {
+  const nextStart = new Date(Date.UTC(periodYear, periodMonth, 1)); // día 1 del mes siguiente
+  const nextStartStr = nextStart.toISOString().slice(0, 10);
+  if (dueDate >= nextStartStr) return dueDate; // ya vence fuera de su período (p. ej. ciclo de 30 días)
+  const daysNext = new Date(Date.UTC(periodYear, periodMonth + 1, 0)).getUTCDate();
+  const day = Math.max(1, Math.min(cutoffDay || 5, daysNext));
+  return `${nextStartStr.slice(0, 8)}${String(day).padStart(2, '0')}`;
+}
+
 function feeLine(raw: number | null | undefined, waived: boolean, active = false): OneTimeFeeLine {
   const amount = Number(raw) > 0 ? Number(raw) : 0;
   if (amount <= 0) return { amount: 0, charged: 0, status: 'none' };
-  if (waived) return { amount, charged: 0, status: 'waived' };
   if (active) return { amount, charged: 0, status: 'active' };
+  if (waived) return { amount, charged: 0, status: 'waived' };
   return { amount, charged: amount, status: 'charged' };
 }
 
@@ -93,7 +109,7 @@ export function computeAltaFirstCharge(i: AltaFirstChargeInput): AltaFirstCharge
     monthly = {
       listAmount: list.amount,
       amount: calc.amount,
-      dueDate: calc.dueDate,
+      dueDate: i.firstChargeNextCutoff ? firstChargeDue(calc.dueDate, calc.periodYear, calc.periodMonth, i.cutoffDay) : calc.dueDate,
       isFullMonth: calc.isFullMonth,
       remainingDays: calc.remainingDays,
       totalDaysInMonth: calc.totalDaysInMonth,

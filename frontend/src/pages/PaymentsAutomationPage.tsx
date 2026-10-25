@@ -32,7 +32,7 @@ import { PaymentProvidersAdmin } from '@/components/admin/PaymentProvidersAdmin'
 import { CobrosYPagosModal } from '@/components/payment/CobrosYPagosModal';
 import { OperacionesTab } from '@/components/payment/OperacionesTab';
 import { isCobrosYPagosEnabled } from '@/lib/cobrosYPagosFlag';
-import { canManageCharges, canReadChargeBatches } from '@/lib/cobrosYPagos';
+import { canManageCharges, canReadChargeBatches, isMensualidad } from '@/lib/cobrosYPagos';
 import { ApprovePaymentMethodSheet } from '@/components/payment/ApprovePaymentMethodSheet';
 import { RejectReceiptDialog } from '@/components/payment/RejectReceiptDialog';
 import { BulkApproveGreensDialog } from '@/components/payment/BulkApproveGreensDialog';
@@ -76,6 +76,8 @@ interface BillingSettings {
   coach_can_upload_enrollment_forms?: boolean;
   /** El entrenador podrá subir fotos de planillas de asistencia (F1, aún sin construir). */
   coach_can_upload_attendance_sheets?: boolean;
+  /** El entrenador puede remover deportistas de SUS equipos (cancelar anula cobros pendientes). */
+  coach_can_remove_enrollments?: boolean;
   require_payment_proof: boolean;
   bank_name?: string | null;
   bank_account_type?: string | null;
@@ -155,6 +157,7 @@ const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
   coach_can_enroll_paid_teams: true,
   coach_can_upload_enrollment_forms: false,
   coach_can_upload_attendance_sheets: false,
+  coach_can_remove_enrollments: false,
   require_payment_proof: true,
   allow_installments: true,
   max_installments_per_payment: 3,
@@ -562,6 +565,7 @@ export default function PaymentsAutomationPage() {
   // ¿Este ambiente ya tiene la columna payment_accounts? Se resuelve al cargar.
   const accountsColumnReady = useRef(false);
   const coachPhotoColumnsReady = useRef(false);
+  const coachRemoveColumnReady = useRef(false);
   const remainingClassesColumnReady = useRef(false);
   // Escalones de hermanos (F2): si la columna no existe aún en este ambiente,
   // mandarla tumbaría el upsert completo.
@@ -664,6 +668,7 @@ export default function PaymentsAutomationPage() {
     accountsColumnReady.current = 'payment_accounts' in data;
     // Mismo cuidado con los permisos de fotos del coach (mig 20261005120806).
     coachPhotoColumnsReady.current = 'coach_can_upload_enrollment_forms' in data;
+    coachRemoveColumnReady.current = 'coach_can_remove_enrollments' in data;
     // Y con el cobro por clases restantes (mig 20261005214250).
     remainingClassesColumnReady.current = 'remaining_classes_billing_enabled' in data;
     siblingTiersColumnReady.current = 'sibling_discount_tiers' in data;
@@ -721,6 +726,9 @@ export default function PaymentsAutomationPage() {
                 coach_can_upload_enrollment_forms: !!billing.coach_can_upload_enrollment_forms,
                 coach_can_upload_attendance_sheets: !!billing.coach_can_upload_attendance_sheets,
               }
+            : {}),
+        ...(coachRemoveColumnReady.current
+            ? { coach_can_remove_enrollments: !!billing.coach_can_remove_enrollments }
             : {}),
         require_payment_proof: billing.require_payment_proof,
         bank_name: billing.bank_name,
@@ -787,7 +795,7 @@ export default function PaymentsAutomationPage() {
           id, amount, amount_paid, status, created_at, payment_date, payment_method, payment_type,
           receipt_url, concept, child_id, parent_id, user_id, team_id, branch_id,
           unregistered_athlete_id, early_payment_discount_applied,
-          period_year, period_month,
+          period_year, period_month, payment_category,
           payment_channel, payment_provider, wompi_reference, wompi_transaction_id,
           provider_transaction_id, qr_id,
           ocr_amount, ocr_currency, ocr_date, ocr_bank, ocr_reference, ocr_provider,
@@ -945,7 +953,9 @@ export default function PaymentsAutomationPage() {
         last_failure_reason: p.last_failure_reason ?? null,
         period_year:  p.period_year ?? null,
         period_month: p.period_month ?? null,
-        period_label: monthLabel(p.period_year, p.period_month),
+        // Solo la mensualidad «cubre» un mes: un torneo o un uniforme no (aunque
+        // tenga periodo por su fecha de cobro).
+        period_label: isMensualidad(p.payment_category) ? monthLabel(p.period_year, p.period_month) : null,
         // Solo marcamos duplicado en pendientes que reclaman un periodo
         // ya saldado por OTRO pago (no por si mismo).
         period_already_settled:
@@ -2643,6 +2653,7 @@ export default function PaymentsAutomationPage() {
                   description='Torneos, clases extra o de perfeccionamiento, vacacionales y viajes. Ej. "Torneo Interclubes — $50.000": un cobro simple, separado de mensualidad/inscripción/artículos.'
                   itemLabel="cobro"
                   withServiceFields
+                  linkTournaments
                 />
               )}
 
@@ -2870,6 +2881,20 @@ export default function PaymentsAutomationPage() {
                     <Switch
                       checked={!!billing.coach_can_upload_attendance_sheets}
                       onCheckedChange={v => updateBilling('coach_can_upload_attendance_sheets', v)}
+                    />
+                  </div>
+                  <Separator />
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <Label className="font-medium">Coaches pueden remover deportistas de sus equipos</Label>
+                      <p className="text-xs text-muted-foreground max-w-[46ch]">
+                        Al remover, la inscripción se cancela y se anulan los cobros pendientes del
+                        deportista. Solo aplica a sus equipos; los planes los maneja la administración.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={!!billing.coach_can_remove_enrollments}
+                      onCheckedChange={v => updateBilling('coach_can_remove_enrollments', v)}
                     />
                   </div>
                 </CardContent>

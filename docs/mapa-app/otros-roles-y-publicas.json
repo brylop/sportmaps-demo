@@ -4200,7 +4200,7 @@
   "role": "super_admin",
   "module": "Sistema",
   "moduleKey": null,
-  "screen": "Bandeja de soporte (SportBot + humano)",
+  "screen": "Bandeja de soporte (Mapi + humano)",
   "route": "/admin/support",
   "file": "pages/AdminSupportInboxPage.tsx",
   "status": "hidden",
@@ -5119,7 +5119,7 @@
       ],
       "writes": [],
       "status": "works",
-      "usage": "solo enlazado desde respuestas del SportBot"
+      "usage": "solo enlazado desde respuestas Mapi"
      }
     ]
    }
@@ -5449,9 +5449,9 @@
  },
  {
   "role": "any logged (AuthLayout)",
-  "module": "SportBot / Soporte",
+  "module": "Mapi / Soporte",
   "moduleKey": null,
-  "screen": "Chat de soporte (SportBot)",
+  "screen": "Chat de soporte (Mapi)",
   "route": "(boton flotante en AuthLayout)",
   "file": "components/support/SupportChatButton.tsx + SupportChatModal.tsx",
   "status": "works",

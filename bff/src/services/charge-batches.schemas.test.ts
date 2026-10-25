@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-    ChargeBatchRequestSchema, ChargeBatchCreateSchema, filasDeLaOperacion, AnnulSchema, AdjustmentsQuerySchema,
+    ChargeBatchRequestSchema, ChargeBatchCreateSchema, filasDeLaOperacion, AnnulSchema, AdjustmentsQuerySchema, ReintentoHorasSchema,
 } from './charge-batches.schemas';
 import { todayInZone, addDaysToDateString } from '../utils/businessDate';
 
@@ -115,5 +115,66 @@ describe('ChargeBatchCreateSchema / otros', () => {
         const r = AdjustmentsQuerySchema.parse({});
         expect(r.to).toBe(HOY);
         expect(r.from).toBe(addDaysToDateString(HOY, -30));
+    });
+});
+
+describe('horas adicionales vendidas por adelantado (extra_hours)', () => {
+    const venta = (x: Record<string, unknown> = {}) => ({
+        category: 'excedente', extra_hours: 2, enrollment_id: id(7), amount: 30625, due_date: VENCE, concept: 'Horas adicionales', pay_amount: 30625, ...x,
+    });
+    const conPago = { payment: { method: 'cash', payment_date: HOY } };
+
+    it('2 horas con su inscripción y el pago es válido', () => {
+        expect(ok(base({ lines: [venta()], ...conPago }))).toBe(true);
+    });
+    it('acepta fracciones de 15 minutos', () => {
+        expect(ok(base({ lines: [venta({ extra_hours: 1.25 })], ...conPago }))).toBe(true);
+        expect(ok(base({ lines: [venta({ extra_hours: 0.25 })], ...conPago }))).toBe(true);
+    });
+    it('rechaza lo que no es múltiplo de 15 minutos, cero, negativo y más de 24 h', () => {
+        expect(msg(base({ lines: [venta({ extra_hours: 1.1 })], ...conPago }))).toContain('15 minutos');
+        expect(ok(base({ lines: [venta({ extra_hours: 0 })], ...conPago }))).toBe(false);
+        expect(ok(base({ lines: [venta({ extra_hours: -1 })], ...conPago }))).toBe(false);
+        expect(ok(base({ lines: [venta({ extra_hours: 25 })], ...conPago }))).toBe(false);
+    });
+    it('exige la inscripción a la que se le suman', () => {
+        expect(msg(base({ lines: [venta({ enrollment_id: undefined })], ...conPago }))).toContain('inscripción');
+    });
+    it('es excedente del período O horas vendidas, no ambos ni ninguno', () => {
+        expect(ok(base({ lines: [venta({ overage_charge_id: id(8) })], ...conPago }))).toBe(false);
+        expect(ok(base({ lines: [venta({ extra_hours: undefined })], ...conPago }))).toBe(false);
+        expect(ok(base({ lines: [venta({ extra_hours: undefined, overage_charge_id: id(8) })], ...conPago }))).toBe(true);
+    });
+    it('las horas se venden PAGADAS: sin pay_amount no se acepta (sin pago no hay horas)', () => {
+        expect(msg(base({ lines: [venta({ pay_amount: undefined })], ...conPago }))).toContain('pagadas');
+        expect(msg(base({ lines: [venta({ pay_amount: 0 })], ...conPago }))).toContain('pagadas');
+    });
+    it('solo la categoría horas adicionales lleva extra_hours', () => {
+        expect(msg(base({ lines: [torneo({ extra_hours: 2 })] }))).toContain('horas vendidas');
+    });
+    it('una sola venta por operación, solo en modo un atleta y sin atleta nuevo', () => {
+        expect(msg(base({ lines: [venta(), venta()], ...conPago }))).toContain('Una venta');
+        expect(ok(base({
+            mode: 'multi', athletes: [{ type: 'child', id: id(1) }, { type: 'child', id: id(2) }],
+            lines: [venta({ pay_amount: undefined })],
+        }))).toBe(false);
+        expect(ok(base({
+            athletes: [], new_athlete: { kind: 'menor', full_name: 'Niña Nueva', guardian_phone: '3001234567' },
+            lines: [venta()], ...conPago,
+        }))).toBe(false);
+    });
+});
+
+describe('ReintentoHorasSchema', () => {
+    const cuerpo = (x: Record<string, unknown> = {}) => ({ athlete: { type: 'child', id: id(1) }, enrollment_id: id(7), extra_hours: 2, ...x });
+    it('acepta atleta + inscripción + horas', () => {
+        expect(ReintentoHorasSchema.safeParse(cuerpo()).success).toBe(true);
+    });
+    it('rechaza horas inválidas o ids que no son uuid', () => {
+        expect(ReintentoHorasSchema.safeParse(cuerpo({ extra_hours: 1.1 })).success).toBe(false);
+        expect(ReintentoHorasSchema.safeParse(cuerpo({ extra_hours: 0 })).success).toBe(false);
+        expect(ReintentoHorasSchema.safeParse(cuerpo({ extra_hours: 30 })).success).toBe(false);
+        expect(ReintentoHorasSchema.safeParse(cuerpo({ enrollment_id: 'x' })).success).toBe(false);
+        expect(ReintentoHorasSchema.safeParse({ extra_hours: 2, enrollment_id: id(7) }).success).toBe(false);
     });
 });

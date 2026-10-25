@@ -1,0 +1,15 @@
+/dashboard|Dashboard
+/children|Mis Hijos
+/calendar|Calendario Familiar
+/explorar|Explorar
+/academic-progress|Progreso Deportivo
+/parent-attendance|Asistencias
+/my-payments|Pagos
+/messages|Mensajes
+/enrollments|Mis Inscripciones
+/my-event-registrations|Mis Eventos
+/salud|Salud de mis hijos
+/wellness/appointments|Mis Citas
+/my-cards|Carnets de mis hijos
+/my-certificates|Mis Constancias
+/settings|Configuración

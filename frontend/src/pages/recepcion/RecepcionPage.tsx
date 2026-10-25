@@ -11,6 +11,7 @@ import {
 import { armAudio, playSound, enqueueVoice, listVoices, isArmed, keepSpeechWarm } from '@/features/recepcion/audio';
 import { fireConfetti } from '@/features/recepcion/confetti';
 import { useReceptionFeed, type CatchupSummary } from '@/features/recepcion/useReceptionFeed';
+import { MapiToastMascot } from '@/components/brand/MapiAvatar';
 
 interface ToastItem { id: string; pres: Presentation; ts: number }
 
@@ -300,7 +301,7 @@ export default function RecepcionPage() {
                         >
                             <div className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-2xl ${ACCENT_BAR[t.pres.accent]}`} />
                             {t.pres.mascot && (
-                                <div className={`text-4xl ${reducedMotion() ? '' : 'animate-bounce'}`}>{MASCOT_EMOJI[t.pres.mascot]}</div>
+                                <MapiToastMascot badge={MASCOT_EMOJI[t.pres.mascot]} animate={!reducedMotion()} />
                             )}
                             <div className="flex-1 min-w-0">
                                 <p className="text-lg font-semibold">{t.pres.title}</p>

@@ -465,6 +465,8 @@ export const PASO_RETOMA_SIN_RESPUESTA = 'retoma_sin_respuesta';
 export const PASOS_PASE_A_LA_ESCUELA = new Set([
     'prospecto_seguimiento', 'escalated', 'ask_email', 'mensaje_para_persona',
     'escalacion_sin_respuesta', 'comprobante_a_revision_manual', 'correo_no_encontrado',
+    // Puerta única del desconocido (conversación v2): «Ya soy del club» y «Otro tema» dejan a la persona esperando a la escuela.
+    'puerta_club_recibido', 'puerta_otro_tema',
     PASO_RETOMA_SIN_RESPUESTA,
 ]);
 
@@ -719,4 +721,137 @@ export function contarEmojis(texto: string | null | undefined): number {
 export function recortarEmojis(texto: string, max = MAX_EMOJIS_MENSAJE): string {
     let vistos = 0;
     return texto.replace(EMOJI_RE, (m) => (++vistos <= max ? m : ''));
+}
+
+// ─── Anti-repetición (conversación v2, 2026-10-24) ──────────────────────────
+//
+// Casos reales de Dynasty: «no puedo leer ese formato» DOS veces en 5 min y
+// «Todavía nadie…» dos veces en el mismo segundo. El mismo texto del bot no sale
+// dos veces en 30 min por conversación. Se compara por CONTENIDO: el primer
+// mensaje pudo salir con la presentación delante («Hola 👋 soy el asistente…») y el
+// segundo sin ella, y es el mismo mensaje.
+
+/** Minutos en los que el mismo texto del bot no se repite en una conversación. */
+export const VENTANA_ANTIREPETICION_MIN = 30;
+
+/** Menos que esto (normalizado) no cuenta: «Listo», «Gracias» pueden repetirse. */
+const MIN_CARACTERES_ANTIREPETICION = 25;
+
+export interface SalienteReciente { texto?: string | null; momento: number }
+
+/**
+ * ¿Este texto ya salió en los últimos `ventanaMin` minutos? `previos`: lo que el
+ * bot ya mandó en la conversación (texto + momento en ms). El texto nuevo cuenta
+ * como repetido si está CONTENIDO en alguno de los previos (o al revés), ya
+ * normalizado. Pura.
+ */
+export function esRepeticionReciente(
+    texto: string | null | undefined,
+    previos: SalienteReciente[],
+    ahora = Date.now(),
+    ventanaMin = VENTANA_ANTIREPETICION_MIN,
+): boolean {
+    const nuevo = normalizarFrase(texto);
+    if (nuevo.length < MIN_CARACTERES_ANTIREPETICION) return false;
+    const desde = ahora - ventanaMin * 60_000;
+    return previos.some((p) => {
+        if (!Number.isFinite(p.momento) || p.momento < desde) return false;
+        const antes = normalizarFrase(p.texto);
+        if (antes.length < MIN_CARACTERES_ANTIREPETICION) return false;
+        return antes === nuevo || antes.includes(nuevo) || nuevo.includes(antes);
+    });
+}
+
+/**
+ * Pasos que contestan una pregunta directa: aunque el texto sea idéntico al de
+ * hace 10 min, la persona volvió a preguntar y callarse sería peor que repetir
+ * («¿cuánto debo?» → el mismo estado de pagos). El resto de mensajes del bot
+ * (avisos, plantillas, acuses, escalaciones) sí se frena.
+ */
+export const PASOS_QUE_CONTESTAN_UNA_PREGUNTA = new Set([
+    'get_payment_status', 'get_payment_methods', 'medios_de_pago_publicos', 'llm_text', 'llm_error_menu',
+    'payment_fallback', 'medios_fallback', 'info_escuela_fallback', 'get_school_info', 'estado_comprobantes',
+    'otp_sent', 'otp_failed', 'otp_verificado', 'ask_consent', 'opt_in_confirmado', 'opt_in_registrado',
+    'opt_out_confirmado', 'opt_in_reactivado', 'consent_rechazado', 'confirmar_baja', 'baja_mantenida',
+    'revinculado_por_telefono',
+]);
+
+/**
+ * ¿Este saliente está exento del freno de repetición? Los pasos de un flujo con
+ * estado (clase de cortesía, puerta del desconocido: `contexto.flujo`) repiten la
+ * pregunta a propósito cuando no entendieron la respuesta, y los que contestan
+ * una pregunta directa se repiten si la persona vuelve a preguntar. Pura.
+ */
+export function exentoDeAntirrepeticion(contexto: Record<string, unknown> | null | undefined): boolean {
+    const c = contexto ?? {};
+    const paso = String(c.step ?? '');
+    return Boolean(c.flujo) || c.repetible === true
+        || PASOS_QUE_CONTESTAN_UNA_PREGUNTA.has(paso) || paso.startsWith('cortesia_') || paso.endsWith('_fallback');
+}
+
+// ─── Horas hábiles (SLA de escalamientos, conversación v2) ───────────────────
+
+/** `whatsapp_settings.business_hours`: `{ tz, dias: { "1": ["16:00","21:00"], … } }` (0 = domingo). */
+export interface HorarioDeAtencion { tz?: string; dias?: Record<string, [string, string]> }
+
+/** Horas hábiles que tiene la escuela para contestar un escalamiento antes del aviso por correo/push. */
+export const SLA_ESCALAMIENTO_MIN_HABILES = Number(process.env.WHATSAPP_SLA_ESCALAMIENTO_MIN) || 120;
+
+const aMin = (hhmm: string): number => {
+    const [h, m] = String(hhmm).split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
+};
+
+/** Minutos de diferencia entre la hora local de `tz` y UTC en el instante `ms` (Bogotá: -300). */
+function desfaseDeZona(tz: string, ms: number): number {
+    try {
+        const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+            timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+        }).formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+        const local = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour), Number(p.minute), Number(p.second));
+        return Math.round((local - Math.floor(ms / 1000) * 1000) / 60_000);
+    } catch {
+        return -300;
+    }
+}
+
+/**
+ * Minutos HÁBILES entre `desde` y `hasta` (ms) según el horario de atención.
+ * Sin horario configurado cuenta el reloj corrido (no se asume que la escuela
+ * está cerrada: prometer menos es mejor que inventar un horario). El desfase de
+ * la zona se toma una vez (Bogotá no tiene horario de verano). Pura.
+ */
+export function minutosHabiles(desde: number, hasta: number, cfg: HorarioDeAtencion | null | undefined): number {
+    if (!Number.isFinite(desde) || !Number.isFinite(hasta) || hasta <= desde) return 0;
+    const dias = cfg?.dias;
+    if (!dias || !Object.keys(dias).length) return Math.floor((hasta - desde) / 60_000);
+    const desfase = desfaseDeZona(cfg?.tz || 'America/Bogota', desde);
+    let total = 0;
+    let cursor = desde;
+    while (cursor < hasta) {
+        const local = new Date(cursor + desfase * 60_000);
+        const dow = local.getUTCDay();
+        const minDelDia = local.getUTCHours() * 60 + local.getUTCMinutes() + local.getUTCSeconds() / 60;
+        const finDelDia = Math.min(hasta, cursor + (1440 - minDelDia) * 60_000);
+        const rango = dias[String(dow)];
+        if (rango) {
+            const a = Math.max(minDelDia, aMin(rango[0]));
+            const b = Math.min(minDelDia + (finDelDia - cursor) / 60_000, aMin(rango[1]));
+            if (b > a) total += b - a;
+        }
+        cursor = finDelDia;
+    }
+    return Math.floor(total);
+}
+
+/** ¿Pasaron `minHabiles` minutos hábiles desde que se creó la escalación? Pura. */
+export function slaVencido(
+    creadaAt: string | number | Date,
+    ahora: number,
+    cfg: HorarioDeAtencion | null | undefined,
+    minHabiles = SLA_ESCALAMIENTO_MIN_HABILES,
+): boolean {
+    const t = new Date(creadaAt).getTime();
+    return Number.isFinite(t) && minutosHabiles(t, ahora, cfg) >= minHabiles;
 }

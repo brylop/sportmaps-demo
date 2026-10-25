@@ -4,7 +4,7 @@
 > Datos estructurados: [`otros-roles-y-publicas.json`](./otros-roles-y-publicas.json). Forma: `[{role, module, moduleKey, screen, route, file, status, usage, notes, tabs:[{name, actions:[{label, type, file, line, gates, reads, writes, status, usage}]}]}]`.
 > Las rutas de archivo son relativas a `frontend/src/` salvo que empiecen por `bff/` o `supabase/`.
 
-**Cubre:** wellness_professional, store_owner (tienda/marketplace), organizer (torneos/eventos), facility_manager (sedes/reservas/acceso), admin/super_admin (plataforma, panel de módulos, facturación SaaS), onboarding, auth, páginas públicas y SportBot/soporte.
+**Cubre:** wellness_professional, store_owner (tienda/marketplace), organizer (torneos/eventos), facility_manager (sedes/reservas/acceso), admin/super_admin (plataforma, panel de módulos, facturación SaaS), onboarding, auth, páginas públicas y Mapi/soporte.
 
 **Estados:** `works` funciona · `partial` funciona con huecos · `broken` falla siempre o casi siempre · `hidden` existe pero no hay cómo llegar · `dead` código sin efecto o ruta sin uso · `duplicated` otra pantalla hace lo mismo · `mock` datos falsos o botones sin acción.
 
@@ -61,7 +61,7 @@
 | Addons | school_addons | 260 | — |
 | Panel de módulos | school_module_overrides | 17 | todos OFF, último 10-09 |
 | Integridad de inscripciones | enrollment_integrity_findings | 188 | — |
-| Soporte / SportBot | support_tickets / support_messages | 8 / 57 | 27 de usuario, 25 del bot, 5 de agente; 18+18 en 30 d |
+| Soporte / Mapi | support_tickets / support_messages | 8 / 57 | 27 de usuario, 25 del bot, 5 de agente; 18+18 en 30 d |
 | LLM (WhatsApp, OCR) | llm_usage | 116 | ocr 67, bot 41, transcripción 8; **0 con feature `sportbot`** |
 | Carnets | athlete_id_cards | 513 | — |
 | QR de inscripción | school_join_qr_codes | 12 | — |
@@ -80,7 +80,7 @@
 | Solicitudes de upgrade | plan_upgrade_requests | 0 | — |
 | Telemetría y analítica | event_telemetry / analytics_events / billing_events | 0 / 0 / 0 | inserts bloqueados por RLS |
 
-**Lo más usado:** control de acceso, sedes (automáticas), carnets, prospectos y cortesías, panel de módulos/suscripciones y SportBot.
+**Lo más usado:** control de acceso, sedes (automáticas), carnets, prospectos y cortesías, panel de módulos/suscripciones y Mapi.
 **Lo menos usado (cero):** módulo clínico, organizer, tienda de vendedores externos, liquidaciones, reseñas, solicitudes de upgrade y telemetría.
 
 ---
@@ -354,7 +354,7 @@ Caso borde de Google: el camino `onAuthStateChange` pone athlete por defecto y s
 | `/schools/:id` | partial | Canónica. Programas, instalaciones y reseñas demo; Compartir y Favorito sin acción |
 | `/escuela/:id` | dead | Duplicado huérfano |
 | `/s/:slug` | broken | Todos los CTA muestran el toast "Acción Demo". Es la URL que anuncia `PublishedSuccessModal` |
-| `/ayuda`, `/ayuda/:slug` | hidden | Contenido estático; solo lo enlaza el SportBot |
+| `/ayuda`, `/ayuda/:slug` | hidden | Contenido estático; solo lo enlaza Mapi |
 | `/c/:qrToken` | works | — |
 | `/p/:token` | works | — |
 | `/cert/:folio` | works | — |
@@ -368,7 +368,7 @@ Caso borde de Google: el camino `onAuthStateChange` pone athlete por defecto y s
 
 ---
 
-## 8. SportBot / soporte in-app
+## 8. Mapi / soporte in-app
 
 - **Botón flotante** (`components/support/SupportChatButton.tsx`). Solo está en `AuthLayout`: no aparece en páginas públicas, onboarding, `/recepcion` ni `/login`.
 - **BFF:** `bff/src/routes/support.routes.ts` + `services/inapp-support-bot.service.ts`.
@@ -377,7 +377,7 @@ Caso borde de Google: el camino `onAuthStateChange` pone athlete por defecto y s
   - Herramientas: `get_my_state`, `get_payment_status`, `search_help_articles`, `escalate_to_human`.
   - Kill switch: `whatsapp_settings.ai_enabled`, que falla abierto (si falta la fila, el bot queda encendido).
   - El bot se calla cuando un agente humano ya escribió en el hilo.
-- **Uso real:** 8 tickets (5 bot_handled, 3 waiting_user) y 57 mensajes (27 de usuario, 25 del bot, 5 de agente), activos hasta el 10-06. En `llm_usage` no aparece ninguna fila con feature `sportbot`; las 41 de `bot` son de WhatsApp. Es probable que el registro de consumo del SportBot no se esté guardando: vale la pena revisarlo.
+- **Uso real:** 8 tickets (5 bot_handled, 3 waiting_user) y 57 mensajes (27 de usuario, 25 del bot, 5 de agente), activos hasta el 10-06. En `llm_usage` no aparece ninguna fila con feature `sportbot`; las 41 de `bot` son de WhatsApp. Es probable que el registro de consumo de Mapi no se esté guardando: vale la pena revisarlo.
 - **Huecos:**
   - Sin polling: la respuesta del agente humano solo aparece al reabrir el chat.
   - La bandeja `/admin/support` no puede cerrar ni asignar tickets.
@@ -436,5 +436,5 @@ Caso borde de Google: el camino `onAuthStateChange` pone athlete por defecto y s
 - **accountant:** 0 perfiles; menú propio, solo lectura de contabilidad (fuera de este mapa).
 
 ### Más y menos usado (de este alcance)
-- **Más:** control de acceso (3.438 eventos en 30 d), prospectos y franjas de cortesía (28 prospectos en 30 d), SportBot (36 mensajes en 30 d), panel de suscripciones y módulos (última escritura 10-09), carnets (513).
+- **Más:** control de acceso (3.438 eventos en 30 d), prospectos y franjas de cortesía (28 prospectos en 30 d), Mapi (36 mensajes en 30 d), panel de suscripciones y módulos (última escritura 10-09), carnets (513).
 - **Cero o casi cero:** clínico (0), organizer (0 organizadores), tienda externa (0 configuraciones de cobro), liquidaciones (0), reseñas y preguntas (0), solicitudes de upgrade (0), reservas de instalación en 30 d (0), telemetría (0).

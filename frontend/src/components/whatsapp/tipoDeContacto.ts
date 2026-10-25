@@ -17,7 +17,7 @@ export type MarcaDeContacto = typeof MARCAS[number];
 export type OpcionDeTipo = 'familia' | MarcaDeContacto;
 
 export const OPCIONES_DE_TIPO: { valor: OpcionDeTipo; texto: string; ayuda: string }[] = [
-    { valor: 'familia', texto: 'Familia', ayuda: 'Acudiente o deportista. El asistente lo atiende (sin marca).' },
+    { valor: 'familia', texto: 'Familia', ayuda: 'Acudiente o deportista. Mapi lo atiende (sin marca).' },
     { valor: 'personal', texto: 'Personal', ayuda: 'Familia o amigos de quien dirige la escuela.' },
     { valor: 'negocio', texto: 'Negocio', ayuda: 'Proveedor, tienda, restaurante, agencia…' },
     { valor: 'otro_club', texto: 'Otro club', ayuda: 'Otro club o escuela deportiva.' },
@@ -62,6 +62,6 @@ export function textoDelResultado(tipo: OpcionDeTipo, filasCerradas: number): { 
         : '';
     return {
         title: `Marcado como ${TEXTO_DE_MARCA[tipo]}`,
-        description: `El asistente no le responde y sus fotos ya no llegan a la bandeja.${cerradas}`,
+        description: `Mapi no le responde y sus fotos ya no llegan a la bandeja.${cerradas}`,
     };
 }

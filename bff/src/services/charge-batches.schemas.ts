@@ -73,6 +73,13 @@ export const Linea = z.object({
     enrollment_id: uuid().optional(),
     fee_id: uuid().optional(),
     overage_charge_id: uuid().optional(),
+    /**
+     * Horas adicionales VENDIDAS por adelantado (Dreamers, 2026-10-21): en vez de
+     * facturar un excedente que el cron ya calculó, la familia compra N horas. Se
+     * cobra como `clase_extra` y, ya pagado, el BFF las suma al banco del
+     * `enrollment_id` (RPC grant_hour_bank_minutes). Múltiplos de 15 min.
+     */
+    extra_hours: z.number().positive('Las horas deben ser mayores que cero').max(24, 'Máximo 24 horas por venta').optional(),
     discount: Descuento.optional(),
     exonerate: Exoneracion.optional(),
     /**
@@ -104,11 +111,29 @@ export const Linea = z.object({
     } else if (l.period) {
         ctx.addIssue({ code: 'custom', path: ['period'], message: 'Solo la mensualidad lleva mes; los demás cobros toman el mes del vencimiento' });
     }
-    if (l.category === 'excedente' && !l.overage_charge_id) {
-        ctx.addIssue({ code: 'custom', path: ['overage_charge_id'], message: 'Las horas adicionales se cobran desde un período del banco de horas' });
+    if (l.category === 'excedente') {
+        const fuentes = [l.overage_charge_id, l.extra_hours].filter((x) => x != null).length;
+        if (fuentes !== 1) {
+            ctx.addIssue({ code: 'custom', path: ['overage_charge_id'], message: 'Las horas adicionales se cobran desde un período del banco de horas o indicando cuántas horas se vendieron (una de las dos)' });
+        }
+        if (l.extra_hours != null) {
+            if (!l.enrollment_id) {
+                ctx.addIssue({ code: 'custom', path: ['enrollment_id'], message: 'Elige a cuál inscripción se le suman las horas' });
+            }
+            if (Math.abs(l.extra_hours * 4 - Math.round(l.extra_hours * 4)) > 1e-9) {
+                ctx.addIssue({ code: 'custom', path: ['extra_hours'], message: 'Las horas se venden de a 15 minutos (0,25 h)' });
+            }
+            // Las horas se suman al banco SOLO con el cobro pagado: sin pago no hay horas.
+            if (!((l.pay_amount ?? 0) > 0)) {
+                ctx.addIssue({ code: 'custom', path: ['pay_amount'], message: 'Las horas se venden pagadas: registra el pago para sumarlas al banco' });
+            }
+        }
     }
     if (l.category !== 'excedente' && l.overage_charge_id) {
         ctx.addIssue({ code: 'custom', path: ['overage_charge_id'], message: 'Solo las horas adicionales llevan período del banco de horas' });
+    }
+    if (l.category !== 'excedente' && l.extra_hours != null) {
+        ctx.addIssue({ code: 'custom', path: ['extra_hours'], message: 'Solo las horas adicionales llevan horas vendidas' });
     }
     if (l.category !== 'mensualidad' && l.amount === undefined) {
         ctx.addIssue({ code: 'custom', path: ['amount'], message: 'Escribe el valor del cobro' });
@@ -191,7 +216,11 @@ export const Pago = z.object({
     method: z.enum(['cash', 'transfer']),
     payment_date: fecha(),
     reference: z.string().trim().max(120).optional(),
-    receipt_url: z.string().url('Enlace del comprobante inválido').optional(),
+    // El bucket `payment-receipts` es privado: el uploader devuelve la RUTA (`<uid>/<archivo>`),
+    // no una URL. Se acepta ruta o URL http(s); nunca recorridos `..` ni otros esquemas.
+    receipt_url: z.string().trim().min(1).max(500)
+        .refine((v) => !v.includes('..') && !/^(?!https?:\/\/)[a-z][a-z0-9+.-]*:/i.test(v), 'Enlace del comprobante inválido')
+        .optional(),
     receipt_sha256: z.string().regex(/^[0-9a-f]{64}$/i, 'Huella del comprobante inválida').optional(),
     ocr: z.record(z.string(), z.unknown()).optional(),
 }).superRefine((p, ctx) => {
@@ -240,6 +269,13 @@ function reglasDelLote(b: Base, ctx: z.RefinementCtx) {
     }
     if (b.lines.length + b.pending.length === 0) {
         ctx.addIssue({ code: 'custom', path: ['lines'], message: 'No hay nada que hacer: agrega un cobro o marca un pendiente' });
+    }
+    const ventasDeHoras = b.lines.filter((l) => l.extra_hours != null).length;
+    if (ventasDeHoras > 1) {
+        ctx.addIssue({ code: 'custom', path: ['lines'], message: 'Una venta de horas adicionales por operación: registra la otra por separado' });
+    }
+    if (ventasDeHoras > 0 && (b.mode !== 'single' || b.new_athlete)) {
+        ctx.addIssue({ code: 'custom', path: ['lines'], message: 'Las horas adicionales se venden a un atleta ya inscrito, en modo un atleta' });
     }
     if (b.mode === 'multi') {
         if (b.pending.length > 0 || b.payment) {
@@ -294,6 +330,8 @@ export const ChargeBatchCreateSchema = ChargeBatchBase.extend({
     preview_hash: z.string().trim().min(1, 'Falta la vista previa: pídela antes de confirmar').max(200),
     overrides: z.array(Override).max(MAX_FILAS_POR_LOTE).default([]),
     notify_families: z.boolean().default(false),
+    /** El usuario vio «este mismo cobro ya se registró hace X min» y confirma que es otro (cobro-duplicado-reciente.ts). */
+    confirmar_duplicado: z.boolean().default(false),
 }).superRefine((b, ctx) => reglasDelLote(b, ctx));
 export type ChargeBatchCreate = z.infer<typeof ChargeBatchCreateSchema>;
 
@@ -352,3 +390,11 @@ export const AdjustmentsQuerySchema = z.object({
 export function primerError(err: z.ZodError): string {
     return err.issues[0]?.message ?? 'Datos inválidos';
 }
+
+/** Reintento de la suma de horas de una operación ya creada y pagada (solo dueño). */
+export const ReintentoHorasSchema = z.object({
+    athlete: Atleta,
+    enrollment_id: uuid(),
+    extra_hours: z.number().positive().max(24)
+        .refine((h) => Math.abs(h * 4 - Math.round(h * 4)) < 1e-9, 'Las horas se venden de a 15 minutos (0,25 h)'),
+});

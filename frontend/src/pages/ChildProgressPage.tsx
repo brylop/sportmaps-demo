@@ -408,7 +408,7 @@ export default function ChildProgressPage() {
               <div className="space-y-0.5">
                 <Label className="text-base">Avisos de evaluación post-entrenamiento</Label>
                 <p className="text-sm text-muted-foreground">
-                  Te preguntamos cómo le fue después de cada entreno — podés desactivarlo aquí,
+                  Te preguntamos cómo le fue después de cada entreno — puedes desactivarlo aquí,
                   sigue llegando el informe mensual igual.
                 </p>
               </div>

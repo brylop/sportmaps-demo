@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeAltaFirstCharge, altaFeesDueDate, AltaFirstChargeInput } from './altaFirstCharge';
+import { computeAltaFirstCharge, altaFeesDueDate, firstChargeDue, AltaFirstChargeInput } from './altaFirstCharge';
 
 // Espejo de buildAltaPayments + emit_enrollment_fees (BFF / migración 20261010124934).
 // Plan de Dreamers: mensualidad 245.000, inscripción 120.000, seguro 150.000.
@@ -93,5 +93,26 @@ describe('altaFeesDueDate — vencimiento de inscripción y seguro', () => {
   });
   it('alta en el pasado: hoy (un cobro no nace vencido)', () => {
     expect(altaFeesDueDate('2026-10-01', '2026-10-10')).toBe('2026-10-10');
+  });
+});
+
+describe('firstChargeDue (escuela con «primer cobro sin recargo»)', () => {
+  it('Dreamers: alta el 19-oct con corte 1 → el primer cobro vence el 01/11', () => {
+    const r = computeAltaFirstCharge({
+      startDate: '2026-10-19', today: '2026-10-19', monthlyFee: 964000,
+      cycleType: 'fixed_calendar', cutoffDay: 1, firstChargeNextCutoff: true,
+    });
+    expect(r.monthly?.dueDate).toBe('2026-11-01');
+  });
+  it('sin la regla de la escuela, vence el día del alta como antes', () => {
+    const r = computeAltaFirstCharge({
+      startDate: '2026-10-19', today: '2026-10-19', monthlyFee: 964000,
+      cycleType: 'fixed_calendar', cutoffDay: 1,
+    });
+    expect(r.monthly?.dueDate).toBe('2026-10-19');
+  });
+  it('diciembre pasa a enero y febrero respeta el último día', () => {
+    expect(firstChargeDue('2026-12-10', 2026, 12, 5)).toBe('2027-01-05');
+    expect(firstChargeDue('2027-01-10', 2027, 1, 31)).toBe('2027-02-28');
   });
 });

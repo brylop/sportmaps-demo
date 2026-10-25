@@ -129,10 +129,12 @@ export async function createPendingPayment(opts: {
      * abajo se absorbe en silencio, o sea, el cobro no se emitía.
      */
     periodUniquenessExempt?: boolean;
-}): Promise<void> {
+}): Promise<boolean> {
     // El constraint payments_amount_positive exige amount > 0: si no hay cuota
     // configurada no se genera cobro (evita INSERT fallido silencioso).
-    if (!opts.amount || opts.amount <= 0) return;
+    // Devuelve false cuando NO se creó cobro nuevo (monto 0 o ya existía uno del
+    // período): el caller puede avisarle al admin en vez de callar.
+    if (!opts.amount || opts.amount <= 0) return false;
 
     const due = await billingDue(opts.schoolId, opts.startDate);
     const row: any = {
@@ -191,9 +193,10 @@ export async function createPendingPayment(opts: {
         // 23505: ya existe un cobro activo para este atleta+período
         // (uniq_payment_active_period_*). NO es un error: el cobro ya está
         // creado, así que la operación continúa sin duplicar ni abortar.
-        if ((error as any).code === '23505') return;
+        if ((error as any).code === '23505') return false;
         throw new Error(`Error creando cobro pendiente: ${error.message}`);
     }
+    return true;
 }
 
 /**
@@ -517,6 +520,55 @@ export async function cancelPendingPlanPayments(opts: {
         .eq('status', 'pending')
         // Inscripción / seguro / excedente sobreviven al cambio de plan (B4).
         .or(PLAN_PERIOD_CHARGE_FILTER);
+}
+
+/**
+ * Cambio de plan: anula los cobros de mensualidad del PERÍODO del cambio que siguen
+ * sin plata (pendientes o vencidos, con o sin plan ligado) para que el cobro del plan
+ * nuevo pueda nacer. `cancelPendingPlanPayments` solo anula `pending` del plan viejo:
+ * un cobro vencido, o uno del cierre de mes sin plan ligado, sobrevivía, chocaba con
+ * uniq_payment_active_period_per_child (23505) y el cobro nuevo se absorbía en
+ * silencio (Dynasty, 2026-10-21: cobro de $180.000 del plan viejo, ninguno de $90.000).
+ *
+ * NO toca: meses anteriores (la deuda causada no cambia sola), cobros con algún pago
+ * o abono (`amount_paid` > 0) ni inscripción/seguro/excedente. Devuelve cuántos
+ * anuló y cuántos dejó por tener pagos, para que el caller avise.
+ */
+export async function cancelUnpaidPeriodCharges(opts: {
+    schoolId: string;
+    athleteCol: AthleteCol;
+    athleteId: string;
+    /** Fecha que define el período del cobro nuevo (la misma que usa billingDue). */
+    startDate: string;
+}): Promise<{ cancelled: number; withPayments: number }> {
+    const [y, m] = opts.startDate.split('-').map(Number);
+    const { data, error } = await supabase
+        .from('payments')
+        .select('id, amount_paid, payment_category')
+        .eq('school_id', opts.schoolId)
+        .eq(opts.athleteCol, opts.athleteId)
+        .eq('period_year', y)
+        .eq('period_month', m)
+        .in('status', ['pending', 'overdue']);
+    if (error) {
+        console.error('[enrollmentBilling] cancelUnpaidPeriodCharges lectura falló:', error.message);
+        return { cancelled: 0, withPayments: 0 };
+    }
+    const oneOff: readonly string[] = ONE_OFF_PAYMENT_CATEGORIES;
+    const rows = (data ?? []).filter((r: any) => !oneOff.includes(r.payment_category));
+    const unpaid = rows.filter((r: any) => !(Number(r.amount_paid) > 0)).map((r: any) => r.id);
+    if (unpaid.length) {
+        const { error: upErr } = await supabase
+            .from('payments')
+            .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+            .in('id', unpaid)
+            .in('status', ['pending', 'overdue']);
+        if (upErr) {
+            console.error('[enrollmentBilling] cancelUnpaidPeriodCharges anulación falló:', upErr.message);
+            return { cancelled: 0, withPayments: rows.length };
+        }
+    }
+    return { cancelled: unpaid.length, withPayments: rows.length - unpaid.length };
 }
 
 /**

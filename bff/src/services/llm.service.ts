@@ -213,7 +213,7 @@ async function chatOpenAICompatible(
         // Mismo arreglo que en Gemini (2026-10-06): los bots no reenvían el
         // `tool_calls` original del asistente, y un mensaje `role: 'tool'` sin
         // ese `tool_calls` justo antes es un 400 en las APIs OpenAI-compatibles.
-        // Con Gemini y Groq rechazando la segunda llamada, SportBot nunca
+        // Con Gemini y Groq rechazando la segunda llamada, Mapi nunca
         // redactaba: mandaba la lista de links de respaldo.
         if (m.role === 'tool') {
             oaMessages.push({
