@@ -14,6 +14,14 @@ import { MODULE_CATALOG, type ModuleKey } from '@/config/module-catalog';
  */
 const GATED_ROLES = ['school', 'school_admin'];
 
+/**
+ * Quién puede abrir /mi-plan (la facturación de la escuela con SportMaps; ver
+ * la ruta en App.tsx). A los demás (coach en /coach-plans, p. ej.) el botón
+ * «Ver planes y activar» los mandaba a «no autorizado»: se les dice que lo
+ * pidan a la administración.
+ */
+const PUEDEN_VER_PLAN = ['school', 'school_admin', 'admin', 'owner', 'super_admin'];
+
 interface ModuleGateProps {
   moduleKey: ModuleKey;
   children: React.ReactNode;
@@ -65,7 +73,11 @@ export function ModuleGate({ moduleKey, children, roles = GATED_ROLES }: ModuleG
           <Lock className="h-7 w-7 text-primary" />
         </div>
         <h1 className="text-2xl font-bold">{def.label}</h1>
-        {!hasRight ? (
+        {!hasRight && !PUEDEN_VER_PLAN.includes(effectiveRole) ? (
+          <p className="text-muted-foreground mt-2">
+            Este módulo no está activo en tu escuela. Pídele a la administración que lo active.
+          </p>
+        ) : !hasRight ? (
           <>
             <p className="text-muted-foreground mt-2">
               Este módulo no está activo en tu plan.
