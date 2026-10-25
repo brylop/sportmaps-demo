@@ -1,8 +1,9 @@
 import { NavLink, useLocation } from 'react-router-dom';
-import { Home, Calendar, MessageSquare, User, Compass, Users, CreditCard, Baby, Settings, Trophy, Activity, ShoppingBag, MoreHorizontal } from 'lucide-react';
-import { SHOW_EXPLORE, ACUDIENTE_V2 } from '@/lib/feature-flags';
-import { PESTANAS_ACUDIENTE } from '@/lib/acudienteTabs';
+import { Home, Calendar, MessageSquare, User, Compass, Users, CreditCard, Baby, Settings, Trophy, Activity, ShoppingBag, MoreHorizontal, ClipboardList, CheckSquare, TrendingUp, IdCard } from 'lucide-react';
+import { SHOW_EXPLORE, ACUDIENTE_V2, ENTRENADOR_V2, DEPORTISTA_V2 } from '@/lib/feature-flags';
+import { PESTANAS_ACUDIENTE, PESTANAS_ENTRENADOR, PESTANAS_DEPORTISTA, pestanasDeRol } from '@/lib/acudienteTabs';
 import { useAuth } from '@/contexts/AuthContext';
+import { useRolActivo } from '@/hooks/useRolActivo';
 import { cn } from '@/lib/utils';
 import { useMySchoolStore } from '@/hooks/useMySchoolStore';
 import { BUYER_ROLES } from '@/lib/store/buyerStoreVisibility';
@@ -11,6 +12,12 @@ import { BUYER_ROLES } from '@/lib/store/buyerStoreVisibility';
 // (useMySchoolStore → store_seller_allowed), nunca por el flag global solo.
 const ICONOS_ACUDIENTE: Record<string, typeof Home> = {
   '/dashboard': Home, '/calendar': Calendar, '/children': Baby, '/my-payments': CreditCard, '/mas': MoreHorizontal,
+};
+
+// Íconos de las pestañas V2 de entrenador y deportista (por ruta).
+const ICONOS_V2: Record<string, typeof Home> = {
+  '/dashboard': Home, '/teams': Users, '/training-plans': ClipboardList, '/coach-attendance': CheckSquare,
+  '/training': Activity, '/stats': TrendingUp, '/my-cards': IdCard, '/mas': MoreHorizontal,
 };
 
 const TIENDA_ITEM = { href: '/mi-tienda', label: 'Tienda', icon: ShoppingBag };
@@ -56,6 +63,8 @@ const getNavigationItemsForRole = (role: string, showStore = false): NavItem[] =
         { href: '/settings', label: 'Config', icon: Settings },
       ];
     case 'coach':
+      // Entrenador V2: Hoy · Equipos · Sesiones · Asistencia · Más. Con VITE_ENTRENADOR_V2=false, la anterior.
+      if (ENTRENADOR_V2) return PESTANAS_ENTRENADOR.map((p) => ({ ...p, icon: ICONOS_V2[p.href] ?? Home }));
       return [
         { href: '/dashboard', label: 'Inicio', icon: Home },
         { href: '/coach-attendance', label: 'Asistencias', icon: Calendar },
@@ -64,6 +73,8 @@ const getNavigationItemsForRole = (role: string, showStore = false): NavItem[] =
         { href: '/profile', label: 'Perfil', icon: User },
       ];
     case 'athlete':
+      // Deportista V2: Hoy · Entrenos · Progreso · Carnet · Más. Con VITE_DEPORTISTA_V2=false, la anterior.
+      if (DEPORTISTA_V2) return PESTANAS_DEPORTISTA.map((p) => ({ ...p, icon: ICONOS_V2[p.href] ?? Home }));
       return [
         { href: '/dashboard', label: 'Inicio', icon: Home },
         { href: '/enrollments', label: 'Mis inscripciones', icon: Trophy },
@@ -83,6 +94,7 @@ const getNavigationItemsForRole = (role: string, showStore = false): NavItem[] =
 
 export function MobileBottomNav() {
   const { profile } = useAuth();
+  const rolActivo = useRolActivo();
   const location = useLocation();
   const { showStore } = useMySchoolStore({ enabled: !!profile && BUYER_ROLES.has(profile.role) });
 
@@ -105,8 +117,11 @@ export function MobileBottomNav() {
     return null;
   }
 
-  const navigationItems = getNavigationItemsForRole(profile.role, showStore);
-  const compacta = ACUDIENTE_V2 && profile.role === 'parent';
+  // Multirol: el rol activo, el mismo con el que decide el Inicio y el «Volver».
+  const rol = (rolActivo ?? profile.role) as typeof profile.role;
+  const navigationItems = getNavigationItemsForRole(rol, showStore);
+  // Barras V2 (cinco pestañas que se reparten el ancho y se encogen con el zoom).
+  const compacta = !!pestanasDeRol(rol);
 
   return (
     <nav data-testid="mobile-bottom-nav" className="fixed bottom-0 left-0 right-0 z-30 bg-background border-t border-border md:hidden safe-area-bottom">

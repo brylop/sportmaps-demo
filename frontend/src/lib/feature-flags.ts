@@ -12,3 +12,8 @@ export const SHOW_EXPLORE = import.meta.env.VITE_SHOW_EXPLORE === 'true';
 // a la versión anterior sin tocar código: `VITE_ACUDIENTE_V2=false` en Vercel
 // y redesplegar (la variable se hornea en el build).
 export const ACUDIENTE_V2 = import.meta.env.VITE_ACUDIENTE_V2 !== 'false';
+
+// Entrenador y Deportista V2 (docs/specs/entrenador-deportista-v2.md): mismas
+// reglas que el acudiente. `false` en Vercel + redesplegar = versión anterior.
+export const ENTRENADOR_V2 = import.meta.env.VITE_ENTRENADOR_V2 !== 'false';
+export const DEPORTISTA_V2 = import.meta.env.VITE_DEPORTISTA_V2 !== 'false';

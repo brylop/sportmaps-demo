@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 810,
-  "head": "20261024225703",
+  "count": 817,
+  "head": "20261025020013",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -813,6 +813,13 @@
     {"v":"20261024211844","file":"20261024211844_plan_por_asistencia_aplicar_cambio_plan.sql","sha256":"7823098d7dd853d2a920a3cd973c3b13e37b4ce3f9f500e5614e0d2bbbf17d18","added":"2026-10-25","by":"Brayan Steven Lopez"},
     {"v":"20261024211848","file":"20261024211848_attendance_sheet_intake.sql","sha256":"a55c87317275e9a5d1d92f6bcd5a274823d8d27eb8b56c607996d386849ea54e","added":"2026-10-25","by":"Brayan Steven Lopez"},
     {"v":"20261024211855","file":"20261024211855_wa_identify_staff_por_telefono.sql","sha256":"88fe9592542d42b47c005d1e9a3e5a41b5ae5d554d842b9c53eee91a5d2dda37","added":"2026-10-25","by":"Brayan Steven Lopez"},
-    {"v":"20261024225703","file":"20261024225703_notifications_trial_block_permite_school_null.sql","sha256":"d59ef2cdf002129a2c0fef29312227b79ac2406eb6c23c2e1a564bb93ce270b6","added":"2026-10-25","by":"Brayan Steven Lopez"}
+    {"v":"20261024225703","file":"20261024225703_notifications_trial_block_permite_school_null.sql","sha256":"d59ef2cdf002129a2c0fef29312227b79ac2406eb6c23c2e1a564bb93ce270b6","added":"2026-10-25","by":"Brayan Steven Lopez"},
+    {"v":"20261025003634","file":"20261025003634_v2_b1_felicitaciones_athlete_kudos.sql","sha256":"4ff84a8f32709d39483c262c41edecf7fcad9aa7d8403b1d0854c2ce683f93e3","added":"2026-10-25","by":"Brayan Steven Lopez"},
+    {"v":"20261025003647","file":"20261025003647_v2_b2_convocatoria_con_respuesta.sql","sha256":"4fad25b077420916a2c40ae44669c3efafe1dfc882290737d4ff0524bd7f5a7f","added":"2026-10-25","by":"Brayan Steven Lopez"},
+    {"v":"20261025003657","file":"20261025003657_v2_b3_team_payment_status.sql","sha256":"81d6cb731e619708e2ae26d1bcc9559baba69da511c09158a2a33734e9e29953","added":"2026-10-25","by":"Brayan Steven Lopez"},
+    {"v":"20261025003708","file":"20261025003708_v2_b4_deportista_lee_lo_suyo.sql","sha256":"e43fd8b873c18670d6af8a22a5a5980c9ce561f14f5ae8e26d0c016d0e17da33","added":"2026-10-25","by":"Brayan Steven Lopez"},
+    {"v":"20261025003712","file":"20261025003712_v2_b5_titulo_aviso_calendario.sql","sha256":"d636723d7aa89d194c34bffc3293299e61c2c50d69e7b4cc9b3126ccecce7c44","added":"2026-10-25","by":"Brayan Steven Lopez"},
+    {"v":"20261025013621","file":"20261025013621_v2_b7_alcance_y_validaciones.sql","sha256":"d5094bde8041df2da06e918ab91ea9e2d91837b2de058148b1286c105e051daa","added":"2026-10-25","by":"Brayan Steven Lopez"},
+    {"v":"20261025020013","file":"20261025020013_grant_get_personal_trainer_school_id.sql","sha256":"f313b9c790a58459c7667459bf9597458cbdc60a014b2c1002a0a9e5bedf06a3","added":"2026-10-25","by":"Brayan Steven Lopez"}
   ]
 }

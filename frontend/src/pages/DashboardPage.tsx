@@ -29,12 +29,16 @@ import { getStepsForRole } from '@/lib/onboarding/getStepsForRole';
 import { acceptPendingInvitations } from '@/lib/invitations/acceptPendingInvitations';
 import { ParentHomeV2 } from '@/components/parent/v2/ParentHomeV2';
 import { usaInicioAcudienteV2 } from '@/components/parent/v2/parentHomeLogic';
-import { ACUDIENTE_V2 } from '@/lib/feature-flags';
+import { ACUDIENTE_V2, DEPORTISTA_V2, ENTRENADOR_V2 } from '@/lib/feature-flags';
+import { CoachHomeV2 } from '@/components/coach/v2/CoachHomeV2';
+import { AthleteHomeV2 } from '@/components/athlete/v2/AthleteHomeV2';
+import { useRolActivo } from '@/hooks/useRolActivo';
 
 export default function DashboardPage() {
   const { profile, user, realRole } = useAuth();
   const { toast } = useToast();
   const { activeBranchId, activeBranchName, totalBranches } = useSchoolContext();
+  const rolActivo = useRolActivo();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -328,7 +332,65 @@ export default function DashboardPage() {
   // Conserva lo que el acudiente ya tenía y no es decorativo: la invitación
   // pendiente, el modal de inscripción pendiente y los torneos abiertos.
   // ────────────────────────────────────────────────────────────────────────────
-  if (ACUDIENTE_V2 && usaInicioAcudienteV2(profile.role)) {
+  // Hoy del deportista — V2 (docs/specs/entrenador-deportista-v2.md). Mismo
+  // lugar que el acudiente: después de los gates. Conserva el modal de
+  // inscripción pendiente y los primeros pasos mientras no estén completos.
+  // Hoy del entrenador — V2: una frase y un botón según el momento del día.
+  // Va después de los gates (onboarding de persona, perfil del coach).
+  // Multirol: manda el rol activo (el mismo que eligen las pestañas de abajo),
+  // no profile.role — si no, un acudiente que entra como deportista vería la
+  // barra del deportista con el Inicio del acudiente.
+  // Avisos sin leer del entrenador y del deportista: la misma lista que la campana
+  // de la cabecera (misma caché, sin consulta extra). useDashboardStatsReal solo
+  // los cuenta para el acudiente, y la campana de Hoy quedaba siempre sin punto.
+  const avisosSinLeerCampana = notifications
+    ? (notifications as { read?: boolean }[]).filter((n) => !n.read).length
+    : undefined;
+
+  const invitacionPendiente = invitation && (
+    <InvitationBanner
+      invitation={invitation}
+      onAction={() => {
+        setInvitation(null);
+        refreshOnboardingData();
+      }}
+    />
+  );
+
+  if (ENTRENADOR_V2 && rolActivo === 'coach') {
+    return (
+      <>
+        {invitacionPendiente}
+        {onboardingSteps.length > 0 && !onboardingSteps.every(s => s.completed) && onboardingStatus !== 'completed' && (
+          <DashboardChecklist
+            steps={onboardingSteps}
+            onStepClick={(step) => (step.id === 'complete_profile' ? setShowCoachWizard(true) : navigate(step.href))}
+          />
+        )}
+        <CoachHomeV2
+          nombreProfe={profile.full_name ?? undefined}
+          avisosSinLeer={avisosSinLeerCampana}
+        />
+        <CoachProfileWizard open={showCoachWizard} onOpenChange={setShowCoachWizard} onSuccess={refreshOnboardingData} />
+      </>
+    );
+  }
+
+  if (DEPORTISTA_V2 && rolActivo === 'athlete') {
+    return (
+      <>
+        <PendingEnrollmentModal />
+        {invitacionPendiente}
+        {onboardingSteps.length > 0 && !onboardingSteps.every(s => s.completed) && onboardingStatus !== 'completed' && (
+          <DashboardChecklist steps={onboardingSteps} onStepClick={(step) => navigate(step.href)} />
+        )}
+        {/* Los torneos abiertos van DENTRO de AthleteHomeV2, con su diseño. */}
+        <AthleteHomeV2 avisosSinLeer={avisosSinLeerCampana} />
+      </>
+    );
+  }
+
+  if (ACUDIENTE_V2 && usaInicioAcudienteV2(rolActivo)) {
     return (
       <ParentHomeV2
         userId={user?.id}
@@ -342,15 +404,7 @@ export default function DashboardPage() {
             {onboardingSteps.length > 0 && !onboardingSteps.every(s => s.completed) && onboardingStatus !== 'completed' && (
               <DashboardChecklist steps={onboardingSteps} onStepClick={(step) => navigate(step.href)} />
             )}
-            {invitation && (
-              <InvitationBanner
-                invitation={invitation}
-                onAction={() => {
-                  setInvitation(null);
-                  refreshOnboardingData();
-                }}
-              />
-            )}
+            {invitacionPendiente}
           </>
         }
         pie={<OpenTournamentsCard />}

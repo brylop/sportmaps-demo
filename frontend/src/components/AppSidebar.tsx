@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { roleForNavigation } from '@/lib/navigationRole';
+import { esPerfilDeEscuela } from '@/hooks/useRolActivo';
 import { LogOut, ChevronDown, Repeat } from 'lucide-react';
 import {
   Sidebar,
@@ -126,6 +127,7 @@ export function AppSidebar() {
   const { showStore, showMyPurchases } = useMySchoolStore({ enabled: isBuyerNav });
   const baseNavigationGroups = getNavigationByRole(
     navigationRole, hasAddon, isModuleEnabled, storeEnabled, { showStore, showMyPurchases },
+    esPerfilDeEscuela(profile?.role),
   );
 
   // Mi Tienda: grupo ADICIONAL para roles que NO son primariamente vendor
