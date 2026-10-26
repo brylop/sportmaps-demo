@@ -1,14 +1,11 @@
 // Wompi Payment Gateway Integration Service
-// La firma de integridad se genera en el servidor (Edge Function)
-// El cliente NUNCA debe tener acceso al WOMPI_INTEGRITY_SECRET
-
-import { supabase } from '@/integrations/supabase/client';
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-
-// Ya no hay llave pública de build (VITE_WOMPI_PUBLIC_KEY): era UNA sola y apuntaba a UN
-// comercio, así que cualquier escuela sin llave propia terminaba cobrándole a ese comercio.
-// La llave sale siempre del BFF (create-session) y es la del comercio de la escuela.
+//
+// REGLA (Dynasty, "La firma es inválida" ago-oct 2026): la llave pública y la firma de
+// integridad del Widget salen SIEMPRE del BFF, que las calcula con el MISMO par de
+// credenciales del comercio que cobra. Este módulo ya no lee VITE_WOMPI_PUBLIC_KEY ni
+// pide la firma a la Edge Function `wompi-sign`: mezclar una llave de build con una
+// firma de otro lado mandaba el pago al comercio sandbox 11981889. Si el BFF no las
+// entrega, el checkout no abre (falla cerrado con un mensaje claro).
 
 /**
  * Genera una referencia única para iniciar un checkout de Wompi.
@@ -37,17 +34,61 @@ export interface WompiCheckoutConfig {
     schoolName?: string;
     schoolId?: string;
     /**
-     * Firma de integridad ya calculada por el BFF (`create-session`), con el integrity
-     * secret de ESTA escuela. Si viene, no se llama a la Edge Function `wompi-sign`.
-     * Imprescindible para escuelas con cuenta propia (payment_mode='direct'): la EF tiene
-     * un único secret global y no puede firmar por escuela.
+     * Firma de integridad calculada por el BFF (`create-session`, tienda, cobro público)
+     * con el integrity secret del comercio que cobra. OBLIGATORIA: sin ella no se abre.
      */
     signature?: string | null;
     /**
-     * Public key del comercio que cobra, resuelta por el BFF. OBLIGATORIA en la práctica:
-     * si no viene, el checkout no abre (no hay llave de respaldo en el cliente).
+     * Public key del comercio que cobra, resuelta por el BFF. OBLIGATORIA: no hay llave
+     * de build de respaldo.
      */
     publicKey?: string | null;
+}
+
+/** El checkout no se puede abrir con datos confiables: no es una cancelación. */
+export class WompiCheckoutNoDisponibleError extends Error {
+    constructor(public code: 'sin_llave_del_bff' | 'sin_firma_del_bff', message: string) {
+        super(message);
+        this.name = 'WompiCheckoutNoDisponibleError';
+    }
+}
+
+export const MENSAJE_WOMPI_NO_DISPONIBLE =
+    'El pago en línea no está disponible en este momento. '
+    + 'Puedes pagar por transferencia y subir tu comprobante, o intentar más tarde.';
+
+/**
+ * Llave + firma que el Widget va a usar. Ambas del BFF; si falta cualquiera, lanza.
+ * Exportada para fijar la regla en tests.
+ */
+export function credencialesDelWidget(config: Pick<WompiCheckoutConfig, 'publicKey' | 'signature'>): {
+    publicKey: string;
+    signature: string;
+} {
+    const publicKey = (config.publicKey ?? '').trim();
+    const signature = (config.signature ?? '').trim();
+    if (!publicKey) {
+        console.error('❌ Wompi: el BFF no devolvió la llave pública del comercio; no se abre el checkout.');
+        throw new WompiCheckoutNoDisponibleError('sin_llave_del_bff', MENSAJE_WOMPI_NO_DISPONIBLE);
+    }
+    if (!signature) {
+        console.error('❌ Wompi: el BFF no devolvió la firma de integridad; no se abre el checkout.');
+        throw new WompiCheckoutNoDisponibleError('sin_firma_del_bff', MENSAJE_WOMPI_NO_DISPONIBLE);
+    }
+    return { publicKey, signature };
+}
+
+/**
+ * Mensaje para la familia cuando el checkout se cerró por llave/firma no confiables,
+ * venga del frontend (WompiCheckoutNoDisponibleError) o del BFF (503 con code wompi_*).
+ * null si el error es otro.
+ */
+export function mensajeCheckoutNoDisponible(error: unknown): string | null {
+    if (error instanceof WompiCheckoutNoDisponibleError) return error.message;
+    const e = error as { status?: number; message?: string; body?: { code?: unknown } } | null;
+    const code = e?.body?.code;
+    if (typeof code === 'string' && code.startsWith('wompi_') && e?.message) return e.message;
+    return null;
 }
 
 export interface WompiTransactionResult {
@@ -61,68 +102,9 @@ export interface WompiTransactionResult {
 }
 
 /**
- * Obtiene la firma de integridad DESDE EL SERVIDOR.
- * La Edge Function usa el WOMPI_INTEGRITY_SECRET que nunca sale del servidor.
- *
- * ⚠️ Si la Edge Function no está desplegada, el pago no puede proceder en producción.
- */
-/**
- * Resultado autoritativo del servidor: firma + monto que DEBE pasarse al Widget.
- * El monto puede diferir del que envió el cliente si fue tampered — el EF
- * siempre devuelve el monto real de la BD.
- */
-interface IntegritySignatureResult {
-    signature: string;
-    amountInCents: number;
-    currency: string;
-}
-
-async function getIntegritySignature(
-    reference: string,
-    currency: string = 'COP',
-): Promise<IntegritySignatureResult> {
-    if (!SUPABASE_URL) {
-        throw new Error('VITE_SUPABASE_URL no configurado');
-    }
-
-    // Necesitamos el JWT de la sesión del usuario (NO la anon key) para que
-    // el Edge Function pueda verificar ownership de la referencia.
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) {
-        throw new Error('Sesión de usuario expirada. Vuelve a iniciar sesión.');
-    }
-    const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? '';
-
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/wompi-sign`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`,
-            'apikey': anonKey,
-        },
-        body: JSON.stringify({ reference, currency }),
-    });
-
-    if (!response.ok) {
-        const errorBody = await response.text();
-        throw new Error(`Error generando firma: ${response.status} — ${errorBody}`);
-    }
-
-    const data = await response.json();
-    if (!data.signature || typeof data.amount_in_cents !== 'number') {
-        throw new Error('Respuesta de firma inválida desde el servidor');
-    }
-
-    return {
-        signature: data.signature,
-        amountInCents: data.amount_in_cents,
-        currency: data.currency ?? currency,
-    };
-}
-
-/**
- * Abre el Widget de Checkout de Wompi.
- * La firma se solicita al servidor; el WOMPI_INTEGRITY_SECRET nunca está en el cliente.
+ * Abre el Widget de Checkout de Wompi con la llave y la firma que entregó el BFF.
+ * Lanza WompiCheckoutNoDisponibleError si falta alguna (no se abre el Widget).
+ * Devuelve null si el Widget no carga o el usuario lo cierra.
  */
 export async function openWompiCheckout(
     config: WompiCheckoutConfig
@@ -134,57 +116,14 @@ export async function openWompiCheckout(
         customerName,
         customerPhone,
         redirectUrl,
-        schoolId,
         legalId,
         legalIdType,
-        signature: signatureFromBff,
-        publicKey: publicKeyFromBff,
     } = config;
 
-    // La public key del BFF es la ÚNICA fuente: identifica al comercio que realmente cobra.
-    // Sin ella no se abre el Widget (nunca se cae a otro comercio).
-    const effectivePublicKey = publicKeyFromBff;
-    if (!effectivePublicKey) {
-        console.error(
-            `❌ Checkout Wompi bloqueado: la escuela${schoolId ? ` ${schoolId}` : ''} no tiene llave pública ` +
-            'propia (el BFF no devolvió publicKey). Conectar su cuenta de Wompi en Configuración → Pasarela de pago.',
-        );
-        return null;
-    }
-
-    let signature: string;
-    // El servidor es la fuente de verdad para el monto. Si el cliente envió
-    // un monto tampered, lo sobreescribimos con el que devuelve el EF.
-    let effectiveAmountInCents = amountInCents;
-
-    if (signatureFromBff) {
-        // Camino nuevo: el BFF ya firmó con el integrity secret de esta escuela. El monto
-        // también viene del servidor (create-session lo calcula, no el cliente), así que no
-        // hace falta el cruce contra la Edge Function.
-        signature = signatureFromBff;
-    } else {
-        try {
-            const result = await getIntegritySignature(reference, 'COP');
-            signature = result.signature;
-            effectiveAmountInCents = result.amountInCents;
-            if (result.amountInCents !== amountInCents) {
-                console.warn(
-                    `⚠️ amountInCents del cliente (${amountInCents}) difiere del servidor ` +
-                    `(${result.amountInCents}). Usando el del servidor.`,
-                );
-            }
-        } catch (err) {
-            console.error('❌ No se pudo generar la firma de integridad:', err);
-            // En sandbox se puede continuar sin firma (modo de prueba)
-            // En producción: retornar null para bloquear el pago
-            if (import.meta.env.PROD) {
-                return null;
-            }
-            // Fallback SOLO sandbox — nunca llega a producción
-            console.warn('⚠️ Usando modo sandbox sin firma (solo desarrollo)');
-            signature = '';
-        }
-    }
+    // Llave y firma: SOLO del BFF, del mismo comercio. Sin fallback (ver cabecera).
+    const { publicKey: effectivePublicKey, signature } = credencialesDelWidget(config);
+    // El monto también viene del servidor (create-session / tienda lo calculan).
+    const effectiveAmountInCents = amountInCents;
 
     return new Promise((resolve) => {
         try {
@@ -225,10 +164,7 @@ export async function openWompiCheckout(
                 customerData,
             };
 
-            // Solo incluir firma si se obtuvo del servidor
-            if (signature) {
-                widgetConfig.signature = { integrity: signature };
-            }
+            widgetConfig.signature = { integrity: signature };
 
             const checkout = new WidgetCheckout(widgetConfig);
 
@@ -244,15 +180,29 @@ export async function openWompiCheckout(
     });
 }
 
+const WOMPI_API = {
+    sandbox: 'https://sandbox.wompi.co/v1',
+    production: 'https://production.wompi.co/v1',
+} as const;
+
 /**
- * Verifica el status de una transacción vía API de Wompi.
- * Útil para polling desde la página /payment-result.
- * Sin llave de build no se sabe de antemano si la transacción es de pruebas o de
- * producción (depende del comercio de cada escuela): se consulta producción y, si no la
- * conoce, sandbox. La consulta es pública y de solo lectura, no usa ninguna llave.
+ * Verifica el status de una transacción vía API pública de Wompi (página /payment-result).
+ *
+ * El ambiente sale del parámetro `env` que Wompi agrega al redirect (`?id=…&env=test`),
+ * no de una llave de build: con VITE_WOMPI_PUBLIC_KEY=pub_test_ en producción esto
+ * consultaba el sandbox para transacciones reales. Sin `env`, prueba producción y,
+ * si allá no existe, sandbox.
  */
-export async function checkTransactionStatus(transactionId: string): Promise<WompiTransactionResult | null> {
-    const bases = ['https://production.wompi.co/v1', 'https://sandbox.wompi.co/v1'];
+export async function checkTransactionStatus(
+    transactionId: string,
+    env?: string | null,
+): Promise<WompiTransactionResult | null> {
+    const e = (env ?? '').toLowerCase();
+    const bases = e === 'test'
+        ? [WOMPI_API.sandbox]
+        : e === 'prod' || e === 'production'
+            ? [WOMPI_API.production]
+            : [WOMPI_API.production, WOMPI_API.sandbox];
 
     for (const baseUrl of bases) {
         try {

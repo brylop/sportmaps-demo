@@ -559,3 +559,48 @@ describe('runWhatsAppQueue — marcado personal pero «también es familia»', (
         expect(sendTextMessageMock).not.toHaveBeenCalled();
     });
 });
+
+// ─── Seguridad del cobro por WhatsApp (2026-10-07) ───────────────────────────
+
+describe('runWhatsAppQueue — límite de comprobantes y revinculación', () => {
+    function conRpc(extra: Record<string, any>) {
+        const base = rpcMock.getMockImplementation()!;
+        rpcMock.mockImplementation(((name: string) => (name in extra
+            ? Promise.resolve(extra[name]) : base(name))) as any);
+        return () => rpcMock.mockImplementation(base);
+    }
+
+    it('pasado del tope: guarda el archivo, NO llama al OCR y la fila queda escalada', async () => {
+        state.rpcIdentifyByPhone = { data: { estado: 'identificado', parent_id: 'parent-9' } };
+        const restaurar = conRpc({ wa_reservar_cupo_ocr: { data: { permitido: false, motivo: 'limite_numero' }, error: null } });
+        try {
+            await runWhatsAppQueue();
+        } finally { restaurar(); }
+
+        expect(downloadMediaMock).toHaveBeenCalled();
+        expect(extractReceiptMock).not.toHaveBeenCalled();
+        expect(pagosPendientesDeMock).not.toHaveBeenCalled();
+        expect(ultimoCierre()).toMatchObject({ status: 'ignored', result_type: 'escalated', error_message: 'limite_ocr: limite_numero' });
+        for (const t of textosEnviados()) expect(t).not.toMatch(/l[ií]mite|demasiad/i);
+    });
+
+    it('dentro del tope: sigue al OCR como siempre', async () => {
+        state.rpcIdentifyByPhone = { data: { estado: 'identificado', parent_id: 'parent-9' } };
+        const restaurar = conRpc({ wa_reservar_cupo_ocr: { data: { permitido: true, motivo: 'ok' }, error: null } });
+        try {
+            await runWhatsAppQueue();
+        } finally { restaurar(); }
+        expect(extractReceiptMock).toHaveBeenCalled();
+        expect(pagosPendientesDeMock).toHaveBeenCalledWith('parent-9', 'school-1');
+    });
+
+    it('revinculación pendiente: NO usa el vínculo viejo de la conversación (no aplica a cobros de otra familia)', async () => {
+        state.conv = { data: { id: 'conv-1', parent_id: 'parent-viejo', identified: true } };
+        state.rpcIdentifyByPhone = { data: { estado: 'revinculacion_pendiente' } };
+
+        await runWhatsAppQueue();
+
+        expect(pagosPendientesDeMock).not.toHaveBeenCalled();
+        expect(ultimoCierre()).toMatchObject({ status: 'ignored', result_type: 'escalated' });
+    });
+});

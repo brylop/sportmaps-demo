@@ -151,6 +151,21 @@ async function marcarRevisionManualPorManipulacion(
     return { action: 'none' };
 }
 
+/**
+ * ¿El monto del cobro lo eligió el navegador? Consulta aparte y tolerante: sin
+ * la columna (migración sin aplicar) responde false y todo sigue como antes.
+ */
+export async function montoElegidoPorElCliente(paymentId: string): Promise<boolean> {
+    try {
+        const { data, error } = await supabase.from('payments')
+            .select('amount_source').eq('id', paymentId).maybeSingle();
+        if (error || !data) return false;
+        return (data as { amount_source?: string }).amount_source === 'cliente';
+    } catch {
+        return false;
+    }
+}
+
 export async function evaluatePaymentReceipt(paymentId: string, log?: Logger): Promise<EvaluateResult> {
     try {
         const { data: pay } = await supabase
@@ -169,7 +184,12 @@ export async function evaluatePaymentReceipt(paymentId: string, log?: Logger): P
 
         const amount = Number(p.amount);
         const cap = Number(settings?.auto_approve_max_amount ?? 0);
-        const autoApproveEligible = !!settings?.auto_approve_enabled && cap > 0 && amount <= cap;
+        // Monto elegido por el navegador (amount_source='cliente', migración
+        // 20261007163134): el comprobante se compararía contra un valor que pone
+        // quien paga. Ni se re-lee (no se gasta OCR): lo revisa una persona.
+        // `auto_approve_payment` también se niega; esto evita las dos lecturas.
+        const autoApproveEligible = !!settings?.auto_approve_enabled && cap > 0 && amount <= cap
+            && !(await montoElegidoPorElCliente(paymentId));
 
         const path = typeof p.receipt_url === 'string' ? p.receipt_url : null;
         const downloadable = !!path && !path.toLowerCase().startsWith('http');
