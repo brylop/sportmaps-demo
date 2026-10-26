@@ -32,6 +32,8 @@ import { extractEnrollmentForm, type EnrollmentFormResult } from '../services/en
 import { buildVerdictContext } from '../services/receipt-context.service';
 import { normalizeDestination, normalizeReference, evaluateVerdict, destinationMatchesRegistered } from '../services/receipt-verdict';
 import { evaluatePaymentReceipt, redRejectionMessage } from '../services/receipt-approval.service';
+import { frenarSiExcedeLimite } from '../services/wa-limite-comprobantes.service';
+import { revinculacionPendiente } from '../services/wa-revinculacion.service';
 import { debeAtender, type TipoDeContacto } from '../services/whatsapp-atencion.service';
 import { esMarcaNoFamilia } from '../services/whatsapp-tipo-contacto';
 import {
@@ -2583,6 +2585,9 @@ async function procesarFilaInterna(
         await procesarComoStaffAdmin(fila, wa, conv, responder, log, lecturaPrevia);
         return;
     }
+    // Tope de comprobantes por número y por escuela ANTES de cualquier OCR (wa-limite-comprobantes.service).
+    if (await frenarSiExcedeLimite(fila.id, { guardarArchivo: () => bajarYGuardarArchivo(fila, wa, log), responder,
+        cerrar: (extra) => cerrar(fila.id, 'ignored', extra) }, log)) return;
     if (decision === 'escalar_sin_cuenta') {
         // (a) Con ficha por teléfono: se aplica por la ficha, sin pedir cuenta.
         const fichas = await fichasPorTelefono(fila.school_id, fila.wa_phone_number);
@@ -2625,7 +2630,8 @@ async function procesarFilaInterna(
         ((identificacion as any)?.estado === 'identificado' && (identificacion as any)?.parent_id)
             ? (identificacion as any).parent_id as string
             : null;
-    if (!parentId && conv?.identified && conv.parent_id) parentId = conv.parent_id as string;
+    // `conv` se leyó antes de la RPC: con una revinculación pendiente (número que ahora es de OTRO acudiente) el vínculo viejo no vale.
+    if (!parentId && !revinculacionPendiente(identificacion) && conv?.identified && conv.parent_id) parentId = conv.parent_id as string;
     parentIdConocido = parentId;
 
     if (!parentId) {

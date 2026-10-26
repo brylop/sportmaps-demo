@@ -9,9 +9,11 @@
  *           loading, error } = useWompiCheckout({ onSuccess, onError, onClosed });
  *
  * Cada `start*` hace dos pasos:
- *   1. Llama al BFF para crear la transaccion logica → recibe { reference, amountInCents }
- *   2. Llama a `openWompiCheckout` (lib/api/wompi) que pide la firma a la
- *      Edge Function `wompi-sign` y abre el Widget.
+ *   1. Llama al BFF para crear la transaccion logica → recibe { reference, amountInCents,
+ *      publicKey, signature }
+ *   2. Llama a `openWompiCheckout` (lib/api/wompi), que abre el Widget SOLO con la llave
+ *      y la firma del BFF. Los flujos de marketplace que no las devuelven no abren
+ *      (falla cerrado; marketplace_transactions no existe en la base al 2026-10-07).
  *
  * El estado real de pago llega via webhook al BFF; el frontend solo navega
  * a la pagina de resultado y hace polling sobre Supabase si lo necesita.
@@ -180,8 +182,8 @@ export function useWompiCheckout({ onSuccess, onError, onClosed }: UseWompiCheck
                 sportmapsFee: number;
                 feePct: number;
                 // Firma y public key del comercio que cobra, resueltas por el BFF según el
-                // payment_mode de la escuela. Si son null, openWompiCheckout cae al camino
-                // legacy (Edge Function + llave de build).
+                // payment_mode de la escuela. Obligatorias: si son null, openWompiCheckout
+                // no abre el Widget (no hay llave de build ni Edge Function de respaldo).
                 signature?: string | null;
                 publicKey?: string | null;
             }>('/api/v1/payments/create-session', {

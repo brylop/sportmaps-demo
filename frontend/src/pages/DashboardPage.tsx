@@ -33,6 +33,7 @@ import { ACUDIENTE_V2, DEPORTISTA_V2, ENTRENADOR_V2 } from '@/lib/feature-flags'
 import { CoachHomeV2 } from '@/components/coach/v2/CoachHomeV2';
 import { AthleteHomeV2 } from '@/components/athlete/v2/AthleteHomeV2';
 import { useRolActivo } from '@/hooks/useRolActivo';
+import { resolveOnboardingGateStatus } from '@/lib/onboardingGate';
 
 export default function DashboardPage() {
   const { profile, user, realRole } = useAuth();
@@ -287,7 +288,14 @@ export default function DashboardPage() {
   {
     const isSchoolRole = ['school', 'school_admin', 'admin', 'owner']
       .includes(profile?.role as string);
-    const effectiveStatus = onboardingStatus ?? fallbackSchool?.onboarding_status;
+    // resolveOnboardingGateStatus: no se decide hasta que el servidor responda
+    // (antes el respaldo redirigía primero y generaba un bucle con
+    // /onboarding/school para quien es dueño de una escuela y miembro de otra).
+    const effectiveStatus = resolveOnboardingGateStatus({
+      loading: loadingStatus,
+      serverStatus: onboardingStatus,
+      fallbackStatus: fallbackSchool?.onboarding_status,
+    });
     const hasSchool = !!(rpcStatus?.has_school || rpcStatus?.school_id || fallbackSchool?.id);
 
     // Rol de escuela SIN escuela creada (típico en registro con Google: solo se

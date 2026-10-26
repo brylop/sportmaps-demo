@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { mensajeErrorDeMonto } from '@/lib/paymentAmountError';
 import { todayColombia } from '@/lib/dateUtils';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,7 +15,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { downloadReceipt } from '@/lib/receipt-generator';
 import { usePdfBranding } from '@/hooks/usePdfBranding';
-import { openWompiCheckout, generatePaymentReference } from '@/lib/api/wompi';
+import { openWompiCheckout, generatePaymentReference, mensajeCheckoutNoDisponible } from '@/lib/api/wompi';
 import { bffClient } from '@/lib/api/bffClient';
 import { autoEvaluate as autoEvaluateGlosa } from '@/lib/api/glosas';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -551,7 +552,7 @@ export default function ParentCheckoutPage() {
           ? 'Este comprobante ya está vinculado a otro pago en esta escuela. Si crees que es un error, contacta a la administración.'
           : isPeriodDuplicate
           ? 'Ya existe un cobro activo para este mes de este atleta. Vuelve a la lista de cobros y paga el que aparece pendiente.'
-          : 'No se pudo registrar el pago en la base de datos',
+          : (mensajeErrorDeMonto(insertError) ?? 'No se pudo registrar el pago en la base de datos'),
         variant: 'destructive',
       });
       return false;
@@ -617,9 +618,9 @@ export default function ParentCheckoutPage() {
         reference: string;
         amountInCents: number;
         // Firma y public key del comercio de ESTA escuela, resueltas por el BFF según su
-        // payment_mode. Hay que pasarlas al Widget: sin ellas openWompiCheckout cae a la
-        // llave de build + firma de la Edge Function, que pueden ser de comercios
-        // distintos → Wompi responde "La firma es inválida" (Dynasty desde el 27-ago).
+        // payment_mode. Antes, sin ellas el Widget caía a la llave de build + firma de la
+        // Edge Function, de comercios distintos → "La firma es inválida" (Dynasty desde
+        // el 27-ago). Hoy, sin ellas, el checkout no abre.
         signature?: string | null;
         publicKey?: string | null;
       }>(
@@ -655,6 +656,7 @@ export default function ParentCheckoutPage() {
       const transaction = await openWompiCheckout({
         reference,
         amountInCents: session.amountInCents,
+        // Llave y firma del BFF, obligatorias: sin ellas openWompiCheckout no abre.
         signature: session.signature ?? undefined,
         publicKey: session.publicKey ?? undefined,
         customerEmail,
@@ -684,7 +686,9 @@ export default function ParentCheckoutPage() {
     } catch (error) {
       toast({
         title: 'Error en el pago',
-        description: getUserFriendlyError(error),
+        // El cierre por llave/firma no confiable trae un mensaje pensado para la familia
+        // (con la salida por transferencia); el traductor genérico lo taparía.
+        description: mensajeCheckoutNoDisponible(error) ?? getUserFriendlyError(error),
         variant: 'destructive'
       });
     } finally { setProcessing(false); }
