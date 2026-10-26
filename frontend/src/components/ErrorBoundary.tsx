@@ -1,7 +1,26 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Home, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { estaSinConexion, resetPwaCachesAndReload } from '@/pwa/resetCaches';
+
+/**
+ * ¿El error es un chunk que no cargó (pantalla lazy)? Incluye el caso en que
+ * React.lazy recibe un módulo undefined porque el chunk respondió 503/HTML →
+ * "Cannot read properties of undefined (reading 'default')".
+ */
+export function esErrorDeChunk(error: Error | null | undefined): boolean {
+    const msg = error?.message || '';
+    return (
+        msg.includes('Failed to fetch dynamically imported module') ||
+        msg.includes('error loading dynamically imported module') ||
+        msg.includes('Importing a module script failed') ||
+        msg.includes('Loading chunk') ||
+        msg.includes('Loading CSS chunk') ||
+        msg.includes("reading 'default'") ||
+        msg.includes('reading "default"')
+    );
+}
 
 interface Props {
     children: ReactNode;
@@ -12,6 +31,8 @@ interface State {
     hasError: boolean;
     error: Error | null;
     errorInfo: ErrorInfo | null;
+    /** El chunk falló SIN señal: se espera a que vuelva para recargar. */
+    sinConexion: boolean;
 }
 
 /**
@@ -24,7 +45,8 @@ class ErrorBoundary extends Component<Props, State> {
         this.state = {
             hasError: false,
             error: null,
-            errorInfo: null
+            errorInfo: null,
+            sinConexion: false,
         };
     }
 
@@ -40,29 +62,52 @@ class ErrorBoundary extends Component<Props, State> {
         this.setState({ errorInfo });
 
         // Auto-reload on stale/failed chunk errors (post-deploy o 503 del SW).
-        // Incluye el caso en que React.lazy recibe un módulo undefined porque
-        // el chunk respondió 503/HTML → "Cannot read properties of undefined
-        // (reading 'default')".
-        const msg = error.message || '';
-        const isChunkError =
-            msg.includes('Failed to fetch dynamically imported module') ||
-            msg.includes('error loading dynamically imported module') ||
-            msg.includes('Importing a module script failed') ||
-            msg.includes('Loading chunk') ||
-            msg.includes('Loading CSS chunk') ||
-            msg.includes("reading 'default'") ||
-            msg.includes('reading "default"');
+        if (!esErrorDeChunk(error)) return;
+
+        // Sin señal: abrir una pantalla que aún no se había descargado. Recargar
+        // ahora dejaba la app en la página de error del navegador; se muestra
+        // «sin conexión» y se recarga sola cuando vuelve la señal. No consume el
+        // guard de una-recarga-por-sesión: la recarga de después sí sirve.
+        if (estaSinConexion()) {
+            this.setState({ sinConexion: true });
+            window.addEventListener('online', this.handleOnline);
+            return;
+        }
 
         const reloadedKey = 'chunk-reload';
-        if (isChunkError && !sessionStorage.getItem(reloadedKey)) {
+        if (!sessionStorage.getItem(reloadedKey)) {
             sessionStorage.setItem(reloadedKey, '1');
-            window.location.reload();
+            // Con el Cache Storage limpio: un service worker de una versión
+            // anterior puede seguir sirviendo la build vieja.
+            void resetPwaCachesAndReload();
             return;
         }
     }
 
+    componentWillUnmount(): void {
+        window.removeEventListener('online', this.handleOnline);
+    }
+
+    handleOnline = (): void => {
+        window.removeEventListener('online', this.handleOnline);
+        void resetPwaCachesAndReload();
+    };
+
+    // «Volver» sin señal: a la pantalla anterior (ya cargada). El boundary
+    // envuelve todo el router, así que tras el cambio de ruta hay que soltar el
+    // error para que vuelva a pintar; y ya no hace falta recargar al volver la red.
+    handleVolver = (): void => {
+        window.removeEventListener('online', this.handleOnline);
+        window.addEventListener('popstate', () => {
+            this.setState({ hasError: false, error: null, errorInfo: null, sinConexion: false });
+        }, { once: true });
+        window.history.back();
+    };
+
+    // Reparación completa (caché + service worker). Antes el botón solo
+    // recargaba y, con el caché roto, la persona quedaba atascada.
     handleReload = (): void => {
-        window.location.reload();
+        void resetPwaCachesAndReload({ unregister: true });
     };
 
     handleGoHome = (): void => {
@@ -70,7 +115,13 @@ class ErrorBoundary extends Component<Props, State> {
     };
 
     handleRetry = (): void => {
-        this.setState({ hasError: false, error: null, errorInfo: null });
+        // Un chunk que falló no se reintenta re-renderizando: React.lazy guarda
+        // la promesa rechazada y vuelve a fallar en el acto. Hay que recargar.
+        if (esErrorDeChunk(this.state.error)) {
+            this.handleReload();
+            return;
+        }
+        this.setState({ hasError: false, error: null, errorInfo: null, sinConexion: false });
     };
 
     render(): ReactNode {
@@ -78,6 +129,30 @@ class ErrorBoundary extends Component<Props, State> {
             // Custom fallback if provided
             if (this.props.fallback) {
                 return this.props.fallback;
+            }
+
+            if (this.state.sinConexion) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center p-4 bg-background">
+                        <Card className="max-w-lg w-full">
+                            <CardHeader className="text-center">
+                                <div className="w-16 h-16 mx-auto mb-4 bg-amber-500/10 rounded-full flex items-center justify-center">
+                                    <WifiOff className="h-8 w-8 text-amber-600" />
+                                </div>
+                                <CardTitle className="text-2xl">Sin conexión</CardTitle>
+                                <CardDescription>
+                                    Esta pantalla todavía no se había descargado y no hay señal. Se abrirá sola
+                                    apenas vuelva la conexión.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <Button onClick={this.handleVolver} className="w-full" variant="outline">
+                                    Volver
+                                </Button>
+                            </CardContent>
+                        </Card>
+                    </div>
+                );
             }
 
             // Default error UI
