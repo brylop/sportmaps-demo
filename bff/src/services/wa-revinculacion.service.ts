@@ -7,7 +7,7 @@
  * `wa_identify_by_phone` reescribía el vínculo y el bot le mostraba a quien
  * escribía los pagos y atletas de la cuenta nueva.
  *
- * Desde la migración 20261007163135 la RPC devuelve `revinculacion_pendiente`,
+ * Desde la migración 20261025205953 la RPC devuelve `revinculacion_pendiente`,
  * deja la conversación SIN vínculo y no lo restablece hasta que se verifique
  * (con el `wa_verify_otp` de siempre) un código enviado al correo del acudiente
  * nuevo. Un código por el mismo WhatsApp no frenaría un SIM-swap: quien tiene

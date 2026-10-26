@@ -185,7 +185,7 @@ export async function evaluatePaymentReceipt(paymentId: string, log?: Logger): P
         const amount = Number(p.amount);
         const cap = Number(settings?.auto_approve_max_amount ?? 0);
         // Monto elegido por el navegador (amount_source='cliente', migración
-        // 20261007163134): el comprobante se compararía contra un valor que pone
+        // 20261025205952): el comprobante se compararía contra un valor que pone
         // quien paga. Ni se re-lee (no se gasta OCR): lo revisa una persona.
         // `auto_approve_payment` también se niega; esto evita las dos lecturas.
         const autoApproveEligible = !!settings?.auto_approve_enabled && cap > 0 && amount <= cap

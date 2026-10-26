@@ -8,7 +8,7 @@
  *
  * La decisión es de la base: `wa_reservar_cupo_ocr(queue_id)` cuenta y reserva
  * atómicamente (candado por escuela, idempotente por fila; migración
- * 20261007163132). Acá solo se interpreta la respuesta y, si se pasó del tope,
+ * 20261025205950). Acá solo se interpreta la respuesta y, si se pasó del tope,
  * se cierra la fila como ESCALADA sin llamar al OCR: el archivo se guarda para
  * que la escuela lo vea en «Comprobantes sin resolver», y a la familia se le
  * responde un mensaje neutro (no se le dice que hay un límite: a quien está

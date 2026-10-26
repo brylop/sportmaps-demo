@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 817,
-  "head": "20261025020013",
+  "count": 822,
+  "head": "20261025205957",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -820,6 +820,11 @@
     {"v":"20261025003708","file":"20261025003708_v2_b4_deportista_lee_lo_suyo.sql","sha256":"e43fd8b873c18670d6af8a22a5a5980c9ce561f14f5ae8e26d0c016d0e17da33","added":"2026-10-25","by":"Brayan Steven Lopez"},
     {"v":"20261025003712","file":"20261025003712_v2_b5_titulo_aviso_calendario.sql","sha256":"d636723d7aa89d194c34bffc3293299e61c2c50d69e7b4cc9b3126ccecce7c44","added":"2026-10-25","by":"Brayan Steven Lopez"},
     {"v":"20261025013621","file":"20261025013621_v2_b7_alcance_y_validaciones.sql","sha256":"d5094bde8041df2da06e918ab91ea9e2d91837b2de058148b1286c105e051daa","added":"2026-10-25","by":"Brayan Steven Lopez"},
-    {"v":"20261025020013","file":"20261025020013_grant_get_personal_trainer_school_id.sql","sha256":"f313b9c790a58459c7667459bf9597458cbdc60a014b2c1002a0a9e5bedf06a3","added":"2026-10-25","by":"Brayan Steven Lopez"}
+    {"v":"20261025020013","file":"20261025020013_grant_get_personal_trainer_school_id.sql","sha256":"f313b9c790a58459c7667459bf9597458cbdc60a014b2c1002a0a9e5bedf06a3","added":"2026-10-25","by":"Brayan Steven Lopez"},
+    {"v":"20261025205950","file":"20261025205950_wa_limite_comprobantes_ocr.sql","sha256":"9ed105a441b4aa4dcc252bfa60c3ef1afc3eeae4b0d4bfb54cb3f15c4f3f4482","added":"2026-10-26","by":"Brayan Steven Lopez"},
+    {"v":"20261025205952","file":"20261025205952_payments_monto_del_servidor.sql","sha256":"549f8f5da94c0a34e61927c566c2bf5305d802c25a4bc49aa45869e1b3820e08","added":"2026-10-26","by":"Brayan Steven Lopez"},
+    {"v":"20261025205953","file":"20261025205953_wa_revinculacion_con_codigo_por_correo.sql","sha256":"64a6c7602c630643b83830dfbd47d48ca67999389fc7f1dff1c0fbc235161119","added":"2026-10-26","by":"Brayan Steven Lopez"},
+    {"v":"20261025205955","file":"20261025205955_conciliacion_correo_banco_dkim.sql","sha256":"a1932acf3640c77b4ce3e9ce47648738167aef974364860cc664f1d2c64ea71f","added":"2026-10-26","by":"Brayan Steven Lopez"},
+    {"v":"20261025205957","file":"20261025205957_payments_monto_servidor_despues_de_s4.sql","sha256":"1e692c36061a1f3ea05107a2fb294b990551267b60fcca250f1efd3faf42ed01","added":"2026-10-26","by":"Brayan Steven Lopez"}
   ]
 }

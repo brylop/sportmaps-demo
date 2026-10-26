@@ -1,14 +1,15 @@
 /**
- * El monto de un cobro que crea el navegador lo valida la base
- * (trg_zz_payments_monto_servidor, migración 20261007163134):
+ * El monto de un cobro que crea el navegador lo pone la base:
  *
- * - Mensualidad: tiene que ser la tarifa del servidor (misma regla que
- *   open_month). Si no, la base rechaza con `PAYMENT_AMOUNT_MISMATCH: <valor>`.
- * - Monto <= 0: `PAYMENT_AMOUNT_INVALID`.
+ * - S4 (trg_zzy_monto_cobro_cliente, 20261010145241): mensualidad, inscripción
+ *   y seguro salen con la tarifa del servidor; sin tarifa, P0001 con un mensaje
+ *   ya legible (PAYMENT_AMOUNT_UNPRICED en el DETAIL).
+ * - Marca amount_source (20261025205952 + 20261025205957): monto <= 0 →
+ *   `PAYMENT_AMOUNT_INVALID`. Desde el 2026-10-24 un monto distinto NO se
+ *   rechaza (queda 'cliente', sin auto-aprobación), así que
+ *   `PAYMENT_AMOUNT_MISMATCH` ya no llega; se sigue traduciendo por si vuelve.
  *
- * Esto solo traduce ese rechazo a un mensaje para la familia. Si la pantalla
- * mostraba otro valor (precio que cambió, pestaña vieja), recargar trae el
- * cobro con el valor correcto.
+ * Esto solo traduce esos rechazos a un mensaje para la familia.
  */
 
 const formatoCOP = (n: number) =>

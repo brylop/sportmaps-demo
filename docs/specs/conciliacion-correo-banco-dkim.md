@@ -2,7 +2,7 @@
 
 **Estado:** backend listo detrás de un flag por escuela **apagado** (2026-10-07). Falta la configuración externa (§6) y la pantalla de la escuela (§7).
 **Origen:** plan maestro de cobros §4.6 y Fase 1.3 (`docs/specs/plan-maestro-cobros-2026-10.md`). Memoria: *notificaciones del banco por correo (DKIM)* y *conciliación bancaria pendiente*.
-**Migración:** `supabase/migrations/20261007163138_conciliacion_correo_banco_dkim.sql` (sin aplicar).
+**Migración:** `supabase/migrations/20261025205955_conciliacion_correo_banco_dkim.sql` (aplicada en la base viva; verificado 2026-10-25).
 
 ---
 
@@ -120,7 +120,7 @@ Medido 2026-10-07: `reconciliation_status` está en `NULL` en 1.149 pagos `paid`
 - [ ] Node ≥ 22.19 (`mailauth@7` lo declara en `engines`; se probó en 22.15 y funciona, pero conviene fijar `NODE_VERSION`).
 
 **Base**
-- [ ] Aplicar `20261007163138_conciliacion_correo_banco_dkim.sql` por una vía con rastro y correr `npm run seguridad:invariantes`.
+- [x] Aplicar `20261025205955_conciliacion_correo_banco_dkim.sql` — viva al 2026-10-25, sin rastro en `schema_migrations`. Falta correr `npm run seguridad:invariantes`.
 
 **Piloto (una escuela, p. ej. Dynasty)**
 - [ ] Encender `bank_email_reconciliation_enabled` en esa escuela.
