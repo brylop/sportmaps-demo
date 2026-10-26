@@ -44,6 +44,7 @@ vi.mock('./useAthleteV2Data', () => ({
   enviarRpeRapido: vi.fn(),
   callupsKey: (id: string) => ['c', id],
   autoevalKey: (id: string) => ['a', id],
+  formularioAutoeval: (p: { sessionId: string }) => `/post-entreno/${p.sessionId}`,
 }));
 vi.mock('sonner', () => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }) }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ signOut: vi.fn(), user: { id: 'yo' }, profile: null }) }));
@@ -109,6 +110,14 @@ describe('el menor nunca ve pagar', () => {
     const btn = screen.getByRole('button', { name: /Pagar \$/ });
     fireEvent.click(btn);
     expect(s.pagar).toHaveBeenCalledWith([DEUDA]);
+  });
+
+  it('una sola campana: el Inicio no dibuja la suya (queda la de la cabecera de la app)', () => {
+    s.deportista = MAYOR();
+    pintar(<AthleteHomeV2 hoy={HOY} />);
+    expect(screen.queryByRole('link', { name: /Avisos/ })).toBeNull();
+    expect(document.querySelector('a[href="/notifications"]')).toBeNull();
+    expect(screen.getByRole('banner')).toBeInTheDocument();
   });
 
   it('Hoy del menor: sin plata ni «Pagar», con su entreno y el carnet', () => {

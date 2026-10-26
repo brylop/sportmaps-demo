@@ -16,7 +16,7 @@
  */
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Bell, CalendarDays, Check, ChevronDown, ChevronRight, ClipboardCheck } from 'lucide-react';
+import { CalendarDays, Check, ChevronDown, ChevronRight, ClipboardCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -56,14 +56,12 @@ import {
 
 interface Props {
   nombreProfe?: string | null;
-  /** Avisos sin leer (punto en la campana). undefined = sin punto. */
-  avisosSinLeer?: number;
   rutas?: Partial<RutasCoachV2>;
   /** Para pruebas. */
   hoy?: Date;
 }
 
-export function CoachHomeV2({ nombreProfe, avisosSinLeer, rutas: rutasProp, hoy }: Props) {
+export function CoachHomeV2({ nombreProfe, rutas: rutasProp, hoy }: Props) {
   const rutas = conRutas(rutasProp);
   // La hora avanza (tic por minuto y al volver a la pestaña): la frase del momento no se congela.
   const ahora = useAhora(hoy);
@@ -82,6 +80,7 @@ export function CoachHomeV2({ nombreProfe, avisosSinLeer, rutas: rutasProp, hoy 
 
   return (
     <div className="mx-auto flex w-full max-w-page-narrow flex-col gap-4 pb-nav-safe font-poppins animate-in fade-in duration-300">
+      {/* Sin campana propia: la única es la de la cabecera de la app (GlobalNotificationBell). */}
       <header className="flex items-center gap-3">
         <div aria-hidden className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-xs font-bold text-primary-foreground">
           {iniciales(schoolName ?? 'SportMaps')}
@@ -90,14 +89,6 @@ export function CoachHomeV2({ nombreProfe, avisosSinLeer, rutas: rutasProp, hoy 
           <span className="truncate text-sm font-semibold">{schoolName ?? 'SportMaps'}</span>
           <span className="text-xs text-muted-foreground">{cabeceraFecha}</span>
         </div>
-        <Link
-          to={rutas.avisos}
-          aria-label={avisosSinLeer ? `Avisos, ${avisosSinLeer} sin leer` : 'Avisos'}
-          className="relative flex h-touch w-touch items-center justify-center rounded-full hover:bg-muted"
-        >
-          <Bell className="h-5 w-5" aria-hidden />
-          {!!avisosSinLeer && avisosSinLeer > 0 && <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-orange" aria-hidden />}
-        </Link>
       </header>
 
       {!schoolId && !cargandoEscuela ? (
