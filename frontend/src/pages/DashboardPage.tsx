@@ -34,6 +34,7 @@ import { CoachHomeV2 } from '@/components/coach/v2/CoachHomeV2';
 import { AthleteHomeV2 } from '@/components/athlete/v2/AthleteHomeV2';
 import { useRolActivo } from '@/hooks/useRolActivo';
 import { resolveOnboardingGateStatus } from '@/lib/onboardingGate';
+import { JoinSchoolCodeBanner } from '@/components/school-join/JoinSchoolCodeBanner';
 
 export default function DashboardPage() {
   const { profile, user, realRole } = useAuth();
@@ -389,6 +390,8 @@ export default function DashboardPage() {
       <>
         <PendingEnrollmentModal />
         {invitacionPendiente}
+        {/* Cuenta sin escuela: «¿Ya tienes escuela? Ingresa su código» (spec codigo-de-escuela). */}
+        <JoinSchoolCodeBanner className="mb-4" />
         {onboardingSteps.length > 0 && !onboardingSteps.every(s => s.completed) && onboardingStatus !== 'completed' && (
           <DashboardChecklist steps={onboardingSteps} onStepClick={(step) => navigate(step.href)} />
         )}
@@ -413,6 +416,7 @@ export default function DashboardPage() {
               <DashboardChecklist steps={onboardingSteps} onStepClick={(step) => navigate(step.href)} />
             )}
             {invitacionPendiente}
+            <JoinSchoolCodeBanner />
           </>
         }
         pie={<OpenTournamentsCard />}
@@ -669,6 +673,9 @@ export default function DashboardPage() {
 
       {/* Pending Enrollment Modal */}
       <PendingEnrollmentModal />
+
+      {/* Cuenta sin escuela (acudiente o deportista): ingresar el código de su escuela. */}
+      {(profile.role === 'parent' || profile.role === 'athlete') && <JoinSchoolCodeBanner />}
 
       {/* Invitations and Onboarding Checklist */}
       {invitation && !['school', 'school_admin', 'admin', 'super_admin', 'owner'].includes(profile.role as string) && (

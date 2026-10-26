@@ -472,6 +472,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem('sportmaps_favoritos');
       localStorage.removeItem('sportmaps_welcome_dismissed');
       localStorage.removeItem('pending_invite_id');
+      // Código de escuela guardado entre /unirse y el registro (lib/schoolJoinCode).
+      localStorage.removeItem('sportmaps_pending_join_code');
       // Rol elegido (multirol): el próximo inicio de sesión vuelve a preguntar.
       clearStoredContexts();
       // Preferencias de la pizarra táctica: la foto de jugadores menores no

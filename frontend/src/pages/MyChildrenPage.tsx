@@ -26,6 +26,7 @@ import { useParentPauseActions } from '@/hooks/usePauses';
 import { HijosV2 } from '@/components/parent/v2/hijos/HijosV2';
 import { SectionSkeleton } from '@/components/parent/v2/hijos/parts';
 import { activeEnrollment, type Hijo } from '@/components/parent/v2/hijos/hijosUtils';
+import { JoinSchoolCodeBanner } from '@/components/school-join/JoinSchoolCodeBanner';
 
 interface InvitacionPendiente {
   id: string;
@@ -131,6 +132,9 @@ export default function MyChildrenPage() {
           Agregar hijo
         </Button>
       </div>
+
+      {/* Sin escuela: unirse con el código de la escuela (spec codigo-de-escuela). */}
+      <JoinSchoolCodeBanner />
 
       {invitacionPendiente && (
         <div className="flex items-start gap-3 rounded-2xl border border-primary/30 bg-primary/5 p-4 text-sm">
