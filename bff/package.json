@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
-    "@sentry/node": "^10.72.0",
+    "@sentry/node": "^11.8.0",
     "@supabase/supabase-js": "^2.97.0",
     "@types/pdfkit": "^0.17.6",
     "@types/qrcode": "^1.5.6",
