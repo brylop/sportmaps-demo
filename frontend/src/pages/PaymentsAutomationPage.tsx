@@ -19,6 +19,7 @@ import { chargeLabel, isOneOffCharge } from '@/lib/payment-accounts';
 import { normalizeReceiptUrl } from '@/lib/normalizeReceiptUrl';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import type { TablesInsert } from '@/integrations/supabase/types';
 import { getUserFriendlyError } from '@/lib/error-translator';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { FileUpload } from '@/components/common/FileUpload';
@@ -763,7 +764,11 @@ export default function PaymentsAutomationPage() {
         charge_notifications_enabled: billing.charge_notifications_enabled,
       };
 
-      const { error } = await supabase.from('school_settings').upsert(payload, { onConflict: 'school_id' });
+      // types.ts está desactualizado (coach_can_upload_* existen en la base y no
+      // en el tipo generado): supabase-js 2.118 rechaza propiedades que no conoce.
+      const { error } = await supabase
+        .from('school_settings')
+        .upsert(payload as TablesInsert<'school_settings'>, { onConflict: 'school_id' });
       if (error) throw error;
       toast({ title: '✅ Configuración de pagos guardada' });
     } catch (err: any) {

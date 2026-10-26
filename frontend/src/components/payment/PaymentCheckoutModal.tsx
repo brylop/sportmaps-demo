@@ -195,8 +195,9 @@ export function PaymentCheckoutModal({
         .select('id, name, price')
         .eq('school_id', schoolId).eq('active', true)
         .order('sort_order', { ascending: true });
-      let { data: items, error: itemsError } = await base().is('event_id', null);
-      if (itemsError) ({ data: items } = await base());
+      const primero = await base().is('event_id', null);
+      let items = primero.data;
+      if (primero.error) ({ data: items } = await base());
       setTournCatalog((items as any) || []);
     })();
   }, [open, schoolId, mode]);
