@@ -48,6 +48,7 @@ import { SiblingFamilySection } from '@/components/students/siblings';
 import { EnrollmentFeesSection, NO_FEES_MARKED, cobrarInscripcionSeguro, type FeesMarked } from '@/components/students/EnrollmentFeesSection';
 import { ZkPinField } from '@/components/students/ZkPinField';
 import { CreateAdultAthleteModal } from '@/components/students/CreateAdultAthleteModal';
+import { PorAsignarSection } from '@/components/school-join/PorAsignarSection';
 import { CobrosYPagosModal } from '@/components/payment/CobrosYPagosModal';
 import { isCobrosYPagosEnabled } from '@/lib/cobrosYPagosFlag';
 import { canManageCharges } from '@/lib/cobrosYPagos';
@@ -1503,6 +1504,13 @@ export default function SchoolStudentsManagementPage() {
           onReject={(args) => rechazar.mutate(args)}
           isBusy={aprobar.isPending || rechazar.isPending}
         />
+      )}
+
+      {/* Código de la escuela + bandeja «Por asignar» (solicitudes por código y
+          prospectos del formulario público). Solo administración: asignar crea
+          inscripción y cobro (D3, spec codigo-de-escuela-union-por-codigo). */}
+      {schoolId && canManageCharges(schoolRole) && (
+        <PorAsignarSection schoolId={schoolId} schoolName={schoolName} branches={branches ?? []} />
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>

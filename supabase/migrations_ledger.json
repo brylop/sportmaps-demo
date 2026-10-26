@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 822,
-  "head": "20261025205957",
+  "count": 823,
+  "head": "20261026132948",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -825,6 +825,7 @@
     {"v":"20261025205952","file":"20261025205952_payments_monto_del_servidor.sql","sha256":"549f8f5da94c0a34e61927c566c2bf5305d802c25a4bc49aa45869e1b3820e08","added":"2026-10-26","by":"Brayan Steven Lopez"},
     {"v":"20261025205953","file":"20261025205953_wa_revinculacion_con_codigo_por_correo.sql","sha256":"64a6c7602c630643b83830dfbd47d48ca67999389fc7f1dff1c0fbc235161119","added":"2026-10-26","by":"Brayan Steven Lopez"},
     {"v":"20261025205955","file":"20261025205955_conciliacion_correo_banco_dkim.sql","sha256":"a1932acf3640c77b4ce3e9ce47648738167aef974364860cc664f1d2c64ea71f","added":"2026-10-26","by":"Brayan Steven Lopez"},
-    {"v":"20261025205957","file":"20261025205957_payments_monto_servidor_despues_de_s4.sql","sha256":"1e692c36061a1f3ea05107a2fb294b990551267b60fcca250f1efd3faf42ed01","added":"2026-10-26","by":"Brayan Steven Lopez"}
+    {"v":"20261025205957","file":"20261025205957_payments_monto_servidor_despues_de_s4.sql","sha256":"1e692c36061a1f3ea05107a2fb294b990551267b60fcca250f1efd3faf42ed01","added":"2026-10-26","by":"Brayan Steven Lopez"},
+    {"v":"20261026132948","file":"20261026132948_codigo_de_escuela.sql","sha256":"201d092a6b25291b030b1a8c427e7f7b799552620ecac8521a21350b011d1fb9","added":"2026-10-26","by":"Brayan Steven Lopez"}
   ]
 }
