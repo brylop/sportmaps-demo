@@ -28,9 +28,9 @@
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
-    "express-rate-limit": "^8.3.0",
+    "express-rate-limit": "^8.7.1",
     "firebase-admin": "^14.0.0",
-    "helmet": "^8.2.0",
+    "helmet": "^8.3.0",
     "mailauth": "^7.3.1",
     "mailparser": "^3.12.4",
     "node-cron": "^4.2.1",
@@ -42,7 +42,7 @@
     "sharp": "^0.35.3",
     "uuid": "^13.0.0",
     "web-push": "^3.6.7",
-    "ws": "^8.21.3",
+    "ws": "^8.22.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

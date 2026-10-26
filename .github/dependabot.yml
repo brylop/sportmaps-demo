@@ -1,41 +1,68 @@
+# Dependabot (2026-10-26):
+#  - target-branch: develop — todo nace en develop y llega a main por promoción
+#    (--no-ff); un «Merge» en GitHub contra main se saltaba develop y las pruebas.
+#    Ojo: las alertas de SEGURIDAD de GitHub siempre abren contra la rama por
+#    defecto (main); esas se cierran y se integran a mano en develop.
+#  - groups.menores: minor + patch en UN solo PR por carpeta y por semana.
+#    Las versiones MAYORES siguen llegando sueltas, una por PR, para revisarlas
+#    de a una (TypeScript, Sentry, react-leaflet… rompen cosas).
 version: 2
 updates:
   - package-ecosystem: npm
     directory: "/"
+    target-branch: develop
     schedule:
       interval: weekly
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     groups:
       seguridad:
         applies-to: security-updates
+        patterns: ["*"]
+      menores:
+        applies-to: version-updates
+        update-types: [minor, patch]
         patterns: ["*"]
   - package-ecosystem: npm
     directory: "/bff"
+    target-branch: develop
     schedule:
       interval: weekly
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     groups:
       seguridad:
         applies-to: security-updates
+        patterns: ["*"]
+      menores:
+        applies-to: version-updates
+        update-types: [minor, patch]
         patterns: ["*"]
   - package-ecosystem: npm
     directory: "/frontend"
+    target-branch: develop
     schedule:
       interval: weekly
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     groups:
       seguridad:
         applies-to: security-updates
         patterns: ["*"]
+      menores:
+        applies-to: version-updates
+        update-types: [minor, patch]
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: "/"
+    target-branch: develop
     schedule:
       interval: weekly
     cooldown:
       default-days: 7
+    groups:
+      acciones:
+        patterns: ["*"]
