@@ -44,6 +44,9 @@ import { StudentTypeSelector } from '@/components/students/StudentTypeSelector';
 import { EpsCombobox } from '@/components/common/EpsCombobox';
 import { TSHIRT_SIZES, BLOOD_TYPES } from '@/lib/athlete-options';
 import { CreateChildModal } from '@/components/students/CreateChildModal';
+import { ClasePruebaPanel } from '@/components/students/ClasePruebaPanel';
+import { TrialClassSettingsModal } from '@/components/school/TrialClassSettingsModal';
+import { useProspectosClasePrueba, type ProspectoClasePrueba } from '@/hooks/useClasePrueba';
 import { SiblingFamilySection } from '@/components/students/siblings';
 import { EnrollmentFeesSection, NO_FEES_MARKED, cobrarInscripcionSeguro, type FeesMarked } from '@/components/students/EnrollmentFeesSection';
 import { ZkPinField } from '@/components/students/ZkPinField';
@@ -291,6 +294,9 @@ export default function SchoolStudentsManagementPage() {
   // ?q= precarga la búsqueda (p. ej. "Cambiar plan" desde Ascensos, F-F).
   const [searchQuery, setSearchQuery] = useState(() => new URLSearchParams(window.location.search).get('q') ?? '');
   const [activeTab, setActiveTab] = useState('active');
+  // Pestaña «Clase de prueba»: prospecto que se está pasando a deportista por el alta normal.
+  const [prospectoEnAlta, setProspectoEnAlta] = useState<ProspectoClasePrueba | null>(null);
+  const [configPruebaOpen, setConfigPruebaOpen] = useState(false);
   // Filtros del listado. 'all' = sin filtrar.
   //   teamFilter:    'all' | 'none' (sin equipo) | <team_id>
   //   planFilter:    'all' | 'with' (con plan) | 'none' (sin plan) | <offering_plan_id>
@@ -331,6 +337,28 @@ export default function SchoolStudentsManagementPage() {
   const [loadingPlanInfo, setLoadingPlanInfo] = useState(false);
 
   const { schoolId, schoolName, teams, branches, activeBranchId, activeBranchName, totalBranches, defaultMonthlyFee, schoolSettings, loading: schoolLoading } = useSchoolContext();
+  const { prospectos: prospectosPrueba, cerrar: cerrarProspecto } = useProspectosClasePrueba(schoolId);
+
+  // Estable mientras el alta está abierta: los modales lo aplican al abrir.
+  const prefillProspecto = useMemo(() => prospectoEnAlta ? {
+    fullName: prospectoEnAlta.full_name,
+    parentName: prospectoEnAlta.guardian_name ?? undefined,
+    phone: prospectoEnAlta.phone,
+  } : null, [prospectoEnAlta]);
+
+  /** Alta normal terminada desde un prospecto: sale de «Clase de prueba» amarrado a su inscripción. */
+  const cerrarProspectoInscrito = (result: any) => {
+    const p = prospectoEnAlta;
+    setProspectoEnAlta(null);
+    if (!p) return;
+    cerrarProspecto.mutate({
+      leadId: p.id,
+      estado: 'converted',
+      childId: result?.child_id ?? null,
+      userId: result?.user_id ?? null,
+      unregisteredId: result?.unregistered_athlete_id ?? null,
+    });
+  };
 
   // Pausa por vacaciones/lesión: opt-in por escuela (D7). Con el flag apagado
   // no se muestra nada — es el mismo patrón que `militaryDiscountEnabled`.
@@ -1510,10 +1538,25 @@ export default function SchoolStudentsManagementPage() {
           <TabsTrigger value="active">Activos</TabsTrigger>
           <TabsTrigger value="inactive">Inactivos</TabsTrigger>
           <TabsTrigger value="todos">Todos</TabsTrigger>
+          <TabsTrigger value="prueba">
+            Clase de prueba{prospectosPrueba.length > 0 ? ` (${prospectosPrueba.length})` : ''}
+          </TabsTrigger>
         </TabsList>
       </Tabs>
 
-      <Card>
+      {activeTab === 'prueba' && schoolId && (
+        <ClasePruebaPanel
+          schoolId={schoolId}
+          onConfigurar={() => setConfigPruebaOpen(true)}
+          onCompletar={(p) => {
+            setProspectoEnAlta(p);
+            if (p.guardian_name) setShowCreateChildModal(true);
+            else setShowCreateAdultModal(true);
+          }}
+        />
+      )}
+
+      {activeTab !== 'prueba' && <Card>
         <CardHeader className="pb-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
@@ -1838,7 +1881,7 @@ export default function SchoolStudentsManagementPage() {
             }
           />
         </CardContent>
-      </Card>
+      </Card>}
 
       {/* Dialogs — sin cambios respecto al original */}
       <PlanChangeDialog
@@ -2774,8 +2817,23 @@ export default function SchoolStudentsManagementPage() {
           }}
         />
       )}
-      <CreateChildModal open={showCreateChildModal} onClose={() => setShowCreateChildModal(false)} onSuccess={() => { queryClient.invalidateQueries({ queryKey: ['school-students'] }); setShowCreateChildModal(false); }} schoolId={schoolId || ''} canWaiveFees={schoolRole !== 'coach'} />
-      <CreateAdultAthleteModal open={showCreateAdultModal} onClose={() => setShowCreateAdultModal(false)} onSuccess={() => { queryClient.invalidateQueries({ queryKey: ['school-students'] }); setShowCreateAdultModal(false); }} schoolId={schoolId || ''} canWaiveFees={schoolRole !== 'coach'} />
+      <CreateChildModal
+        open={showCreateChildModal}
+        onClose={() => { setShowCreateChildModal(false); setProspectoEnAlta(null); }}
+        onSuccess={(result) => { queryClient.invalidateQueries({ queryKey: ['school-students'] }); setShowCreateChildModal(false); cerrarProspectoInscrito(result); }}
+        schoolId={schoolId || ''}
+        canWaiveFees={schoolRole !== 'coach'}
+        prefill={prefillProspecto}
+      />
+      <CreateAdultAthleteModal
+        open={showCreateAdultModal}
+        onClose={() => { setShowCreateAdultModal(false); setProspectoEnAlta(null); }}
+        onSuccess={(result) => { queryClient.invalidateQueries({ queryKey: ['school-students'] }); setShowCreateAdultModal(false); cerrarProspectoInscrito(result); }}
+        schoolId={schoolId || ''}
+        canWaiveFees={schoolRole !== 'coach'}
+        prefill={prefillProspecto}
+      />
+      <TrialClassSettingsModal open={configPruebaOpen} onOpenChange={setConfigPruebaOpen} />
     </div>
   );
 }

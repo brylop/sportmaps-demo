@@ -1735,6 +1735,14 @@ export function direccionDeSede(sede: string | null, sedes: { name: string | nul
  * la sede. Si la lectura directa falla, cae a la RPC pública de siempre.
  */
 export async function franjasDeSupabase(schoolId: string): Promise<FranjaCortesia[]> {
+    // Configuración única de clases de prueba (mig. 20261026155701): con el
+    // interruptor general o el de WhatsApp apagado, el bot no ofrece cupos
+    // (el prospecto se sigue guardando). Sin fila = prendido, como siempre.
+    try {
+        const { data: cfg } = await supabase.from('school_trial_class_settings')
+            .select('enabled, whatsapp_enabled').eq('school_id', schoolId).maybeSingle();
+        if (cfg && (cfg.enabled === false || (cfg as any).whatsapp_enabled === false)) return [];
+    } catch { /* sin config legible: se comporta como antes */ }
     try {
         const { data, error } = await supabase.from('school_trial_slots')
             .select('id, label, slot_date, start_time, end_time, location, max_capacity, reserved_count, team_id')

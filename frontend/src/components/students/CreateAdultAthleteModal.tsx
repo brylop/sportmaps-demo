@@ -38,6 +38,7 @@ import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { ZkPinField, zkPinToPayload } from './ZkPinField';
+import { phoneForForm, type AthletePrefill } from './athletePrefill';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
 import {
@@ -87,10 +88,12 @@ interface FoundProfile {
 interface CreateAdultAthleteModalProps {
   open: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  /** Recibe la respuesta de create-one (`user_id` o `unregistered_athlete_id`). */
+  onSuccess: (result?: any) => void;
   schoolId: string;
   /** «No cobrar inscripción / seguro». El coach no exonera (default true; el BFF también lo frena). */
   canWaiveFees?: boolean;
+  prefill?: AthletePrefill | null;
 }
 
 // ─── Section wrapper ──────────────────────────────────────────────────────────
@@ -109,7 +112,7 @@ function Section({ icon, title, children }: { icon: React.ReactNode; title: stri
 
 // ─── Main Modal ───────────────────────────────────────────────────────────────
 
-export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, canWaiveFees = true }: CreateAdultAthleteModalProps) {
+export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, canWaiveFees = true, prefill }: CreateAdultAthleteModalProps) {
   const { toast } = useToast();
   const { registrationZkPinEnabled } = useEntitlements();
   const [submitting, setSubmitting] = useState(false);
@@ -278,6 +281,13 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, ca
 
   const handleClose = () => { reset(); onClose(); };
 
+  // Abre precargado (prospecto de clase de prueba): solo lo que se sabe.
+  useEffect(() => {
+    if (!open || !prefill) return;
+    if (prefill.fullName) setUFullName(prefill.fullName);
+    if (prefill.phone) setUPhone(phoneForForm(prefill.phone));
+  }, [open, prefill]);
+
   // ── Búsqueda silenciosa en profiles ──────────────────────────────────────────
   const checkEmailExists = useCallback(async (emailVal: string) => {
     const emailClean = emailVal.trim().toLowerCase();
@@ -386,7 +396,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, ca
 
         handlePostSuccess(result, uFullName.trim() || 'Atleta', uPhone);
         reset();
-        onSuccess();
+        onSuccess({ ...(result as any), user_id: (result as any)?.user_id ?? foundProfile.id });
       } else {
         // Registrar atleta nuevo
         const result = await bffClient.post('/api/v1/students/create-one', {
@@ -415,7 +425,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, ca
 
         handlePostSuccess(result, uFullName, uPhone);
         reset();
-        onSuccess();
+        onSuccess(result);
       }
     } catch (e: any) {
       toast({ title: 'Error al inscribir', description: e.message || 'Error inesperado', variant: 'destructive' });
