@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 829,
+  "count": 830,
   "head": "20261027125755",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
@@ -832,6 +832,7 @@
     {"v":"20261027110401","file":"20261027110401_pizarra_ia_cupo_ampliado_temporal.sql","sha256":"a9793153747b9e5de912d1aed980e5acd01a9ff8b08f11aec4f55f4344b2b32c","added":"2026-10-27","by":"Brayan Steven Lopez"},
     {"v":"20261027110420","file":"20261027110420_pizarra_ia_feedback_sugerencias.sql","sha256":"170e498bcc95b34796579a634c053a3c4a6fe3446c93c5299b5d1f993f6f0696","added":"2026-10-27","by":"Brayan Steven Lopez"},
     {"v":"20261027111037","file":"20261027111037_solicitudes_borrado_cuenta.sql","sha256":"a3f03f16fc731dfce4f2d25ce251da3a3eecb76542cf9fb7b7350c680d4f7942","added":"2026-10-27","by":"Brayan Steven Lopez"},
+    {"v":"20261027124411","file":"20261027124411_cierre_policies_autoadjudicables.sql","sha256":"fdaf184ee954dda67a6ace0971f1853894f2bdfc121cb23d4815e80600610751","added":"2026-10-27","by":"Brayan Steven Lopez"},
     {"v":"20261027125755","file":"20261027125755_rating_coach_deporte_del_equipo.sql","sha256":"3e94ebbd30b7c31bd7ca101fa77d86801cbf7a5cdc3a73aa0f57fdf4112acb61","added":"2026-10-27","by":"Brayan Steven Lopez"}
   ]
 }
