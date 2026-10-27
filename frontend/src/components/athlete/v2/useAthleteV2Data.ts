@@ -12,7 +12,7 @@
  *  · Felicitación→ list_kudos (B1) vía lib/api/v2Contratos.
  *  · Informes    → misInformesDeportista (B4) vía lib/api/v2Contratos.
  *    En las tres, `noDisponible` (RPC aún sin aplicar) → `oculto`: la sección no se pinta.
- *  · Autoevaluación pendiente → sesión cerrada hace < 24 h a la que vino, sin
+ *  · Autoevaluación pendiente → sesión cerrada hace < 24 h a la que vino (él o su ficha), sin
  *                  `rpe_borg` guardado (mismas reglas que submit_post_training_self_eval).
  *  · Plan del mes→ `training_mesocycles` (hoy su RLS es solo de staff: vacío → se oculta).
  *
@@ -320,6 +320,8 @@ export interface AutoevalPendiente {
   equipo: string | null;
   /** Métricas obligatorias del deporte (sport_metric_definitions.required). */
   requeridas: string[];
+  /** La asistencia está a nombre de su ficha vinculada: se responde por ella (p_unregistered_athlete_id). */
+  fichaId: string | null;
 }
 
 export const autoevalKey = (userId: string | undefined) => ['athlete-v2-autoeval', userId];
@@ -329,22 +331,31 @@ export const autoevalKey = (userId: string | undefined) => ['athlete-v2-autoeval
  * (present/late) y (c) todavía no tiene su «¿Qué tan duro fue?». Son las mismas
  * condiciones que exige la RPC: si no se cumplen, la tarjeta no sale.
  *
- * Solo por `user_id`, a propósito: `submit_post_training_self_eval` hoy solo
- * acepta p_child_id / p_user_id y valida la asistencia con `ar.user_id`. Una
- * sesión registrada a nombre de la ficha vinculada daría una tarjeta que no se
- * puede guardar. Cuando la RPC acepte la ficha, se suma aquí con filtroDeportista.
+ * Cuenta y fichas vinculadas (filtroDeportista): submit_post_training_self_eval
+ * acepta p_unregistered_athlete_id (migración 20261026155123) y valida la
+ * asistencia de la ficha en `attendance_records.unregistered_athlete_id`. Si la
+ * sesión está a nombre de la cuenta, manda la cuenta; si no, la ficha.
  */
-export async function cargarAutoevalPendiente(userId: string, ahora = new Date()): Promise<AutoevalPendiente | null> {
+export async function cargarAutoevalPendiente(userId: string, ahora = new Date(), fichas: string[] = []): Promise<AutoevalPendiente | null> {
   const desde = new Date(ahora.getTime() - 3 * 86_400_000).toISOString().slice(0, 10);
   const { data: recs, error } = await db
     .from('attendance_records')
-    .select('session_id, attendance_date')
-    .eq('user_id', userId)
+    .select('session_id, attendance_date, user_id, unregistered_athlete_id')
+    .or(filtroDeportista(userId, fichas))
+    .is('child_id', null)
     .in('status', ['present', 'late'])
     .gte('attendance_date', desde)
     .not('session_id', 'is', null);
   if (error) throw error;
-  const ids = [...new Set(((recs ?? []) as { session_id: string }[]).map((r) => r.session_id))];
+  // Sujeto por sesión: la cuenta gana; si solo está la ficha (y es suya), la ficha.
+  const sujeto = new Map<string, string | null>();
+  for (const r of (recs ?? []) as { session_id: string; user_id: string | null; unregistered_athlete_id: string | null }[]) {
+    if (r.user_id === userId) sujeto.set(r.session_id, null);
+    else if (r.unregistered_athlete_id && fichas.includes(r.unregistered_athlete_id) && !sujeto.has(r.session_id)) {
+      sujeto.set(r.session_id, r.unregistered_athlete_id);
+    }
+  }
+  const ids = [...sujeto.keys()];
   if (ids.length === 0) return null;
 
   const { data: ses, error: sErr } = await db
@@ -360,11 +371,12 @@ export async function cargarAutoevalPendiente(userId: string, ahora = new Date()
     .sort((a, b) => (a.session_date < b.session_date ? 1 : -1));
 
   for (const s of vigentes) {
+    const fichaId = sujeto.get(s.id) ?? null;
     const { count } = await db
       .from('performance_entries')
       .select('id', { count: 'exact', head: true })
-      .eq('subject_type', 'profile')
-      .eq('subject_id', userId)
+      .eq('subject_type', fichaId ? 'unregistered' : 'profile')
+      .eq('subject_id', fichaId ?? userId)
       .eq('context_type', 'session')
       .eq('context_id', s.id)
       .eq('metric_key', 'rpe_borg');
@@ -380,30 +392,39 @@ export async function cargarAutoevalPendiente(userId: string, ahora = new Date()
         .in('metric_key', ['rpe_borg', 'task_comprehension', 'self_effort_pct', 'satisfaction']);
       requeridas = ((defs ?? []) as { metric_key: string }[]).map((d) => d.metric_key);
     }
-    return { sessionId: s.id, sessionDate: s.session_date, equipo: uno(s.teams)?.name ?? null, requeridas };
+    return { sessionId: s.id, sessionDate: s.session_date, equipo: uno(s.teams)?.name ?? null, requeridas, fichaId };
   }
   return null;
 }
 
 export function useAutoevalPendiente(userId: string | undefined) {
+  const fichas = useFichasLoader(userId);
   return useQuery({
     queryKey: autoevalKey(userId),
-    queryFn: () => cargarAutoevalPendiente(userId!),
+    queryFn: async () => cargarAutoevalPendiente(userId!, new Date(), await fichas()),
     enabled: !!userId,
     retry: 1,
   });
 }
 
-/** Mismo envío que PostTrainingSelfEvalPage: submit_post_training_self_eval con p_user_id. */
-export async function enviarRpeRapido(sessionId: string, userId: string, rpe: number): Promise<void> {
-  const { error } = await db.rpc('submit_post_training_self_eval', {
-    p_session_id: sessionId,
-    p_child_id: null,
-    p_user_id: userId,
-    p_answers: { rpe_borg: rpe },
-  });
+/**
+ * Mismo envío que PostTrainingSelfEvalPage: submit_post_training_self_eval con
+ * p_user_id, o con p_unregistered_athlete_id cuando la sesión es de su ficha.
+ * Sin ficha no se manda el parámetro nuevo (sirve también antes de la migración).
+ */
+export async function enviarRpeRapido(sessionId: string, userId: string, rpe: number, fichaId: string | null = null): Promise<void> {
+  const { error } = await db.rpc(
+    'submit_post_training_self_eval',
+    fichaId
+      ? { p_session_id: sessionId, p_child_id: null, p_user_id: null, p_answers: { rpe_borg: rpe }, p_unregistered_athlete_id: fichaId }
+      : { p_session_id: sessionId, p_child_id: null, p_user_id: userId, p_answers: { rpe_borg: rpe } },
+  );
   if (error) throw error;
 }
+
+/** Formulario completo de la autoevaluación (con `?ficha=` cuando responde por su ficha). */
+export const formularioAutoeval = (pend: Pick<AutoevalPendiente, 'sessionId' | 'fichaId'>): string =>
+  `/post-entreno/${pend.sessionId}${pend.fichaId ? `?ficha=${encodeURIComponent(pend.fichaId)}` : ''}`;
 
 // ── Torneos abiertos (misma fuente que OpenTournamentsCard) ─────────────────
 

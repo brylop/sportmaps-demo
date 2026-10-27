@@ -349,12 +349,8 @@ export default function DashboardPage() {
   // Multirol: manda el rol activo (el mismo que eligen las pestañas de abajo),
   // no profile.role — si no, un acudiente que entra como deportista vería la
   // barra del deportista con el Inicio del acudiente.
-  // Avisos sin leer del entrenador y del deportista: la misma lista que la campana
-  // de la cabecera (misma caché, sin consulta extra). useDashboardStatsReal solo
-  // los cuenta para el acudiente, y la campana de Hoy quedaba siempre sin punto.
-  const avisosSinLeerCampana = notifications
-    ? (notifications as { read?: boolean }[]).filter((n) => !n.read).length
-    : undefined;
+  // Una sola campana: la de la cabecera de la app (GlobalNotificationBell en
+  // AuthLayout). Los Inicios V2 ya no dibujan la suya.
 
   const invitacionPendiente = invitation && (
     <InvitationBanner
@@ -376,10 +372,7 @@ export default function DashboardPage() {
             onStepClick={(step) => (step.id === 'complete_profile' ? setShowCoachWizard(true) : navigate(step.href))}
           />
         )}
-        <CoachHomeV2
-          nombreProfe={profile.full_name ?? undefined}
-          avisosSinLeer={avisosSinLeerCampana}
-        />
+        <CoachHomeV2 nombreProfe={profile.full_name ?? undefined} />
         <CoachProfileWizard open={showCoachWizard} onOpenChange={setShowCoachWizard} onSuccess={refreshOnboardingData} />
       </>
     );
@@ -396,7 +389,7 @@ export default function DashboardPage() {
           <DashboardChecklist steps={onboardingSteps} onStepClick={(step) => navigate(step.href)} />
         )}
         {/* Los torneos abiertos van DENTRO de AthleteHomeV2, con su diseño. */}
-        <AthleteHomeV2 avisosSinLeer={avisosSinLeerCampana} />
+        <AthleteHomeV2 />
       </>
     );
   }
@@ -406,7 +399,6 @@ export default function DashboardPage() {
       <ParentHomeV2
         userId={user?.id}
         nombreAcudiente={profile.full_name}
-        avisosSinLeer={realStatsLoading ? undefined : realStats?.unreadNotifications}
         extras={
           <>
             <PendingEnrollmentModal />
