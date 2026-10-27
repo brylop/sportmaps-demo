@@ -4171,7 +4171,10 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                 getRequest={() => {
                   const list = committedFrames().map((f) => ({ ...f, players: f.players.filter((p) => subjectByKey.has(p.key)) }));
                   if (!list.some((f) => f.players.length > 0)) return null;
-                  return buildAnalyzeRequest({ teamId, sport, frames: list, labelOf: (k) => (placed[k] ?? metaRef.current[k])?.slot_label, intention: media.intention });
+                  // `formation`: contexto para la IA (el BFF también la deduce por posiciones).
+                  // Va por variable para compilar aunque esta rama todavía no tenga el parámetro.
+                  const aiArgs = { teamId, sport, frames: list, labelOf: (k: string) => (placed[k] ?? metaRef.current[k])?.slot_label, intention: media.intention, formation: formationKey };
+                  return buildAnalyzeRequest(aiArgs);
                 }}
                 sport={sport}
                 canApply={roleCanEdit}

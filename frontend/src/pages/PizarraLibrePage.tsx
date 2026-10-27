@@ -6,9 +6,12 @@
  * La pizarra necesita un equipo (sus jugadores, su deporte y Mis jugadas): se
  * abre con el último equipo usado o, si solo hay uno, con ese. Con varios y
  * sin recuerdo, primero se elige (un toque). Cerrar la pizarra deja elegir otro.
+ *
+ * `/pizarra?jugada=<match_lineups.id>` abre ESA jugada (la de una sesión o un
+ * partido) en su pizarra de siempre: guardar la actualiza en su lugar.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2, PenLine, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -18,6 +21,7 @@ import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { fetchCoachTeams, isSchoolAdminRole } from '@/lib/coachTeamScope';
 import { teamBoardAccess } from '@/lib/sports/sportCatalog';
 import { TacticalBoard } from '@/components/school/TacticalBoard';
+import { getFootballLineup } from '@/lib/school/footballQueries';
 
 interface EquipoP { id: string; name: string; sport: string | null; sport_modality: string | null; age_group: string | null }
 
@@ -74,6 +78,18 @@ export default function PizarraLibrePage() {
     if (elegido) { setTeamId(elegido.id); setAbierta(true); }
   }, [equipos, autoAbierta, schoolId]);
 
+  // ?jugada=<match_lineups.id>: abre esa jugada guardada (atada a su sesión/partido).
+  const [params, setParams] = useSearchParams();
+  const jugadaId = params.get('jugada');
+  const jugadaQ = useQuery({
+    queryKey: ['pizarra-libre-jugada', jugadaId],
+    enabled: !!jugadaId,
+    queryFn: () => getFootballLineup(jugadaId!),
+    retry: false,
+  });
+  const jugada = jugadaQ.data ?? null;
+  const cerrarJugada = () => { params.delete('jugada'); setParams(params, { replace: true }); };
+
   const equipo = equipos.find((t) => t.id === teamId) ?? null;
   const abrir = (id: string) => { setTeamId(id); guardarUltimo(schoolId, id); setAbierta(true); };
 
@@ -117,7 +133,25 @@ export default function PizarraLibrePage() {
         </section>
       )}
 
-      {equipo && abierta && (
+      {jugadaId && jugadaQ.isError && (
+        <p className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-sm" role="alert">
+          No se pudo abrir esa jugada (no existe o tu rol no la puede ver).
+        </p>
+      )}
+
+      {jugada && (
+        <TacticalBoard
+          open
+          onClose={cerrarJugada}
+          teamId={jugada.team_id}
+          teamName={equipos.find((t) => t.id === jugada.team_id)?.name ?? 'Equipo'}
+          sourceType={jugada.source_type}
+          sourceId={jugada.source_id}
+          contextLabel="Tu última jugada"
+        />
+      )}
+
+      {!jugadaId && equipo && abierta && (
         <TacticalBoard
           open
           scratch
