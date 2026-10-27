@@ -19,6 +19,7 @@ import {
   SidebarHeader
 } from '@/components/ui/sidebar';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { inicialesPersona } from '@/lib/iniciales';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -254,12 +255,8 @@ export function AppSidebar() {
     });
   };
 
-  const getUserInitials = () => {
-    if (profile.full_name) {
-      return profile.full_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
-    }
-    return user?.email?.slice(0, 2).toUpperCase() || 'U';
-  };
+  // Misma regla que el avatar de la barra superior (lib/iniciales): nombre + apellido.
+  const getUserInitials = () => inicialesPersona(profile.full_name, user?.email);
 
   const getRoleBadge = () => {
     // Platform-level admins SIEMPRE son Super Admin, sin importar contextos
