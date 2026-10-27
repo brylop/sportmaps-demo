@@ -29,7 +29,7 @@ import { MiFacturaElectronicaCard } from '@/components/billing/MiFacturaElectron
 import { DebitoAutomaticoCard, DebitoSugerenciaBanner } from '@/components/autopay/DebitoAutomaticoCard';
 import { useMiDebito } from '@/components/autopay/useMiDebito';
 import { AcuPagosV2 } from '@/components/parent/v2/AcuPagosV2';
-import { PAYABLE_STATES, rowTitle, type Transaction } from '@/components/parent/v2/pagosModel';
+import { PAYABLE_STATES, rotuloCobroSinHijo, rowTitle, type Transaction } from '@/components/parent/v2/pagosModel';
 
 interface Enrollment {
   id: string;
@@ -95,6 +95,8 @@ export default function MyPaymentsPage() {
   // vacía y la pantalla parecía al día.
   const [loadError, setLoadError] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
+  // «Ya transferí» abre el checkout con transferencia marcada (B7).
+  const [checkoutMethod, setCheckoutMethod] = useState<'transfer' | undefined>(undefined);
   // Cobros marcados que faltan por pagar. El checkout es de UN cobro por vez
   // (no hay pago múltiple en el BFF): al terminar uno con éxito se abre el
   // siguiente con el mismo modal.
@@ -195,8 +197,17 @@ export default function MyPaymentsPage() {
         paymentsQuery = paymentsQuery.eq('parent_id', user?.id || '');
       }
 
-      const { data: payments, error: paymentsError } = await paymentsQuery;
+      const [{ data: payments, error: paymentsError }, { count: inscripcionesPropias }] = await Promise.all([
+        paymentsQuery,
+        // ¿El acudiente entrena él mismo? Solo así un cobro sin hijo es «Tú (como atleta)» (B8).
+        supabase
+          .from('enrollments')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user?.id || '')
+          .is('child_id', null),
+      ]);
       if (paymentsError) throw paymentsError;
+      const tieneInscripcionPropia = (inscripcionesPropias ?? 0) > 0;
 
       // ── PASO 2.5: Hidratar period_year/period_month desde la tabla base ──
       // La vista `payments_with_installments` no proyecta estas columnas
@@ -300,7 +311,7 @@ export default function MyPaymentsPage() {
           // hijos, rotulados como suyos (spec cambio-de-rol-atleta-acudiente.md).
           child_name: p.child_id
             ? (childNameMap[p.child_id] || 'Deportista')
-            : (p.parent_id === user?.id ? 'Tú (como atleta)' : 'Deportista'),
+            : rotuloCobroSinHijo(p, user?.id, childrenData || [], tieneInscripcionPropia),
           // Medio real (payments.payment_method + pasarela). Antes se leía
           // payment_type, que es one_time/monthly, no el medio.
           pay_method: periodMap[p.id]?.payment_method ?? null,
@@ -485,8 +496,9 @@ export default function MyPaymentsPage() {
   };
 
   // Abre el ÚNICO checkout (PaymentCheckoutModal) para un cobro existente.
-  const openCheckoutFor = (p: Transaction) => {
+  const openCheckoutFor = (p: Transaction, metodo?: 'transfer') => {
     setSelectedPayment(toSelectedPayment(p));
+    setCheckoutMethod(metodo);
     setShowCheckout(true);
   };
 
@@ -538,7 +550,7 @@ export default function MyPaymentsPage() {
         description: `Sube aquí el comprobante de ${rowTitle(payable[0])}. Si hiciste una sola transferencia por varios cobros, súbela aquí y avísale a la escuela para que la reparta.`,
       });
     }
-    openCheckoutFor(payable[0]);
+    openCheckoutFor(payable[0], 'transfer');
   };
 
   // Si la familia cierra el modal (o el pago no pasa) con cobros en fila, la
@@ -694,6 +706,7 @@ export default function MyPaymentsPage() {
                         schoolId: enroll.school_id,
                       });
                       setShowChildPicker(false);
+                      setCheckoutMethod(undefined);
                       setShowCheckout(true);
                     }}
                   >
@@ -741,7 +754,7 @@ export default function MyPaymentsPage() {
         <PaymentCheckoutModal
           // Remonta al cambiar de cobro (pago en fila): el modal guarda estado
           // interno del intento anterior (resultado, cobro creado).
-          key={selectedPayment.paymentId ?? `nuevo-${selectedPayment.childId}-${selectedPayment.teamName}`}
+          key={`${selectedPayment.paymentId ?? `nuevo-${selectedPayment.childId}-${selectedPayment.teamName}`}-${checkoutMethod ?? 'auto'}`}
           open={showCheckout}
           onOpenChange={handleCheckoutOpenChange}
           studentId={selectedPayment.childId}
@@ -755,6 +768,7 @@ export default function MyPaymentsPage() {
           amount={selectedPayment.amount}
           concept={selectedPayment.teamName}
           paymentCategory={selectedPayment.paymentCategory ?? null}
+          initialMethod={checkoutMethod}
           mode={selectedPayment.paymentId ? 'update' : 'create'}
           onSuccess={handleCheckoutSuccess}
         />

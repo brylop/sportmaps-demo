@@ -92,11 +92,17 @@ interface PaymentCheckoutModalProps {
    * (events.payment_methods). Sin valor o vacío = todos, como siempre.
    */
   allowedMethods?: string[] | null;
+  /**
+   * Método con el que abre. «Ya transferí: subir el comprobante» pide
+   * 'transfer': abrir con «Pagar online» marcado obligaba a cambiarlo a mano.
+   * Sin valor: Wompi si la escuela lo tiene, si no transferencia (como siempre).
+   */
+  initialMethod?: 'transfer';
   onSuccess?: () => void;
 }
 
 export function PaymentCheckoutModal({
-  open, onOpenChange, studentId, schoolId, paymentId, teamId, childId, childName, branchId, amount, concept, mode = 'update', initialConceptType, paymentCategory: paymentCategoryProp, allowedMethods, onSuccess
+  open, onOpenChange, studentId, schoolId, paymentId, teamId, childId, childName, branchId, amount, concept, mode = 'update', initialConceptType, paymentCategory: paymentCategoryProp, allowedMethods, initialMethod, onSuccess
 }: PaymentCheckoutModalProps) {
   const [selectedMethod, setSelectedMethod] = useState<'pse' | 'card' | 'transfer' | 'online' | 'mercadopago' | null>(null);
   const [mpReference, setMpReference] = useState<string>('');
@@ -385,9 +391,15 @@ export function PaymentCheckoutModal({
   // elección ya hecha.
   useEffect(() => {
     if (!open || !settingsLoaded || selectedMethod) return;
+    // Transferencia pedida: siempre que sea un camino aceptado (o el único).
+    const transferAceptada = permiteTransfer || !(wompiEnabled && permiteOnline);
+    if (initialMethod === 'transfer' && transferAceptada) {
+      setSelectedMethod('transfer');
+      return;
+    }
     setSelectedMethod(wompiEnabled && permiteOnline ? 'online' : 'transfer');
     // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al cargar settings
-  }, [open, settingsLoaded, wompiEnabled, permiteOnline]);
+  }, [open, settingsLoaded, wompiEnabled, permiteOnline, initialMethod]);
 
   // ── Wompi checkout hook ──────────────────────────────────────────────────
   const finalAmount = conceptType === 'articulos'

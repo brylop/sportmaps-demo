@@ -80,6 +80,7 @@ import { useNavigate } from 'react-router-dom';
 import { comprimirParaSubir } from '@/lib/imageCompression';
 import { fichaVaAlAcudiente, invitacionParaAtleta } from '@/lib/invitations/contactoFicha';
 import { fetchCoachTeams } from '@/lib/coachTeamScope';
+import { carpetasDocumentosDeportista } from '@/components/parent/v2/hijos/hijosUtils';
 
 const studentSchema = z.object({
   full_name:        z.string().min(2, 'Nombre completo es requerido').max(100),
@@ -569,24 +570,42 @@ export default function SchoolStudentsManagementPage() {
       // desde ahí en vez de storage.list().
       loadUnregisteredAthleteDocs(studentId).finally(() => setLoadingDocs(false));
     } else {
-      // children/adult: sin cambios — siguen viviendo en children/{id}/docs
-      // sin fila en athlete_documents (esa tabla es nueva, ver migración
-      // 20260825125806). No se migra retroactivamente en este piloto.
-      supabase.storage
-        .from('identity-documents')
-        .list(`children/${studentId}/docs`, { limit: 20 })
-        .then(async ({ data: files, error }) => {
-          if (error || !files) { setStudentDocs([]); return; }
-          const docs = await Promise.all(
-            files.map(async (f) => {
-              const { data } = await supabase.storage
-                .from('identity-documents')
-                .createSignedUrl(`children/${studentId}/docs/${f.name}`, 300);
-              return { name: f.name, url: data?.signedUrl || '' };
-            })
-          );
-          setStudentDocs(docs.filter(d => d.url));
-        })
+      // children/adult: sin fila en athlete_documents (esa tabla es nueva, ver
+      // migración 20260825125806). Se leen DOS carpetas (B2):
+      //   · children/{id}/docs           — la convención vieja.
+      //   · children/{acudiente}/{id}/docs — donde sube la familia desde Hijos V2
+      //     (la única que el bucket le deja escribir: foldername[2] = auth.uid()).
+      // Antes solo se miraba la vieja y la escuela no veía lo que subía la familia.
+      // No se mueve ningún archivo.
+      (async () => {
+        let parentId: string | null = null;
+        if (athleteTypeForDocs === 'child') {
+          const { data } = await (supabase as any)
+            .from('children').select('parent_id').eq('id', studentId).maybeSingle();
+          parentId = data?.parent_id ?? null;
+        }
+        const carpetas = carpetasDocumentosDeportista(studentId, parentId);
+        const listados = await Promise.all(
+          carpetas.map(async (carpeta) => {
+            const { data: files, error } = await supabase.storage
+              .from('identity-documents')
+              .list(carpeta, { limit: 100 });
+            if (error || !files) return [] as { carpeta: string; name: string }[];
+            // list() también devuelve subcarpetas (sin id): no son archivos.
+            return files.filter((f) => f.id).map((f) => ({ carpeta, name: f.name }));
+          }),
+        );
+        const docs = await Promise.all(
+          listados.flat().map(async ({ carpeta, name }) => {
+            const { data } = await supabase.storage
+              .from('identity-documents')
+              .createSignedUrl(`${carpeta}/${name}`, 300);
+            return { name, url: data?.signedUrl || '' };
+          }),
+        );
+        setStudentDocs(docs.filter(d => d.url));
+      })()
+        .catch(() => setStudentDocs([]))
         .finally(() => setLoadingDocs(false));
     }
 
