@@ -228,6 +228,13 @@ describe('Hoy', () => {
     expect(screen.getAllByTestId('pendiente')[0]).toHaveTextContent('Falta evaluar el entreno de hoy');
   });
 
+  it('una sola campana: el Inicio no dibuja la suya (queda la de la cabecera de la app)', () => {
+    pintar(<CoachHomeV2 hoy={HOY} />);
+    expect(screen.queryByRole('link', { name: /Avisos/ })).toBeNull();
+    expect(document.querySelector('a[href="/notifications"]')).toBeNull();
+    expect(screen.getByRole('banner')).toHaveTextContent('Club Campestre Demo');
+  });
+
   it('un error al cargar NO dice «Hoy no entrenas»', () => {
     st.equipos = q(undefined, { isError: true });
     pintar(<CoachHomeV2 hoy={HOY} />);
