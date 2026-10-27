@@ -142,8 +142,8 @@ export default function SchoolTournamentDetailPage() {
   const createTeam = async (catId: string) => {
     const teamName = (teamNameDraft[catId] ?? '').trim();
     const ids = selectedRegIds[catId] ?? [];
-    if (!teamName) { toast({ title: 'Ponele nombre al equipo', variant: 'destructive' }); return; }
-    if (ids.length === 0) { toast({ title: 'Seleccioná al menos un inscrito', variant: 'destructive' }); return; }
+    if (!teamName) { toast({ title: 'Ponle nombre al equipo', variant: 'destructive' }); return; }
+    if (ids.length === 0) { toast({ title: 'Selecciona al menos un inscrito', variant: 'destructive' }); return; }
     setCreatingTeam(catId);
     try {
       const r = await assignTeams(String(id), catId, [{ team_name: teamName, registration_ids: ids }]);
@@ -368,37 +368,55 @@ export default function SchoolTournamentDetailPage() {
               )}
               {cats.length === 0 && <p className="text-sm text-muted-foreground">Sin categorías. Agrega una sugerida o crea la tuya para poder publicar.</p>}
               {cats.map((c, i) => (
-                <div key={i} className="grid gap-2 rounded-lg border p-3 sm:grid-cols-7">
-                  <Input className="sm:col-span-2" placeholder="División" value={c.division} onChange={(e) => setCats(cats.map((x, j) => j === i ? { ...x, division: e.target.value } : x))} />
-                  <Input className="sm:col-span-2" placeholder="Categoría" value={c.category} onChange={(e) => setCats(cats.map((x, j) => j === i ? { ...x, category: e.target.value } : x))} />
-                  <select className={selectCls} value={c.rama} onChange={(e) => setCats(cats.map((x, j) => j === i ? { ...x, rama: e.target.value } : x))}>
-                    <option>Mixto</option><option>Masculino</option><option>Femenino</option>
-                  </select>
-                  <Input type="number" placeholder="Edad min" value={c.age_min ?? ''} onChange={(e) => setCats(cats.map((x, j) => j === i ? { ...x, age_min: e.target.value ? Number(e.target.value) : null } : x))} />
-                  <div className="flex gap-1">
-                    <Input type="number" placeholder="Edad max" value={c.age_max ?? ''} onChange={(e) => setCats(cats.map((x, j) => j === i ? { ...x, age_max: e.target.value ? Number(e.target.value) : null } : x))} />
-                    <Button size="icon" variant="ghost" onClick={() => setCats(cats.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4 text-destructive" /></Button>
-                  </div>
+                <div key={i} className="grid items-end gap-2 rounded-lg border p-3 sm:grid-cols-7">
+                  <div className="space-y-1 sm:col-span-2"><Label className="text-xs text-muted-foreground">Grupo (ej. General)</Label>
+                    <Input placeholder="General" value={c.division} onChange={(e) => setCats(cats.map((x, j) => j === i ? { ...x, division: e.target.value } : x))} /></div>
+                  <div className="space-y-1 sm:col-span-2"><Label className="text-xs text-muted-foreground">Categoría (ej. Sub 12)</Label>
+                    <Input placeholder="Sub 12" value={c.category} onChange={(e) => setCats(cats.map((x, j) => j === i ? { ...x, category: e.target.value } : x))} /></div>
+                  <div className="space-y-1"><Label className="text-xs text-muted-foreground">Rama</Label>
+                    <select className={selectCls} value={c.rama} onChange={(e) => setCats(cats.map((x, j) => j === i ? { ...x, rama: e.target.value } : x))}>
+                      <option>Mixto</option><option>Masculino</option><option>Femenino</option>
+                    </select></div>
+                  <div className="space-y-1"><Label className="text-xs text-muted-foreground">Edad mín.</Label>
+                    <Input type="number" placeholder="Opcional" value={c.age_min ?? ''} onChange={(e) => setCats(cats.map((x, j) => j === i ? { ...x, age_min: e.target.value ? Number(e.target.value) : null } : x))} /></div>
+                  <div className="space-y-1"><Label className="text-xs text-muted-foreground">Edad máx.</Label>
+                    <div className="flex gap-1">
+                      <Input type="number" placeholder="Opcional" value={c.age_max ?? ''} onChange={(e) => setCats(cats.map((x, j) => j === i ? { ...x, age_max: e.target.value ? Number(e.target.value) : null } : x))} />
+                      <Button size="icon" variant="ghost" title="Quitar categoría" onClick={() => setCats(cats.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                    </div></div>
                 </div>
               ))}
-              <p className="text-xs text-muted-foreground">Tamaño de equipo (mín/máx integrantes) y plantillas por deporte: próximamente.</p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base">Fases de precio</CardTitle>
-              <Button size="sm" variant="outline" onClick={() => setPhases([...phases, emptyPhase()])}><Plus className="mr-1 h-4 w-4" /> Agregar</Button>
+              <Button size="sm" variant="outline" onClick={() => setPhases([...phases, isInternal ? { ...emptyPhase(), phase_name: 'Inscripción' } : emptyPhase()])}><Plus className="mr-1 h-4 w-4" /> Agregar</Button>
             </CardHeader>
             <CardContent className="space-y-3">
-              {phases.length === 0 && <p className="text-sm text-muted-foreground">Sin fases. Agrega al menos una (precio de inscripción).</p>}
+              {esGratis ? (
+                <p className="text-sm text-muted-foreground">Este torneo es <strong>gratis</strong>: no necesita precio. Si quieres cobrar, activa «El torneo tiene costo» en la pestaña Info.</p>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {phases.length === 0 ? 'Agrega al menos una fase con el valor de la inscripción. ' : ''}
+                  Cada fase tiene un valor y una fecha hasta la que aplica (ej. «Preventa» más barata hasta el 10, luego «Inscripción»).
+                </p>
+              )}
               {phases.map((p, i) => (
-                <div key={i} className="grid gap-2 rounded-lg border p-3 sm:grid-cols-6">
-                  <Input className="sm:col-span-2" placeholder="Nombre (Preventa)" value={p.phase_name} onChange={(e) => setPhases(phases.map((x, j) => j === i ? { ...x, phase_name: e.target.value } : x))} />
-                  <Input type="date" title="Válida hasta" value={p.valid_until} onChange={(e) => setPhases(phases.map((x, j) => j === i ? { ...x, valid_until: e.target.value } : x))} />
-                  <Input type="number" placeholder="Precio inscripción" value={p.price_solo || ''} onChange={(e) => setPhases(phases.map((x, j) => j === i ? { ...x, price_solo: Number(e.target.value) } : x))} />
-                  <Input type="number" placeholder="% depósito" value={p.deposit_percent || ''} onChange={(e) => setPhases(phases.map((x, j) => j === i ? { ...x, deposit_percent: Number(e.target.value) } : x))} />
-                  <Button size="icon" variant="ghost" onClick={() => setPhases(phases.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                <div key={i} className={`grid items-end gap-2 rounded-lg border p-3 ${isInternal ? 'sm:grid-cols-5' : 'sm:grid-cols-6'}`}>
+                  <div className="space-y-1 sm:col-span-2"><Label className="text-xs text-muted-foreground">Nombre de la fase</Label>
+                    <Input placeholder="Inscripción" value={p.phase_name} onChange={(e) => setPhases(phases.map((x, j) => j === i ? { ...x, phase_name: e.target.value } : x))} /></div>
+                  <div className="space-y-1"><Label className="text-xs text-muted-foreground">Válida hasta</Label>
+                    <Input type="date" value={p.valid_until} onChange={(e) => setPhases(phases.map((x, j) => j === i ? { ...x, valid_until: e.target.value } : x))} /></div>
+                  <div className="space-y-1"><Label className="text-xs text-muted-foreground">Valor por atleta (COP)</Label>
+                    <Input type="number" placeholder="50000" value={p.price_solo || ''} onChange={(e) => setPhases(phases.map((x, j) => j === i ? { ...x, price_solo: Number(e.target.value) } : x))} />
+                    {p.price_solo > 0 && <p className="text-xs text-muted-foreground">{money(p.price_solo)}</p>}</div>
+                  {!isInternal && (
+                    <div className="space-y-1"><Label className="text-xs text-muted-foreground">% de anticipo</Label>
+                      <Input type="number" placeholder="30" value={p.deposit_percent || ''} onChange={(e) => setPhases(phases.map((x, j) => j === i ? { ...x, deposit_percent: Number(e.target.value) } : x))} /></div>
+                  )}
+                  <Button size="icon" variant="ghost" title="Quitar fase" onClick={() => setPhases(phases.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                 </div>
               ))}
             </CardContent>
@@ -455,7 +473,7 @@ export default function SchoolTournamentDetailPage() {
                             {members.map((m) => (
                               <Badge key={m.id} variant="secondary">
                                 {m.participant_name}
-                                {m.payment && m.payment.status !== 'paid' && <span className="ml-1 text-amber-600">·pend</span>}
+                                {m.payment && m.payment.status !== 'paid' && <span className="ml-1 text-amber-600">· pago pendiente</span>}
                               </Badge>
                             ))}
                           </div>
