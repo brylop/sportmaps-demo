@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, auditLog, AuthenticatedRequest } from '../middlewares/authMiddleware';
-import { invalidateDeviceCache, invalidateMappingCache, getHourBankSettings, computeHourBankBilledMinutes, formatHourBankMinutes } from './access-adms';
+import { invalidateDeviceCache, invalidateMappingCache, reprocessPinEventsForHourBank, getHourBankSettings, computeHourBankBilledMinutes, formatHourBankMinutes } from './access-adms';
 import { getAccessBlockMechanism, buildBlockCommand, computeIsBlocked, athleteKey, BLOCK_COMMAND_TYPES } from '../utils/accessBlockMechanism';
 import { confirmarSugeridas } from '../services/hour-bank-overage-auto.service';
 import { normalizarEscalones } from '../services/hour-bank-balance-notices.shared';
@@ -397,6 +397,7 @@ router.post('/enroll', requireAuth, requireRole('owner', 'admin', 'school_admin'
     );
 
     invalidateMappingCache(pin);
+    await reprocessPinEventsForHourBank(schoolId!, Number(pin));
 
     console.log(`[ENROLL] ${name} (PIN:${pin}) encolado en ${devices.length} dispositivo(s)`);
 
@@ -546,7 +547,10 @@ router.post('/assign-user', requireAuth, requireRole('owner', 'admin', 'school_a
 
     invalidateMappingCache(zk_pin);
 
-    return res.json({ success: true, message: `PIN ${zk_pin} asignado.` });
+    // Marcaciones de este PIN que llegaron antes de asociarlo (nunca lanza).
+    const reproceso = await reprocessPinEventsForHourBank(schoolId!, Number(zk_pin));
+
+    return res.json({ success: true, message: `PIN ${zk_pin} asignado.`, hour_bank_reprocessed: reproceso.reprocessed });
   } catch (err: any) {
     return res.status(500).json({ error: 'Error al asignar usuario al PIN' });
   }

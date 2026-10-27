@@ -80,7 +80,7 @@ vi.mock('../config/supabase', () => {
 });
 vi.mock('../services/bridgeWsHub', () => ({ wakeSchool: vi.fn() }));
 vi.mock('./access-adms', () => ({
-    invalidateDeviceCache: vi.fn(), invalidateMappingCache: vi.fn(), getHourBankSettings: vi.fn(),
+    invalidateDeviceCache: vi.fn(), invalidateMappingCache: vi.fn(), reprocessPinEventsForHourBank: vi.fn(async () => ({ reprocessed: 0 })), getHourBankSettings: vi.fn(),
 }));
 
 import {
