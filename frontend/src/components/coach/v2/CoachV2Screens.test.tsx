@@ -236,6 +236,20 @@ describe('Hoy', () => {
   });
 });
 
+describe('Partidos › entradas a la pantalla del partido', () => {
+  it('«+ Partido» abre el flujo nuevo del equipo; un partido sin resultado ya pasado ofrece cerrarlo', () => {
+    st.partidos = q([
+      { id: 'm9', rival: 'Tigres', fecha: '2026-10-04', kickoffAt: null, lugar: null, enCasa: true, golesLocal: null, golesVisita: null, estado: 'scheduled', tipo: null, nota: null },
+      { id: 'm8', rival: 'Leones', fecha: '2026-10-01', kickoffAt: null, lugar: null, enCasa: true, golesLocal: 2, golesVisita: 1, estado: 'played', tipo: null, nota: null },
+    ]);
+    pintar(<CoachTeamsV2 hoy={HOY} />, '/teams?equipo=t11&tab=partidos');
+    expect(screen.getByRole('link', { name: /Partido/ })).toHaveAttribute('href', '/partidos/nuevo?equipo=t11');
+    const porCerrar = screen.getByTestId('partidos-por-cerrar');
+    expect(within(porCerrar).getByRole('link')).toHaveAttribute('href', '/partidos/m9');
+    expect(screen.getByRole('link', { name: /Ganamos a Leones/ })).toHaveAttribute('href', '/partidos/m8');
+  });
+});
+
 describe('Partidos › convocatoria con refuerzos', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });

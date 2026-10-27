@@ -205,7 +205,10 @@ const GESTION_DEPORTIVA_ESCUELA: NavItem[] = [
       { title: 'Encuestas', href: '/dashboard/polls', icon: ClipboardList },
     ],
   },
-  { title: 'Resultados', href: '/results-overview', icon: Trophy },
+  // Resultados = los partidos de la escuela (/results): cada uno abre la
+  // pantalla del partido. /results-overview (feed de medallas de demostración,
+  // pensado para cheer) sale del menú pero la ruta se conserva.
+  { title: 'Resultados', href: '/results', icon: Trophy },
   { title: 'Mis Torneos', href: '/school/tournaments', icon: Trophy, addon: 'tournaments' },
   { title: 'Dotación', href: '/school/equipment', icon: Dumbbell },
   // Solo disponibilidad (disponible / restringido / no disponible) que el

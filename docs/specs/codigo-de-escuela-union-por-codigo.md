@@ -1,6 +1,6 @@
 # Código de escuela — unirse después de registrarse
 
-**Estado:** F0 (spec) · 2026-10-26 · pendiente de aprobación antes de escribir migraciones.
+**Estado:** construido de corrido (DB + RLS + RPCs + UI) · 2026-10-26 · decisiones D1–D5 aprobadas (§8). Migración `20261026132948_codigo_de_escuela.sql` escrita, **pendiente de aplicar** (la aplica el responsable; las pruebas SQL van comentadas al final del archivo).
 **Origen:** caso Besser / Isabella Millán (2026-10-26).
 
 ## 1. El problema
@@ -53,7 +53,8 @@ Todas las tablas son nuevas, con estados `text + CHECK` y FKs a `profiles(id)`.
 - `for_whom text CHECK (for_whom IN ('self','child'))`, `athlete_name`, `birth_date`, `suggested_category`.
 - `status text CHECK (status IN ('pending','assigned','linked','rejected','cancelled'))`.
 - `assigned_team_id`, `child_id`, `enrollment_id`, `resolved_by`, `resolved_at`, `reject_reason`, `created_at`.
-- Índice único parcial: una sola `pending` por `(school_id, requester_profile_id, lower(unaccent(athlete_name)))`.
+- Índice único parcial: una sola `pending` por `(school_id, requester_profile_id, normalize_athlete_name(athlete_name))` (la misma normalización inmutable que usan los guardas de duplicados; `unaccent` no es inmutable).
+- Al construir se agregó `assigned_branch_id` (D2) y `updated_at`, más la tabla `school_join_code_attempts` para el límite de intentos.
 
 **¿Por qué no reusar `school_signup_leads`?** Un prospecto es anónimo y sin cuenta, y una solicitud ya trae cuenta y debe terminar ligada a ella. Se ven en la misma bandeja de la escuela, pero el dato es distinto (ver D1).
 
@@ -65,12 +66,27 @@ Todas las tablas son nuevas, con estados `text + CHECK` y FKs a `profiles(id)`.
 | `submit_school_join_request(p_code, p_for_whom, p_name, p_birth_date, p_category)` | `authenticated` | Crea la solicitud `pending`, suma `uses_count` y avisa a los admins. |
 | `cancel_school_join_request(p_id)` | quien la creó | Solo si sigue `pending`. |
 | `list_school_join_requests(p_school)` | staff de la escuela | Bandeja «Por asignar», con las fichas candidatas a vincular. |
-| `resolve_school_join_request(p_id, p_action, p_team_id, p_child_id, p_reason)` | admin de la escuela | **Transaccional:** asignar crea la ficha (si es `child`, con `parent_id` = quien pidió) y la inscripción en el equipo; vincular pone `parent_id` en la ficha existente; rechazar solo cambia el estado. Bloquea la solicitud con `FOR UPDATE` para que dos admins no la resuelvan dos veces. |
+| `resolve_school_join_request(p_request_id, p_action, p_team_id, p_branch_id, p_child_id, p_reason)` | admin de la escuela | **Transaccional:** asignar crea la ficha (si es `child`, con `parent_id` = quien pidió; si la familia ya tenía esa ficha en su cuenta sin escuela, la adopta) o la membresía de atleta (`self`); vincular pone `parent_id` en la ficha existente; rechazar solo cambia el estado. Bloquea la solicitud con `FOR UPDATE` para que dos admins no la resuelvan dos veces (el segundo recibe `55000` «ya fue resuelta»). **No crea inscripción ni cobro**: devuelve `needs_enrollment` (ver «Camino de inscripción»). |
+| `confirm_school_join_request_enrollment(p_request_id)` | admin de la escuela | Después del alta por el BFF, amarra la inscripción a la solicitud y la saca de la bandeja. Idempotente. |
+| `get_school_join_code(p_school)` | admin de la escuela | Devuelve el código activo (lo crea si la escuela es posterior al backfill). |
 | `rotate_school_join_code(p_school)` | admin de la escuela | Revoca el código activo y crea uno nuevo. |
+| `my_school_join_status()` | `authenticated` | ¿La cuenta tiene escuela? + sus solicitudes recientes (aviso del inicio y de «Mis hijos»). |
 
 - `GRANT EXECUTE … TO authenticated` explícito, y `REVOKE` explícito de `anon` y `authenticated` donde no aplica (los default privileges otorgan `EXECUTE` solos).
-- **La inscripción NO se crea con un INSERT propio.** `resolve_school_join_request` llama al mismo camino que usa hoy «Agregar estudiante», para no sumar un camino 14 que cree cobros (ver el censo de 13 caminos). Cuál es exactamente se confirma en el plan de F1.
+- **La inscripción NO se crea con un INSERT propio.** No se suma un camino 14 que cree cobros (ver el censo de 13 caminos).
 - El monto y el primer cobro siguen la regla normal de la escuela: la escuela decide el precio.
+
+### Camino de inscripción (decidido al construir)
+
+«Agregar atleta» en Atletas (`CreateChildModal` / `CreateAdultAthleteModal`) **no es una RPC**: es `POST /api/v1/students/create-one` del BFF, que calcula la cuota y el primer cobro en TypeScript (`buildAltaPayments`, `calcFirstPayment`, clases restantes, inscripción/seguro del plan) y escribe inscripción + cobros en una sola transacción con la RPC `create_enrollment_with_payments`. Llamar `create_enrollment_with_payments` desde SQL habría obligado a reescribir ese cálculo en SQL (un segundo cálculo de cobros = el origen de los duplicados).
+
+Por eso se reutiliza **el mismo endpoint**, igual que ya lo hace la bandeja de hojas de matrícula (`EnrollmentIntakeInboxPage`):
+
+1. `resolve_school_join_request` (RPC, transaccional, `FOR UPDATE`) crea o vincula la **ficha** — `children` con `parent_id` = quien pidió — o, en el caso «para mí», la membresía `school_members` de atleta. Sin inscripción, sin cobro.
+2. Si devuelve `needs_enrollment = true`, la bandeja llama a `POST /api/v1/students/create-one` con `type: 'child_existing'` (`child_id`) o `type: 'adult_existing'` (`user_id`), con el equipo, la sede, el plan opcional y la fecha de inicio. Para `child_existing` se manda `monthly_fee` = precio del plan si se eligió plan, si no el del equipo — exactamente la precedencia del alta de un menor (`child`): ese ramal solo cobra con `monthly_fee` explícito.
+3. `confirm_school_join_request_enrollment` amarra la inscripción a la solicitud.
+
+Si el paso 2 falla (periodo ocupado, plan ajeno, BFF caído), la solicitud queda asignada y aparece en la bandeja como **«Falta inscribir»** para reintentar; un reintento no duplica cobros porque `create-one` no crea otra inscripción si ya hay una activa y `create_enrollment_with_payments` rechaza un periodo ya cobrado (`periodo_ocupado`).
 
 ## 6. RLS
 
@@ -89,10 +105,17 @@ Todas las tablas son nuevas, con estados `text + CHECK` y FKs a `profiles(id)`.
 | F3 | UI de la escuela: tarjeta del código, bandeja «Por asignar», avisos | Probado con Besser |
 | F4 | Recuperar las 164 cuentas: aviso único en el inicio de las cuentas sin escuela + manual de una página para que las escuelas compartan su código | — |
 
-## 8. Decisiones abiertas
+## 8. Decisiones (resueltas 2026-10-26)
 
-- **D1.** ¿Una sola bandeja «Por asignar» para solicitudes por código **y** prospectos del formulario público? *Recomendado: sí en la pantalla, separadas en datos.* Así se cierra de paso la F1 pendiente de Prospectos.
-- **D2.** ¿Un código por escuela o uno por sede? *Recomendado: por escuela, y que la escuela elija la sede al asignar.*
-- **D3.** ¿Puede asignar el entrenador o solo la administración? *Recomendado: solo administración.* Asignar crea inscripción y cobro, y eso es dinero.
-- **D4.** Al asignar, ¿empieza a cobrar de inmediato o espera el siguiente periodo? *Se sigue la regla actual de la escuela; no se inventa una nueva.*
-- **D5.** ¿El código vence? *Recomendado: no, pero se puede cambiar en cualquier momento.*
+- **D1. RESUELTA — una sola bandeja en pantalla, datos separados.** «Por asignar (N)» muestra las solicitudes por código (`school_join_requests`) y los prospectos abiertos (`new`/`contacted`) del formulario público (`school_signup_leads`, con las RPCs `list_school_leads` / `update_school_lead_status` que ya existían sin UI). Un prospecto no tiene cuenta: desde la bandeja se contacta y se marca (contactado / inscrito / descartado); para inscribirlo se usa «Agregar atleta» o se le comparte el código.
+- **D2. RESUELTA — un código por escuela; la sede se elige al asignar** (`p_branch_id`, por defecto la sede del equipo). `school_join_codes.branch_id` queda en la tabla, siempre `NULL`.
+- **D3. RESUELTA — solo administración asigna** (`user_admin_school_ids()`: owner/admin/school_admin). El staff (coach incluido) puede leer la bandeja por RLS, pero no resolver; la UI solo la muestra a administración.
+- **D4. RESUELTA — se sigue la regla de cobro actual de la escuela.** El primer cobro lo calcula el mismo alta de «Agregar atleta» (ver «Camino de inscripción»); no hay regla nueva.
+- **D5. RESUELTA — el código no vence, pero se puede cambiar** («Cambiar código»: el anterior deja de servir de inmediato y nunca se reasigna a otra escuela).
+
+## 9. Lo construido
+
+- **Migración** `supabase/migrations/20261026132948_codigo_de_escuela.sql`: tablas `school_join_codes`, `school_join_requests`, `school_join_code_attempts` (límite: 8 códigos inválidos en 15 min por usuario); RLS sin policies de escritura; lectura de códigos solo `user_admin_school_ids()`, de solicitudes quien la creó o `user_staff_school_ids()`; RPCs de §5; backfill de un código por escuela. Código: prefijo de 3 letras del nombre saltando palabras genéricas («Club Deportivo Besser» → `BES`) + 4 de `ABCDEFGHJKMNPQRSTUVWXYZ23456789`, único con reintento.
+- **Escuela:** Atletas → tarjeta «Código de la escuela» (copiar, enlace, WhatsApp, QR descargable, cambiar) y bandeja «Por asignar (N)» con Asignar / Ya tiene ficha / Rechazar / Falta inscribir, y los prospectos. Aviso a la administración por `notifications` (categoría `enrollment`, link `/students?bandeja=por-asignar`).
+- **Familia:** `/unirse?codigo=…` (sin sesión guarda el código y lo retoma tras entrar o registrarse), paso opcional en el onboarding de acudiente y deportista, y aviso en el inicio y en «Mis hijos» para cuentas sin escuela (con el estado de sus solicitudes).
+- **Pendiente de F4:** el manual de una página para las escuelas y medir cuántas de las 164 cuentas usan el código.

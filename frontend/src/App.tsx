@@ -121,6 +121,7 @@ const PostTrainingDayRecapPage = lazy(() => import("./pages/PostTrainingDayRecap
 const CoachCheckInScanPage = lazy(() => import("./pages/CoachCheckInScanPage"));
 const CoachPlansPage = lazy(() => import("./pages/CoachPlansPage"));
 const ResultsPage = lazy(() => import("./pages/ResultsPage"));
+const PartidoPage = lazy(() => import("./pages/PartidoPage"));
 const CoachReportsPage = lazy(() => import("./pages/CoachReportsPage"));
 const CoachTeamPostTrainingReportPage = lazy(() => import("./pages/CoachTeamPostTrainingReportPage"));
 const CoachEvaluationsPage = lazy(() => import("./pages/CoachEvaluationsPage"));
@@ -209,6 +210,7 @@ const CertificateVerifyPublicPage = lazy(() => import("./pages/CertificateVerify
 const JoinSchoolPublicPage = lazy(() => import("./pages/JoinSchoolPublicPage"));
 const SchoolJoinQRsPage = lazy(() => import("./pages/SchoolJoinQRsPage"));
 const SchoolLeadFormPage = lazy(() => import("./pages/SchoolLeadFormPage"));
+const JoinSchoolByCodePage = lazy(() => import("./pages/JoinSchoolByCodePage"));
 
 // ─── Vendor/Marketplace pages (lazy) ─────────────────────────────────────────
 const MarketplacePage = lazy(() => import("./pages/MarketplacePage"));
@@ -360,6 +362,8 @@ const App = () => (
                     <Route path="/cert/:folio" element={<CertificateVerifyPublicPage />} />
                     <Route path="/join/:slug" element={<JoinSchoolPublicPage />} />
                     <Route path="/inscripcion/:slug" element={<SchoolLeadFormPage />} />
+                    {/* Código de escuela: cuenta existente → bandeja «Por asignar». La página maneja la sesión (guarda el código si no hay). */}
+                    <Route path="/unirse" element={<JoinSchoolByCodePage />} />
                     <Route path="/agendar/:slug" element={<PublicFacilityBookingPage />} />
                     <Route path="/agendar-clase/:slug" element={<PublicTrialClassBookingPage />} />
                     <Route path="/terminos-y-condiciones" element={<TermsPage />} />
@@ -621,6 +625,10 @@ const App = () => (
                         </ModuleGate>
                       } />
                       <Route path="results" element={<ResultsPage />} />
+                      {/* Pantalla del partido: Programar → Convocar → Resultado → Evaluar → Reporte.
+                          Sin ProtectedRoute, igual que /results: un entrenador multirol puede no tener
+                          profile.role='coach'. El gate real son la RLS y las RPC (user_staff_school_ids). */}
+                      <Route path="partidos/:matchId" element={<PartidoPage />} />
                       <Route path="training-plans" element={
                         <ModuleGate moduleKey="gestion_deportiva_entrenamiento_metricas">
                           <SesionesSegunRol />
