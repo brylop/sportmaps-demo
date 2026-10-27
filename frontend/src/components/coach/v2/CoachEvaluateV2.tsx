@@ -30,6 +30,7 @@ import {
   EFFORT_DE,
   ETIQUETA_COMO,
   iniciales,
+  mensajeErrorEvaluar,
   OPCIONES_COMO,
   primerNombre,
   type ComoLeFue,
@@ -72,7 +73,12 @@ export function CoachEvaluateV2({ sessionId, rutas: rutasProp, volverHref = '/da
 
   const [como, setComo] = useState<Record<string, ComoLeFue>>({});
   const [nota, setNota] = useState('');
-  const [guardado, setGuardado] = useState(false);
+  // B3: «Guardado» solo cuando la RPC respondió bien. Mientras corre la
+  // ventana de Deshacer el botón dice «Se guarda en unos segundos».
+  const [estado, setEstado] = useState<'editando' | 'programado' | 'guardado'>('editando');
+  const guardado = estado !== 'editando';
+  const setGuardado = (v: boolean) => setEstado(v ? 'programado' : 'editando');
+  const [errorGuardar, setErrorGuardar] = useState<string | null>(null);
   const [felicitados, setFelicitados] = useState<Set<string>>(new Set());
   const [hoja, setHoja] = useState<ObjetivoFelicitar | null>(null);
 
@@ -113,27 +119,41 @@ export function CoachEvaluateV2({ sessionId, rutas: rutasProp, volverHref = '/da
       effort_pct: EFFORT_DE[valor(p)],
     }));
     const p_coach_notes = nota.trim() || null;
-    setGuardado(true);
+    setEstado('programado');
+    setErrorGuardar(null);
     programar(
       `evaluar:${sessionId}`,
-      'Guardado. Las familias reciben «Así le fue hoy».',
+      'Se guarda en 8 segundos.',
       async () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { error } = await (supabase as any).rpc('submit_post_training_coach_rating', {
-          p_session_id: sessionId,
-          p_ratings,
-          p_coach_notes,
-        });
+        let error: { code?: string; message?: string } | null = null;
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const r = await (supabase as any).rpc('submit_post_training_coach_rating', {
+            p_session_id: sessionId,
+            p_ratings,
+            p_coach_notes,
+          });
+          error = r.error ?? null;
+        } catch (e) {
+          error = { message: e instanceof Error ? e.message : String(e) };
+        }
         if (error) {
-          setGuardado(false);
           console.error('[evaluar] submit_post_training_coach_rating', error);
-          toast.error('No pudimos guardar la evaluación. Revisa tu conexión e inténtalo de nuevo.');
+          const texto = mensajeErrorEvaluar(error);
+          setEstado('editando');
+          setErrorGuardar(texto);
+          // Sin vencimiento: el error puede llegar cuando el profe ya está en
+          // otra pantalla, y no puede pasar desapercibido.
+          toast.error(texto, { id: `evaluar-error-${sessionId}`, duration: Infinity, closeButton: true });
           return;
         }
+        setEstado('guardado');
+        toast.success('Evaluación guardada. Las familias reciben «Así le fue hoy».', { id: `evaluar-ok-${sessionId}` });
         qc.invalidateQueries({ queryKey: ['coach-v2'] });
         onGuardado?.();
       },
-      () => setGuardado(false),
+      () => setEstado('editando'),
+      { tono: 'info' },
     );
   };
 
@@ -272,13 +292,19 @@ export function CoachEvaluateV2({ sessionId, rutas: rutasProp, volverHref = '/da
               />
             </section>
 
+            {errorGuardar && (
+              <div role="alert" className="rounded-2xl border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive" data-testid="error-evaluar">
+                {errorGuardar}
+              </div>
+            )}
+
             <div className="sticky bottom-0 z-10 pb-3 pr-[4.5rem] pt-1 lg:pr-0" data-testid="barra-evaluar">
               <Button
                 className={cn('h-auto min-h-14 w-full whitespace-normal rounded-2xl py-2 text-base font-semibold leading-tight shadow-lg', guardado && 'bg-muted-foreground hover:bg-muted-foreground')}
                 onClick={guardar}
                 disabled={n === 0}
               >
-                {guardado ? 'Guardado' : (
+                {estado === 'guardado' ? 'Guardado' : estado === 'programado' ? 'Se guarda en unos segundos…' : (
                   <span className="flex flex-wrap items-baseline justify-center gap-x-1.5">
                     <span>Guardar evaluación</span>{' '}
                     <span className="text-sm font-medium opacity-90">({bien} bien · {costo} le costó)</span>

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  BARRA_GUARDAR,
   PASOS,
   aColumnasMarcador,
   criteriosDePartido,
@@ -170,5 +171,20 @@ describe('quiénes se evalúan', () => {
       criterios,
     );
     expect(p).toEqual({ 'child:a': { actitud: { value: 3 }, comentario: { notes: 'Bien' } } });
+  });
+});
+
+describe('BARRA_GUARDAR (B1: el botón queda debajo de la barra de pestañas)', () => {
+  it('en el celular se apoya encima de MobileBottomNav, no en bottom-0', () => {
+    const clases = BARRA_GUARDAR.split(' ');
+    expect(clases).toContain('bottom-nav-safe');
+    expect(clases).not.toContain('bottom-0');
+    // MobileBottomNav es z-30: la barra no puede quedar por debajo.
+    expect(clases).toContain('z-30');
+  });
+  it('deja libre la esquina del botón de Mapi y vuelve al flujo en escritorio', () => {
+    const clases = BARRA_GUARDAR.split(' ');
+    expect(clases).toContain('pr-20');
+    expect(clases).toContain('md:static');
   });
 });

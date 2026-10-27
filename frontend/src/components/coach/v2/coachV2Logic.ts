@@ -32,6 +32,8 @@ export interface RutasCoachV2 {
   /** Pantalla del partido para uno nuevo de ese equipo. */
   partidoNuevo: (teamId: string) => string;
   misDeportistas: string;
+  /** Pizarra libre: dibujar una jugada sin formulario (pantalla independiente). */
+  pizarra: string;
 }
 
 export type TabEquipo = 'deportistas' | 'partidos' | 'evaluar';
@@ -49,6 +51,7 @@ export const RUTAS_COACH_V2: RutasCoachV2 = {
   partido: (matchId) => `/partidos/${encodeURIComponent(matchId)}`,
   partidoNuevo: (teamId) => `/partidos/nuevo?equipo=${encodeURIComponent(teamId)}`,
   misDeportistas: '/students',
+  pizarra: '/pizarra',
 };
 
 export const conRutas = (r?: Partial<RutasCoachV2>): RutasCoachV2 => ({ ...RUTAS_COACH_V2, ...(r ?? {}) });
@@ -120,6 +123,24 @@ export function comoDesdeEffort(v: number | null | undefined): ComoLeFue | null 
   if (n >= 80) return 'bien';
   if (n >= 70) return 'normal';
   return 'costo';
+}
+
+/**
+ * Qué decirle al profe cuando `submit_post_training_coach_rating` falla (B3).
+ * Antes todo error salía como «Revisa tu conexión», incluso cuando la base
+ * rechazaba la evaluación por una regla: el profe reintentaba sin fin. Los
+ * mensajes de la RPC ya vienen en español, así que se muestran tal cual.
+ */
+export function mensajeErrorEvaluar(error: { code?: string | null; message?: string | null } | null | undefined): string {
+  const code = error?.code ?? '';
+  const msg = (error?.message ?? '').trim();
+  if (!code && (!msg || /failed to fetch|networkerror|network request failed|load failed/i.test(msg))) {
+    return 'Sin conexión: la evaluación no se guardó. Revisa la señal e inténtalo de nuevo.';
+  }
+  if (code === '42501') return 'No se guardó: no figuras como entrenador de este equipo. Pídele a la administración que te asigne.';
+  if (code === 'P0002') return 'No se guardó: este entreno ya no existe.';
+  if (msg && (code === '55000' || code === '22023' || code === 'P0001')) return `No se guardó: ${conPunto(msg)}`;
+  return 'No se guardó la evaluación por un error del servidor. Inténtalo de nuevo en un momento.';
 }
 
 // ── Deportistas ─────────────────────────────────────────────────────────────
@@ -349,6 +370,30 @@ export function momentoDelDia(equipos: EquipoHorario[], ahora: Date, sesionesHoy
     }
   }
   return { tipo: 'libre', proximo: mejor ? { equipo: mejor.equipo, franja: mejor.franja, enDias: mejor.enDias } : null };
+}
+
+/**
+ * Resumen de la semana (lunes a hoy) para Hoy: entrenos con lista, cuántos
+ * con la lista tomada y cuántos cerrados sin evaluar. Con «Hoy no entrenas» es
+ * lo que llena la pantalla (ítem 30).
+ */
+export function resumenSemana(sesiones: Array<Pick<SesionReciente, 'fecha' | 'cerrada' | 'evaluada'>>, ahora: Date): {
+  entrenos: number; conLista: number; sinEvaluar: number;
+} {
+  const lunes = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() - ((ahora.getDay() + 6) % 7));
+  const desde = isoDia(lunes);
+  const hasta = isoDia(ahora);
+  const deLaSemana = sesiones.filter((s) => s.fecha >= desde && s.fecha <= hasta);
+  return {
+    entrenos: deLaSemana.length,
+    conLista: deLaSemana.filter((s) => s.cerrada).length,
+    sinEvaluar: deLaSemana.filter((s) => s.cerrada && !s.evaluada).length,
+  };
+}
+
+/** Equipos sin horario fijo (ítem 31: «Agregar horario» o pedírselo a la administración). */
+export function equiposSinHorario<T extends Pick<EquipoHorario, 'franjas'>>(equipos: T[]): T[] {
+  return equipos.filter((e) => e.franjas.length === 0);
 }
 
 /** Cierra con punto sin duplicarlo («p. m.» ya lo trae). */

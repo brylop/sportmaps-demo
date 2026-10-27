@@ -515,3 +515,41 @@ export function useCitasDeHoy(userId: string | null | undefined, hoy: Date) {
     },
   });
 }
+
+export interface UltimaJugada {
+  id: string;
+  teamId: string | null;
+  fuente: string | null;
+  fecha: string; // ISO
+}
+
+/**
+ * La última jugada que el profe guardó en la pizarra (match_lineups: bloques de
+ * sesión, partidos o la pizarra libre). Para «Hoy no entrenas» (ítem 30).
+ * Un solo registro, filtrado por autor: barato.
+ */
+export function useUltimaJugada(schoolId: string | null | undefined, userId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['coach-v2', 'ultima-jugada', schoolId, userId],
+    enabled: !!schoolId && !!userId,
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<UltimaJugada | null> => {
+      const { data, error } = await db
+        .from('match_lineups')
+        .select('id, team_id, source_type, updated_at, created_at')
+        .eq('school_id', schoolId)
+        .eq('created_by', userId)
+        .order('updated_at', { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return null;
+      return {
+        id: String(data.id),
+        teamId: (data.team_id as string) ?? null,
+        fuente: (data.source_type as string) ?? null,
+        fecha: String(data.updated_at ?? data.created_at),
+      };
+    },
+  });
+}

@@ -13,10 +13,16 @@
  *
  * Carga, error y vacío son distintos: si los equipos no cargan no se dice «Hoy
  * no entrenas».
+ *
+ * Pizarra: botón grande siempre (abre `/pizarra`, se dibuja sin formulario).
+ * «Hoy no entrenas» no deja la pantalla vacía: resumen de la semana, la última
+ * jugada guardada y la pizarra / Mapi. Equipos sin horario fijo: «Agregar
+ * horario» (o el aviso para la administración si la escuela no lo permite).
  */
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CalendarDays, Check, ChevronDown, ChevronRight, ClipboardCheck } from 'lucide-react';
+import { CalendarDays, Check, ChevronDown, ChevronRight, ClipboardCheck, MessageCircleQuestion, Presentation } from 'lucide-react';
+import { SupportChatModal } from '@/components/support/SupportChatModal';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -28,6 +34,7 @@ import { fechaCabecera } from '@/components/parent/v2/parentHomeLogic';
 import {
   conRutas,
   construirPendientes,
+  equiposSinHorario,
   fraseMomento,
   guardarMasTarde,
   horaDePartido,
@@ -39,6 +46,7 @@ import {
   momentoDelDia,
   pasosDelPlan,
   primerNombre,
+  resumenSemana,
   type Momento,
   type RutasCoachV2,
 } from './coachV2Logic';
@@ -51,8 +59,10 @@ import {
   usePlanesDeHoy,
   usePresentesSesion,
   useSesionesRecientes,
+  useUltimaJugada,
   type EquipoCoach,
 } from './useCoachV2Data';
+import { AgregarHorarioBoton } from './equipos/AgregarHorarioSheet';
 
 interface Props {
   nombreProfe?: string | null;
@@ -74,6 +84,12 @@ export function CoachHomeV2({ nombreProfe, rutas: rutasProp, hoy }: Props) {
   const informes = useInformesDelMes(schoolId, ahora.getFullYear(), ahora.getMonth() + 1);
   const partidos = usePartidosProximos(teamIds, ahora);
   const citas = useCitasDeHoy(user?.id, ahora);
+  const hoyIso = isoDia(ahora);
+  const libre = useMemo(
+    () => momentoDelDia(equipos.data ?? [], ahora, (sesiones.data ?? []).filter((s) => s.fecha === hoyIso)).tipo === 'libre',
+    [equipos.data, ahora, sesiones.data, hoyIso],
+  );
+  const ultimaJugada = useUltimaJugada(libre ? schoolId : null, user?.id);
 
   const nombre = primerNombre(nombreProfe);
   const cabeceraFecha = `${fechaCabecera(ahora)}${nombre ? ` · Profe ${nombre}` : ''}`;
@@ -119,6 +135,16 @@ export function CoachHomeV2({ nombreProfe, rutas: rutasProp, hoy }: Props) {
             cargandoSesiones={sesiones.isLoading}
             rutas={rutas}
           />
+          <BotonPizarra href={rutas.pizarra} />
+          {libre && (
+            <DiaLibre
+              equipos={equipos.data ?? []}
+              sesiones={sesiones.data ?? []}
+              ahora={ahora}
+              rutas={rutas}
+              ultima={ultimaJugada.data ?? null}
+            />
+          )}
           <PlanDeHoy equipos={equipos.data ?? []} planes={planes.data ?? []} rutas={rutas} />
           <Pendientes
             ahora={ahora}
@@ -150,7 +176,7 @@ export function CoachHomeV2({ nombreProfe, rutas: rutasProp, hoy }: Props) {
               <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden />
             </Link>
           )}
-          <ResumenSemana sesiones={sesiones.data ?? []} ahora={ahora} />
+          {!libre && <ResumenSemana sesiones={sesiones.data ?? []} ahora={ahora} />}
         </>
       )}
     </div>
@@ -196,6 +222,98 @@ function MomentoBloque({ equipos, ahora, sesiones, cargandoSesiones, rutas }: {
           </Link>
         </Button>
       )}
+    </section>
+  );
+}
+
+/** Botón grande «Pizarra»: dibujar una jugada ya, sin llenar nada (ítem 3). */
+function BotonPizarra({ href }: { href: string }) {
+  return (
+    <Link
+      to={href}
+      className="flex min-h-16 items-center gap-3 rounded-2xl border-2 border-primary/30 bg-primary/5 px-4 py-3 active:scale-[0.97] motion-reduce:active:scale-100"
+      data-testid="boton-pizarra"
+    >
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+        <Presentation className="h-6 w-6" aria-hidden />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="text-lg font-bold">Pizarra</span>
+        <span className="text-xs text-muted-foreground">Dibuja una jugada ya, sin llenar nada.</span>
+      </span>
+      <ChevronRight className="h-5 w-5 text-muted-foreground" aria-hidden />
+    </Link>
+  );
+}
+
+const FUENTE_JUGADA: Record<string, string> = {
+  training_session: 'de un entreno',
+  team_match: 'de un partido',
+};
+
+/** «Hoy no entrenas»: lo que sirve un día libre (ítem 30) y el horario que falta (ítem 31). */
+function DiaLibre({ equipos, sesiones, ahora, rutas, ultima }: {
+  equipos: EquipoCoach[];
+  sesiones: { fecha: string; cerrada: boolean; evaluada: boolean }[];
+  ahora: Date;
+  rutas: RutasCoachV2;
+  ultima: { id: string; teamId: string | null; fuente: string | null; fecha: string } | null;
+}) {
+  const [mapi, setMapi] = useState(false);
+  const r = resumenSemana(sesiones, ahora);
+  const sinHorario = equiposSinHorario(equipos);
+  const equipoJugada = ultima?.teamId ? equipos.find((e) => e.id === ultima.teamId)?.nombre ?? null : null;
+  const fechaJugada = ultima ? new Date(ultima.fecha).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }) : null;
+
+  return (
+    <section aria-label="Tu semana" className="flex flex-col gap-3 rounded-2xl border bg-card p-4" data-testid="dia-libre">
+      <h2 className="text-base font-semibold">Tu semana</h2>
+      {r.entrenos === 0 ? (
+        <p className="text-sm text-muted-foreground">Esta semana todavía no hay listas tomadas.</p>
+      ) : (
+        <ul className="grid grid-cols-3 gap-2 text-center">
+          <li className="flex flex-col"><span className="text-2xl font-bold tabular-nums">{r.entrenos}</span><span className="text-xs text-muted-foreground">{r.entrenos === 1 ? 'entreno' : 'entrenos'}</span></li>
+          <li className="flex flex-col"><span className="text-2xl font-bold tabular-nums">{r.conLista}</span><span className="text-xs text-muted-foreground">con lista cerrada</span></li>
+          <li className="flex flex-col"><span className={cn('text-2xl font-bold tabular-nums', r.sinEvaluar > 0 && 'text-amber-600 dark:text-amber-400')}>{r.sinEvaluar}</span><span className="text-xs text-muted-foreground">sin evaluar</span></li>
+        </ul>
+      )}
+
+      {ultima && (
+        <Link to={`${rutas.pizarra}?jugada=${encodeURIComponent(ultima.id)}`} className="flex min-h-touch items-center gap-3 rounded-xl border px-3 py-2" data-testid="ultima-jugada">
+          <Presentation className="h-5 w-5 shrink-0 text-primary" aria-hidden />
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="text-sm font-semibold">Tu última jugada</span>
+            <span className="truncate text-xs text-muted-foreground">
+              {[equipoJugada, ultima.fuente ? FUENTE_JUGADA[ultima.fuente] ?? null : null, fechaJugada].filter(Boolean).join(' · ')}
+            </span>
+          </span>
+          <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden />
+        </Link>
+      )}
+
+      <div className="grid grid-cols-2 gap-2">
+        <Button asChild variant="outline" className="h-auto min-h-touch whitespace-normal rounded-xl py-2">
+          <Link to={rutas.pizarra}><Presentation className="mr-2 h-4 w-4 shrink-0" aria-hidden />Abrir la pizarra</Link>
+        </Button>
+        <Button variant="outline" className="h-auto min-h-touch whitespace-normal rounded-xl py-2" onClick={() => setMapi(true)}>
+          <MessageCircleQuestion className="mr-2 h-4 w-4 shrink-0" aria-hidden />Pedirle ideas a Mapi
+        </Button>
+      </div>
+
+      {sinHorario.length > 0 && (
+        <div className="flex flex-col gap-2 border-t pt-3" data-testid="sin-horario">
+          <p className="text-sm font-semibold">
+            {sinHorario.length === 1 ? `${sinHorario[0].nombre} no tiene horario fijo.` : `${sinHorario.length} equipos no tienen horario fijo.`}
+          </p>
+          {sinHorario.slice(0, 3).map((e) => (
+            <div key={e.id} className="flex items-center justify-between gap-2">
+              {sinHorario.length > 1 && <span className="min-w-0 flex-1 truncate text-sm">{e.nombre}</span>}
+              <AgregarHorarioBoton equipo={e} />
+            </div>
+          ))}
+        </div>
+      )}
+      <SupportChatModal isOpen={mapi} onClose={() => setMapi(false)} />
     </section>
   );
 }
