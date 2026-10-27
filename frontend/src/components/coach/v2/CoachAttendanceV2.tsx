@@ -38,7 +38,7 @@ import { AvailabilityBadge } from '@/components/clinical/AvailabilityBadge';
 import { CoachPostTrainingRatingDialog } from '@/components/attendance/CoachPostTrainingRatingDialog';
 import {
   ETIQUETA, capitalizar, construirRegistros, estadoDesdeRegistros, estadoInicial, faltanMucho, fechaHumana, fechasCorregibles,
-  horaHumana, iniciales, porcentajeAsistencia, resumir, sePuedeCorregir, siguienteEstado, sumarDias, textoAyuda,
+  horaHumana, iniciales, porcentajeAsistencia, primeraFechaCorregible, resumir, sePuedeCorregir, siguienteEstado, sumarDias, textoAyuda,
   type EstadoLista,
 } from './asistenciaModel';
 import { DESHACER_MS, claveLista } from './colaAsistencia';
@@ -241,7 +241,7 @@ function TomarLista({ pedido, onPedidoAtendido }: { pedido: { ctx: ContextoLista
           {ctx && !elegir && (
             <ListaDelEntreno
               key={`${claveContexto(ctx)}|${fecha}`}
-              ctx={ctx} fecha={fecha} fechas={fechas} hoy={hoy} onFecha={setFecha}
+              ctx={ctx} fecha={fecha} fechas={fechas} hoy={hoy} retroDias={coachAttendanceRetroDays} onFecha={setFecha}
               onElegirClase={(id) => elegirCtx({ tipo: 'session', id, nombre: ctx.nombre })}
             />
           )}
@@ -291,8 +291,8 @@ function SelectorLista({ equipos, planes, clases, actual, onElegir, onCerrar }: 
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ListaDelEntreno({ ctx, fecha, fechas, hoy, onFecha, onElegirClase }: {
-  ctx: ContextoLista; fecha: string; fechas: string[]; hoy: string;
+function ListaDelEntreno({ ctx, fecha, fechas, hoy, retroDias, onFecha, onElegirClase }: {
+  ctx: ContextoLista; fecha: string; fechas: string[]; hoy: string; retroDias: number;
   onFecha: (f: string) => void; onElegirClase: (sessionId: string) => void;
 }) {
   const { user } = useAuth();
@@ -375,7 +375,7 @@ function ListaDelEntreno({ ctx, fecha, fechas, hoy, onFecha, onElegirClase }: {
   const r = resumir(estado, ids);
   const primerAviso = roster.find((a) => estado[a.id] === 'excused' && a.aviso_ausencia)?.full_name.split(' ')[0] ?? null;
   const puedeEditar = editando && !cerrada && !sesionQ.data?.varias && !sesionQ.data?.sinClase;
-  const sePuedeGuardar = sePuedeCorregir(fecha, hoy, fechas.length - 1) && !!schoolId && roster.length > 0;
+  const sePuedeGuardar = sePuedeCorregir(fecha, hoy, retroDias) && !!schoolId && roster.length > 0;
 
   const tocar = (id: string) => {
     if (!puedeEditar) return;
@@ -473,12 +473,23 @@ function ListaDelEntreno({ ctx, fecha, fechas, hoy, onFecha, onElegirClase }: {
         </div>
       ))}
 
-      {/* Fecha: hoy o ayer («se puede corregir hasta el día siguiente») */}
+      {/* Fecha: hoy o ayer a un toque; más atrás, dentro de la ventana de la escuela, por «Otra fecha» */}
       {fechas.length > 1 && (
         <Segmentado
           etiqueta="Día de la lista" valor={fecha} onCambio={onFecha}
           opciones={fechas.map((f) => ({ v: f, l: f === hoy ? 'Hoy' : 'Ayer' }))}
         />
+      )}
+      {retroDias > 1 && (
+        <label className="flex min-h-touch items-center justify-between gap-3 rounded-xl border px-3 text-sm">
+          <span className="font-medium text-muted-foreground">Otra fecha</span>
+          <input
+            type="date" className="min-h-touch bg-transparent text-right"
+            min={primeraFechaCorregible(hoy, retroDias)} max={hoy}
+            value={fechas.includes(fecha) ? '' : fecha}
+            onChange={(e) => { if (sePuedeCorregir(e.target.value, hoy, retroDias)) onFecha(e.target.value); }}
+          />
+        </label>
       )}
       {fecha !== hoy && (
         <p className="rounded-xl bg-muted px-3 py-2 text-xs text-muted-foreground">

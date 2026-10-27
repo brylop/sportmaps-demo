@@ -228,11 +228,32 @@ describe('Hoy', () => {
     expect(screen.getAllByTestId('pendiente')[0]).toHaveTextContent('Falta evaluar el entreno de hoy');
   });
 
+  it('una sola campana: el Inicio no dibuja la suya (queda la de la cabecera de la app)', () => {
+    pintar(<CoachHomeV2 hoy={HOY} />);
+    expect(screen.queryByRole('link', { name: /Avisos/ })).toBeNull();
+    expect(document.querySelector('a[href="/notifications"]')).toBeNull();
+    expect(screen.getByRole('banner')).toHaveTextContent('Club Campestre Demo');
+  });
+
   it('un error al cargar NO dice «Hoy no entrenas»', () => {
     st.equipos = q(undefined, { isError: true });
     pintar(<CoachHomeV2 hoy={HOY} />);
     expect(screen.getByRole('alert')).toBeInTheDocument();
     expect(screen.queryByText('Hoy no entrenas.')).not.toBeInTheDocument();
+  });
+});
+
+describe('Partidos › entradas a la pantalla del partido', () => {
+  it('«+ Partido» abre el flujo nuevo del equipo; un partido sin resultado ya pasado ofrece cerrarlo', () => {
+    st.partidos = q([
+      { id: 'm9', rival: 'Tigres', fecha: '2026-10-04', kickoffAt: null, lugar: null, enCasa: true, golesLocal: null, golesVisita: null, estado: 'scheduled', tipo: null, nota: null },
+      { id: 'm8', rival: 'Leones', fecha: '2026-10-01', kickoffAt: null, lugar: null, enCasa: true, golesLocal: 2, golesVisita: 1, estado: 'played', tipo: null, nota: null },
+    ]);
+    pintar(<CoachTeamsV2 hoy={HOY} />, '/teams?equipo=t11&tab=partidos');
+    expect(screen.getByRole('link', { name: /Partido/ })).toHaveAttribute('href', '/partidos/nuevo?equipo=t11');
+    const porCerrar = screen.getByTestId('partidos-por-cerrar');
+    expect(within(porCerrar).getByRole('link')).toHaveAttribute('href', '/partidos/m9');
+    expect(screen.getByRole('link', { name: /Ganamos a Leones/ })).toHaveAttribute('href', '/partidos/m8');
   });
 });
 

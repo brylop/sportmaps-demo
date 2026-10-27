@@ -29,6 +29,7 @@ import {
   Baby, Users, ClipboardList, Info, Loader2, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { phoneForForm, type AthletePrefill } from './athletePrefill';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { ZkPinField, zkPinToPayload } from './ZkPinField';
 import { supabase } from '@/integrations/supabase/client';
@@ -75,8 +76,10 @@ interface Branch { id: string; name: string; }
 interface CreateChildModalProps {
   open: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  /** Recibe la respuesta de create-one (`child_id`, …). */
+  onSuccess: (result?: any) => void;
   schoolId: string;
+  prefill?: AthletePrefill | null;
   /** «No cobrar inscripción / seguro». El coach no exonera (default true; el BFF también lo frena). */
   canWaiveFees?: boolean;
   /**
@@ -111,7 +114,7 @@ function Section({
   );
 }
 
-export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveFees = true, canUseSiblings }: CreateChildModalProps) {
+export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveFees = true, canUseSiblings, prefill }: CreateChildModalProps) {
   const siblingsAllowed = canUseSiblings ?? canWaiveFees;
   const { toast } = useToast();
   const [submitting, setSubmitting] = useState(false);
@@ -261,6 +264,14 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveF
   };
 
   const handleClose = () => { reset(); onClose(); };
+
+  // Abre precargado (prospecto de clase de prueba): solo lo que se sabe.
+  useEffect(() => {
+    if (!open || !prefill) return;
+    if (prefill.fullName) setFullName(prefill.fullName);
+    if (prefill.parentName) setParentName(prefill.parentName);
+    if (prefill.phone) setParentPhone(phoneForForm(prefill.phone));
+  }, [open, prefill]);
 
   // ── Búsqueda silenciosa en acudiente ──────────────────────────────────────────
   const checkParentEmailExists = useCallback(async (emailVal: string) => {
@@ -458,7 +469,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId, canWaiveF
         });
       }
       reset();
-      onSuccess();
+      onSuccess(result);
     } catch (e: any) {
       // F2: entre el preview y el alta cambió la familia (otro hermano entró o
       // salió). El BFF no crea nada; se muestra su mensaje y se recalcula.

@@ -27,8 +27,11 @@ export interface RutasCoachV2 {
   informeMensual: string;
   informeEntreno: string;
   resultados: string;
+  /** Pantalla del partido (Programar → Convocar → Resultado → Evaluar → Reporte). */
+  partido: (matchId: string) => string;
+  /** Pantalla del partido para uno nuevo de ese equipo. */
+  partidoNuevo: (teamId: string) => string;
   misDeportistas: string;
-  avisos: string;
 }
 
 export type TabEquipo = 'deportistas' | 'partidos' | 'evaluar';
@@ -43,8 +46,9 @@ export const RUTAS_COACH_V2: RutasCoachV2 = {
   informeMensual: '/informe-mensual',
   informeEntreno: '/coach-reports/entreno-equipo',
   resultados: '/results',
+  partido: (matchId) => `/partidos/${encodeURIComponent(matchId)}`,
+  partidoNuevo: (teamId) => `/partidos/nuevo?equipo=${encodeURIComponent(teamId)}`,
   misDeportistas: '/students',
-  avisos: '/notifications',
 };
 
 export const conRutas = (r?: Partial<RutasCoachV2>): RutasCoachV2 => ({ ...RUTAS_COACH_V2, ...(r ?? {}) });

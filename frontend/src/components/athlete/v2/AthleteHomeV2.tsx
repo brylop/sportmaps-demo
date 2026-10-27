@@ -16,7 +16,7 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { AlertCircle, Bell, CalendarCheck, Check, ChevronRight, Clock, Flame, IdCard, Trophy, X } from 'lucide-react';
+import { AlertCircle, CalendarCheck, Check, ChevronRight, Clock, Flame, IdCard, Trophy, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn, formatCurrency } from '@/lib/utils';
@@ -28,7 +28,7 @@ import {
   type Edad, type RpeRapido,
 } from './athleteV2Model';
 import {
-  autoevalKey, callupsKey, enviarRpeRapido, responderConvocatoria, useAthleteAttendance, useAthleteTeams,
+  autoevalKey, callupsKey, enviarRpeRapido, formularioAutoeval, responderConvocatoria, useAthleteAttendance, useAthleteTeams,
   useAutoevalPendiente, useMyCallups, useMyKudos, useTorneosAbiertos, type AutoevalPendiente, type EquipoDeportista,
 } from './useAthleteV2Data';
 import { useDeportista } from './useDeportista';
@@ -41,8 +41,6 @@ export interface AthleteHomeV2Props {
   carnetHref?: string;
   /** A dónde lleva «Ver mis felicitaciones» (Progreso › Felicitaciones). */
   felicitacionesHref?: string;
-  /** Avisos sin leer (punto en la campana). */
-  avisosSinLeer?: number;
   /** Para pruebas. */
   hoy?: Date;
 }
@@ -51,7 +49,7 @@ const vibrar = () => {
   try { navigator.vibrate?.(12); } catch { /* sin vibración */ }
 };
 
-export function AthleteHomeV2({ carnetHref = '/my-cards', felicitacionesHref = '/stats?tab=felicitaciones', avisosSinLeer, hoy }: AthleteHomeV2Props) {
+export function AthleteHomeV2({ carnetHref = '/my-cards', felicitacionesHref = '/stats?tab=felicitaciones', hoy }: AthleteHomeV2Props) {
   const ahora = useAhora(hoy);
   const d = useDeportista();
   const teams = useAthleteTeams(d.userId);
@@ -59,6 +57,7 @@ export function AthleteHomeV2({ carnetHref = '/my-cards', felicitacionesHref = '
 
   return (
     <div className="mx-auto flex w-full max-w-page-narrow flex-col gap-4 pb-nav-safe font-poppins animate-in fade-in duration-300 md:gap-5">
+      {/* Sin campana propia: la única es la de la cabecera de la app (GlobalNotificationBell). */}
       <header className="flex items-center gap-3">
         <div aria-hidden className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-xs font-bold text-primary-foreground">
           {iniciales(escuela ?? 'SportMaps')}
@@ -67,14 +66,6 @@ export function AthleteHomeV2({ carnetHref = '/my-cards', felicitacionesHref = '
           <span className="truncate text-sm font-semibold">{escuela ?? 'SportMaps'}</span>
           <span className="text-xs text-muted-foreground">{fechaCabecera(ahora)}</span>
         </div>
-        <Link
-          to="/notifications"
-          aria-label={avisosSinLeer ? `Avisos, ${avisosSinLeer} sin leer` : 'Avisos'}
-          className="relative flex h-touch w-touch items-center justify-center rounded-full hover:bg-muted"
-        >
-          <Bell className="h-5 w-5" aria-hidden />
-          {!!avisosSinLeer && avisosSinLeer > 0 && <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-orange" aria-hidden />}
-        </Link>
       </header>
 
       <Principal
@@ -338,7 +329,7 @@ function PreguntaRpe({ pend, userId, ahora }: { pend: AutoevalPendiente; userId:
   const envio = useEnvioConDeshacer();
   const [elegido, setElegido] = useState<RpeRapido | null>(null);
   const alcanza = unToqueAlcanza(pend.requeridas);
-  const formulario = `/post-entreno/${pend.sessionId}`;
+  const formulario = formularioAutoeval(pend);
 
   const elegir = (label: RpeRapido, valor: number) => {
     if (!alcanza) {
@@ -349,7 +340,7 @@ function PreguntaRpe({ pend, userId, ahora }: { pend: AutoevalPendiente; userId:
     vibrar();
     setElegido(label);
     envio.programar(() => {
-      enviarRpeRapido(pend.sessionId, userId, valor)
+      enviarRpeRapido(pend.sessionId, userId, valor, pend.fichaId)
         .then(() => queryClient.invalidateQueries({ queryKey: autoevalKey(userId) }))
         .catch((e: unknown) => {
           console.error('[deportista-v2] submit_post_training_self_eval', e);

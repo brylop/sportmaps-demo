@@ -12,7 +12,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Bell, ChevronRight, Clock, AlertCircle } from 'lucide-react';
+import { ChevronRight, Clock, AlertCircle } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -47,8 +47,6 @@ const OPCIONES_EPS = [
 interface ParentHomeV2Props {
   userId: string | undefined;
   nombreAcudiente: string | null | undefined;
-  /** Avisos sin leer (punto en la campana). undefined = no se sabe, sin punto. */
-  avisosSinLeer?: number;
   /** Banners que el tablero ya mostraba al acudiente (invitación pendiente, etc.). */
   extras?: ReactNode;
   /** Lo que va al final, debajo de las tarjetas (torneos abiertos). */
@@ -57,7 +55,7 @@ interface ParentHomeV2Props {
   hoy?: Date;
 }
 
-export function ParentHomeV2({ userId, nombreAcudiente, avisosSinLeer, extras, pie, hoy }: ParentHomeV2Props) {
+export function ParentHomeV2({ userId, nombreAcudiente, extras, pie, hoy }: ParentHomeV2Props) {
   const ahora = useMemo(() => hoy ?? new Date(), [hoy]);
   const { data, isLoading, isError, refetch, isFetching } = useParentHomeData(userId);
 
@@ -65,7 +63,7 @@ export function ParentHomeV2({ userId, nombreAcudiente, avisosSinLeer, extras, p
 
   return (
     <div className="mx-auto flex w-full max-w-page-narrow flex-col gap-4 pb-nav-safe font-poppins animate-in fade-in duration-300">
-      <Cabecera escuela={escuela} fecha={fechaCabecera(ahora)} avisosSinLeer={avisosSinLeer} />
+      <Cabecera escuela={escuela} fecha={fechaCabecera(ahora)} />
 
       {extras}
 
@@ -95,7 +93,8 @@ export function ParentHomeV2({ userId, nombreAcudiente, avisosSinLeer, extras, p
   );
 }
 
-function Cabecera({ escuela, fecha, avisosSinLeer }: { escuela: string | null; fecha: string; avisosSinLeer?: number }) {
+// Sin campana propia: la única es la de la cabecera de la app (GlobalNotificationBell).
+function Cabecera({ escuela, fecha }: { escuela: string | null; fecha: string }) {
   const nombre = escuela ?? 'SportMaps';
   return (
     <header className="flex items-center gap-3">
@@ -109,16 +108,6 @@ function Cabecera({ escuela, fecha, avisosSinLeer }: { escuela: string | null; f
         <span className="truncate text-sm font-semibold">{nombre}</span>
         <span className="text-xs text-muted-foreground">{fecha}</span>
       </div>
-      <Link
-        to="/notifications"
-        aria-label={avisosSinLeer ? `Avisos, ${avisosSinLeer} sin leer` : 'Avisos'}
-        className="relative flex h-touch w-touch items-center justify-center rounded-full hover:bg-muted"
-      >
-        <Bell className="h-5 w-5" aria-hidden />
-        {!!avisosSinLeer && avisosSinLeer > 0 && (
-          <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-orange" aria-hidden />
-        )}
-      </Link>
     </header>
   );
 }

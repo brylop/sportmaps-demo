@@ -419,9 +419,13 @@ export function useCoachData() {
       match_type: string;
       notes?: string;
     }) => {
+      // match_results.school_id es NOT NULL desde 20260926131340. El trigger
+      // trg_match_results_fill_school lo reescribe desde el equipo, pero el
+      // tipo generado no ve triggers: se envía el de la escuela activa.
+      if (!schoolId) throw new Error('No hay una escuela activa para guardar el partido.');
       const { data, error } = await supabase
         .from('match_results')
-        .insert(input)
+        .insert({ ...input, school_id: schoolId })
         .select()
         .single();
       if (error) throw error;

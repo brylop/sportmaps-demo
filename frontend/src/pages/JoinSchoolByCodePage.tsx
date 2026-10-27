@@ -1,0 +1,352 @@
+/**
+ * /unirse?codigo=BES-4K7Q — unirse a una escuela con una cuenta que ya existe
+ * (spec docs/specs/codigo-de-escuela-union-por-codigo.md §3 «Familia o deportista»).
+ *
+ * Requiere sesión. Sin sesión guarda el código (localStorage, se borra al cerrar
+ * sesión) y ofrece entrar o crear cuenta: al volver, el inicio o el onboarding
+ * lo traen de regreso aquí.
+ *
+ * Pasos: código → «¿Es esta tu escuela?» → ¿para quién? + datos → enviada.
+ * No crea inscripción ni cobro: la escuela asigna la categoría desde «Por asignar».
+ */
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/contexts/AuthContext';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { ArrowLeft, CheckCircle2, KeyRound, Loader2, MapPin, User, Users } from 'lucide-react';
+import { todayColombia } from '@/lib/dateUtils';
+import { schoolJoinApi, type JoinCodePreview } from '@/lib/api/schoolJoin';
+import {
+  adultChildWarning, clearPendingJoinCode, formatJoinCode, isJoinCodeShape, joinErrorMessage,
+  normalizeJoinCode, readPendingJoinCode, savePendingJoinCode, validateJoinRequestForm,
+  type ForWhom, type JoinRequestErrors,
+} from '@/lib/schoolJoinCode';
+
+type Step = 'code' | 'confirm' | 'form' | 'done';
+
+function Shell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="min-h-[100dvh] bg-background flex items-start sm:items-center justify-center px-4 py-8">
+      <div className="w-full max-w-md">{children}</div>
+    </div>
+  );
+}
+
+export default function JoinSchoolByCodePage() {
+  const { user, profile, loading } = useAuth();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const urlCode = searchParams.get('codigo') ?? '';
+
+  const [step, setStep] = useState<Step>('code');
+  const [code, setCode] = useState(() => formatJoinCode(urlCode || readPendingJoinCode() || ''));
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [school, setSchool] = useState<JoinCodePreview | null>(null);
+
+  const [forWhom, setForWhom] = useState<ForWhom | null>(null);
+  const [name, setName] = useState('');
+  const [birthDate, setBirthDate] = useState('');
+  const [category, setCategory] = useState('');
+  const [errors, setErrors] = useState<JoinRequestErrors>({});
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [sentName, setSentName] = useState('');
+
+  const today = todayColombia();
+
+  // Sin sesión: guardar el código para retomarlo después del registro/login.
+  useEffect(() => {
+    if (loading) return;
+    if (!user && urlCode) savePendingJoinCode(urlCode);
+    // Con sesión, el código ya está en la pantalla: no hace falta guardarlo más.
+    if (user) clearPendingJoinCode();
+  }, [user, loading, urlCode]);
+
+  // Con código en el enlace, buscar la escuela de una vez.
+  useEffect(() => {
+    if (!user || loading || step !== 'code') return;
+    if (urlCode && isJoinCodeShape(urlCode)) void lookUp(urlCode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, loading]);
+
+  // Por defecto: un acudiente pide para su hijo(a); un deportista, para sí.
+  useEffect(() => {
+    if (!profile || forWhom) return;
+    setForWhom(profile.role === 'athlete' ? 'self' : profile.role === 'parent' ? 'child' : null);
+  }, [profile, forWhom]);
+
+  // «Para mí» precarga nombre y fecha de la cuenta; «para mi hijo(a)» empieza vacío.
+  useEffect(() => {
+    if (forWhom === 'self') {
+      setName((n) => n || profile?.full_name || '');
+      setBirthDate((d) => d || profile?.date_of_birth || '');
+    }
+  }, [forWhom, profile?.full_name, profile?.date_of_birth]);
+
+  const warning = useMemo(
+    () => adultChildWarning({ forWhom, name, birthDate, category }, today),
+    [forWhom, name, birthDate, category, today],
+  );
+
+  async function lookUp(raw: string) {
+    setCodeError(null);
+    if (!isJoinCodeShape(raw)) {
+      setCodeError('El código tiene 3 letras y 4 caracteres, por ejemplo BES-4K7Q.');
+      return;
+    }
+    setChecking(true);
+    try {
+      const res = await schoolJoinApi.preview(normalizeJoinCode(raw));
+      if (!res.ok) {
+        setCodeError(res.message ?? 'Ese código no existe.');
+        return;
+      }
+      setSchool(res);
+      setCode(formatJoinCode(res.code ?? raw));
+      setStep('confirm');
+    } catch (e) {
+      setCodeError(joinErrorMessage(e));
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function send() {
+    setSubmitError(null);
+    const errs = validateJoinRequestForm({ forWhom, name, birthDate, category }, today);
+    setErrors(errs);
+    if (Object.keys(errs).length || !forWhom) return;
+    setSending(true);
+    try {
+      const res = await schoolJoinApi.submit({
+        code: normalizeJoinCode(code),
+        forWhom,
+        name: name.replace(/\s+/g, ' ').trim(),
+        birthDate,
+        category: category.trim() || null,
+      });
+      if (!res.ok) {
+        setSubmitError(res.message ?? 'No se pudo enviar la solicitud.');
+        return;
+      }
+      setSentName(name.trim());
+      qc.invalidateQueries({ queryKey: ['my-school-join-status'] });
+      setStep('done');
+    } catch (e) {
+      setSubmitError(joinErrorMessage(e));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const resetForAnother = () => {
+    setForWhom('child');
+    setName('');
+    setBirthDate('');
+    setCategory('');
+    setErrors({});
+    setSubmitError(null);
+    setStep('form');
+  };
+
+  if (loading) {
+    return <Shell><div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div></Shell>;
+  }
+
+  // ── Sin sesión ────────────────────────────────────────────────────────────
+  if (!user) {
+    const back = `/unirse${urlCode ? `?codigo=${encodeURIComponent(formatJoinCode(urlCode))}` : ''}`;
+    return (
+      <Shell>
+        <Card>
+          <CardHeader className="text-center">
+            <div className="mx-auto h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center mb-2">
+              <KeyRound className="h-6 w-6 text-primary" />
+            </div>
+            <CardTitle>Únete a tu escuela</CardTitle>
+            <CardDescription>
+              {urlCode
+                ? <>Tienes el código <strong className="font-mono">{formatJoinCode(urlCode)}</strong>. Primero entra o crea tu cuenta; después lo usamos.</>
+                : 'Primero entra o crea tu cuenta. Después ingresas el código que te dio tu escuela.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button asChild className="w-full">
+              <Link to={`/login?redirectTo=${encodeURIComponent(back)}`}>Ya tengo cuenta: entrar</Link>
+            </Button>
+            <Button asChild variant="outline" className="w-full">
+              <Link to="/register">Crear mi cuenta</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </Shell>
+    );
+  }
+
+  // ── Con sesión ────────────────────────────────────────────────────────────
+  return (
+    <Shell>
+      <Button variant="ghost" size="sm" className="mb-3 -ml-2" onClick={() => navigate('/dashboard')}>
+        <ArrowLeft className="h-4 w-4 mr-1" /> Ir al inicio
+      </Button>
+
+      {step === 'code' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5 text-primary" /> Código de tu escuela</CardTitle>
+            <CardDescription>Pídeselo a tu escuela. Tiene 3 letras y 4 caracteres, por ejemplo BES-4K7Q.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form
+              className="space-y-4"
+              onSubmit={(e) => { e.preventDefault(); void lookUp(code); }}
+            >
+              <Input
+                value={code}
+                onChange={(e) => { setCode(e.target.value.toUpperCase()); setCodeError(null); }}
+                placeholder="BES-4K7Q"
+                autoCapitalize="characters"
+                autoComplete="off"
+                inputMode="text"
+                maxLength={12}
+                className="font-mono text-2xl tracking-widest text-center h-14 text-[16px] sm:text-2xl"
+                aria-invalid={!!codeError}
+                autoFocus
+              />
+              {codeError && <p className="text-sm text-destructive">{codeError}</p>}
+              <Button type="submit" className="w-full" disabled={checking || !code.trim()}>
+                {checking && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Buscar mi escuela
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
+
+      {step === 'confirm' && school && (
+        <Card>
+          <CardHeader className="text-center">
+            <Avatar className="mx-auto h-20 w-20 border">
+              {school.logo_url && <AvatarImage src={school.logo_url} className="object-cover" />}
+              <AvatarFallback className="text-2xl">{(school.school_name ?? '?').charAt(0)}</AvatarFallback>
+            </Avatar>
+            <CardTitle className="mt-3">¿Es {school.school_name}?</CardTitle>
+            {school.city && (
+              <CardDescription className="flex items-center justify-center gap-1">
+                <MapPin className="h-3.5 w-3.5" /> {school.city}
+              </CardDescription>
+            )}
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {school.already_member && (
+              <Alert><AlertDescription>Ya haces parte de esta escuela. Puedes seguir si quieres unir a otra persona (por ejemplo, a otro hijo).</AlertDescription></Alert>
+            )}
+            {!!school.pending_requests && (
+              <Alert><AlertDescription>Ya tienes {school.pending_requests === 1 ? 'una solicitud' : `${school.pending_requests} solicitudes`} en revisión con esta escuela.</AlertDescription></Alert>
+            )}
+            <Button className="w-full" onClick={() => setStep('form')}>Sí, es mi escuela</Button>
+            <Button variant="outline" className="w-full" onClick={() => { setSchool(null); setStep('code'); }}>
+              No, cambiar el código
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {step === 'form' && school && (
+        <Card>
+          <CardHeader>
+            <CardTitle>¿Para quién es?</CardTitle>
+            <CardDescription>Así {school.school_name} sabe a quién asignar la categoría.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); void send(); }}>
+              <div className="grid grid-cols-2 gap-3" role="radiogroup" aria-label="¿Para quién es?">
+                {([
+                  { v: 'self' as const, label: 'Para mí', hint: 'Yo entreno', icon: User },
+                  { v: 'child' as const, label: 'Para mi hijo(a)', hint: 'Soy acudiente', icon: Users },
+                ]).map(({ v, label, hint, icon: Icon }) => (
+                  <button
+                    key={v}
+                    type="button"
+                    role="radio"
+                    aria-checked={forWhom === v}
+                    onClick={() => {
+                      if (forWhom !== v) { setName(''); setBirthDate(''); }
+                      setForWhom(v);
+                      setErrors((x) => ({ ...x, forWhom: undefined }));
+                    }}
+                    className={`rounded-xl border-2 p-3 text-left transition-colors ${forWhom === v ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'}`}
+                  >
+                    <Icon className="h-5 w-5 text-primary mb-1" />
+                    <span className="block font-semibold text-sm">{label}</span>
+                    <span className="block text-xs text-muted-foreground">{hint}</span>
+                  </button>
+                ))}
+              </div>
+              {errors.forWhom && <p className="text-sm text-destructive">{errors.forWhom}</p>}
+
+              <div className="space-y-2">
+                <Label htmlFor="join-name">{forWhom === 'child' ? 'Nombre completo de tu hijo(a)' : 'Tu nombre completo'} *</Label>
+                <Input id="join-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={150} className="text-[16px] sm:text-sm" />
+                {errors.name && <p className="text-sm text-destructive">{errors.name}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="join-dob">Fecha de nacimiento *</Label>
+                <Input id="join-dob" type="date" value={birthDate} max={today} onChange={(e) => setBirthDate(e.target.value)} className="text-[16px] sm:text-sm" />
+                {errors.birthDate && <p className="text-sm text-destructive">{errors.birthDate}</p>}
+                {warning && <p className="text-xs text-amber-700 dark:text-amber-400">{warning}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="join-cat">Categoría o grupo (opcional)</Label>
+                <Input
+                  id="join-cat"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  maxLength={120}
+                  placeholder="Ej.: Sub-16, Voleibol femenino"
+                  className="text-[16px] sm:text-sm"
+                />
+                <p className="text-xs text-muted-foreground">Es una sugerencia: la escuela decide la categoría.</p>
+              </div>
+
+              {submitError && <Alert variant="destructive"><AlertDescription>{submitError}</AlertDescription></Alert>}
+
+              <Button type="submit" className="w-full" disabled={sending}>
+                {sending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Enviar solicitud
+              </Button>
+              <Button type="button" variant="ghost" className="w-full" onClick={() => setStep('confirm')} disabled={sending}>
+                Atrás
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
+
+      {step === 'done' && school && (
+        <Card>
+          <CardHeader className="text-center">
+            <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-600" />
+            <CardTitle className="mt-2">Solicitud enviada</CardTitle>
+            <CardDescription>
+              {school.school_name} te asignará la categoría{forWhom === 'child' && sentName ? ` de ${sentName}` : ''}. Te
+              avisamos cuando lo haga y tu inicio mostrará la escuela.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button className="w-full" onClick={() => navigate('/dashboard')}>Ir al inicio</Button>
+            <Button variant="outline" className="w-full" onClick={resetForAnother}>Unir a otro hijo(a)</Button>
+          </CardContent>
+        </Card>
+      )}
+    </Shell>
+  );
+}

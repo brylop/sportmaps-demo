@@ -13,6 +13,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { UserCircle, Users, Loader2, ChevronLeft, ChevronRight, Check } from 'lucide-react';
 import { getUserFriendlyError } from '@/lib/error-translator';
 import { toast } from 'sonner';
+import { OnboardingSchoolCodeField } from '@/components/school-join/OnboardingSchoolCodeField';
+import { formatJoinCode, isJoinCodeShape, readPendingJoinCode } from '@/lib/schoolJoinCode';
 
 export default function ParentOnboarding() {
   const { user, profile, loading: authLoading, updateProfile } = useAuth();
@@ -24,6 +26,8 @@ export default function ParentOnboarding() {
   const [fullName, setFullName] = useState(profile?.full_name ?? '');
   const [phone, setPhone] = useState(profile?.phone ?? '');
   const [dob, setDob] = useState(profile?.date_of_birth ?? '');
+  // Código de escuela opcional (precargado si llegó por /unirse?codigo=… antes de registrarse).
+  const [schoolCode, setSchoolCode] = useState(() => formatJoinCode(readPendingJoinCode() ?? ''));
 
   // Backstop de invitaciones: quien se registra SIN el link llega acá antes que
   // al dashboard (el gate de onboarding lo saca de /dashboard), así que el
@@ -54,7 +58,7 @@ export default function ParentOnboarding() {
 
   // Persiste el perfil del padre y cierra el onboarding. `next` decide a dónde
   // navegar: al dashboard o directo a "Mis Hijos" para registrar al primero.
-  const finish = async (next: '/dashboard' | '/children') => {
+  const finish = async (next: string) => {
     setSaving(true);
     try {
       const { error } = await supabase
@@ -94,6 +98,16 @@ export default function ParentOnboarding() {
         <Button onClick={() => setStep(2)} disabled={!step1Done}>
           Siguiente <ChevronRight className="h-4 w-4 ml-1" />
         </Button>
+      ) : isJoinCodeShape(schoolCode) ? (
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" onClick={() => finish('/dashboard')} disabled={saving}>
+            Más tarde
+          </Button>
+          <Button onClick={() => finish(`/unirse?codigo=${encodeURIComponent(formatJoinCode(schoolCode))}`)} disabled={saving}>
+            {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
+            Unirme a mi escuela
+          </Button>
+        </div>
       ) : (
         <div className="flex items-center gap-2">
           <Button variant="ghost" onClick={() => finish('/dashboard')} disabled={saving}>
@@ -153,6 +167,7 @@ export default function ParentOnboarding() {
             Crea la ficha de cada hijo/a (datos, deporte y ficha médica) para inscribirlos en academias,
             pagar mensualidades y seguir su progreso. Puedes hacerlo ahora o más tarde desde <strong>Mis Hijos</strong>.
           </p>
+          <OnboardingSchoolCodeField value={schoolCode} onChange={setSchoolCode} />
         </div>
       )}
     </OnboardingShell>

@@ -82,6 +82,13 @@ describe('ParentHomeV2', () => {
     expect(screen.getAllByTestId('tarjeta-hijo')).toHaveLength(2);
   });
 
+  it('una sola campana: el Inicio no dibuja la suya (queda la de la cabecera de la app)', () => {
+    pintar();
+    expect(screen.queryByRole('link', { name: /Avisos/ })).toBeNull();
+    expect(document.querySelector('a[href="/notifications"]')).toBeNull();
+    expect(screen.getByRole('banner')).toBeInTheDocument();
+  });
+
   it('familia al día: sin botón de pagar y chips «Al día»', () => {
     pintar();
     expect(screen.getByRole('heading', { name: 'Todo al día, Carolina.' })).toBeInTheDocument();

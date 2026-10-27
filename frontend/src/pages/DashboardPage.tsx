@@ -34,6 +34,7 @@ import { CoachHomeV2 } from '@/components/coach/v2/CoachHomeV2';
 import { AthleteHomeV2 } from '@/components/athlete/v2/AthleteHomeV2';
 import { useRolActivo } from '@/hooks/useRolActivo';
 import { resolveOnboardingGateStatus } from '@/lib/onboardingGate';
+import { JoinSchoolCodeBanner } from '@/components/school-join/JoinSchoolCodeBanner';
 
 export default function DashboardPage() {
   const { profile, user, realRole } = useAuth();
@@ -348,12 +349,8 @@ export default function DashboardPage() {
   // Multirol: manda el rol activo (el mismo que eligen las pestañas de abajo),
   // no profile.role — si no, un acudiente que entra como deportista vería la
   // barra del deportista con el Inicio del acudiente.
-  // Avisos sin leer del entrenador y del deportista: la misma lista que la campana
-  // de la cabecera (misma caché, sin consulta extra). useDashboardStatsReal solo
-  // los cuenta para el acudiente, y la campana de Hoy quedaba siempre sin punto.
-  const avisosSinLeerCampana = notifications
-    ? (notifications as { read?: boolean }[]).filter((n) => !n.read).length
-    : undefined;
+  // Una sola campana: la de la cabecera de la app (GlobalNotificationBell en
+  // AuthLayout). Los Inicios V2 ya no dibujan la suya.
 
   const invitacionPendiente = invitation && (
     <InvitationBanner
@@ -375,10 +372,7 @@ export default function DashboardPage() {
             onStepClick={(step) => (step.id === 'complete_profile' ? setShowCoachWizard(true) : navigate(step.href))}
           />
         )}
-        <CoachHomeV2
-          nombreProfe={profile.full_name ?? undefined}
-          avisosSinLeer={avisosSinLeerCampana}
-        />
+        <CoachHomeV2 nombreProfe={profile.full_name ?? undefined} />
         <CoachProfileWizard open={showCoachWizard} onOpenChange={setShowCoachWizard} onSuccess={refreshOnboardingData} />
       </>
     );
@@ -389,11 +383,13 @@ export default function DashboardPage() {
       <>
         <PendingEnrollmentModal />
         {invitacionPendiente}
+        {/* Cuenta sin escuela: «¿Ya tienes escuela? Ingresa su código» (spec codigo-de-escuela). */}
+        <JoinSchoolCodeBanner className="mb-4" />
         {onboardingSteps.length > 0 && !onboardingSteps.every(s => s.completed) && onboardingStatus !== 'completed' && (
           <DashboardChecklist steps={onboardingSteps} onStepClick={(step) => navigate(step.href)} />
         )}
         {/* Los torneos abiertos van DENTRO de AthleteHomeV2, con su diseño. */}
-        <AthleteHomeV2 avisosSinLeer={avisosSinLeerCampana} />
+        <AthleteHomeV2 />
       </>
     );
   }
@@ -403,7 +399,6 @@ export default function DashboardPage() {
       <ParentHomeV2
         userId={user?.id}
         nombreAcudiente={profile.full_name}
-        avisosSinLeer={realStatsLoading ? undefined : realStats?.unreadNotifications}
         extras={
           <>
             <PendingEnrollmentModal />
@@ -413,6 +408,7 @@ export default function DashboardPage() {
               <DashboardChecklist steps={onboardingSteps} onStepClick={(step) => navigate(step.href)} />
             )}
             {invitacionPendiente}
+            <JoinSchoolCodeBanner />
           </>
         }
         pie={<OpenTournamentsCard />}
@@ -669,6 +665,9 @@ export default function DashboardPage() {
 
       {/* Pending Enrollment Modal */}
       <PendingEnrollmentModal />
+
+      {/* Cuenta sin escuela (acudiente o deportista): ingresar el código de su escuela. */}
+      {(profile.role === 'parent' || profile.role === 'athlete') && <JoinSchoolCodeBanner />}
 
       {/* Invitations and Onboarding Checklist */}
       {invitation && !['school', 'school_admin', 'admin', 'super_admin', 'owner'].includes(profile.role as string) && (
