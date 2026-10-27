@@ -18,7 +18,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Maximize2, PenLine, Sun, X, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Maximize2, Presentation, Sun, X, Loader2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
@@ -35,7 +35,7 @@ import { fechaHumana } from './asistenciaModel';
 import { registrosPorEquipoYDia } from './useAsistenciaV2Data';
 import {
   bloquesDeSesion, cargaDeSemana, entrenosDelHorario, estadoDelDia, etiquetaDia, listasEntre, mesDelPlan, nombreMes, objetivoTexto,
-  planVigente, rangoSemana, semanaActual, semanaDe, textoSemana, type BloqueV2, type EquipoConHorario, type EstadoDia, type SemanaPlan,
+  planVigente, rangoSemana, rutaPlanear, semanaActual, semanaDe, textoSemana, type BloqueV2, type EquipoConHorario, type EstadoDia, type SemanaPlan,
 } from './sesionesModel';
 import { useWakeLock, wakeLockDisponible } from './useCoachV2Senal';
 
@@ -177,9 +177,11 @@ export interface CoachSessionsV2Props {
   tabInicial?: 'hoy' | 'semana' | 'plan';
   /** Donde se crean y editan sesiones y el plan (la planificación completa). */
   rutaPlanificacion?: string;
+  /** Pizarra libre (pantalla independiente, sin formulario). */
+  rutaPizarra?: string;
 }
 
-export default function CoachSessionsV2({ tabInicial = 'hoy', rutaPlanificacion = '/training-plans' }: CoachSessionsV2Props) {
+export default function CoachSessionsV2({ tabInicial = 'hoy', rutaPlanificacion = '/training-plans', rutaPizarra = '/pizarra' }: CoachSessionsV2Props) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const hoy = todayColombia();
@@ -226,8 +228,12 @@ export default function CoachSessionsV2({ tabInicial = 'hoy', rutaPlanificacion 
 
   return (
     <div className="mx-auto w-full max-w-page-narrow space-y-4 px-gutter pb-nav-safe pt-4 md:max-w-page md:pb-8">
-      <header>
+      <header className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-bold tracking-tight">Sesiones</h1>
+        {/* Acceso directo a la pizarra libre: se dibuja sin formulario (ítem 3). */}
+        <Button asChild variant="outline" className="min-h-touch gap-1.5 rounded-xl" data-testid="sesiones-pizarra">
+          <Link to={rutaPizarra}><Presentation className="h-4 w-4" aria-hidden /> Pizarra</Link>
+        </Button>
       </header>
       <Segmentado<'hoy' | 'semana' | 'plan'> etiqueta="Sesiones" valor={tab} onCambio={setTab}
         opciones={[{ v: 'hoy', l: 'Hoy' }, { v: 'semana', l: 'Semana' }, { v: 'plan', l: 'Plan del mes' }]} />
@@ -366,7 +372,7 @@ function TabHoy({ cargando, error, reintentar, sesiones, sesion, equipoPorId, on
               </span>
               {tienePizarra && b.index != null && (
                 <Button variant="outline" size="sm" className="min-h-touch shrink-0 gap-1" onClick={() => onPizarra(sesion, b)}>
-                  <PenLine className="h-4 w-4" /> Pizarra
+                  <Presentation className="h-4 w-4" aria-hidden /> Pizarra
                 </Button>
               )}
             </li>
@@ -455,7 +461,7 @@ function TabSemana({ hoy, teamIds, equipoPorId, rutaPlanificacion, onVer, onCanc
                   {est && <span className={cn('shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold', ESTILO_DIA[est])}>{est}</span>}
                 </button>
                 {delDia.length === 0 && sinPlan.length > 0 && (
-                  <Button asChild variant="outline" size="sm" className="mr-3 min-h-touch shrink-0"><Link to={rutaPlanificacion}>Planear</Link></Button>
+                  <Button asChild variant="outline" size="sm" className="mr-3 min-h-touch shrink-0"><Link to={rutaPlanear(rutaPlanificacion, { equipo: sinPlan[0].teamId, fecha: d })}>Planear</Link></Button>
                 )}
                 </div>
                 {open && (
@@ -463,7 +469,7 @@ function TabSemana({ hoy, teamIds, equipoPorId, rutaPlanificacion, onVer, onCanc
                     {sinPlan.map((p) => (
                       <div key={p.teamId} className="flex items-center gap-2">
                         <p className="min-w-0 flex-1 text-sm">Entreno de {p.nombre}{p.hora ? ` ${p.hora}` : ''} · sin plan</p>
-                        <Button asChild variant="outline" size="sm" className="min-h-touch shrink-0"><Link to={rutaPlanificacion}>Planear</Link></Button>
+                        <Button asChild variant="outline" size="sm" className="min-h-touch shrink-0"><Link to={rutaPlanear(rutaPlanificacion, { equipo: p.teamId, fecha: d })}>Planear</Link></Button>
                       </div>
                     ))}
                     {delDia.map((s, i) => {
@@ -540,7 +546,7 @@ function TabPlan({ hoy, equipos, teamId, onTeam, rutaPlanificacion }: {
         <ErrorCaja texto="No pudimos cargar el plan del mes." onReintentar={plan.reintentar} />
       ) : !meso ? (
         <Vacio titulo={`No tienes plan para ${nombreMes(hoy).toLowerCase()}`} texto={`${equipo?.name ?? 'Este equipo'}: arma el plan del mes, con el objetivo, las semanas y qué tan duro va cada una.`}>
-          <Button asChild className="min-h-touch"><Link to={rutaPlanificacion}>Crear el plan</Link></Button>
+          <Button asChild className="min-h-touch"><Link to={rutaPlanear(rutaPlanificacion, { equipo: teamId, fecha: hoy })}>Crear el plan</Link></Button>
         </Vacio>
       ) : (
         <>

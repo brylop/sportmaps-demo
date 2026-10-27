@@ -35,6 +35,7 @@ import { enviarFelicitacion, avisarResultadoFelicitacion, type ObjetivoFelicitar
 import { DeportistasTab } from './equipos/DeportistasTab';
 import { PartidosTab } from './equipos/PartidosTab';
 import { EvaluarTab } from './equipos/EvaluarTab';
+import { AgregarHorarioBoton } from './equipos/AgregarHorarioSheet';
 
 const TABS: { id: TabEquipo; label: string }[] = [
   { id: 'deportistas', label: 'Deportistas' },
@@ -192,6 +193,8 @@ function Detalle({
             <span className="truncate text-xs text-muted-foreground">{horarioDe(equipo)}</span>
           </div>
         </div>
+        {/* Sin horario fijo: agregarlo (si la escuela lo permite) o pedírselo a la administración. */}
+        {equipo.franjas.length === 0 && <AgregarHorarioBoton equipo={equipo} className="self-start" />}
         <div role="tablist" aria-label="Secciones del equipo" className="grid grid-cols-3 gap-1 rounded-xl bg-muted p-1">
           {TABS.map((t) => (
             <button

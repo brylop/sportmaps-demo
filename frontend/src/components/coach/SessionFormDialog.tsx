@@ -11,7 +11,7 @@ import { Calendar as CalendarPicker } from '@/components/ui/calendar';
 import { z } from 'zod';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { ClipboardList, Plus, Trash2, Star, Calendar, Goal, BookOpen } from 'lucide-react';
+import { ClipboardList, Plus, Trash2, Star, Calendar, BookOpen, Presentation } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { TacticalBoard } from '@/components/school/TacticalBoard';
@@ -508,10 +508,11 @@ export function SessionFormDialog({
                           size="sm"
                           className="shrink-0 gap-1"
                           onClick={() => openBlockTacticalBoard(index)}
-                          title="Abrir tablero táctico para este bloque"
-                          aria-label="Tablero táctico"
+                          title="Abrir la pizarra para este bloque"
                         >
-                          <Goal className="h-4 w-4" />
+                          {/* Ícono + texto: el ícono solo no se reconocía (ítem 20). */}
+                          <Presentation className="h-4 w-4" aria-hidden />
+                          Pizarra
                         </Button>
                       )}
                       {blocks.length > 1 && (
