@@ -13,7 +13,11 @@
 export type Side = 'home' | 'away';
 export type ScoreModel = 'goals' | 'sets';
 export type MatchStatus = 'scheduled' | 'live' | 'played' | 'walkover' | 'cancelled';
-export type TiebreakerKey = 'pts' | 'wins' | 'gd' | 'gf' | 'set_ratio' | 'point_ratio' | 'head_to_head';
+export type TiebreakerKey =
+  | 'pts' | 'wins' | 'gd' | 'gf' | 'set_ratio' | 'point_ratio' | 'set_diff' | 'point_diff' | 'head_to_head';
+
+/** Desempates disponibles, en el orden en que se ofrecen al organizador. */
+export const TIEBREAKER_KEYS: TiebreakerKey[] = ['pts', 'wins', 'set_ratio', 'point_ratio', 'set_diff', 'point_diff', 'gd', 'gf', 'head_to_head'];
 
 export interface StandingsPoints {
   win: number;
@@ -149,6 +153,19 @@ export function validateConfig(raw: unknown): string | null {
   if (!num(c.set_points, 1, 100) || !num(c.deciding_set_points, 1, 100)) return 'Los puntos por set deben estar entre 1 y 100';
   if (!num(c.win_by, 1, 5)) return 'win_by debe estar entre 1 y 5';
   if (c.cap != null && !num(c.cap, 1, 200)) return 'cap inválido';
+  if (c.tiebreakers != null) {
+    if (!Array.isArray(c.tiebreakers) || c.tiebreakers.length > TIEBREAKER_KEYS.length) return 'Los desempates deben ser una lista';
+    if (c.tiebreakers.some((k: unknown) => !TIEBREAKER_KEYS.includes(k as TiebreakerKey))) return 'Hay un desempate desconocido';
+    if (new Set(c.tiebreakers).size !== c.tiebreakers.length) return 'Un desempate está repetido';
+  }
+  if (c.by_category != null) {
+    if (typeof c.by_category !== 'object' || Array.isArray(c.by_category)) return 'Las reglas por categoría deben ser un objeto';
+    for (const sub of Object.values(c.by_category)) {
+      if (sub != null && typeof sub === 'object' && 'by_category' in (sub as object)) return 'Una categoría no puede tener reglas por categoría';
+      const bad = validateConfig(sub);
+      if (bad) return `Categoría: ${bad}`;
+    }
+  }
   return null;
 }
 

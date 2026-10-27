@@ -1,6 +1,7 @@
 /**
  * Torneos en vivo — /api/v1/tournament-live
- *   · Organizador (school / school_admin): ajustes, calendario por formato, anotar, anotadores sin cuenta, log.
+ *   · Organizador (school / school_admin): ajustes, calendario por formato, anotar, anotadores sin cuenta, log,
+ *     equipos rivales externos, patrocinadores y hora/cancha a mano.
  *   · Anotador sin cuenta: token en la ruta (solo el hash vive en la base).
  *   · Público: GET /public/:slug/live (sin login, caché de 5 s, solo equipos y marcadores).
  * Spec: docs/specs/torneos-en-vivo-multideporte-plan.md
@@ -13,6 +14,8 @@ import {
   Actor, LiveError, authScorekeeper, buildCategoryStandings, createScorekeeper, generateCategoryFixtures, getConfig, hashToken,
   listScorekeepers, loadEvent, loadMatch, loadMatches, patchConfig, performMatchAction, publicLive, revokeScorekeeper,
   scorerMatches, takeMatch, toMatchDto, touchScorekeeper, LiveEvent,
+  addExternalTeams, deleteExternalTeam, listTeams, updateTeam,
+  createSponsor, deleteSponsor, listSponsors, updateSponsor, rescheduleMatch,
 } from '../services/tournament/tournament-live.service';
 import { resolveConfig } from '../services/tournament/scoring.shared';
 
@@ -124,6 +127,59 @@ router.post('/school/:id/scorekeepers', ...org, async (req: AuthenticatedRequest
 
 router.delete('/school/:id/scorekeepers/:sid', ...org, async (req: AuthenticatedRequest, res: Response) => {
   try { const ev = await ownedEvent(req, String(req.params.id)); return res.json(await revokeScorekeeper(ev.id, String(req.params.sid))); } catch (e) { return fail(res, req, e); }
+});
+
+// Hora y cancha a mano (queda en el log como «reschedule»).
+router.patch('/school/:id/matches/:matchId/schedule', ...org, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const ev = await ownedEvent(req, String(req.params.id));
+    return res.json(await rescheduleMatch(ev, String(req.params.matchId), userActor(req), req.body ?? {}));
+  } catch (e) { return fail(res, req, e); }
+});
+
+// ── Equipos (internos + rivales externos sin cuenta) ─────────────────────────
+
+router.get('/school/:id/teams', ...org, async (req: AuthenticatedRequest, res: Response) => {
+  try { return res.json(await listTeams(await ownedEvent(req, String(req.params.id)))); } catch (e) { return fail(res, req, e); }
+});
+
+router.post('/school/:id/teams/external', ...org, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const ev = await ownedEvent(req, String(req.params.id));
+    return res.status(201).json(await addExternalTeams(ev, req.body ?? {}));
+  } catch (e) { return fail(res, req, e); }
+});
+
+router.patch('/school/:id/teams/:teamId', ...org, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const ev = await ownedEvent(req, String(req.params.id));
+    return res.json(await updateTeam(ev, String(req.params.teamId), req.body ?? {}));
+  } catch (e) { return fail(res, req, e); }
+});
+
+router.delete('/school/:id/teams/:teamId', ...org, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const ev = await ownedEvent(req, String(req.params.id));
+    return res.json(await deleteExternalTeam(ev, String(req.params.teamId)));
+  } catch (e) { return fail(res, req, e); }
+});
+
+// ── Patrocinadores ───────────────────────────────────────────────────────────
+
+router.get('/school/:id/sponsors', ...org, async (req: AuthenticatedRequest, res: Response) => {
+  try { const ev = await ownedEvent(req, String(req.params.id)); return res.json(await listSponsors(ev.id)); } catch (e) { return fail(res, req, e); }
+});
+
+router.post('/school/:id/sponsors', ...org, async (req: AuthenticatedRequest, res: Response) => {
+  try { const ev = await ownedEvent(req, String(req.params.id)); return res.status(201).json(await createSponsor(ev, req.body ?? {})); } catch (e) { return fail(res, req, e); }
+});
+
+router.patch('/school/:id/sponsors/:sid', ...org, async (req: AuthenticatedRequest, res: Response) => {
+  try { const ev = await ownedEvent(req, String(req.params.id)); return res.json(await updateSponsor(ev, String(req.params.sid), req.body ?? {})); } catch (e) { return fail(res, req, e); }
+});
+
+router.delete('/school/:id/sponsors/:sid', ...org, async (req: AuthenticatedRequest, res: Response) => {
+  try { const ev = await ownedEvent(req, String(req.params.id)); return res.json(await deleteSponsor(ev, String(req.params.sid))); } catch (e) { return fail(res, req, e); }
 });
 
 router.get('/school/:id/log', ...org, async (req: AuthenticatedRequest, res: Response) => {
