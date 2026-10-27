@@ -80,6 +80,7 @@ const TournamentRegisterPage = lazy(() => import("./pages/events/TournamentRegis
 const TournamentResultsPage = lazy(() => import("./pages/events/TournamentResultsPage"));
 const TournamentLivePage = lazy(() => import("./pages/events/TournamentLivePage"));
 const TournamentTvPage = lazy(() => import("./pages/events/TournamentTvPage"));
+const TournamentMatchPage = lazy(() => import("./pages/events/TournamentMatchPage"));
 const TournamentScorerPage = lazy(() => import("./pages/events/TournamentScorerPage"));
 
 // ─── Polls (lazy) ────────────────────────────────────────────────────────────
@@ -427,6 +428,7 @@ const App = () => (
                     <Route path="/tournaments/:eventId/results" element={<TournamentResultsPage />} />
                     <Route path="/torneo/:slug/en-vivo" element={<TournamentLivePage />} />
                     <Route path="/torneo/:slug/tv" element={<TournamentTvPage />} />
+                    <Route path="/torneo/:slug/partido/:matchId" element={<TournamentMatchPage />} />
                     <Route path="/anotador/:token" element={<TournamentScorerPage />} />
                     <Route path="/s/:slug" element={<PublicSchoolPage />} />
                     <Route path="/polls/v/:pollId" element={<PublicPollPage />} />
