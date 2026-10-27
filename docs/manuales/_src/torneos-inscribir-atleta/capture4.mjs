@@ -11,7 +11,8 @@ const SHOTS = path.join(here, 'shots');
 const settle = (p, ms = 1200) => p.waitForTimeout(ms);
 const stamp = new Date().toISOString().slice(5, 16).replace(/[-T:]/g, '');
 
-const browser = await chromium.launch();
+// PW_EXE: ruta a un Chromium ya instalado, por si el de la versión actual de Playwright no está.
+const browser = await chromium.launch({ executablePath: process.env.PW_EXE || undefined });
 try {
   const { page } = await newSession(browser);
 
