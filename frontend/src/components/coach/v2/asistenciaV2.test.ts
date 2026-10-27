@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  ETIQUETA, ROTACION, construirRegistros, estadoInicial, faltanMucho, fechasCorregibles, resumir, sePuedeCorregir,
+  ETIQUETA, ROTACION, construirRegistros, estadoInicial, faltanMucho, fechasCorregibles, primeraFechaCorregible, resumir, sePuedeCorregir,
   siguienteEstado, textoAyuda, type DeportistaLista,
 } from './asistenciaModel';
 import { ColaAsistencia, claveLista, fusionarRegistros, type ResultadoEnvio, type ListaEnCola } from './colaAsistencia';
@@ -53,12 +53,21 @@ describe('estado inicial de la lista', () => {
   });
 });
 
-describe('corregir hasta el día siguiente', () => {
-  it('hoy y ayer con ventana; solo hoy si la escuela no deja días', () => {
+describe('corregir dentro de la ventana de la escuela', () => {
+  it('hoy y ayer como accesos rápidos; solo hoy si la escuela no deja días', () => {
     expect(fechasCorregibles('2026-10-08', 7)).toEqual(['2026-10-08', '2026-10-07']);
     expect(fechasCorregibles('2026-10-01', 7)).toEqual(['2026-10-01', '2026-09-30']);
     expect(fechasCorregibles('2026-10-08', 0)).toEqual(['2026-10-08']);
-    expect(sePuedeCorregir('2026-10-06', '2026-10-08', 7)).toBe(false);
+  });
+
+  it('cualquier día de la ventana, nunca el futuro (Carmel: el fin de semana se sube el martes)', () => {
+    expect(primeraFechaCorregible('2026-10-27', 7)).toBe('2026-10-20');
+    expect(sePuedeCorregir('2026-10-24', '2026-10-27', 7)).toBe(true);
+    expect(sePuedeCorregir('2026-10-20', '2026-10-27', 7)).toBe(true);
+    expect(sePuedeCorregir('2026-10-19', '2026-10-27', 7)).toBe(false);
+    expect(sePuedeCorregir('2026-08-01', '2026-10-27', 90)).toBe(true);
+    expect(sePuedeCorregir('2026-10-28', '2026-10-27', 90)).toBe(false);
+    expect(sePuedeCorregir('2026-10-26', '2026-10-27', 0)).toBe(false);
   });
 });
 

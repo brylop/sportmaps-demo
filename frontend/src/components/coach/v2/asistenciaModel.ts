@@ -148,16 +148,25 @@ export function sumarDias(iso: string, n: number): string {
 }
 
 /**
- * «Se puede corregir hasta el día siguiente»: hoy y ayer, siempre que la escuela
- * deje al menos un día de ventana (school_settings.coach_attendance_retro_days;
- * el BFF lo vuelve a validar). Con ventana 0, solo hoy.
+ * Accesos rápidos del selector: hoy y ayer, siempre que la escuela deje al menos
+ * un día de ventana. Con ventana 0, solo hoy. Las fechas más viejas dentro de la
+ * ventana van por «Otra fecha» (ver primeraFechaCorregible).
  */
 export function fechasCorregibles(hoy: string, retroDias: number): string[] {
   return retroDias >= 1 ? [hoy, sumarDias(hoy, -1)] : [hoy];
 }
 
+/**
+ * Fecha más vieja que el entrenador puede cargar: la ventana de la escuela
+ * (school_settings.coach_attendance_retro_days; default 7, Carmel 90). El BFF
+ * la vuelve a validar. Quien lleva la lista en papel la sube días después.
+ */
+export function primeraFechaCorregible(hoy: string, retroDias: number): string {
+  return sumarDias(hoy, -Math.max(0, retroDias));
+}
+
 export function sePuedeCorregir(fecha: string, hoy: string, retroDias: number): boolean {
-  return fechasCorregibles(hoy, retroDias).includes(fecha);
+  return fecha <= hoy && fecha >= primeraFechaCorregible(hoy, retroDias);
 }
 
 /** «jueves 8 de octubre» */
