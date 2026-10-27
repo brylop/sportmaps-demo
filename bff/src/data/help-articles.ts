@@ -2482,6 +2482,42 @@ export const helpArticles: HelpArticle[] = [
 
   // ── Manuales V2 (entrenador y acudiente, 2026-10-27) ──
   {
+    slug: "planillas-y-matriculas-coach",
+    categoryId: "operacion-diaria",
+    title: "Planillas de asistencia en papel y hojas de matrícula por foto",
+    excerpt:
+      "Si la asistencia o una inscripción se llenó en papel, tómale una foto: el sistema lee los nombres y alguien revisa antes de guardar. Nada se guarda solo.",
+    readTime: "3 min",
+    targetRole: ["coach", "school"],
+    body: [
+      { type: "h2", content: "Planillas de asistencia" },
+      {
+        type: "ol",
+        items: [
+          "En Asistencia → Historial, toca «Subir planilla en papel» y toma la foto de la hoja completa, de frente y con buena luz (también se puede mandar por el WhatsApp de la escuela).",
+          "La planilla queda en la lista: ves la foto y una grilla con cada deportista y fecha. Corrige lo que haga falta.",
+          "Solo se guarda lo que dejes marcado al tocar «Guardar». «Descartar» la saca de la lista.",
+        ],
+      },
+      { type: "callout", variant: "info", content: "Como entrenador ves solo las planillas que tú subiste. Para subirlas, tu escuela debe activar «Coaches pueden subir planillas de asistencia» (Pagos → Config → Permisos); si no está activo, la app te lo dice." },
+      { type: "h2", content: "Hojas de matrícula (si tu escuela lo permite)" },
+      {
+        type: "p",
+        content:
+          "Tu escuela puede dejarte subir la foto de la ficha de inscripción en papel. Tú tomas la foto; la escuela revisa los datos que el sistema leyó y crea al deportista. Si no está habilitado verás «Tu escuela no tiene habilitado que los entrenadores suban hojas de matrícula».",
+      },
+      {
+        type: "table",
+        headers: ["Quién", "Qué hace"],
+        rows: [
+          ["Entrenador", "Ficha del deportista → «Ver todo en Mis deportistas» → subir hoja de matrícula."],
+          ["Administración", "Activa el permiso en Pagos → Config → Permisos → «Coaches pueden subir hojas de matrícula» y revisa en «Matrículas por revisar» (Crear atleta o Descartar)."],
+        ],
+      },
+    ],
+    related: ["tomar-asistencia-coach", "registrar-nuevo-atleta"],
+  },
+  {
     slug: "entrenador-app-v2",
     categoryId: "operacion-diaria",
     title: "La app del entrenador: Hoy, Equipos, Sesiones, Asistencia y Más",
