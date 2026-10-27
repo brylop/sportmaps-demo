@@ -152,9 +152,18 @@ export function onMatchActionApplied(
   ev: { id: string; title: string; slug: string | null; live: boolean },
   beforeStatus: string,
   after: AfterActionMatch,
+  actionType?: string,
 ): void {
   try {
     if (ev.live) pushMatchUpdate(ev.slug, after);
+    // Deshacer / corregir acorta la secuencia de puntos: las estadísticas de los puntos que ya no
+    // existen se borran (si no, un punto nuevo en la misma posición heredaría la etiqueta vieja).
+    // Solo en esas acciones: un punto normal no escribe nada extra.
+    if (actionType && ['undo', 'correct', 'reopen', 'walkover', 'cancel'].includes(actionType)) {
+      const len = typeof (after as any).live_state?.points === 'string' ? (after as any).live_state.points.length : 0;
+      Promise.resolve(supabase.from('tournament_player_stats').delete().eq('match_id', after.id).gte('point_index', len))
+        .catch(() => { /* best-effort */ });
+    }
     const finished = (s: string) => s === 'played' || s === 'walkover';
     let kind: NoticeKind | null = null;
     if (ev.live && beforeStatus === 'scheduled' && after.status === 'live') kind = 'started';

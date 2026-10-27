@@ -351,7 +351,7 @@ export async function performMatchAction(ev: LiveEvent, matchId: string, actor: 
 
   if (becameFinished) notifyMatchFinished(ev, match, d.homeScore, d.awayScore, cfg).catch(() => { /* aviso best-effort */ });
   // Tiempo real (Broadcast `tlive:<slug>`) + avisos a quien sigue el torneo. Nunca lanza. (agente «vivo»)
-  if (fresh) onMatchActionApplied({ id: ev.id, title: ev.title, slug: ev.slug, live: liveEffective(ev) }, match.status, freshDto as any);
+  if (fresh) onMatchActionApplied({ id: ev.id, title: ev.title, slug: ev.slug, live: liveEffective(ev) }, match.status, freshDto as any, action.type);
   return { duplicate: false, match: freshDto, ...(warning ? { warning } : {}) };
 }
 
