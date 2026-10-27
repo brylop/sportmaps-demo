@@ -378,10 +378,10 @@ export default function SchoolTournamentDetailPage() {
                       <option>Mixto</option><option>Masculino</option><option>Femenino</option>
                     </select></div>
                   <div className="space-y-1"><Label className="text-xs text-muted-foreground">Edad mín.</Label>
-                    <Input type="number" placeholder="Opcional" value={c.age_min ?? ''} onChange={(e) => setCats(cats.map((x, j) => j === i ? { ...x, age_min: e.target.value ? Number(e.target.value) : null } : x))} /></div>
+                    <Input type="number" placeholder="—" value={c.age_min ?? ''} onChange={(e) => setCats(cats.map((x, j) => j === i ? { ...x, age_min: e.target.value ? Number(e.target.value) : null } : x))} /></div>
                   <div className="space-y-1"><Label className="text-xs text-muted-foreground">Edad máx.</Label>
                     <div className="flex gap-1">
-                      <Input type="number" placeholder="Opcional" value={c.age_max ?? ''} onChange={(e) => setCats(cats.map((x, j) => j === i ? { ...x, age_max: e.target.value ? Number(e.target.value) : null } : x))} />
+                      <Input type="number" placeholder="—" value={c.age_max ?? ''} onChange={(e) => setCats(cats.map((x, j) => j === i ? { ...x, age_max: e.target.value ? Number(e.target.value) : null } : x))} />
                       <Button size="icon" variant="ghost" title="Quitar categoría" onClick={() => setCats(cats.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                     </div></div>
                 </div>
@@ -409,9 +409,8 @@ export default function SchoolTournamentDetailPage() {
                     <Input placeholder="Inscripción" value={p.phase_name} onChange={(e) => setPhases(phases.map((x, j) => j === i ? { ...x, phase_name: e.target.value } : x))} /></div>
                   <div className="space-y-1"><Label className="text-xs text-muted-foreground">Válida hasta</Label>
                     <Input type="date" value={p.valid_until} onChange={(e) => setPhases(phases.map((x, j) => j === i ? { ...x, valid_until: e.target.value } : x))} /></div>
-                  <div className="space-y-1"><Label className="text-xs text-muted-foreground">Valor por atleta (COP)</Label>
-                    <Input type="number" placeholder="50000" value={p.price_solo || ''} onChange={(e) => setPhases(phases.map((x, j) => j === i ? { ...x, price_solo: Number(e.target.value) } : x))} />
-                    {p.price_solo > 0 && <p className="text-xs text-muted-foreground">{money(p.price_solo)}</p>}</div>
+                  <div className="space-y-1"><Label className="text-xs text-muted-foreground">Valor por atleta{p.price_solo > 0 ? ` · ${money(p.price_solo)}` : ' (COP)'}</Label>
+                    <Input type="number" placeholder="50000" value={p.price_solo || ''} onChange={(e) => setPhases(phases.map((x, j) => j === i ? { ...x, price_solo: Number(e.target.value) } : x))} /></div>
                   {!isInternal && (
                     <div className="space-y-1"><Label className="text-xs text-muted-foreground">% de anticipo</Label>
                       <Input type="number" placeholder="30" value={p.deposit_percent || ''} onChange={(e) => setPhases(phases.map((x, j) => j === i ? { ...x, deposit_percent: Number(e.target.value) } : x))} /></div>
