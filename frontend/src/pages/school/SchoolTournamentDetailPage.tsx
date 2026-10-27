@@ -404,12 +404,12 @@ export default function SchoolTournamentDetailPage() {
                 </p>
               )}
               {phases.map((p, i) => (
-                <div key={i} className={`grid items-end gap-2 rounded-lg border p-3 ${isInternal ? 'sm:grid-cols-5' : 'sm:grid-cols-6'}`}>
-                  <div className="space-y-1 sm:col-span-2"><Label className="text-xs text-muted-foreground">Nombre de la fase</Label>
+                <div key={i} className={`grid items-end gap-2 rounded-lg border p-3 ${isInternal ? 'sm:grid-cols-[2fr_1fr_1.3fr_auto]' : 'sm:grid-cols-[2fr_1fr_1.3fr_1fr_auto]'}`}>
+                  <div className="space-y-1"><Label className="text-xs text-muted-foreground">Nombre de la fase</Label>
                     <Input placeholder="Inscripción" value={p.phase_name} onChange={(e) => setPhases(phases.map((x, j) => j === i ? { ...x, phase_name: e.target.value } : x))} /></div>
                   <div className="space-y-1"><Label className="text-xs text-muted-foreground">Válida hasta</Label>
                     <Input type="date" value={p.valid_until} onChange={(e) => setPhases(phases.map((x, j) => j === i ? { ...x, valid_until: e.target.value } : x))} /></div>
-                  <div className="space-y-1"><Label className="text-xs text-muted-foreground">Valor por atleta{p.price_solo > 0 ? ` · ${money(p.price_solo)}` : ' (COP)'}</Label>
+                  <div className="space-y-1"><Label className="whitespace-nowrap text-xs text-muted-foreground">Valor por atleta{p.price_solo > 0 ? ` · ${money(p.price_solo)}` : ' (COP)'}</Label>
                     <Input type="number" placeholder="50000" value={p.price_solo || ''} onChange={(e) => setPhases(phases.map((x, j) => j === i ? { ...x, price_solo: Number(e.target.value) } : x))} /></div>
                   {!isInternal && (
                     <div className="space-y-1"><Label className="text-xs text-muted-foreground">% de anticipo</Label>
