@@ -101,7 +101,8 @@ import trainerWorkspaceRouter from './routes/trainer/workspace';
 import trainerClientsRouter from './routes/trainer/clients';
 import trainerAvailabilityRouter from './routes/trainer/availability';
 import trainerRoutinesRouter from './routes/trainer/routines';
-import trainerTrainingPlansRouter from './routes/trainer/training-plans';
+// trainer/training-plans DESMONTADA (2026-10-27): usaba columnas que no existen y
+// un PUT con update(req.body) sin whitelist. Se vuelve a montar cuando se reescriba.
 import trainerWgerRouter from './routes/trainer/wger';
 import trainerBiomechRouter from './routes/trainer/biomech';
 
@@ -513,7 +514,6 @@ app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerWorkspaceR
 app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerClientsRouter);
 app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerAvailabilityRouter);
 app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerRoutinesRouter);
-app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerTrainingPlansRouter);
 app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerBiomechRouter);
 
 // Rutas autenticadas del atleta: usa requireAthleteAuth
