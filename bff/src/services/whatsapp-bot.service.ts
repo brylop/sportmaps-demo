@@ -107,7 +107,8 @@ import { mensajeSemanaDeCortesia } from './whatsapp-cortesia-semana.service';
 import { atenderTurnoVenta } from './whatsapp-venta-servicios.service';
 import { textoDePreciosDeEscuela } from './whatsapp-precios.service';
 import { pidePrecio, preciosParaProspecto, responderClasesDePlan, preguntaPorClasesDePlan } from './whatsapp-precios.service';
-import { leerEstadoDeSupabase } from './whatsapp-clase-cortesia.service';
+import { leerEstadoDeSupabase, leerDia as leerDiaCortesia } from './whatsapp-clase-cortesia.service';
+import { redactarRespuestaDeProspecto, PASO_PROSPECTO_IA } from './whatsapp-prospecto-ia.service';
 import { atenderLlegada, yaReservoClase } from './prospecto-ciclo-clase.service';
 import { preguntaComoPagar, textoComoPagar, textoHorarioPresencial } from './whatsapp-pago-publico';
 import { pideAyudaDeApp, textoAyudaApp } from './whatsapp-ayuda-app.service';
@@ -2343,7 +2344,7 @@ export type ResultadoDesconocido =
     | 'pagos_y_precio' | 'pagos_y_precio_sin_enlace'
     | 'clase_cortesia' | 'clase_cortesia_en_curso' | 'cortesia_semana' | 'ayuda_app' | 'precios'
     | 'prospecto_seguimiento' | 'escuela_atendiendo'
-    | 'prospecto_horarios' | 'prospecto_precios' | 'prospecto_info' | 'prospecto_persona'
+    | 'prospecto_horarios' | 'prospecto_precios' | 'prospecto_info' | 'prospecto_persona' | 'prospecto_ia'
     | 'venta_consulta' | 'medios_de_pago' | 'medios_de_pago_escalado'
     | 'externo' | 'horarios_de_hoy'
     | 'pregunta_de_comprobante'
@@ -2656,11 +2657,21 @@ export async function atenderDesconocido(
             // sin nada por el freno de 10 min).
             const recientes = await mensajesRecientes(conversationId);
             if (!escribioDespuesDeLaRespuesta(recientes)) return 'frenado';
-            const seguimiento = await responderSeguimientoDeProspecto(integration, conversationId, contactWaId, {
-                nuevo: textoDeRafaga(recientes, text, null),
+            const nuevo = textoDeRafaga(recientes, text, null);
+            let seguimiento = await responderSeguimientoDeProspecto(integration, conversationId, contactWaId, {
+                nuevo,
                 todo: [...textosProspecto, text].join('\n'),
                 ajustesEscuela,
             });
+            // Lo que las reglas no cubren (o frenan) lo contesta el modelo con la
+            // ficha de la escuela, en vez del acuse genérico y el silencio
+            // (Dynasty 2026-10-28). Quien pidió una persona sigue con la persona.
+            if ((!seguimiento || seguimiento === 'frenado')
+                && !(pideALaPersona(nuevo)?.tipo === 'escalar' || quiereSalirDelFlujo(nuevo))
+                && await responderProspectoConIa(integration, conversationId, contactWaId, nuevo, recientes, ajustesEscuela)) {
+                seguimiento = 'prospecto_ia';
+            }
+            if (seguimiento === 'frenado') return 'frenado';
             if (seguimiento) {
                 if (!enSimulacion()) {
                     await registrarLeadDeProspecto({
@@ -2972,6 +2983,19 @@ async function responderSeguimientoDeProspecto(
     }
     const horariosFrenados = pideHorarios && (await pasoReciente(conversationId, 'cortesia_ofrecer', 10 / 60)
         || await pasoReciente(conversationId, PASO_PROSPECTO_HORARIOS, 24));
+    // «Para mañana miércoles» después de ver los horarios (Dynasty 2026-10-27,
+    // …5543 quedó sin nada): los de ESE día, aunque la lista haya salido hace poco.
+    const diaPedido = diaPedidoEn(nuevo);
+    if (diaPedido && (pideHorarios || await pasoReciente(conversationId, PASO_PROSPECTO_HORARIOS, 24)
+        || await pasoReciente(conversationId, 'cortesia_ofrecer', 24))) {
+        const ofrecidas = await ofrecerHorariosDeCortesia(ctxCortesia(integration, conversationId, contactWaId, null), {
+            texto: p.todo,
+            textoDelDia: diaPedido,
+            intro: `Claro que sí 🙌 Estos son los horarios del *${diaPedido}* para tu clase de cortesía:`,
+            step: PASO_PROSPECTO_HORARIOS,
+        });
+        if (ofrecidas) return 'prospecto_horarios';
+    }
     if (pideHorarios && horariosFrenados && !pidioPrecio) return 'frenado';
     if (pideHorarios && !horariosFrenados) {
         // Horarios Y precio («costos y disponibilidad de días»): los dos en el
@@ -3040,6 +3064,60 @@ async function responderSeguimientoDeProspecto(
         return 'prospecto_info';
     }
     return null;
+}
+
+const NOMBRE_DIA = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+
+/**
+ * El día que pide el prospecto, como nombre: «el miércoles» → 'miércoles';
+ * «hoy» / «mañana» / «pasado mañana» → el día de la semana en Bogotá. null si
+ * no nombra ninguno. «Mañana» suelto en medio de otra frase no cuenta: tiene
+ * que abrir el mensaje o ir con «para», «ir», «puedo»…
+ */
+export function diaPedidoEn(texto: string, ahora = new Date()): string | null {
+    const dia = leerDiaCortesia(texto);
+    if (dia !== null) return NOMBRE_DIA[dia];
+    const n = normalizarCortesia(texto);
+    const hoy = new Date(ahora.toLocaleString('en-US', { timeZone: 'America/Bogota' })).getDay();
+    if (/\bpasado manana\b/.test(n)) return NOMBRE_DIA[(hoy + 2) % 7];
+    if (/^hoy\b|\b(para|desde|clase|ir|voy|puedo) hoy\b/.test(n)) return NOMBRE_DIA[hoy];
+    if (/^manana\b|\b(para|desde|clase|ir|voy|puedo) manana\b/.test(n)) return NOMBRE_DIA[(hoy + 1) % 7];
+    return null;
+}
+
+/**
+ * La respuesta del modelo al prospecto (ver whatsapp-prospecto-ia.service.ts).
+ * true si se envió. Nunca lanza.
+ */
+async function responderProspectoConIa(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    nuevo: string,
+    recientes: FilaReciente[],
+    ajustesEscuela: AjustesWhatsAppEscuela,
+): Promise<boolean> {
+    if (!nuevo.trim()) return false;
+    try {
+        const schoolId = integration.school_id;
+        const [escuela, info, precios, enlace] = await Promise.all([
+            nombreDeEscuela(schoolId),
+            infoDeEscuela(schoolId).catch(() => null),
+            preciosParaProspecto(schoolId, ajustesEscuela.responderPrecios).catch(() => null),
+            enlaceDeInscripcion(schoolId).catch(() => null),
+        ]);
+        const respuesta = await redactarRespuestaDeProspecto({
+            schoolId, conversationId, escuela, nuevo, recientes,
+            grupos: info ? fallbackInfoEscuela(info) : null,
+            precios, enlace,
+        });
+        if (!respuesta) return false;
+        await deliver(integration, conversationId, contactWaId, respuesta, { step: PASO_PROSPECTO_IA });
+        return true;
+    } catch (err: any) {
+        console.error('[whatsapp-bot] respuesta del modelo al prospecto falló', err?.message || err);
+        return false;
+    }
 }
 
 /**
