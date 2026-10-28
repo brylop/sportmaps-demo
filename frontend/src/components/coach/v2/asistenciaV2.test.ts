@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  ETIQUETA, ROTACION, construirRegistros, estadoInicial, faltanMucho, fechasCorregibles, primeraFechaCorregible, resumir, sePuedeCorregir,
-  siguienteEstado, textoAyuda, type DeportistaLista,
+  ETIQUETA, ROTACION, construirRegistros, estadoInicial, faltanMucho, fechaMinimaCorregible, fechasCorregibles, opcionDeFecha,
+  opcionesDeDia, resumir, sePuedeCorregir, siguienteEstado, textoAyuda, textoListaGuardada, textoVentanaCorreccion,
+  type DeportistaLista,
 } from './asistenciaModel';
 import { ColaAsistencia, claveLista, fusionarRegistros, type ResultadoEnvio, type ListaEnCola } from './colaAsistencia';
 import type { QueueStorage } from '@/lib/tournamentActionQueue';
@@ -53,21 +54,49 @@ describe('estado inicial de la lista', () => {
   });
 });
 
-describe('corregir dentro de la ventana de la escuela', () => {
-  it('hoy y ayer como accesos rápidos; solo hoy si la escuela no deja días', () => {
-    expect(fechasCorregibles('2026-10-08', 7)).toEqual(['2026-10-08', '2026-10-07']);
-    expect(fechasCorregibles('2026-10-01', 7)).toEqual(['2026-10-01', '2026-09-30']);
+describe('ventana de corrección = la de la escuela (B9)', () => {
+  it('todos los días de la ventana, de hoy hacia atrás; solo hoy con ventana 0', () => {
+    expect(fechasCorregibles('2026-10-08', 7)).toEqual([
+      '2026-10-08', '2026-10-07', '2026-10-06', '2026-10-05', '2026-10-04', '2026-10-03', '2026-10-02', '2026-10-01',
+    ]);
+    expect(fechasCorregibles('2026-10-01', 1)).toEqual(['2026-10-01', '2026-09-30']);
     expect(fechasCorregibles('2026-10-08', 0)).toEqual(['2026-10-08']);
+    expect(fechasCorregibles('2026-10-08', -3)).toEqual(['2026-10-08']);
   });
 
-  it('cualquier día de la ventana, nunca el futuro (Carmel: el fin de semana se sube el martes)', () => {
-    expect(primeraFechaCorregible('2026-10-27', 7)).toBe('2026-10-20');
-    expect(sePuedeCorregir('2026-10-24', '2026-10-27', 7)).toBe(true);
-    expect(sePuedeCorregir('2026-10-20', '2026-10-27', 7)).toBe(true);
-    expect(sePuedeCorregir('2026-10-19', '2026-10-27', 7)).toBe(false);
-    expect(sePuedeCorregir('2026-08-01', '2026-10-27', 90)).toBe(true);
-    expect(sePuedeCorregir('2026-10-28', '2026-10-27', 90)).toBe(false);
-    expect(sePuedeCorregir('2026-10-26', '2026-10-27', 0)).toBe(false);
+  it('se puede corregir dentro de la ventana, nunca el futuro', () => {
+    expect(sePuedeCorregir('2026-10-06', '2026-10-08', 7)).toBe(true);
+    expect(sePuedeCorregir('2026-10-01', '2026-10-08', 7)).toBe(true);
+    expect(sePuedeCorregir('2026-09-30', '2026-10-08', 7)).toBe(false);
+    expect(sePuedeCorregir('2026-10-09', '2026-10-08', 7)).toBe(false);
+    expect(sePuedeCorregir('2026-10-07', '2026-10-08', 0)).toBe(false);
+    // Carmel: 90 días.
+    expect(sePuedeCorregir('2026-07-15', '2026-10-08', 90)).toBe(true);
+    expect(fechaMinimaCorregible('2026-10-08', 90)).toBe('2026-07-10');
+  });
+
+  it('selector: Hoy / Ayer / Otro día según la ventana', () => {
+    expect(opcionesDeDia(0)).toEqual(['hoy']);
+    expect(opcionesDeDia(1)).toEqual(['hoy', 'ayer']);
+    expect(opcionesDeDia(7)).toEqual(['hoy', 'ayer', 'otro']);
+    expect(opcionDeFecha('2026-10-08', '2026-10-08')).toBe('hoy');
+    expect(opcionDeFecha('2026-10-07', '2026-10-08')).toBe('ayer');
+    expect(opcionDeFecha('2026-10-03', '2026-10-08')).toBe('otro');
+  });
+
+  it('el historial dice la ventana real', () => {
+    expect(textoVentanaCorreccion(0)).toMatch(/solo .* del día/i);
+    expect(textoVentanaCorreccion(1)).toBe('Se puede corregir hasta el día siguiente. Después, la corrige la escuela.');
+    expect(textoVentanaCorreccion(7)).toBe('Se puede corregir hasta 7 días después. Después, la corrige la escuela.');
+  });
+});
+
+describe('«Lista guardada» no suma las excusas a las faltas (B11)', () => {
+  it('faltaron y con excusa por separado', () => {
+    expect(textoListaGuardada({ vinieron: 2, faltaron: 1, excusas: 1 })).toBe('Lista guardada: vinieron 2, faltaron 1, con excusa 1.');
+    expect(textoListaGuardada({ vinieron: 3, faltaron: 0, excusas: 1 })).toBe('Lista guardada: vinieron 3, con excusa 1.');
+    expect(textoListaGuardada({ vinieron: 4, faltaron: 0, excusas: 0 })).toBe('Lista guardada: vinieron 4, faltaron 0.');
+    expect(textoListaGuardada({ vinieron: 1, faltaron: 2, excusas: 0 })).toBe('Lista guardada: vinieron 1, faltaron 2.');
   });
 });
 

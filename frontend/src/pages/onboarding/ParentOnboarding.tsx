@@ -89,37 +89,53 @@ export default function ParentOnboarding() {
     { id: 'hijos', title: 'Tus hijos', description: 'Registra a tus deportistas', icon: Users, done: false },
   ];
 
+  // Paso 2: tres botones no caben en una fila a 390 px («Anterior · Más tarde ·
+  // Unirme a mi escuela» se salía de la pantalla). En celular se apilan, con la
+  // acción principal arriba y a lo ancho; desde sm vuelven a la fila.
   const footer = (
-    <>
-      <Button variant="ghost" size="sm" onClick={() => setStep((p) => Math.max(1, p - 1))} disabled={step === 1 || saving}>
+    <div
+      className={
+        step < 2
+          ? 'flex w-full items-center justify-between'
+          : 'flex w-full flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between'
+      }
+    >
+      <Button
+        variant="ghost"
+        size="sm"
+        className={step < 2 ? undefined : 'w-full sm:w-auto'}
+        onClick={() => setStep((p) => Math.max(1, p - 1))}
+        disabled={step === 1 || saving}
+      >
         <ChevronLeft className="h-4 w-4 mr-1" /> Anterior
       </Button>
       {step < 2 ? (
         <Button onClick={() => setStep(2)} disabled={!step1Done}>
           Siguiente <ChevronRight className="h-4 w-4 ml-1" />
         </Button>
-      ) : isJoinCodeShape(schoolCode) ? (
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" onClick={() => finish('/dashboard')} disabled={saving}>
-            Más tarde
-          </Button>
-          <Button onClick={() => finish(`/unirse?codigo=${encodeURIComponent(formatJoinCode(schoolCode))}`)} disabled={saving}>
-            {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
-            Unirme a mi escuela
-          </Button>
-        </div>
       ) : (
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" onClick={() => finish('/dashboard')} disabled={saving}>
+        <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row sm:items-center">
+          <Button variant="ghost" className="w-full sm:w-auto" onClick={() => finish('/dashboard')} disabled={saving}>
             Más tarde
           </Button>
-          <Button onClick={() => finish('/children')} disabled={saving}>
-            {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
-            Agregar a mi hijo/a
-          </Button>
+          {isJoinCodeShape(schoolCode) ? (
+            <Button
+              className="w-full sm:w-auto"
+              onClick={() => finish(`/unirse?codigo=${encodeURIComponent(formatJoinCode(schoolCode))}`)}
+              disabled={saving}
+            >
+              {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
+              Unirme a mi escuela
+            </Button>
+          ) : (
+            <Button className="w-full sm:w-auto" onClick={() => finish('/children')} disabled={saving}>
+              {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
+              Agregar a mi hijo/a
+            </Button>
+          )}
         </div>
       )}
-    </>
+    </div>
   );
 
   return (

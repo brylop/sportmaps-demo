@@ -18,7 +18,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { calcEarlyPaymentDiscount } from '@/lib/earlyPaymentDiscount';
 import { isOneTimeCategory } from '@/lib/payment-accounts';
-import { ESTADOS_QUE_SE_DEBEN, leerFranjas, type Cobro, type Hijo } from './parentHomeLogic';
+import { ESTADOS_QUE_SE_DEBEN, fotoDeVerdad, leerFranjas, type Cobro, type Hijo } from './parentHomeLogic';
 
 export interface ParentHomeData {
   hijos: Hijo[];
@@ -161,7 +161,7 @@ export async function cargarInicioAcudiente(userId: string): Promise<ParentHomeD
     return {
       id: c.id,
       nombre: c.full_name ?? '',
-      avatarUrl: c.avatar_url ?? null,
+      avatarUrl: fotoDeVerdad(c.avatar_url),
       equipo: team?.name ?? null,
       profe: coach?.full_name ?? null,
       lugar: team?.location ?? null,

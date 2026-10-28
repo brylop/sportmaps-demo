@@ -37,6 +37,7 @@ import { useConvocatoria, useDeportistasEquipo, useNombresConvocados, usePartido
 import { nombreCorto, refuerzosDe, sujetoDe, type Partido } from '@/components/coach/v2/coachV2Logic';
 import type { FootballEventType } from '@/lib/school/footballQueries';
 import {
+  BARRA_GUARDAR,
   PASOS,
   aColumnasMarcador,
   claveSujeto,
@@ -626,7 +627,7 @@ function PasoCerrar({ partido, schoolId, equipo, deporte, onGuardado }: {
         </section>
       )}
 
-      <div className="fixed inset-x-0 bottom-0 z-20 border-t bg-background/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur md:static md:border-0 md:bg-transparent md:p-0">
+      <div className={BARRA_GUARDAR} data-testid="barra-guardar-partido">
         <div className="mx-auto max-w-xl">
           <Button className="h-14 w-full rounded-2xl text-base font-semibold" disabled={guardando} onClick={guardar}>
             {guardando && <Loader2 className="mr-2 h-5 w-5 animate-spin" />}
@@ -905,7 +906,7 @@ function PasoEvaluar({ partido, schoolId, esAdmin, onIrAConvocar, onSiguiente }:
         )}
       </section>
 
-      <div className="fixed inset-x-0 bottom-0 z-20 border-t bg-background/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur md:static md:border-0 md:bg-transparent md:p-0">
+      <div className={BARRA_GUARDAR} data-testid="barra-guardar-partido">
         <div className="mx-auto flex max-w-xl gap-2">
           <Button className="h-14 flex-1 rounded-2xl text-base font-semibold" disabled={guardando} onClick={guardar}>
             {guardando && <Loader2 className="mr-2 h-5 w-5 animate-spin" />}

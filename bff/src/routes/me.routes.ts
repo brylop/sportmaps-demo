@@ -6,6 +6,13 @@ import { supabase } from '../config/supabase';
 
 const router = Router();
 
+/** Error de PostgREST/Postgres por una tabla que no existe en la base viva. */
+export function esTablaInexistente(error: { code?: string | null; message?: string | null } | null | undefined): boolean {
+    if (!error) return false;
+    if (error.code === '42P01' || error.code === 'PGRST205') return true;
+    return /relation .* does not exist|could not find the table/i.test(error.message ?? '');
+}
+
 /**
  * GET /api/v1/me/entitlements
  *
@@ -195,7 +202,10 @@ router.post('/data-deletion-request', requireAuth, requireCsrfHeader, async (req
     const ip = (req.ip || req.socket?.remoteAddress || '').toString();
     const ua = req.get('user-agent') || '';
 
+    // El cliente del BFF es service_role (auth.uid() = NULL dentro de la RPC):
+    // el usuario va explícito, sacado del JWT ya validado (mig. 20261027111037).
     const { data, error } = await supabase.rpc('request_account_deletion', {
+        p_user_id: req.user.id,
         p_reason: parsed.data.reason ?? null,
         p_ip_address: ip || null,
         p_user_agent: ua || null,
@@ -214,7 +224,7 @@ router.post('/data-deletion-request', requireAuth, requireCsrfHeader, async (req
 // Cancelar solicitud de borrado (el padre se arrepiente). NO reactiva
 // payment_tokens automaticamente — el padre debe agregar la tarjeta de nuevo.
 router.delete('/data-deletion-request', requireAuth, requireCsrfHeader, async (req: AuthenticatedRequest, res: Response) => {
-    const { data, error } = await supabase.rpc('cancel_account_deletion');
+    const { data, error } = await supabase.rpc('cancel_account_deletion', { p_user_id: req.user.id });
     if (error) {
         req.log?.error({ err: error }, 'cancel_account_deletion RPC failed');
         return res.status(500).json({ error: 'cancel_failed' });
@@ -236,6 +246,13 @@ router.get('/data-deletion-request', requireAuth, async (req: AuthenticatedReque
         .maybeSingle();
 
     if (error) {
+        // Tabla aún sin crear (42P01 / PGRST205): no hay solicitud que mostrar.
+        // Antes era un 500 que rompía Mi cuenta › Seguridad (B12).
+        if (esTablaInexistente(error)) {
+            req.log?.warn({ err: error }, 'account_deletion_requests no existe (falta migración 20261027111037)');
+            return res.json({ request: null });
+        }
+        req.log?.error({ err: error }, 'data-deletion-request query failed');
         return res.status(500).json({ error: 'query_failed' });
     }
     return res.json({ request: data });
