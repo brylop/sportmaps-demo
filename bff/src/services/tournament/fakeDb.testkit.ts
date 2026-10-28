@@ -12,7 +12,7 @@ export const db: { tables: Record<string, Row[]>; rpcCalls: number } = { tables:
 export function resetDb() {
   db.tables = {
     events: [], tournament_matches: [], tournament_match_log: [], tournament_scorekeepers: [],
-    event_teams: [], event_team_members: [], event_categories_config: [], notifications: [],
+    event_teams: [], event_team_members: [], event_categories_config: [], notifications: [], tournament_sponsors: [], tournament_team_invites: [], children: [],
   };
   db.rpcCalls = 0;
 }
@@ -93,6 +93,10 @@ function builder(table: string) {
     eq: (c: string, v: any) => { filters.push((r) => (r[c] ?? null) === v); return api; },
     neq: (c: string, v: any) => { filters.push((r) => (r[c] ?? null) !== v); return api; },
     in: (c: string, vs: any[]) => { filters.push((r) => vs.includes(r[c])); return api; },
+    ilike: (c: string, pat: string) => {
+      const needle = String(pat).replace(/%/g, '').toLowerCase(); // solo el caso «%texto%»
+      filters.push((r) => String(r[c] ?? '').toLowerCase().includes(needle)); return api;
+    },
     order: (col: string, o: { ascending?: boolean } = {}) => { orderBy.push({ col, asc: o.ascending !== false }); return api; },
     limit: (n: number) => { lim = n; return api; },
     single: () => { single = 'single'; return Promise.resolve(finish()); },
@@ -104,8 +108,27 @@ function builder(table: string) {
 
 export const fakeSupabase = {
   from: (t: string) => builder(t),
+  storage: {
+    from: (bucket: string) => ({
+      createSignedUploadUrl: async (path: string) => ({ data: { token: 'tok', signedUrl: `https://x.supabase.co/upload/${bucket}/${path}` }, error: null }),
+      createSignedUrl: async (path: string) => ({ data: { signedUrl: `https://x.supabase.co/signed/${bucket}/${path}` }, error: null }),
+      remove: async () => ({ data: null, error: null }),
+    }),
+  },
   rpc: async (fn: string, a: any) => {
     db.rpcCalls++;
+    if (fn === 'reschedule_tournament_match') {
+      const m = db.tables.tournament_matches.find((x) => x.id === a.p_match_id);
+      if (!m) return { data: { error: 'not_found' }, error: null };
+      const before = { scheduled_at: m.scheduled_at ?? null, court: m.court ?? null };
+      if (a.p_set_time) m.scheduled_at = a.p_scheduled_at;
+      if (a.p_set_court) m.court = a.p_court && String(a.p_court).trim() ? String(a.p_court).trim() : null;
+      db.tables.tournament_match_log.push({
+        id: randomUUID(), match_id: m.id, event_id: m.event_id, actor_type: 'user', actor_id: a.p_actor_id, action: 'reschedule',
+        before_state: before, after_state: { scheduled_at: m.scheduled_at ?? null, court: m.court ?? null }, client_action_id: null, created_at: new Date().toISOString(),
+      });
+      return { data: { ok: true }, error: null };
+    }
     if (fn !== 'apply_tournament_match_action') return { data: null, error: { message: 'rpc desconocida' } };
     const m = db.tables.tournament_matches.find((x) => x.id === a.p_match_id);
     if (!m) return { data: { error: 'not_found' }, error: null };
@@ -139,6 +162,13 @@ export function seedTeams(eventId: string, categoryId: string, n: number): Row[]
   const teams = Array.from({ length: n }, (_, i) => ({ id: randomUUID(), event_id: eventId, category_id: categoryId, team_name: `Equipo ${i + 1}`, status: 'approved' }));
   db.tables.event_teams.push(...teams);
   return teams;
+}
+
+/** Rival externo (sin delegación), como lo crea addExternalTeams. */
+export function seedExternalTeam(eventId: string, categoryId: string, name: string, over: Row = {}): Row {
+  const t = { id: randomUUID(), event_id: eventId, category_id: categoryId, team_name: name, status: 'confirmed', delegation_id: null, is_external: true, ...over };
+  db.tables.event_teams.push(t);
+  return t;
 }
 
 export function seedCategory(eventId: string): string {
