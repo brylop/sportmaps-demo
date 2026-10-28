@@ -10,13 +10,16 @@ import {
   AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ArrowLeft, Undo2, Play, Flag, Pencil, RotateCcw, Plus, Trash2, Wifi, WifiOff, Loader2 } from 'lucide-react';
+import { ArrowLeft, ArrowLeftRight, Undo2, Play, Flag, Pencil, RotateCcw, Plus, Trash2, Wifi, WifiOff, Loader2, Trophy } from 'lucide-react';
 import { applyAction, derive, emptyState, type Action, type LiveState, type Side } from '@/lib/tournamentScoring';
 import type { ActionResponse, MatchDto } from '@/lib/tournamentTypes';
 import {
   ActionQueue, classifyError, safeStorage, type FlushEvent, type QueuedAction, type SendResult,
 } from '@/lib/tournamentActionQueue';
 import { formatBogota, STATUS_LABEL, teamName } from '@/lib/tournamentDisplay';
+import { ShareResultButton } from './live/ShareResultButton';
+import { PointTagger } from './live/PointTagger';
+import { scorerScopeFromUrl, setEventText, sideStorageKey } from './live/scorerErgonomics';
 
 /** Dónde pegarle al BFF: igual para el organizador (`/school/:id/...`) y para el token (`/scorer/:token/...`). */
 export interface ScorerEndpoints {
@@ -33,6 +36,8 @@ interface Props {
   onClose: () => void;
   /** Avisa al padre de la versión confirmada por el servidor (para refrescar su lista). */
   onMatchChange?: (m: MatchDto) => void;
+  /** Nombre del torneo para la tarjeta de resultado que se comparte (opcional). */
+  tournamentTitle?: string;
 }
 
 const toLiveState = (m: MatchDto): LiveState =>
@@ -48,7 +53,7 @@ export function foldPending(base: LiveState, pending: QueuedAction[], cfg: Match
   return s;
 }
 
-export function LiveScorer({ match, endpoints, queueKey, onClose, onMatchChange }: Props) {
+export function LiveScorer({ match, endpoints, queueKey, onClose, onMatchChange, tournamentTitle }: Props) {
   const { toast } = useToast();
   const cfg = match.config;
   const knockout = match.stage === 'knockout' || match.stage === 'third_place';
@@ -63,6 +68,11 @@ export function LiveScorer({ match, endpoints, queueKey, onClose, onMatchChange 
   const [woOpen, setWoOpen] = useState(false);
   const [fixOpen, setFixOpen] = useState(false);
   const [taken, setTaken] = useState<string | null>(null);
+  // Cambio de lado: solo cambia cómo se ven los botones en ESTE celular (no toca el marcador).
+  const [swapped, setSwapped] = useState(() => { try { return localStorage.getItem(sideStorageKey(match.id)) === '1'; } catch { return false; } });
+  const toggleSides = () => setSwapped((v) => { const n = !v; try { localStorage.setItem(sideStorageKey(match.id), n ? '1' : '0'); } catch { /* sin almacenamiento */ } return n; });
+  const [banner, setBanner] = useState<string | null>(null);
+  const [lastPoint, setLastPoint] = useState<{ side: Side; index: number } | null>(null);
 
   const send = useCallback(async (item: QueuedAction, expected: number): Promise<SendResult> => {
     try {
@@ -171,12 +181,25 @@ export function LiveScorer({ match, endpoints, queueKey, onClose, onMatchChange 
   const bigHome = cfg.model === 'sets' ? (openSet?.home ?? 0) : homeScore;
   const bigAway = cfg.model === 'sets' ? (openSet?.away ?? 0) : awayScore;
   const decided = cfg.model === 'sets' && d.decided;
+  // Aviso grande de set / partido ganado (solo cuando se cierra un set nuevo en este celular).
+  const closedCount = sets.filter((s) => s.closed).length;
+  const prevClosed = useRef(closedCount);
+  useEffect(() => {
+    const before = prevClosed.current;
+    prevClosed.current = closedCount;
+    if (closedCount <= before) return undefined;
+    setBanner(setEventText(sets, closedCount - 1, teamName(match, 'home'), teamName(match, 'away'), decided));
+    const t = setTimeout(() => setBanner(null), decided ? 8000 : 5000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [closedCount]);
 
   const run = (action: Action): boolean => {
     const r = applyAction(state, action, cfg, { knockout });
     if (r.ok === false) { toast({ title: 'No se puede', description: r.message, variant: 'destructive' }); return false; }
     queue.enqueue(match.id, action);
     void flush(true);
+    setLastPoint(action.type === 'point' ? { side: action.side, index: Math.max(0, (r.state.points?.length ?? 1) - 1) } : null);
     return true;
   };
 
@@ -187,6 +210,7 @@ export function LiveScorer({ match, endpoints, queueKey, onClose, onMatchChange 
       ? { label: `${totalPending} pendiente${totalPending === 1 ? '' : 's'}`, icon: <Loader2 className="h-4 w-4 animate-spin" />, cls: 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300' }
       : { label: 'Sincronizado', icon: <Wifi className="h-4 w-4" />, cls: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300' };
 
+  const scope = useMemo(() => scorerScopeFromUrl(endpoints.actionsUrl(match.id)), [endpoints, match.id]);
   const homeName = teamName(match, 'home');
   const awayName = teamName(match, 'away');
   const canUndo = live && (state.points?.length ?? 0) > 0;
@@ -195,7 +219,7 @@ export function LiveScorer({ match, endpoints, queueKey, onClose, onMatchChange 
     <Button
       type="button" disabled={!live || decided}
       onClick={() => run({ type: 'point', side })}
-      className="flex h-44 flex-1 flex-col items-center justify-center gap-1 rounded-xl text-center"
+      className={`flex h-52 flex-1 touch-manipulation select-none flex-col items-center justify-center gap-1 rounded-2xl text-center active:scale-[0.97] motion-reduce:active:scale-100 ${side === 'away' ? 'bg-orange-600 text-white hover:bg-orange-600/90' : ''}`}
       aria-label={`Sumar un punto a ${name}`}
     >
       <span className="line-clamp-2 px-1 text-base font-semibold">{name}</span>
@@ -235,14 +259,39 @@ export function LiveScorer({ match, endpoints, queueKey, onClose, onMatchChange 
         </div>
       )}
 
+      {banner && (
+        <div role="status" aria-live="assertive" className="flex items-center justify-center gap-2 rounded-xl bg-primary px-3 py-3 text-center text-base font-semibold text-primary-foreground" data-testid="set-banner">
+          <Trophy className="h-5 w-5" /> {banner}
+        </div>
+      )}
+
+      {cfg.model === 'sets' && live && !decided && (
+        <div className="text-center text-sm font-semibold uppercase tracking-wide text-muted-foreground" data-testid="current-set">
+          Set {Math.min(sets.length + (openSet ? 0 : 1), cfg.best_of)}{openSet?.deciding ? ' · decisivo' : ''}
+        </div>
+      )}
+
       <div className="flex gap-3">
-        {scoreButton('home', homeName, bigHome)}
-        {scoreButton('away', awayName, bigAway)}
+        {swapped
+          ? <>{scoreButton('away', awayName, bigAway)}{scoreButton('home', homeName, bigHome)}</>
+          : <>{scoreButton('home', homeName, bigHome)}{scoreButton('away', awayName, bigAway)}</>}
       </div>
 
-      <Button type="button" variant="outline" className="h-14 text-lg" disabled={!canUndo} onClick={() => run({ type: 'undo' })}>
-        <Undo2 className="mr-2 h-5 w-5" /> Deshacer
-      </Button>
+      {live && lastPoint && cfg.model === 'sets' && scope && (
+        <PointTagger
+          key={lastPoint.index} scope={scope} matchId={match.id} side={lastPoint.side} pointIndex={lastPoint.index}
+          teamName={lastPoint.side === 'home' ? homeName : awayName} onDone={() => setLastPoint(null)}
+        />
+      )}
+
+      <div className="grid grid-cols-[1fr_auto] gap-2">
+        <Button type="button" variant="outline" className="h-16 text-lg" disabled={!canUndo} onClick={() => run({ type: 'undo' })}>
+          <Undo2 className="mr-2 h-5 w-5" /> Deshacer
+        </Button>
+        <Button type="button" variant="outline" className="h-16" onClick={toggleSides} aria-pressed={swapped} aria-label="Cambiar de lado">
+          <ArrowLeftRight className="mr-1 h-5 w-5" /> Lado
+        </Button>
+      </div>
 
       <div className="grid grid-cols-2 gap-2">
         {status === 'scheduled' && (
@@ -250,6 +299,13 @@ export function LiveScorer({ match, endpoints, queueKey, onClose, onMatchChange 
         )}
         {live && (
           <Button type="button" className="col-span-2 h-12" variant="secondary" onClick={() => setConfirmFinish(true)}><Flag className="mr-2 h-4 w-4" /> Terminar partido</Button>
+        )}
+        {(status === 'played' || status === 'walkover') && (
+          <ShareResultButton
+            className="col-span-2 h-12" size="lg" variant="default" label="Compartir resultado"
+            tournament={tournamentTitle ?? 'Torneo'}
+            match={{ ...serverMatch, status, home_score: homeScore, away_score: awayScore, sets }}
+          />
         )}
         {(status === 'played' || status === 'walkover') && (
           <Button type="button" className="col-span-2 h-12" variant="secondary" onClick={() => run({ type: 'reopen' })}><RotateCcw className="mr-2 h-4 w-4" /> Reabrir partido</Button>

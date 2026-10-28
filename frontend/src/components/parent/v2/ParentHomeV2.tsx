@@ -38,6 +38,7 @@ import { buildAgenda } from './parentCalendarModel';
 import { fraseEntrenoDeAgenda } from './parentHomeLogic';
 import { TarjetaConvocatoria, useConvocatoriasFamilia } from './TarjetaConvocatoria';
 import { proximaConvocatoriaDe, type ConvocatoriaHijo } from './convocatoriasAcudiente';
+import { HoyJuegaCard } from '@/components/tournaments/live/HoyJuegaCard';
 
 /** EPS más comunes como respuesta de un toque. `value` = lo que guarda `children.eps_name` (lib/colombian-eps). */
 const OPCIONES_EPS = [
@@ -69,6 +70,9 @@ export function ParentHomeV2({ userId, nombreAcudiente, extras, pie, hoy }: Pare
       <Cabecera escuela={escuela} fecha={fechaCabecera(ahora)} />
 
       {extras}
+
+      {/* «Hoy juega tu hija…» → página en vivo del torneo (solo si hay partido hoy). */}
+      <HoyJuegaCard userId={userId} />
 
       {isLoading || (!data && !isError) ? (
         <CargandoInicio />

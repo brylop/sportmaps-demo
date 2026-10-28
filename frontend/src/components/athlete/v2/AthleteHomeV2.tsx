@@ -35,6 +35,7 @@ import { useDeportista } from './useDeportista';
 import { useAthleteCheckout } from './useAthleteCheckout';
 import { SEGUNDOS_DESHACER, useEnvioConDeshacer } from './useEnvioConDeshacer';
 import { useAhora } from './useAhora';
+import { HoyJuegaCard } from '@/components/tournaments/live/HoyJuegaCard';
 
 export interface AthleteHomeV2Props {
   /** A dónde lleva «Mostrar mi carnet» (pestaña Carnet). */
@@ -67,6 +68,9 @@ export function AthleteHomeV2({ carnetHref = '/my-cards', felicitacionesHref = '
           <span className="text-xs text-muted-foreground">{fechaCabecera(ahora)}</span>
         </div>
       </header>
+
+      {/* «Hoy juegas: Monsters vs Orange · Cancha 3» → página en vivo (solo si hay partido hoy). */}
+      <HoyJuegaCard userId={d.userId} />
 
       <Principal
         ahora={ahora}
