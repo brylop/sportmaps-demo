@@ -247,31 +247,31 @@ DROP POLICY IF EXISTS atp_trainer_delete ON public.athlete_training_plans;
 CREATE POLICY atp_staff_select ON public.athlete_training_plans
   FOR SELECT TO authenticated
   USING (trainer_id = (select auth.uid())
-         OR school_id = ANY ((select public.user_admin_school_ids())));
+         OR school_id = ANY ((select public.user_admin_school_ids())::uuid[]));
 
 CREATE POLICY atp_trainer_insert ON public.athlete_training_plans
   FOR INSERT TO authenticated
   WITH CHECK (
     trainer_id = (select auth.uid())
-    AND school_id = ANY ((select public.user_staff_school_ids()))
+    AND school_id = ANY ((select public.user_staff_school_ids())::uuid[])
     AND client_id IN (SELECT public.get_trainer_athlete_ids(school_id))
   );
 
 CREATE POLICY atp_trainer_update ON public.athlete_training_plans
   FOR UPDATE TO authenticated
   USING (trainer_id = (select auth.uid())
-         AND school_id = ANY ((select public.user_staff_school_ids())))
+         AND school_id = ANY ((select public.user_staff_school_ids())::uuid[]))
   WITH CHECK (
     trainer_id = (select auth.uid())
-    AND school_id = ANY ((select public.user_staff_school_ids()))
+    AND school_id = ANY ((select public.user_staff_school_ids())::uuid[])
     AND client_id IN (SELECT public.get_trainer_athlete_ids(school_id))
   );
 
 CREATE POLICY atp_trainer_delete ON public.athlete_training_plans
   FOR DELETE TO authenticated
   USING ((trainer_id = (select auth.uid())
-          AND school_id = ANY ((select public.user_staff_school_ids())))
-         OR school_id = ANY ((select public.user_admin_school_ids())));
+          AND school_id = ANY ((select public.user_staff_school_ids())::uuid[]))
+         OR school_id = ANY ((select public.user_admin_school_ids())::uuid[]));
 
 REVOKE ALL ON public.athlete_training_plans FROM anon;
 
@@ -333,7 +333,7 @@ CREATE POLICY bc_coach_read ON public.biomech_captures
          AND bag.coach_id = (select auth.uid())
          AND bag.is_active = true
          AND (bag.expires_at IS NULL OR bag.expires_at > now())
-         AND bag.school_id = ANY ((select public.user_staff_school_ids()))
+         AND bag.school_id = ANY ((select public.user_staff_school_ids())::uuid[])
     )
   );
 
@@ -354,7 +354,7 @@ CREATE POLICY ba_coach_read ON public.biomech_analyses
          AND bag.coach_id = (select auth.uid())
          AND bag.is_active = true
          AND (bag.expires_at IS NULL OR bag.expires_at > now())
-         AND bag.school_id = ANY ((select public.user_staff_school_ids()))
+         AND bag.school_id = ANY ((select public.user_staff_school_ids())::uuid[])
     )
   );
 
@@ -368,7 +368,7 @@ CREATE POLICY bb_coach_read ON public.biomech_baselines
          AND bag.coach_id = (select auth.uid())
          AND bag.is_active = true
          AND (bag.expires_at IS NULL OR bag.expires_at > now())
-         AND bag.school_id = ANY ((select public.user_staff_school_ids()))
+         AND bag.school_id = ANY ((select public.user_staff_school_ids())::uuid[])
     )
   );
 
