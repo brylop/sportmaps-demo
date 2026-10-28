@@ -492,7 +492,7 @@ export default function SchoolStudentsManagementPage() {
         const avatarPath = `unregistered_athletes/${athleteId}/${timestamp}.${avatarExt}`;
         const { error: avatarUploadError } = await supabase.storage
           .from('avatars')
-          .upload(avatarPath, avatarC, { cacheControl: '3600', upsert: true, contentType: avatarC.type || undefined });
+          .upload(avatarPath, avatarC, { cacheControl: '3600', upsert: false, contentType: avatarC.type || undefined });
         if (!avatarUploadError) {
           const { data: pub } = supabase.storage.from('avatars').getPublicUrl(avatarPath);
           await (supabase as any)
