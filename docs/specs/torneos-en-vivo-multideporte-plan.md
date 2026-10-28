@@ -417,3 +417,42 @@ No toca la base ni cambia lo que ven los usuarios. Después viene F1, con la mig
 - **Privacidad:** Ley 1581, responsabilidad del club sobre el video e interruptor global.
 - **Avisos:** solo inicio y final; WhatsApp con opt-in por costo.
 - **Decisiones:** cada una con valor por defecto, ordenadas por lo que bloquean.
+
+---
+
+## Experiencia en vivo (agente «vivo», 2026-10-27)
+
+Lo que nos diferencia de Star Vivo / Copa Fácil: SportMaps conoce a las deportistas y a sus familias.
+Migración **`20261027180907_torneos_vivo_seguir_social_tiempo_real`** (SIN aplicar; aplicarla ANTES de desplegar el BFF — sin ella todo esto queda mudo pero no rompe nada).
+
+### Tiempo real (F4)
+- Tras cada acción NO duplicada, `performMatchAction` llama `onMatchActionApplied` (`tournament-follow.service.ts`), que publica UN mensaje Broadcast al canal **privado** `tlive:<slug>` por la API REST de Realtime (`live-push.ts`).
+- Payload mínimo: `{ match_id, version, status, home_score, away_score, sets[], started_at, finished_at, sent_at }`. Sin nombres.
+- Sin tormentas: por partido como mucho 1 mensaje cada 300 ms (el último estado gana); por canal ≤ 10/s. Nunca una versión menor que la ya enviada.
+- Canal privado: policy `tlive_broadcast_lectura` (SELECT a anon/authenticated solo para `tlive:%`). Sin policy de INSERT → nadie puede emitir desde el navegador. Realtime evalúa la policy al UNIRSE (una consulta por conexión), no por mensaje.
+- Cliente (`usePublicLive`): aplica el mensaje si `sent_at` es posterior al `server_time` del último polling. Polling de respaldo 3× más lento con push (30 s / 180 s). Al terminar un partido pide el payload completo a los 6–10 s (después de la caché de 5 s, con espera aleatoria). Pestaña oculta = suelta el canal.
+- Interruptor: `TOURNAMENT_LIVE_PUSH_DISABLED=true` (queda el polling).
+- Cuota de Realtime (Pro): cada mensaje cuenta por espectador conectado. Un partido de ~100 puntos con 300 espectadores ≈ 30 000 mensajes.
+
+### Seguir y avisos
+- `tournament_follows` (torneo completo o equipo). Con cuenta → avisos por el camino EXISTENTE: insert en `notifications` (category `tournament`) → trigger → despachador unificado → Web Push / FCM. **Dependencia:** el despachador de prod está atascado (arreglo en curso, `20261027150500_desatascar_cola_notificaciones`); mientras tanto los avisos quedan en la campana. No se tocó `notifications-dispatch.job` ni el trigger.
+- Web Push exige cuenta (`push_subscriptions.user_id`). Sin cuenta: **Agregar al calendario** — `GET /public/:slug/calendar.ics[?team=]` (sale de la caché de `publicLive`, alarma 15 min antes).
+- Avisos: «⏰ … empieza en 15 min en la cancha 3» (cron cada 5 min, ventana +10/+20 min, solo Render, `DISABLE_TOURNAMENT_REMINDERS_CRON`), «🏐 Empezó Monsters vs Orange», «Final: Monsters 2-0 Orange (25-22, 25-20)».
+- Destinatarios: seguidores del torneo o de uno de los equipos + familias y deportistas de la planilla (en «final» solo seguidores: a la planilla ya le llega `notifyMatchFinished`). `tournament_match_notices` (PK partido+tipo, `ON CONFLICT DO NOTHING`) garantiza un aviso por partido y tipo aunque haya reintentos o dos BFF. Una corrección posterior NO vuelve a avisar.
+
+### Inicio V2 de familias y deportistas
+- `GET /me/today` → partidos de HOY (día de Bogotá) de los equipos donde está la persona (`event_team_members.profile_id`) o sus hijos (`children.parent_id`). Tarjeta `HoyJuegaCard` en ParentHomeV2 y AthleteHomeV2. Limitación: hijos vinculados por otros caminos (no `parent_id`) no salen.
+
+### Tarjeta para compartir
+- PNG 1080×1350 en el cliente (`live/shareCard.ts`): torneo, fase (+ `cup_label`), escudos (`*_logo_url` del payload v2 si existen; si no, iniciales), marcador y sets, MVP, «Powered by SportMaps». Botón `ShareResultButton` (Web Share con archivo; si no, descarga). En el anotador aparece al terminar el partido.
+
+### Social (comentarios, medios, noticias)
+- `GET /public/:slug/matches/:id/social` → `{ comments[], media[], mvp, player_stats }` (caché 10 s). `GET /public/:slug/social` (torneo).
+- Comentarios: con cuenta (nombre de pila + inicial, marca de verificado) o con nombre + reto «¿Cuánto es 3 + 5?» firmado (HMAC, ≥ 3 s, ≤ 30 min, `TOURNAMENT_SOCIAL_SECRET`), campo trampa, sin enlaces, filtro de groserías, 1 cada 20 s por dispositivo y 6/min por IP. Moderación: `PATCH /school/:id/comments/:id { hide | show | delete }`.
+- Medios: el organizador o el anotador sube fotos con URL firmada al bucket `tournament-media` (lectura pública; SIN policies de escritura para clientes) o pega un enlace de video; noticias solo el organizador. Pestañas «Todo / Noticias».
+
+### MVP y estadísticas por jugadora
+- Solo para equipos **con planilla** (`event_team_members`). Sin planilla, `mvp.available = false` (no hay MVP por jugadora).
+- Nombre público: solo nombre de pila; inicial del apellido solo si consta que es mayor de edad. La planilla no tiene número de camiseta (si se agrega, va como `#7`).
+- Voto: uno por dispositivo y partido (hash de dispositivo+partido), 30/min por IP, abierto en juego y hasta 3 h después. El organizador puede elegir (`PUT /school/:id/matches/:id/mvp`) y su elección manda.
+- Estadísticas (ace / ataque / bloqueo; puntos = suma) atadas a `point_index`: cuentan solo si el punto sigue en la secuencia y lo ganó el lado de la jugadora. Deshacer/corregir borra las etiquetas de los puntos que ya no existen. Ranking: `GET /public/:slug/player-stats`. **Pendiente («datos»):** sumar `player_stats` al payload de `/public/:slug/live` con `eventPlayerStats(ev.id)` si se quiere en el mismo JSON.
