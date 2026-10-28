@@ -12,7 +12,7 @@ import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import {
   Actor, LiveError, authScorekeeper, buildCategoryStandings, createScorekeeper, generateCategoryFixtures, getConfig, hashToken,
-  listScorekeepers, loadEvent, loadMatch, loadMatches, patchConfig, performMatchAction, publicLive, revokeScorekeeper,
+  listScorekeepers, loadEvent, loadMatches, patchConfig, performMatchAction, preloadMatchAction, publicLive, revokeScorekeeper,
   scorerMatches, takeMatch, toMatchDto, touchScorekeeper, LiveEvent,
   addExternalTeams, deleteExternalTeam, listTeams, updateTeam,
   createSponsor, deleteSponsor, listSponsors, updateSponsor, rescheduleMatch,
@@ -75,6 +75,11 @@ const org = [orgLimiter, requireAuth, requireRole('school', 'school_admin')] as 
 
 const userActor = (req: AuthenticatedRequest): Actor => ({ type: 'user', id: req.user!.id, label: 'Administración' });
 
+const actionInput = (req: Request) => ({
+  action: req.body?.action, client_action_id: req.body?.client_action_id ?? null,
+  expected_version: Number.isInteger(req.body?.expected_version) ? req.body.expected_version : null,
+});
+
 // ── Organizador ──────────────────────────────────────────────────────────────
 
 router.get('/school/:id/config', ...org, async (req: AuthenticatedRequest, res: Response) => {
@@ -111,11 +116,12 @@ router.get('/school/:id/standings', ...org, async (req: AuthenticatedRequest, re
 
 router.post('/school/:id/matches/:matchId/actions', ...org, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const ev = await ownedEvent(req, String(req.params.id));
-    const out = await performMatchAction(ev, String(req.params.matchId), userActor(req), {
-      action: req.body?.action, client_action_id: req.body?.client_action_id ?? null,
-      expected_version: Number.isInteger(req.body?.expected_version) ? req.body.expected_version : null,
-    });
+    const eventId = String(req.params.id), matchId = String(req.params.matchId);
+    const input = actionInput(req);
+    // Autorización y lecturas del partido en paralelo (B9: un round-trip menos por punto). El partido se
+    // filtra por el torneo y no se usa ni se devuelve si la autorización falla.
+    const [ev, pre] = await Promise.all([ownedEvent(req, eventId), preloadMatchAction(eventId, matchId, input.client_action_id)]);
+    const out = await performMatchAction(ev, matchId, userActor(req), input, pre);
     return res.json({ ok: true, ...out });
   } catch (e) { return fail(res, req, e); }
 });
@@ -355,14 +361,15 @@ router.get('/scorer/:token', scorerLimiter, async (req: Request, res: Response) 
 
 router.post('/scorer/:token/matches/:matchId/actions', scorerLimiter, async (req: Request, res: Response) => {
   try {
-    const sk = await authScorekeeper(String(req.params.token));
-    const m = await loadMatch(sk.event.id, String(req.params.matchId));
+    const matchId = String(req.params.matchId);
+    const input = actionInput(req);
+    // Token y partido en paralelo (B9). El partido se lee por id: si no es del torneo del enlace,
+    // performMatchAction responde 404 como antes.
+    const [sk, pre] = await Promise.all([authScorekeeper(String(req.params.token)), preloadMatchAction(null, matchId, input.client_action_id)]);
+    const m = pre.match && pre.match.event_id === sk.event.id ? pre.match : null;
     if (m && sk.court && m.court && m.court !== sk.court) throw new LiveError(403, 'otra_cancha', 'Este enlace es de otra cancha');
-    const out = await performMatchAction(sk.event, String(req.params.matchId), { type: 'scorekeeper', id: sk.id, label: sk.label }, {
-      action: req.body?.action, client_action_id: req.body?.client_action_id ?? null,
-      expected_version: Number.isInteger(req.body?.expected_version) ? req.body.expected_version : null,
-    });
-    touchScorekeeper(sk.id).catch(() => { /* best-effort */ });
+    const out = await performMatchAction(sk.event, matchId, { type: 'scorekeeper', id: sk.id, label: sk.label }, input, pre);
+    touchScorekeeper(sk.id).catch((e) => console.warn('[tournament-live] último uso del enlace:', e?.message));
     return res.json({ ok: true, ...out });
   } catch (e) { return fail(res, req, e); }
 });

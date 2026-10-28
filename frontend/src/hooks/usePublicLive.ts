@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { bffClient } from '@/lib/api/bffClient';
 import type { PublicLiveV2 } from '@/components/tournaments/public/publicModel';
 import {
-  LIVE_EVENT, acceptPush, liveTopic, mergeOverrides, pollIntervalMs, refetchDelayMs, type LivePushPayload, type Overrides,
+  LIVE_EVENT, acceptPush, liveTopic, mergeOverrides, pollIntervalMs, publicLivePath, refetchDelayMs, type LivePushPayload, type Overrides,
 } from '@/components/tournaments/live/liveTransport';
 
 /** `<meta name="robots" content="noindex">` mientras la página está montada (no usamos react-helmet). */
@@ -47,10 +47,11 @@ export function usePublicLive(slug: string | undefined) {
     setData(mergeOverrides(polledRef.current, overridesRef.current) as PublicLiveV2);
   }, []);
 
-  const load = useCallback(async () => {
+  /** `bust`: salta la caché HTTP del navegador (refresco pedido por un mensaje en vivo). */
+  const fetchLive = useCallback(async (bust?: string) => {
     if (!slug) return;
     try {
-      const r = await bffClient.get<PublicLiveV2>(`/api/v1/tournament-live/public/${encodeURIComponent(slug)}/live`, undefined, 'public');
+      const r = await bffClient.get<PublicLiveV2>(publicLivePath(slug, bust), undefined, 'public');
       polledRef.current = r;
       publish();
       setNotFound(false); setError(null); setUpdatedAt(Date.now());
@@ -60,6 +61,7 @@ export function usePublicLive(slug: string | undefined) {
       else setError(err.message || 'No pudimos actualizar. Reintentando…');
     } finally { setLoading(false); }
   }, [slug, publish]);
+  const load = useCallback(() => fetchLive(), [fetchLive]);
 
   // Polling de respaldo.
   useEffect(() => {
@@ -97,8 +99,13 @@ export function usePublicLive(slug: string | undefined) {
         .on('broadcast', { event: LIVE_EVENT }, ({ payload }) => {
           const outcome = acceptPush(overridesRef.current, polledRef.current, payload);
           if (outcome === 'applied') { publish(); setUpdatedAt(Date.now()); }
-          const delay = refetchDelayMs(outcome, outcome === 'invalid' ? null : (payload as LivePushPayload));
-          if (delay != null && !refetchTimer) refetchTimer = setTimeout(() => { refetchTimer = undefined; void load(); }, delay);
+          const p = outcome === 'invalid' ? null : (payload as LivePushPayload);
+          const delay = refetchDelayMs(outcome, p);
+          // Partido terminado → tabla y llave nuevas: se piden sin esperar el polling y sin la copia del navegador.
+          if (delay != null && !refetchTimer) {
+            const bust = p ? `${p.match_id.slice(0, 8)}-${p.version}` : undefined;
+            refetchTimer = setTimeout(() => { refetchTimer = undefined; void fetchLive(bust); }, delay);
+          }
         })
         .subscribe((status) => {
           const ok = status === 'SUBSCRIBED';
@@ -114,7 +121,7 @@ export function usePublicLive(slug: string | undefined) {
       if (refetchTimer) clearTimeout(refetchTimer);
       cleanup?.();
     };
-  }, [slug, liveOn, visible, load, publish]);
+  }, [slug, liveOn, visible, fetchLive, publish]);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
