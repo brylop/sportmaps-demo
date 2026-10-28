@@ -2,7 +2,8 @@ import type { ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { formatBogota, STATUS_LABEL, teamName } from '@/lib/tournamentDisplay';
-import { avatarColor, currentSetIndex, hourOnly, initials, winnerSide, type PublicMatchV2, type Side, type TeamInfo } from './publicModel';
+import { avatarColor, currentSetIndex, hourOnly, initials, publicScore, winnerSide, type PublicMatchV2, type Side, type TeamInfo } from './publicModel';
+import { usePublicSport } from './sportContext';
 
 /** Escudo del equipo: logo si hay; si no, iniciales (3 letras) con un color estable derivado del nombre. */
 export function TeamBadge({ team, name, size = 'md' }: { team?: TeamInfo | null; name: string; size?: 'sm' | 'md' | 'lg' | 'xl' }) {
@@ -63,11 +64,12 @@ interface CardProps {
 /** Tarjeta pública: fase · cancha · hora, escudos, marcador grande (sets o goles) y el detalle de sets. */
 export function PublicMatchCard({ match: m, phase, teams, onTeam, large = false, hourOnlyTime = false, highlight = false, categoryName, venueName, href, action }: CardProps) {
   const navigate = useNavigate();
+  const { kind, sides } = usePublicSport();
   const live = m.status === 'live';
   const sets = m.model === 'sets' ? m.sets ?? [] : [];
   const cur = live ? currentSetIndex(sets) : -1;
   const win = winnerSide(m);
-  const hasScore = m.home_score != null && m.away_score != null && m.status !== 'scheduled';
+  const sc = publicScore(m, kind);
   const when = hourOnlyTime ? hourOnly(m.scheduled_at) : formatBogota(m.scheduled_at);
   const feed = categoryName != null;
   const vs = `${teamName(m, 'home')} contra ${teamName(m, 'away')}`;
@@ -83,6 +85,7 @@ export function PublicMatchCard({ match: m, phase, teams, onTeam, large = false,
         <span lang="es" className={cn('min-w-0 leading-tight [hyphens:auto] [overflow-wrap:break-word]', large ? 'text-2xl' : 'text-sm', isWin ? 'font-bold' : 'font-medium', !id && 'italic text-muted-foreground')}>
           {name}
         </span>
+        {sides && <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{s === 'home' ? sides.home : sides.away}</span>}
       </>
     );
     // Escudo arriba y nombre debajo: así los nombres largos («Campestre Cóndores») no se parten a la mitad en 390 px.
@@ -97,11 +100,11 @@ export function PublicMatchCard({ match: m, phase, teams, onTeam, large = false,
       : <div className={cls}>{content}</div>;
   };
 
-  const score = hasScore ? (
+  const score = sc ? (
     <>
-      <span className={cn('font-extrabold', large ? 'text-5xl' : 'text-3xl', win === 'away' && 'text-muted-foreground')}>{m.home_score}</span>
+      <span className={cn('font-extrabold', large ? 'text-5xl' : 'text-3xl', win === 'away' && 'text-muted-foreground')}>{sc.home}</span>
       <span className={cn('px-0.5 text-muted-foreground', large ? 'text-base' : 'text-[11px]')}>{m.model === 'sets' ? 'sets' : '–'}</span>
-      <span className={cn('font-extrabold', large ? 'text-5xl' : 'text-3xl', win === 'home' && 'text-muted-foreground')}>{m.away_score}</span>
+      <span className={cn('font-extrabold', large ? 'text-5xl' : 'text-3xl', win === 'home' && 'text-muted-foreground')}>{sc.away}</span>
     </>
   ) : <span className={cn('text-muted-foreground', large ? 'text-2xl' : 'text-sm')}>vs</span>;
   const scoreCls = cn('flex shrink-0 items-center justify-center gap-1 self-start rounded-md tabular-nums', large ? 'min-w-[7rem] pt-1' : 'min-w-[5rem] pt-0.5');

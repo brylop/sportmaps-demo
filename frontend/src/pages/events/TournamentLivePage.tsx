@@ -11,9 +11,10 @@ import { AllMatchesTab, CupsTab, EmptyState, MatchesTab, RankingTab, ScheduleTab
 import { PublicFooter, SponsorsStrip, TeamSheet } from '@/components/tournaments/public/TeamSheet';
 import type { ShareTarget } from '@/components/tournaments/public/ShareSheet';
 import { toPlayerStat, usePlayerStats } from '@/components/tournaments/public/vivoSlots';
+import { PublicSportProvider } from '@/components/tournaments/public/sportContext';
 import { ShareResultButton } from '@/components/tournaments/live/ShareResultButton';
 import {
-  hasPlayerStats, lastKoRoundByCup, loadCategory, phaseShort, pickCategory, saveCategory, shareLink, teamIndex, todayBogota,
+  hasPlayerStats, lastKoRoundByCup, shortCategoryName, loadCategory, normalizePlayerStats, phaseShort, pickCategory, saveCategory, shareLink, teamIndex, todayBogota,
   tournamentPhase, tournamentView, type PublicMatchV2, type StandingsV2,
 } from '@/components/tournaments/public/publicModel';
 
@@ -50,7 +51,7 @@ export default function TournamentLivePage() {
   const [teamOpen, setTeamOpen] = useState<string | null>(null);
 
   const matches = useMemo(() => (data?.matches ?? []) as PublicMatchV2[], [data]);
-  const categories = useMemo(() => data?.categories ?? [], [data]);
+  const categories = useMemo(() => (data?.categories ?? []).map((c) => ({ ...c, full: c.name, name: shortCategoryName(c.name) })), [data]);
   const catId = pickCategory(categories, catSel, matches);
   const catMatches = useMemo(() => matches.filter((m) => !catId || m.category_id === catId), [matches, catId]);
   const teams = useMemo(() => (data ? teamIndex(data) : new Map()), [data]);
@@ -72,7 +73,7 @@ export default function TournamentLivePage() {
   const phase = tournamentPhase(t, matches, todayBogota(now));
   const { style } = brandStyle(t.brand_color);
   // Ranking: lo que traiga el payload o, si no, el endpoint de «vivo». Sin datos, la pestaña no aparece.
-  const playerStats = hasPlayerStats(data) ? data.player_stats ?? [] : statLines ? statLines.map((l) => toPlayerStat(l, teams)) : null;
+  const playerStats = hasPlayerStats(data) ? normalizePlayerStats(data.player_stats, teams) : statLines ? statLines.map((l) => toPlayerStat(l, teams)) : null;
   const showRanking = !!playerStats;
   const tabs: TabKey[] = ['posiciones', 'partidos', 'programacion', 'copas', ...(categories.length > 1 ? ['todos' as const] : []), ...(showRanking ? ['ranking' as const] : [])];
   const active: TabKey = tab && tabs.includes(tab) ? tab : (liveAll.some((m) => m.category_id === catId) ? 'partidos' : 'posiciones');
@@ -98,6 +99,7 @@ export default function TournamentLivePage() {
   const tabProps = { matches: catMatches, teams, onTeam: setTeamOpen, hrefFor, actionFor };
 
   return (
+    <PublicSportProvider sport={t.sport}>
     <div className="min-h-screen bg-background text-foreground" style={style}>
       <PublicHeader slug={slug} t={t} phase={phase} liveCount={data.event.live_enabled ? liveAll.length : 0}
         shareTargets={shareTargets} error={error} followTeams={followTeams} embed={{ slug, categoryId: catId, title: t.title }}
@@ -107,10 +109,10 @@ export default function TournamentLivePage() {
         <div className="mx-auto max-w-3xl space-y-2 px-4 py-2">
           {categories.length > 1 && active !== 'todos' && (
             categories.length <= 6 ? (
-              <div className="-mx-4 flex gap-2 overflow-x-auto px-4" role="radiogroup" aria-label="Categoría">
+              <div className="-mx-4 flex snap-x gap-2 overflow-x-auto scroll-px-4 px-4 pr-10 [mask-image:linear-gradient(to_right,black_calc(100%-2.5rem),transparent)] [scrollbar-width:none]" role="radiogroup" aria-label="Categoría">
                 {categories.map((c) => (
-                  <button key={c.id} type="button" role="radio" aria-checked={c.id === catId} onClick={() => pickCat(c.id)}
-                    className={cn('shrink-0 rounded-lg border px-3 py-1.5 text-sm font-semibold', c.id === catId ? 'border-[var(--brand)] bg-[var(--brand)] text-[var(--brand-fg)]' : 'bg-card')}>
+                  <button key={c.id} type="button" role="radio" aria-checked={c.id === catId} onClick={() => pickCat(c.id)} title={c.full}
+                    className={cn('shrink-0 snap-start whitespace-nowrap rounded-lg border px-3 py-1.5 text-sm font-semibold', c.id === catId ? 'border-[var(--brand)] bg-[var(--brand)] text-[var(--brand-fg)]' : 'bg-card')}>
                     {c.name}
                   </button>
                 ))}
@@ -135,7 +137,7 @@ export default function TournamentLivePage() {
         </div>
       </nav>
 
-      <main className="mx-auto max-w-3xl space-y-6 px-4 py-4">
+      <main className="mx-auto max-w-3xl space-y-6 px-4 pt-4 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-4">
         {!data.event.live_enabled && (
           <p className="rounded-xl bg-muted px-3 py-2 text-sm text-muted-foreground">Este torneo no tiene marcador en vivo: aquí verás los resultados y la tabla cuando se carguen.</p>
         )}
@@ -175,6 +177,7 @@ export default function TournamentLivePage() {
 
       <TeamSheet teamId={teamOpen} onClose={() => setTeamOpen(null)} matches={matches} standings={teamOpen ? findStandings(data.standings, teamOpen) : undefined} teams={teams} hrefFor={hrefFor} />
     </div>
+    </PublicSportProvider>
   );
 }
 

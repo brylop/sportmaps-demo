@@ -7,6 +7,8 @@
  */
 import type { PublicLiveDto, PublicMatchDto, StandingRow, StandingsDto } from '@/lib/tournamentTypes';
 import { byScheduleOrder, buildBracket, NO_COURT, TIMEZONE, type BracketRound } from '@/lib/tournamentDisplay';
+import { FOOTBALL_DEFAULT, formatHalfPoints, SCORING_PRESETS } from '@/lib/tournamentScoring';
+import { scorerKindFor, sportFromName } from '@/lib/tournamentSports';
 
 // ── Tipos v2 (todo opcional) ─────────────────────────────────────────────────
 
@@ -49,6 +51,8 @@ export type PublicMatchV2 = PublicMatchDto & {
 
 export type StandingRowV2 = StandingRow & {
   set_diff?: number | null; point_diff?: number | null; set_ratio?: number | null; point_ratio?: number | null;
+  /** Ajedrez (desempates que manda el BFF). */
+  buchholz?: number | null; sonneborn_berger?: number | null;
   logo_url?: string | null;
 };
 
@@ -85,16 +89,82 @@ export function tournamentView(d: PublicLiveV2): TournamentView {
   const pick = <K extends keyof PublicTournamentInfo>(k: K) => (t[k] ?? e[k] ?? null) as PublicTournamentInfo[K];
   return {
     title: t.title || e.title,
-    sport: e.sport, city: e.city, live_enabled: e.live_enabled, school_name: e.school_name,
+    sport: e.sport, city: realText(e.city), live_enabled: e.live_enabled, school_name: e.school_name,
     status: pick('status'),
     start_date: pick('start_date') ?? e.event_date,
     end_date: pick('end_date'),
     cover_url: pick('cover_url'), logo_url: pick('logo_url'),
     organizer_name: pick('organizer_name') ?? e.school_name,
     stream_url: pick('stream_url'), rules_url: pick('rules_url'),
-    venue: pick('venue'), brand_color: pick('brand_color'),
+    venue: realVenue(pick('venue')), brand_color: pick('brand_color'),
     sponsors: (pick('sponsors') ?? []).filter((s) => s && s.name),
   };
+}
+
+/** Textos de relleno que el asistente guarda mientras el torneo es borrador: no son datos de verdad. */
+const PLACEHOLDER = /^(por definir|por confirmar|pendiente|n\/?a|-+|—)$/i;
+
+/** El texto si es un dato real; null si viene vacío o es un relleno («Por definir»). */
+export function realText(s: string | null | undefined): string | null {
+  const v = (s ?? '').trim();
+  return v && !PLACEHOLDER.test(v) ? v : null;
+}
+
+/**
+ * Sede pública sin rellenos: «Por definir, Por definir» → nada. Si no queda nombre ni dirección,
+ * null (la página oculta la sede, el mapa y «Cómo llegar»).
+ */
+export function realVenue(v: PublicVenue | null | undefined): PublicVenue | null {
+  if (!v) return null;
+  const name = realText(v.name);
+  const address = (v.address ?? '').split(',').map((p) => realText(p)).filter(Boolean).join(', ') || null;
+  if (!name && !address) return null;
+  // Si se limpió algo, el enlace del BFF buscaría el relleno: que la página lo arme con lo real.
+  const cleaned = name !== (v.name ?? null) || address !== (v.address ?? null);
+  return { name, address, maps_url: cleaned ? null : v.maps_url ?? null };
+}
+
+/** Coordenadas «lat,lng» si el enlace del BFF las trae (`…?query=6.25,-75.59`). */
+function coordsOf(mapsUrl: string | null | undefined): string | null {
+  const m = /[?&]query=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)(?:&|$)/.exec(mapsUrl ?? '');
+  return m ? `${m[1]},${m[2]}` : null;
+}
+
+/**
+ * «Cómo llegar» en Google Maps y en Waze. Con coordenadas, las dos van al punto exacto; si no, buscan
+ * «sede, dirección, ciudad». null si no hay nada real que buscar (la página no muestra los botones).
+ */
+export function venueDirections(v: PublicVenue | null | undefined, city: string | null | undefined): { google: string; waze: string } | null {
+  if (!v) return null;
+  const ll = coordsOf(v.maps_url);
+  const q = [v.name, v.address, realText(city)].filter(Boolean).join(', ');
+  if (!ll && !q) return null;
+  const google = safeUrl(v.maps_url) ?? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+  const waze = ll ? `https://waze.com/ul?ll=${encodeURIComponent(ll)}&navigate=yes` : `https://waze.com/ul?q=${encodeURIComponent(q)}&navigate=yes`;
+  return { google, waze };
+}
+
+const fold = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+const GENDER_SHORT: Array<[RegExp, string]> = [[/\s+femenin[oa]s?$/i, ' F'], [/\s+masculin[oa]s?$/i, ' M'], [/\s+mixt[oa]s?$/i, ' Mixto']];
+
+/**
+ * Nombre corto de categoría para chips y listas: el BFF la arma como «división · nivel · categoría · rama»
+ * («General · 1 · Sub 14 Femenino · Femenino»). Quita lo genérico («General», el nivel numérico), lo repetido
+ * (la rama ya dicha en la categoría) y abrevia el género al final: «Sub 14 F», «Mayores M».
+ */
+export function shortCategoryName(name: string): string {
+  const parts = name.split('·').map((p) => p.trim()).filter(Boolean);
+  const useful = parts.filter((p) => !/^(general|unica|única|todas?|\d+)$/i.test(p));
+  // «Femenino» sobra si otra parte ya lo dice como palabra («Sub 14 Femenino»); «A» no sobra por estar dentro de «Infantil».
+  const said = (o: string, p: string) => ` ${fold(o)} `.includes(` ${fold(p)} `);
+  const dedup = useful.filter((p, i) => !useful.some((o, j) => j !== i && fold(o) !== fold(p) && said(o, p)))
+    .filter((p, i, arr) => arr.findIndex((o) => fold(o) === fold(p)) === i);
+  if (dedup.length === 0) return name.trim();
+  return dedup.map((p) => {
+    if (p.split(/\s+/).length < 2) return p;
+    for (const [re, rep] of GENDER_SHORT) if (re.test(p)) return p.replace(re, rep);
+    return p;
+  }).join(' · ');
 }
 
 export type PublicPhase = 'upcoming' | 'in_progress' | 'finished' | 'cancelled';
@@ -355,8 +425,66 @@ export interface PublicColumn { key: string; label: string; title: string; stron
 
 const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
 
-/** Columnas de la tabla pública. Voleibol: PJ PG PP PTS SG SP DS PF PC DP. */
-export function publicStandingColumns(model: 'goals' | 'sets'): PublicColumn[] {
+// ── Formato por deporte (ajedrez en medios puntos, tenis en games) ──────────
+
+export type PublicScoreKind = 'chess' | 'tennis' | 'default';
+
+/**
+ * Cómo se lee el marcador según el deporte del torneo. Reusa el catálogo del anotador
+ * (`sportFromName` → plantilla por defecto → `scorerKindFor`): ajedrez, tenis, beach tennis y pádel salen de un solo sitio.
+ */
+export function publicScoreKind(sport: string | null | undefined): PublicScoreKind {
+  const s = sportFromName(sport);
+  const cfg = s ? SCORING_PRESETS[s.defaultPreset]?.config : undefined;
+  if (!cfg) return 'default';
+  const k = scorerKindFor({ ...FOOTBALL_DEFAULT, ...cfg });
+  // Pádel se anota por games directos (unidad «Games»): en la tabla también son games.
+  return k === 'chess' ? 'chess' : k === 'tennis' || s?.unit === 'Games' ? 'tennis' : 'default';
+}
+
+/** Cómo se llama cada lado en lo público (ajedrez: Blancas / Negras). null si el deporte no lo distingue. */
+export function publicSides(sport: string | null | undefined): { home: string; away: string } | null {
+  return sportFromName(sport)?.sides ?? null;
+}
+
+/** Ajedrez: puntos de tabla (0.5) → «½», «1½». Lo que no sea múltiplo de ½ va con dos decimales. */
+export function chessNumber(n: number | null | undefined): string {
+  const v = Number(n ?? 0);
+  if (Number.isInteger(v * 2)) return formatHalfPoints(Math.round(v * 2));
+  return v.toFixed(2).replace('.', ',');
+}
+
+/**
+ * Marcador público de un partido. Ajedrez: el BFF lo guarda en medios puntos (2-0 = 1-0, 1-1 = ½-½).
+ * null si aún no hay marcador que mostrar.
+ */
+export function publicScore(m: Pick<PublicMatchV2, 'home_score' | 'away_score' | 'status'>, kind: PublicScoreKind): { home: string; away: string } | null {
+  if (m.home_score == null || m.away_score == null || m.status === 'scheduled') return null;
+  if (kind === 'chess') return { home: formatHalfPoints(m.home_score), away: formatHalfPoints(m.away_score) };
+  return { home: String(m.home_score), away: String(m.away_score) };
+}
+
+/** Columnas de la tabla pública. Voleibol: PJ PG PP PTS SG SP DS PF PC DP. Tenis: games. Ajedrez: puntos ½ + Buchholz / S-B. */
+export function publicStandingColumns(model: 'goals' | 'sets', kind: PublicScoreKind = 'default'): PublicColumn[] {
+  if (kind === 'chess') {
+    return [
+      { key: 'P', label: 'PJ', title: 'Partidas jugadas', value: (r) => r.P },
+      { key: 'W', label: 'PG', title: 'Partidas ganadas', value: (r) => r.W },
+      { key: 'D', label: 'PT', title: 'Tablas', value: (r) => r.D },
+      { key: 'L', label: 'PP', title: 'Partidas perdidas', value: (r) => r.L },
+      { key: 'Pts', label: 'PTS', title: 'Puntos (1 · ½ · 0)', strong: true, value: (r) => chessNumber(r.Pts) },
+      { key: 'BH', label: 'BH', title: 'Buchholz', value: (r) => chessNumber(r.buchholz) },
+      { key: 'SB', label: 'SB', title: 'Sonneborn-Berger', value: (r) => chessNumber(r.sonneborn_berger) },
+    ];
+  }
+  if (model === 'sets' && kind === 'tennis') {
+    return [
+      ...publicStandingColumns('sets').filter((c) => !['PF', 'PA', 'DP'].includes(c.key)),
+      { key: 'PF', label: 'GF', title: 'Games a favor', value: (r) => r.PF ?? 0 },
+      { key: 'PA', label: 'GC', title: 'Games en contra', value: (r) => r.PA ?? 0 },
+      { key: 'DP', label: 'DG', title: 'Diferencia de games', value: (r) => signed(r.point_diff ?? (r.PF ?? 0) - (r.PA ?? 0)) },
+    ];
+  }
   if (model === 'sets') {
     return [
       { key: 'P', label: 'PJ', title: 'Partidos jugados', value: (r) => r.P },
@@ -529,13 +657,38 @@ export interface PlayerStat {
   category_id?: string | null;
   team_id?: string | null;
   team_name?: string | null;
-  /** Lo que el BFF decida mostrar (nombre corto o dorsal); la página no lo arma. */
-  player_label: string;
+  /** Lo que el BFF decida mostrar (nombre corto o dorsal); la página no lo arma. Puede faltar: se trata como ''. */
+  player_label?: string | null;
   aces?: number | null; points?: number | null; attack_points?: number | null; blocks?: number | null;
 }
 
+/** Hay ranking si el payload trae al menos una fila (un [] no abre una pestaña vacía). */
 export function hasPlayerStats(d: Pick<PublicLiveV2, 'player_stats'>): boolean {
-  return Array.isArray(d.player_stats);
+  return Array.isArray(d.player_stats) && d.player_stats.length > 0;
+}
+
+const num = (...xs: unknown[]) => { for (const x of xs) if (x != null && Number.isFinite(Number(x))) return Number(x); return 0; };
+
+/**
+ * Adaptador tolerante del ranking: acepta el contrato público ({player_label, aces, attack_points, blocks})
+ * y también las líneas de «vivo» ({member_id, name, ace, attack, block}) que mandaba el BFF antes del arreglo
+ * (B1, 2026-10-28). Completa equipo y categoría desde el índice de equipos si no vienen.
+ */
+export function normalizePlayerStats(raw: unknown, teams: Map<string, TeamInfo>): PlayerStat[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((r): r is Record<string, unknown> => !!r && typeof r === 'object').map((r) => {
+    const teamId = (r.team_id as string | null | undefined) ?? null;
+    const t = teamId ? teams.get(teamId) : undefined;
+    const label = r.player_label ?? r.name;
+    return {
+      id: (r.id ?? r.member_id ?? undefined) as string | undefined,
+      team_id: teamId,
+      team_name: (r.team_name as string | null | undefined) ?? t?.name ?? null,
+      category_id: (r.category_id as string | null | undefined) ?? t?.category_id ?? null,
+      player_label: typeof label === 'string' ? label : '',
+      aces: num(r.aces, r.ace), attack_points: num(r.attack_points, r.attack), blocks: num(r.blocks, r.block), points: num(r.points),
+    };
+  });
 }
 
 /** Top de una métrica en una categoría: sin ceros, de mayor a menor, empate por nombre. */
@@ -544,7 +697,7 @@ export function playerRanking(stats: PlayerStat[] | null | undefined, metric: Pl
     .filter((s) => !categoryId || !s.category_id || s.category_id === categoryId)
     .map((s) => ({ ...s, value: Number(s[metric] ?? 0) }))
     .filter((s) => s.value > 0)
-    .sort((a, b) => b.value - a.value || a.player_label.localeCompare(b.player_label, 'es'));
+    .sort((a, b) => b.value - a.value || (a.player_label ?? '').localeCompare(b.player_label ?? '', 'es'));
   let rank = 0; let prev: number | null = null;
   return rows.slice(0, limit).map((r, i) => { if (r.value !== prev) { rank = i + 1; prev = r.value; } return { ...r, rank }; });
 }
