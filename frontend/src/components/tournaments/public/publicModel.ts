@@ -57,10 +57,10 @@ export type StandingsV2 = Omit<StandingsDto, 'standings' | 'groups'> & {
   groups?: Record<string, StandingRowV2[]>;
 };
 
-export interface PublicLiveV2 extends Omit<PublicLiveDto, 'event' | 'matches' | 'standings'> {
+export interface PublicLiveV2 extends Omit<PublicLiveDto, 'event' | 'tournament' | 'matches' | 'standings'> {
   event: PublicLiveDto['event'] & PublicTournamentInfo;
-  tournament?: PublicTournamentInfo & { title?: string | null } | null;
-  teams?: PublicTeam[] | null;
+  /** Mismo objeto que `event` en el payload v2 (lo agrega «datos»). */
+  tournament?: PublicLiveDto['event'] & PublicTournamentInfo;
   matches: PublicMatchV2[];
   standings: Record<string, StandingsV2>;
   /** Ranking individual (lo agrega «vivo»). Si no viene, la pestaña Ranking no aparece. */
@@ -80,7 +80,7 @@ export interface TournamentView extends PublicTournamentInfo {
 
 /** Une `event` y `tournament` (gana lo que traiga valor en `tournament`). */
 export function tournamentView(d: PublicLiveV2): TournamentView {
-  const t = d.tournament ?? {};
+  const t: Partial<NonNullable<PublicLiveV2['tournament']>> = d.tournament ?? {};
   const e = d.event;
   const pick = <K extends keyof PublicTournamentInfo>(k: K) => (t[k] ?? e[k] ?? null) as PublicTournamentInfo[K];
   return {
