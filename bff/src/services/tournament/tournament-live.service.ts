@@ -12,7 +12,7 @@ import {
 import { computeStandings, StandingRow } from './standings.shared';
 import { FormatConfig, Format, generateFixtures, validateFormat } from './fixtures.shared';
 import { onMatchActionApplied } from './tournament-follow.service';
-import { eventPlayerStats } from './tournament-social.service';
+import { eventPlayerStats, type PlayerStatLine } from './tournament-social.service';
 
 // ── Utilidades ───────────────────────────────────────────────────────────────
 
@@ -876,6 +876,26 @@ export async function loadAttachments(eventId: string): Promise<Array<{ name: st
   return Array.isArray(raw) ? raw.filter((a) => a && typeof a.name === 'string' && typeof a.url === 'string').map((a) => ({ name: a.name, url: a.url })) : [];
 }
 
+/** Fila del ranking público (contrato `PlayerStat` de la página pública). */
+export interface PublicPlayerStat {
+  id: string; player_label: string; team_id: string; team_name: string | null; category_id: string | null;
+  aces: number; attack_points: number; blocks: number; points: number;
+}
+
+/**
+ * Líneas de «vivo» (`aggregateStats`: member_id/name/ace/attack/block) → contrato público del ranking.
+ * La categoría sale del equipo: sin ella el filtro por categoría de la página mezclaría todas.
+ */
+export function toPublicPlayerStats(lines: PlayerStatLine[], teamById: Map<string, { name: string; category_id: string | null }>): PublicPlayerStat[] {
+  return lines.map((l) => {
+    const t = teamById.get(l.team_id);
+    return {
+      id: l.member_id, player_label: l.name ?? '', team_id: l.team_id, team_name: t?.name ?? null, category_id: t?.category_id ?? null,
+      aces: l.ace ?? 0, attack_points: l.attack ?? 0, blocks: l.block ?? 0, points: l.points ?? 0,
+    };
+  });
+}
+
 export async function publicLive(slug: string): Promise<{ payload: any; etag: string } | null> {
   const hit = publicCache.get(slug);
   if (hit && Date.now() - hit.at < PUBLIC_TTL_MS) return { payload: hit.payload, etag: hit.etag };
@@ -949,8 +969,8 @@ export async function publicLive(slug: string): Promise<{ payload: any; etag: st
     teams: teamDtos,
     matches: outMatches,
     standings,
-    /** Ranking por jugadora (ace/ataque/bloqueo), nombres públicos. Mismo dato que /public/:slug/player-stats. */
-    player_stats: playerStats,
+    /** Ranking por jugadora con el contrato de la página pública ({id, player_label, team_id, team_name, category_id, aces, attack_points, blocks, points}). */
+    player_stats: toPublicPlayerStats(playerStats, teamById),
     server_time: new Date().toISOString(),
   };
   const etag = `"${createHash('sha1').update(JSON.stringify({ ...payload, tournament: undefined, server_time: undefined })).digest('hex').slice(0, 20)}"`;
