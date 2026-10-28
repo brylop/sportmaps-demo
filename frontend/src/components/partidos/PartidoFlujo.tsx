@@ -425,7 +425,12 @@ function PasoConvocar({ partido, schoolId, onSiguiente }: { partido: PartidoFila
 
 // ── Jugadoras del partido (convocadas; sin convocatoria, todo el equipo) ────
 
-interface Jugadora extends Sujeto { nombre: string }
+interface Jugadora extends Sujeto {
+  nombre: string;
+  /** Fila de match_lineup_players (solo convocadas): ahí van los minutos. */
+  filaId?: string;
+  minutos?: number | null;
+}
 
 function useJugadoras(partido: PartidoFila, schoolId: string) {
   const roster = useDeportistasEquipo(schoolId, partido.team_id);
@@ -438,7 +443,9 @@ function useJugadoras(partido: PartidoFila, schoolId: string) {
     const delRoster = new Map((roster.data ?? []).map((d) => [claveSujeto(sujetoDe(d)), d.nombre]));
     const nombreDe = (s: Sujeto) => delRoster.get(claveSujeto(s)) ?? nombres.data?.get(claveSujeto(s)) ?? 'Deportista';
     return {
-      convocadas: quienesSeEvaluan(convocados).map((p) => ({ subject_type: p.subject_type, subject_id: p.subject_id, nombre: nombreDe(p) })),
+      convocadas: quienesSeEvaluan(convocados).map((p) => ({
+        subject_type: p.subject_type, subject_id: p.subject_id, nombre: nombreDe(p), filaId: p.id, minutos: p.minutes_played ?? null,
+      })),
       equipo: (roster.data ?? []).map((d) => ({ ...sujetoDe(d), nombre: d.nombre })),
     };
   }, [roster.data, convocados, nombres.data]);
@@ -673,6 +680,8 @@ function PasoEvaluar({ partido, schoolId, esAdmin, onIrAConvocar, onSiguiente }:
   const [abierta, setAbierta] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
   const [publicando, setPublicando] = useState(false);
+  // Minutos editados en esta pantalla (clave del sujeto → valor); lo no tocado sale de la convocatoria.
+  const [minutos, setMinutos] = useState<Record<string, number | ''>>({});
 
   useEffect(() => {
     if (planilla || !guardadas.data || metricas.length === 0) return;
@@ -691,20 +700,52 @@ function PasoEvaluar({ partido, schoolId, esAdmin, onIrAConvocar, onSiguiente }:
       return { ...base, [clave]: { ...(base[clave] ?? {}), [metric]: v } };
     });
 
+  const minutosDe = (j: Jugadora): number | '' => {
+    const k = claveSujeto(j);
+    return k in minutos ? minutos[k] : (j.minutos ?? '');
+  };
+
   const guardar = async () => {
     const entradas = entradasEvaluacion(p, metricas, evaluables);
-    if (entradas.length === 0) { toast.info('Califica al menos un criterio antes de guardar.'); return; }
-    setGuardando(true);
-    const { error } = await db.rpc('submit_match_evaluation', { p_match: partido.id, p_entries: entradas });
-    setGuardando(false);
-    if (error) {
-      console.error('[partido] evaluar', error);
-      toast.error(mensajeError(error, 'No pudimos guardar la evaluación. Inténtalo de nuevo.'));
+    // Solo las filas cuyo valor cambió. UPDATE directo de minutes_played: no
+    // pasa por save_match_roster, que borra y reinserta (perdería la pizarra).
+    const cambiosMin = evaluables.filter((j) => j.filaId && claveSujeto(j) in minutos && minutosDe(j) !== (j.minutos ?? ''));
+    if (cambiosMin.some((j) => { const v = minutosDe(j); return v !== '' && (!Number.isInteger(v) || v < 0 || v > 200); })) {
+      toast.error('Los minutos van en números enteros, entre 0 y 200.');
       return;
     }
-    qc.invalidateQueries({ queryKey: qkEvaluacion(partido.id) });
-    qc.invalidateQueries({ queryKey: qkPartido(partido.id) });
-    toast.success(`Evaluación guardada (${listas} ${listas === 1 ? 'deportista' : 'deportistas'}).`);
+    if (entradas.length === 0 && cambiosMin.length === 0) { toast.info('Califica al menos un criterio o pon los minutos antes de guardar.'); return; }
+    setGuardando(true);
+    if (cambiosMin.length > 0) {
+      const res = await Promise.all(cambiosMin.map((j) => {
+        const v = minutosDe(j);
+        return db.from('match_lineup_players').update({ minutes_played: v === '' ? null : v }).eq('id', j.filaId).select('id');
+      }));
+      const fallo = res.find((r: { error: unknown; data: unknown[] | null }) => r.error || !r.data?.length);
+      if (fallo) {
+        setGuardando(false);
+        console.error('[partido] minutos', fallo.error);
+        toast.error('No pudimos guardar los minutos. Inténtalo de nuevo.');
+        return;
+      }
+      setMinutos({});
+      qc.invalidateQueries({ queryKey: ['coach-v2', 'convocatoria', partido.id] });
+    }
+    if (entradas.length > 0) {
+      const { error } = await db.rpc('submit_match_evaluation', { p_match: partido.id, p_entries: entradas });
+      if (error) {
+        setGuardando(false);
+        console.error('[partido] evaluar', error);
+        toast.error(mensajeError(error, 'No pudimos guardar la evaluación. Inténtalo de nuevo.'));
+        return;
+      }
+      qc.invalidateQueries({ queryKey: qkEvaluacion(partido.id) });
+      qc.invalidateQueries({ queryKey: qkPartido(partido.id) });
+    }
+    setGuardando(false);
+    toast.success(entradas.length > 0
+      ? `Evaluación guardada (${listas} ${listas === 1 ? 'deportista' : 'deportistas'}).`
+      : 'Minutos guardados.');
   };
 
   const publicar = async (si: boolean) => {
@@ -764,7 +805,7 @@ function PasoEvaluar({ partido, schoolId, esAdmin, onIrAConvocar, onSiguiente }:
   return (
     <div className="flex flex-col gap-3">
       <p className="px-1 text-sm text-muted-foreground">
-        {listas} de {evaluables.length} evaluadas. Toca cada deportista y califica. Lo que dejes en blanco no se guarda.
+        {listas} de {evaluables.length} evaluadas. Toca cada deportista, pon sus minutos y califica. Lo que dejes en blanco no se guarda.
       </p>
       {!usaEscuela && (
         <div className="rounded-xl bg-muted p-3 text-xs text-muted-foreground">
@@ -788,7 +829,8 @@ function PasoEvaluar({ partido, schoolId, esAdmin, onIrAConvocar, onSiguiente }:
                 onClick={() => setAbierta(abiertaEsta ? null : k)}
                 className="flex min-h-14 w-full items-center gap-2 px-4 text-left"
               >
-                <span className="flex-1 truncate text-base font-medium">{nombreCorto(j.nombre)}</span>
+                <span className="flex-1 py-2 text-base font-medium leading-tight">{j.nombre}</span>
+                {minutosDe(j) !== '' && <span className="text-sm font-semibold tabular-nums text-muted-foreground">{minutosDe(j)}′</span>}
                 <span className={cn('rounded-full px-2 py-0.5 text-xs font-semibold', hechos > 0 ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground')}>
                   {hechos}/{metricas.length}
                 </span>
@@ -796,6 +838,22 @@ function PasoEvaluar({ partido, schoolId, esAdmin, onIrAConvocar, onSiguiente }:
               </button>
               {abiertaEsta && (
                 <div className="flex flex-col gap-4 px-4 pb-4">
+                  {j.filaId && (
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor={`min-${k}`} className="text-sm font-semibold">Minutos jugados</Label>
+                      <Input
+                        id={`min-${k}`}
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        max={200}
+                        placeholder="Ej: 45"
+                        className="h-12 w-28 rounded-xl text-base"
+                        value={minutosDe(j)}
+                        onChange={(e) => setMinutos((prev) => ({ ...prev, [k]: e.target.value === '' ? '' : Number(e.target.value) }))}
+                      />
+                    </div>
+                  )}
                   {metricas.map((mt) => {
                     const v = p[k]?.[mt.metric_key];
                     return (

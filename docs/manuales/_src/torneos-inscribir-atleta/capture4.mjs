@@ -16,8 +16,10 @@ const browser = await chromium.launch({ executablePath: process.env.PW_EXE || un
 try {
   const { page } = await newSession(browser);
 
-  // 1) Torneo gratis en borrador, con una categoría agregada sin guardar
+  // 1) Torneo gratis en borrador, con una categoría agregada sin guardar (SOLO_COSTO=1 lo salta)
   const titulo = `Copa Interna Demo ${stamp}`;
+  let ev = null;
+  if (!process.env.SOLO_COSTO) {
   await page.goto(`${BASE_URL}/school/tournaments/new`);
   await page.getByRole('heading', { name: 'Crear Torneo' }).waitFor({ timeout: 40_000 });
   await page.locator('select').first().selectOption('internal');
@@ -31,7 +33,7 @@ try {
   await page.locator('#city').fill('Bogotá');
   await page.getByRole('button', { name: 'Crear torneo' }).click();
   await page.getByRole('heading', { name: 'Mis Torneos' }).waitFor({ timeout: 30_000 });
-  const ev = (await rest(`events?select=id,title&school_id=eq.${SCHOOL_ID}&title=eq.${encodeURIComponent(titulo)}`))[0];
+  ev = (await rest(`events?select=id,title&school_id=eq.${SCHOOL_ID}&title=eq.${encodeURIComponent(titulo)}`))[0];
   await page.goto(`${BASE_URL}/school/tournaments/${ev.id}`);
   await page.getByRole('heading', { name: titulo }).waitFor({ timeout: 40_000 });
   await settle(page, 1500);
@@ -41,6 +43,7 @@ try {
   await page.getByPlaceholder('Sub 12').first().fill('Sub 12');
   await settle(page, 500);
   await page.screenshot({ path: path.join(SHOTS, 'a-04-categorias.png') });
+  }
 
   // 2) Torneo con costo ya publicado (solo lectura)
   const cc = (await rest(`events?select=id,title&school_id=eq.${SCHOOL_ID}&title=like.Copa%20Con%20Costo*&order=created_at.desc&limit=1`))[0];
@@ -50,5 +53,5 @@ try {
   await page.getByRole('tab', { name: /Categorías/ }).click();
   await settle(page, 800);
   await page.screenshot({ path: path.join(SHOTS, 'c-07-categorias-fases.png') });
-  console.log(JSON.stringify({ ok: true, borrador: titulo, id: ev.id }));
+  console.log(JSON.stringify({ ok: true, borrador: ev ? titulo : null, id: ev?.id ?? null }));
 } catch (e) { console.log('ERROR', e.message); } finally { await browser.close(); }
