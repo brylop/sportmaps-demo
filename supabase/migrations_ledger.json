@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 839,
+  "count": 840,
   "head": "20261028113918",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
@@ -842,6 +842,7 @@
     {"v":"20261027191314","file":"20261027191314_torneos_jugadores_carnes_adjuntos.sql","sha256":"24382c36cbc5808b294bd1d58635472171954a7e700ed80b33a63c4ad2eaf65a","added":"2026-10-28","by":"Brayan Steven Lopez"},
     {"v":"20261027192225","file":"20261027192225_es_staff_de_escuela_sin_oraculo.sql","sha256":"d49f9caf56893a05f5a834cfc4caefb8eed6dbabf5edd5337e56dcf7106ee527","added":"2026-10-28","by":"Brayan Steven Lopez"},
     {"v":"20261028111254","file":"20261028111254_cerrar_anon_funciones_definer.sql","sha256":"7229ddb131b2b85ff39385633b7f2417be577b0ac7825a13db1225152053e622","added":"2026-10-28","by":"Brayan Steven Lopez"},
+    {"v":"20261028111725","file":"20261028111725_gates_definer_authenticated.sql","sha256":"d434bd4103b4e1944db79de4070ce836be3b3626c031c8f1776f020bf5e6e0c9","added":"2026-10-28","by":"Brayan Steven Lopez"},
     {"v":"20261028113918","file":"20261028113918_wa_ficha_prospectos_y_estilo.sql","sha256":"2e51d5a73cf656442a1a39d9cd2aa8663f3e42c34d8dcf87e8c1dc342c4fbd65","added":"2026-10-28","by":"Brayan Steven Lopez"}
   ]
 }
