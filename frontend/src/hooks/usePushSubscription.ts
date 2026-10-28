@@ -162,7 +162,10 @@ async function guardarSuscripcion(userId: string, subscription: PushSubscription
       auth,
       user_agent: navigator.userAgent,
     },
-    { onConflict: 'endpoint' }
+    // ignoreDuplicates → ON CONFLICT DO NOTHING: push_subscriptions no tiene
+    // policy de UPDATE, así que un upsert sobre un endpoint ya guardado
+    // fallaría por RLS. Si la fila ya existe, no hay nada que refrescar.
+    { onConflict: 'endpoint', ignoreDuplicates: true }
   );
   if (error) throw error;
 }

@@ -72,7 +72,7 @@ describe('sincronizarSuscripcionSilenciosa', () => {
     expect(pmSubscribe).not.toHaveBeenCalled();
     expect(upsert).toHaveBeenCalledWith(
       expect.objectContaining({ user_id: 'u1', endpoint: 'https://push/igual' }),
-      { onConflict: 'endpoint' },
+      { onConflict: 'endpoint', ignoreDuplicates: true },
     );
     expect(del).not.toHaveBeenCalled();
   });
@@ -91,7 +91,7 @@ describe('sincronizarSuscripcionSilenciosa', () => {
     expect(Array.from(arg.applicationServerKey)).toEqual([1, 2, 3]);
     expect(upsert).toHaveBeenCalledWith(
       expect.objectContaining({ user_id: 'u1', endpoint: 'https://push/nuevo' }),
-      { onConflict: 'endpoint' },
+      { onConflict: 'endpoint', ignoreDuplicates: true },
     );
     expect(deleteEqUser).toHaveBeenCalledWith('user_id', 'u1');
     expect(deleteEqEndpoint).toHaveBeenCalledWith('endpoint', 'https://push/viejo');
