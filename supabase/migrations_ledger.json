@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 833,
-  "head": "20261027150500",
+  "count": 834,
+  "head": "20261027192225",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -836,6 +836,7 @@
     {"v":"20261027112704","file":"20261027112704_pizarra_jugadas_compartidas.sql","sha256":"54cc9614e1ff4efce248a19756a5743f14d180cbcdae81af3963680e7c6f29be","added":"2026-10-27","by":"Brayan Steven Lopez"},
     {"v":"20261027124411","file":"20261027124411_cierre_policies_autoadjudicables.sql","sha256":"f506e24bb336e86d8f39678fb7144c98509e6ddcd1c0151e619042608c278871","added":"2026-10-27","by":"Brayan Steven Lopez"},
     {"v":"20261027125755","file":"20261027125755_rating_coach_deporte_del_equipo.sql","sha256":"3e94ebbd30b7c31bd7ca101fa77d86801cbf7a5cdc3a73aa0f57fdf4112acb61","added":"2026-10-27","by":"Brayan Steven Lopez"},
-    {"v":"20261027150500","file":"20261027150500_desatascar_cola_notificaciones.sql","sha256":"4f95a74a745d5a47c05b3f84ae2d08326c06a905c3680f022740ac205beac7f5","added":"2026-10-27","by":"Brayan Steven Lopez"}
+    {"v":"20261027150500","file":"20261027150500_desatascar_cola_notificaciones.sql","sha256":"4f95a74a745d5a47c05b3f84ae2d08326c06a905c3680f022740ac205beac7f5","added":"2026-10-27","by":"Brayan Steven Lopez"},
+    {"v":"20261027192225","file":"20261027192225_es_staff_de_escuela_sin_oraculo.sql","sha256":"d49f9caf56893a05f5a834cfc4caefb8eed6dbabf5edd5337e56dcf7106ee527","added":"2026-10-28","by":"Brayan Steven Lopez"}
   ]
 }
