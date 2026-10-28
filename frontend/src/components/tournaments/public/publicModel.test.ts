@@ -4,7 +4,7 @@ import {
   allMatchesFeed, avatarColor, brandTextColor, buildCups, dateRangeText, filterCounts, filterMatches, initials, loadCategory, phaseShort,
   pickCategory, playerRanking, publicStandingColumns, qualificationLegend, qualificationMap, roundMatchName, rowCup, safeBrandColor, safeUrl,
   saveCategory, scheduleByDayAndCourt, setsGrid, shareLink, sponsorsByTier, teamIndex, teamSheet, tournamentPhase, tournamentView, tvPlan,
-  winnerSide, type PublicLiveV2, type PublicMatchV2, type StandingRowV2,
+  winnerSide, embedUrl, embedSnippet, parseEmbedView, type PublicLiveV2, type PublicMatchV2, type StandingRowV2,
 } from './publicModel';
 
 const data = fixture as unknown as PublicLiveV2;
@@ -180,6 +180,16 @@ describe('ficha de equipo, patrocinadores, ranking, TV y compartir', () => {
     expect(shareLink('https://app.sportmaps.co', 'copa', 'tournament')).toBe('https://app.sportmaps.co/torneo/copa/en-vivo');
     expect(shareLink('https://app.sportmaps.co', 'copa', 'category', { categoryId: 'c1' })).toBe('https://app.sportmaps.co/torneo/copa/en-vivo?cat=c1');
     expect(shareLink('https://app.sportmaps.co', 'copa', 'match', { matchId: 'm1' })).toBe('https://app.sportmaps.co/torneo/copa/partido/m1');
+  });
+});
+
+describe('insertar en otra web', () => {
+  it('url y snippet del iframe, con escape de comillas', () => {
+    expect(parseEmbedView('copas')).toBe('copas');
+    expect(parseEmbedView('<script>')).toBe('posiciones');
+    const u = embedUrl('https://app.sportmaps.co', 'copa x', { vista: 'partidos', categoria: 'c1' });
+    expect(u).toBe('https://app.sportmaps.co/torneo/copa%20x/embed?vista=partidos&categoria=c1');
+    expect(embedSnippet(u, 'Copa "A"')).toBe('<iframe src="https://app.sportmaps.co/torneo/copa%20x/embed?vista=partidos&amp;categoria=c1" title="Copa &quot;A&quot;" width="100%" height="640" style="border:0;max-width:100%;" loading="lazy" allow="clipboard-write"></iframe>');
   });
 });
 

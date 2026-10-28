@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { formatBogota, STATUS_LABEL, teamName } from '@/lib/tournamentDisplay';
@@ -55,10 +56,12 @@ interface CardProps {
   venueName?: string | null;
   /** Ruta de la página del partido; sin ella la tarjeta no navega (modo TV). */
   href?: string;
+  /** Acción extra al pie (p. ej. «Compartir resultado» de «vivo»). No navega al tocarla. */
+  action?: ReactNode;
 }
 
 /** Tarjeta pública: fase · cancha · hora, escudos, marcador grande (sets o goles) y el detalle de sets. */
-export function PublicMatchCard({ match: m, phase, teams, onTeam, large = false, hourOnlyTime = false, highlight = false, categoryName, venueName, href }: CardProps) {
+export function PublicMatchCard({ match: m, phase, teams, onTeam, large = false, hourOnlyTime = false, highlight = false, categoryName, venueName, href, action }: CardProps) {
   const navigate = useNavigate();
   const live = m.status === 'live';
   const sets = m.model === 'sets' ? m.sets ?? [] : [];
@@ -132,6 +135,7 @@ export function PublicMatchCard({ match: m, phase, teams, onTeam, large = false,
           ))}
         </ol>
       )}
+      {action && <div className="mt-2 flex justify-end" onClick={(e) => e.stopPropagation()}>{action}</div>}
       {feed && (
         <p className="mt-2 text-center text-[11px] uppercase tracking-wide text-muted-foreground">
           {[venueName, m.court, when].filter(Boolean).join(' · ')}

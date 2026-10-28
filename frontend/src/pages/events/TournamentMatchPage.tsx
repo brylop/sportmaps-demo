@@ -3,26 +3,27 @@ import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, Share2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePublicLive, useNoIndex } from '@/hooks/usePublicLive';
-import { useMatchSocial } from '@/hooks/useMatchSocial';
 import { formatBogota, teamName } from '@/lib/tournamentDisplay';
 import { brandStyle } from '@/components/tournaments/public/brand';
 import { StatusPill, TeamBadge } from '@/components/tournaments/public/PublicMatchCard';
 import { EmptyState } from '@/components/tournaments/public/PublicTabs';
 import { ShareSheet } from '@/components/tournaments/public/ShareSheet';
-import { CommentComposerSlot } from '@/components/tournaments/public/vivoSlots';
+import { MatchSocialPanel } from '@/components/tournaments/live/MatchSocialPanel';
+import { ShareResultButton } from '@/components/tournaments/live/ShareResultButton';
 import {
   lastKoRoundByCup, phaseShort, setsGrid, shareLink, teamIndex, tournamentView, winnerSide, type PublicMatchV2, type TeamInfo,
 } from '@/components/tournaments/public/publicModel';
 
 type MTab = 'partido' | 'comentarios' | 'fotos';
 const MTAB_LABEL: Record<MTab, string> = { partido: 'Partido', comentarios: 'Comentarios', fotos: 'Fotos' };
+/** Comentarios y Fotos los pinta el panel de «vivo» (que además trae MVP); se abre en su pestaña. */
+const SOCIAL_TAB = { comentarios: 'comentarios', fotos: 'medios' } as const;
 
 /** Página PÚBLICA de un partido: /torneo/:slug/partido/:matchId — Partido · Comentarios · Fotos. */
 export default function TournamentMatchPage() {
   const { slug = '', matchId = '' } = useParams<{ slug: string; matchId: string }>();
   useNoIndex();
   const { data, notFound, loading } = usePublicLive(slug);
-  const social = useMatchSocial(slug, matchId);
   const [tab, setTab] = useState<MTab>('partido');
   const [share, setShare] = useState(false);
   const teams = useMemo(() => (data ? teamIndex(data) : new Map()), [data]);
@@ -60,47 +61,24 @@ export default function TournamentMatchPage() {
           {(Object.keys(MTAB_LABEL) as MTab[]).map((k) => (
             <button key={k} type="button" role="tab" aria-selected={k === tab} onClick={() => setTab(k)}
               className={cn('flex-1 rounded-lg py-2 text-sm font-semibold', k === tab ? 'bg-background text-foreground' : 'bg-white/15')}>
-              {MTAB_LABEL[k]}{k === 'comentarios' && social.comments.length > 0 && <span className="ml-1 opacity-70">{social.comments.length}</span>}
+              {MTAB_LABEL[k]}
             </button>
           ))}
         </div>
       </header>
 
       <main className="mx-auto max-w-3xl px-4 py-5" role="tabpanel">
-        {tab === 'partido' && <MatchDetail match={match} teams={teams} phase={phase} venue={t.venue?.name ?? null} />}
-        {tab === 'comentarios' && (
-          <div className="space-y-3">
-            {social.loading ? <div className="h-20 animate-pulse rounded-xl bg-muted" />
-              : social.comments.length === 0 ? <EmptyState icon="💬" title="Aún no hay comentarios">{social.available ? 'Sé el primero en comentar.' : 'Los comentarios llegan pronto.'}</EmptyState>
-              : (
-                <ul className="space-y-2">
-                  {social.comments.map((c) => (
-                    <li key={c.id} className="rounded-xl border bg-card p-3 text-sm">
-                      <p className="flex items-baseline justify-between gap-2"><b>{c.author_label}</b><span className="text-[11px] text-muted-foreground">{formatBogota(c.created_at)}</span></p>
-                      <p className="mt-1 whitespace-pre-line break-words">{c.body}</p>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            <CommentComposerSlot slug={slug} matchId={matchId} onPosted={() => void social.reload()} />
+        {tab === 'partido' && (
+          <div className="space-y-4">
+            <MatchDetail match={match} teams={teams} phase={phase} venue={t.venue?.name ?? null} />
+            {(match.status === 'played' || match.status === 'walkover') && (
+              <div className="flex justify-center">
+                <ShareResultButton match={match} tournament={t.title} category={cat} url={shareLink(origin, slug, 'match', { matchId })} label="Compartir resultado" size="default" />
+              </div>
+            )}
           </div>
         )}
-        {tab === 'fotos' && (
-          social.loading ? <div className="h-40 animate-pulse rounded-xl bg-muted" />
-            : social.media.length === 0 ? <EmptyState icon="📷" title="Aún no hay fotos ni videos de este partido" />
-            : (
-              <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {social.media.map((x) => (
-                  <li key={x.id} className="overflow-hidden rounded-xl border bg-muted">
-                    <a href={x.url} target="_blank" rel="noopener noreferrer" className="block">
-                      <img src={x.thumb_url ?? x.url} alt={x.caption ?? (x.kind === 'video' ? 'Video del partido' : 'Foto del partido')} loading="lazy" className="aspect-square w-full object-cover" />
-                      {x.caption && <p className="truncate px-2 py-1 text-xs">{x.caption}</p>}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            )
-        )}
+        {tab !== 'partido' && <MatchSocialPanel key={tab} slug={slug} matchId={matchId} defaultTab={SOCIAL_TAB[tab]} />}
       </main>
 
       {share && (

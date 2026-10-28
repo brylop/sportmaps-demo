@@ -8,8 +8,10 @@ const patch = vi.fn();
 vi.mock('@/lib/api/bffClient', () => ({
   bffClient: { get: (...a: unknown[]) => get(...a), post: (...a: unknown[]) => post(...a), patch: (...a: unknown[]) => patch(...a), delete: vi.fn() },
   BFFError: class BFFError extends Error {},
+  BFF_URL: 'http://bff.test',
 }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: vi.fn() }) }));
+vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: () => null }));
 
 import { FixtureGeneratorDialog } from './FixtureGeneratorDialog';
 import { LiveScorer } from './LiveScorer';

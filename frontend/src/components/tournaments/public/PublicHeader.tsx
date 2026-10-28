@@ -1,7 +1,7 @@
 import { CalendarDays } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { FollowSlot } from './vivoSlots';
-import { ShareButton, type ShareTarget } from './ShareSheet';
+import { ShareButton, type EmbedOptions, type ShareTarget } from './ShareSheet';
 import { dateRangeText, initials, PHASE_LABEL, type PublicPhase, type TournamentView } from './publicModel';
 
 const PHASE_DOT: Record<PublicPhase, string> = {
@@ -27,14 +27,16 @@ interface HeaderProps {
   t: TournamentView;
   phase: PublicPhase;
   liveCount: number;
-  brand: string | null;
   shareTargets: ShareTarget[];
   updatedText: string;
   error: string | null;
+  /** Equipos de la categoría visible, para «Seguir». */
+  followTeams: Array<{ id: string; name: string }>;
+  embed?: EmbedOptions;
 }
 
 /** Encabezado con la marca del torneo: portada, logo, nombre, organizador, fechas, estado y «en vivo». */
-export function PublicHeader({ slug, t, phase, liveCount, brand, shareTargets, updatedText, error }: HeaderProps) {
+export function PublicHeader({ slug, t, phase, liveCount, shareTargets, updatedText, error, followTeams, embed }: HeaderProps) {
   const dates = dateRangeText(t.start_date, t.end_date);
   return (
     <header className="relative overflow-hidden bg-[var(--brand)] text-[var(--brand-fg)]">
@@ -67,8 +69,8 @@ export function PublicHeader({ slug, t, phase, liveCount, brand, shareTargets, u
           {[t.sport, t.city].filter(Boolean).length > 0 && <span className="capitalize opacity-80">· {[t.sport, t.city].filter(Boolean).join(' · ')}</span>}
         </div>
         <div className="mt-3 flex items-center gap-2">
-          <ShareButton targets={shareTargets} />
-          <FollowSlot slug={slug} title={t.title} brandColor={brand} />
+          <ShareButton targets={shareTargets} embed={embed} />
+          <FollowSlot slug={slug} teams={followTeams} />
           <span className="ml-auto text-right text-[11px] opacity-80" aria-live="polite">{error ? <span role="status">{error}</span> : updatedText}</span>
         </div>
       </div>

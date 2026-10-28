@@ -102,6 +102,9 @@ export function InstallBanner() {
     </button>
   )
 
+  // Dentro de un iframe (vista /torneo/:slug/embed en la web de un club) nunca se ofrece instalar.
+  if (typeof window !== 'undefined' && window.self !== window.top) return null
+
   // Android / escritorio: instalacion en un toque.
   if (prompt) {
     return (

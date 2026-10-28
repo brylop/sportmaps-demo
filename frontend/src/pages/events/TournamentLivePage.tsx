@@ -10,6 +10,8 @@ import { PublicMatchCard } from '@/components/tournaments/public/PublicMatchCard
 import { AllMatchesTab, CupsTab, EmptyState, MatchesTab, RankingTab, ScheduleTab, StandingsTab } from '@/components/tournaments/public/PublicTabs';
 import { PublicFooter, SponsorsStrip, TeamSheet } from '@/components/tournaments/public/TeamSheet';
 import type { ShareTarget } from '@/components/tournaments/public/ShareSheet';
+import { toPlayerStat, usePlayerStats } from '@/components/tournaments/public/vivoSlots';
+import { ShareResultButton } from '@/components/tournaments/live/ShareResultButton';
 import {
   hasPlayerStats, lastKoRoundByCup, loadCategory, phaseShort, pickCategory, saveCategory, shareLink, teamIndex, todayBogota,
   tournamentPhase, tournamentView, type PublicMatchV2, type StandingsV2,
@@ -41,7 +43,8 @@ export default function TournamentLivePage() {
   const { slug = '' } = useParams<{ slug: string }>();
   const [params, setParams] = useSearchParams();
   useNoIndex();
-  const { data, notFound, error, loading, updatedAt, now } = usePublicLive(slug);
+  const { data, notFound, error, loading, updatedAt, now, transport } = usePublicLive(slug);
+  const statLines = usePlayerStats(slug);
   const [catSel, setCatSel] = useState<string | null>(() => params.get('cat') ?? loadCategory(slug));
   const [tab, setTab] = useState<TabKey | null>(null);
   const [teamOpen, setTeamOpen] = useState<string | null>(null);
@@ -67,8 +70,10 @@ export default function TournamentLivePage() {
 
   const t = tournamentView(data);
   const phase = tournamentPhase(t, matches, todayBogota(now));
-  const { brand, style } = brandStyle(t.brand_color);
-  const showRanking = hasPlayerStats(data);
+  const { style } = brandStyle(t.brand_color);
+  // Ranking: lo que traiga el payload o, si no, el endpoint de «vivo». Sin datos, la pestaña no aparece.
+  const playerStats = hasPlayerStats(data) ? data.player_stats ?? [] : statLines ? statLines.map((l) => toPlayerStat(l, teams)) : null;
+  const showRanking = !!playerStats;
   const tabs: TabKey[] = ['posiciones', 'partidos', 'programacion', 'copas', ...(categories.length > 1 ? ['todos' as const] : []), ...(showRanking ? ['ranking' as const] : [])];
   const active: TabKey = tab && tabs.includes(tab) ? tab : (liveAll.some((m) => m.category_id === catId) ? 'partidos' : 'posiciones');
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -83,12 +88,20 @@ export default function TournamentLivePage() {
     const p = new URLSearchParams(params); p.set('cat', id); setParams(p, { replace: true });
   };
   const standing = catId ? data.standings[catId] : undefined;
-  const tabProps = { matches: catMatches, teams, onTeam: setTeamOpen, hrefFor };
+  const inCat = new Set(catMatches.flatMap((m) => [m.home_team_id, m.away_team_id]));
+  const followTeams = Array.from(teams.values())
+    .filter((x) => (x.category_id ? x.category_id === catId : inCat.has(x.id)))
+    .map((x) => ({ id: x.id, name: x.name }));
+  const actionFor = (m: PublicMatchV2) => (m.status === 'played' || m.status === 'walkover'
+    ? <ShareResultButton match={m} tournament={t.title} category={catName} url={`${origin}${hrefFor(m)}`} label="Compartir resultado" />
+    : null);
+  const tabProps = { matches: catMatches, teams, onTeam: setTeamOpen, hrefFor, actionFor };
 
   return (
     <div className="min-h-screen bg-background text-foreground" style={style}>
-      <PublicHeader slug={slug} t={t} phase={phase} liveCount={data.event.live_enabled ? liveAll.length : 0} brand={brand}
-        shareTargets={shareTargets} updatedText={agoText(updatedAt, now)} error={error} />
+      <PublicHeader slug={slug} t={t} phase={phase} liveCount={data.event.live_enabled ? liveAll.length : 0}
+        shareTargets={shareTargets} error={error} followTeams={followTeams} embed={{ slug, categoryId: catId, title: t.title }}
+        updatedText={transport === 'push' ? 'En tiempo real' : agoText(updatedAt, now)} />
 
       <nav className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur" aria-label="Secciones del torneo">
         <div className="mx-auto max-w-3xl space-y-2 px-4 py-2">
@@ -146,7 +159,7 @@ export default function TournamentLivePage() {
           {active === 'programacion' && <ScheduleTab {...tabProps} />}
           {active === 'copas' && <CupsTab {...tabProps} />}
           {active === 'todos' && <AllMatchesTab {...tabProps} matches={matches} categories={categories} venueName={t.venue?.name} />}
-          {active === 'ranking' && <RankingTab stats={data.player_stats ?? []} categoryId={catId} teams={teams} />}
+          {active === 'ranking' && <RankingTab stats={playerStats ?? []} categoryId={catId} teams={teams} />}
         </section>
 
         <SponsorsStrip sponsors={t.sponsors} />

@@ -46,7 +46,7 @@ const usePhase = (matches: PublicMatchV2[]) => {
   return (m: PublicMatchV2) => phaseShort(m, last.get(m.cup_label ?? '') ?? m.round);
 };
 
-interface TabProps { matches: PublicMatchV2[]; teams: Map<string, TeamInfo>; onTeam: (id: string) => void; hrefFor?: (m: PublicMatchV2) => string }
+interface TabProps { matches: PublicMatchV2[]; teams: Map<string, TeamInfo>; onTeam: (id: string) => void; hrefFor?: (m: PublicMatchV2) => string; actionFor?: (m: PublicMatchV2) => ReactNode }
 
 // ── Posiciones ───────────────────────────────────────────────────────────────
 
@@ -120,7 +120,7 @@ export function StandingsTab({ standings, matches, teams, onTeam }: TabProps & {
 
 // ── Partidos ─────────────────────────────────────────────────────────────────
 
-export function MatchesTab({ matches, teams, onTeam, hrefFor }: TabProps) {
+export function MatchesTab({ matches, teams, onTeam, hrefFor, actionFor }: TabProps) {
   const counts = filterCounts(matches);
   const [f, setF] = useState<MatchFilter>(counts.live > 0 ? 'live' : 'all');
   const list = filterMatches(matches, f);
@@ -136,7 +136,7 @@ export function MatchesTab({ matches, teams, onTeam, hrefFor }: TabProps) {
     <div className="space-y-3">
       <Pills<MatchFilter> label="Filtrar partidos" value={f} onChange={setF} options={opts} />
       {list.length === 0 ? <EmptyState icon={empty[f][0]} title={empty[f][1]} />
-        : list.map((m) => <PublicMatchCard key={m.id} match={m} phase={phase(m)} teams={teams} onTeam={onTeam} href={hrefFor?.(m)} />)}
+        : list.map((m) => <PublicMatchCard key={m.id} match={m} phase={phase(m)} teams={teams} onTeam={onTeam} href={hrefFor?.(m)} action={actionFor?.(m)} />)}
     </div>
   );
 }

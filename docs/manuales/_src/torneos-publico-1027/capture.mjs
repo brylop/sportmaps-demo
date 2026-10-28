@@ -20,12 +20,21 @@ const browser = await chromium.launch();
 const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'es-CO', timezoneId: 'America/Bogota', isMobile: true, hasTouch: true });
 const route = async (ctx) => {
   await ctx.route('**/api/v1/tournament-live/public/**', (r) => {
-    if (r.request().url().endsWith('/social')) {
+    const u = r.request().url();
+    if (u.endsWith('/social')) {
       return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
-        comments: [{ id: 'k1', author_label: 'Familia Rojas', body: '¡Qué partidazo, vamos Cóndores!', created_at: '2026-10-31T15:05:00Z' }],
-        media: [],
+        comments: [{ id: 'k1', author_name: 'Familia Rojas', body: '¡Qué partidazo, vamos Cóndores!', created_at: '2026-10-31T15:05:00Z', verified: true }],
+        media: [], mvp: { available: false, reason: 'sin_planilla', voting_open: false, candidates: [], votes: {}, total: 0, winner: null }, player_stats: [],
       }) });
     }
+    if (u.endsWith('/player-stats')) {
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ player_stats: [
+        { member_id: 'p1', name: 'Jugadora N.º 7', team_id: 't1', ace: 4, attack: 11, block: 2, points: 17 },
+        { member_id: 'p2', name: 'Jugadora N.º 3', team_id: 't5', ace: 2, attack: 9, block: 3, points: 14 },
+        { member_id: 'p3', name: 'Jugadora N.º 10', team_id: 't3', ace: 5, attack: 6, block: 1, points: 12 },
+      ] }) });
+    }
+    if (!u.endsWith('/live')) return r.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"no"}' });
     return r.fulfill({ status: 200, contentType: 'application/json', body: fixture });
   });
   await ctx.route('**/maps?q=**', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<body style="margin:0;background:#e5e7eb;font:14px sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;color:#6b7280">Mapa de la sede</body>' }));
@@ -66,11 +75,33 @@ await page.keyboard.press('Escape');
 await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
 await shot('12-patrocinadores-sede-pie');
 
+await tab('Ranking');
+await shot('12b-ranking');
+await page.getByRole('button', { name: /^Compartir/ }).click();
+await page.getByRole('button', { name: /Insertar en tu web/ }).click();
+await page.getByRole('radio', { name: 'Copas' }).click();
+await shot('12c-compartir-insertar');
+await page.keyboard.press('Escape');
+
 await page.goto(`${BASE}/torneo/copa-campestre/partido/m11`, { waitUntil: 'commit' });
 await page.getByTestId('match-detail').waitFor();
 await shot('13-partido-en-vivo');
 await page.getByRole('tab', { name: /Comentarios/ }).click();
 await shot('14-partido-comentarios');
+
+// Vista insertada dentro de la «web de un club» (página de ejemplo servida por el interceptor en el mismo host).
+const host = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'es-CO', timezoneId: 'America/Bogota' });
+await route(host);
+await host.route(`${BASE}/__club-demo.html`, (r) => r.fulfill({ status: 200, contentType: 'text/html', body:
+  `<!doctype html><meta charset="utf-8"><meta name=viewport content="width=device-width"><body style="margin:0;font:15px sans-serif;background:#f4f1ea">
+   <header style="background:#2d2a26;color:#fff;padding:14px 16px;font-weight:700">Club Campestre Demo · Vóley</header>
+   <p style="padding:0 16px">Así va nuestro torneo:</p>
+   <iframe src="${BASE}/torneo/copa-campestre/embed?vista=posiciones&categoria=c1&fondo=transparente" style="border:0;width:100%;height:1100px"></iframe></body>` }));
+const hp = await host.newPage();
+await hp.goto(`${BASE}/__club-demo.html`, { waitUntil: 'commit' }); // mismo host: Chrome bloquea iframes de red pública a localhost
+await hp.frameLocator('iframe').getByTestId('embed').waitFor({ timeout: 120_000 });
+await hp.waitForTimeout(600);
+await hp.screenshot({ path: join(out, '17-insertado-en-web-del-club.png') }); console.log('ok 17');
 
 const tv = await browser.newContext({ viewport: { width: 1920, height: 1080 }, locale: 'es-CO', timezoneId: 'America/Bogota' });
 await route(tv);

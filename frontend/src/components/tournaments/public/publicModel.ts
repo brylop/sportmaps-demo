@@ -164,7 +164,7 @@ export function safeUrl(u: string | null | undefined): string | null {
 
 // ── Equipos ──────────────────────────────────────────────────────────────────
 
-export interface TeamInfo { id: string; name: string; logo_url: string | null; short_name: string | null; club_name: string | null }
+export interface TeamInfo { id: string; name: string; logo_url: string | null; short_name: string | null; club_name: string | null; category_id?: string | null }
 
 /** Índice de equipos: primero `teams` del payload; si no, lo que se pueda sacar de partidos y tablas. */
 export function teamIndex(d: PublicLiveV2): Map<string, TeamInfo> {
@@ -176,7 +176,7 @@ export function teamIndex(d: PublicLiveV2): Map<string, TeamInfo> {
     else if (!prev.logo_url && logo) prev.logo_url = logo;
   };
   for (const t of d.teams ?? []) {
-    out.set(t.id, { id: t.id, name: t.name, logo_url: t.logo_url ?? null, short_name: t.short_name ?? null, club_name: t.club_name ?? null });
+    out.set(t.id, { id: t.id, name: t.name, logo_url: t.logo_url ?? null, short_name: t.short_name ?? null, club_name: t.club_name ?? null, category_id: t.category_id ?? null });
   }
   for (const m of d.matches) { put(m.home_team_id, m.home_name, m.home_logo_url); put(m.away_team_id, m.away_name, m.away_logo_url); }
   for (const s of Object.values(d.standings ?? {})) for (const r of s.standings ?? []) put(r.team_id, r.team_name, r.logo_url);
@@ -549,14 +549,7 @@ export function playerRanking(stats: PlayerStat[] | null | undefined, metric: Pl
   return rows.slice(0, limit).map((r, i) => { if (r.value !== prev) { rank = i + 1; prev = r.value; } return { ...r, rank }; });
 }
 
-// ── Página del partido: comentarios y fotos (endpoint de «vivo») ─────────────
-
-export interface MatchComment { id: string; author_label: string; body: string; created_at: string }
-export interface MatchMedia { id: string; kind: 'photo' | 'video'; url: string; thumb_url?: string | null; caption?: string | null; created_at?: string | null }
-export interface MatchSocialDto { comments?: MatchComment[] | null; media?: MatchMedia[] | null }
-
-export const matchSocialUrl = (slug: string, matchId: string) =>
-  `/api/v1/tournament-live/public/${encodeURIComponent(slug)}/matches/${encodeURIComponent(matchId)}/social`;
+// ── Página del partido ───────────────────────────────────────────────────────
 
 /** Sets en cuadrícula por equipo (mínimo tantas columnas como sets del formato, para que se vean los vacíos). */
 export function setsGrid(sets: Array<{ home: number; away: number; closed: boolean }> | null | undefined, minCols = 3): { home: Array<number | null>; away: Array<number | null>; current: number } {
@@ -608,4 +601,28 @@ export function tvPlan(d: PublicLiveV2, sponsors: PublicSponsor[]): TvSlide[] {
   if (filterMatches(d.matches, 'played').length > 0) out.push({ key: 'res', kind: 'results', title: 'Últimos resultados' });
   if (sponsors.length > 0) out.push({ key: 'spon', kind: 'sponsors', title: 'Patrocinadores' });
   return out;
+}
+
+// ── Insertar en otra web (iframe) ────────────────────────────────────────────
+
+export type EmbedView = 'posiciones' | 'partidos' | 'programacion' | 'copas';
+export const EMBED_VIEWS: EmbedView[] = ['posiciones', 'partidos', 'programacion', 'copas'];
+export const EMBED_VIEW_LABEL: Record<EmbedView, string> = { posiciones: 'Posiciones', partidos: 'Partidos', programacion: 'Programación', copas: 'Copas' };
+
+export function parseEmbedView(v: string | null | undefined): EmbedView {
+  return EMBED_VIEWS.includes(v as EmbedView) ? (v as EmbedView) : 'posiciones';
+}
+
+export function embedUrl(origin: string, slug: string, opts: { vista: EmbedView; categoria?: string | null; transparente?: boolean }): string {
+  const q = new URLSearchParams({ vista: opts.vista });
+  if (opts.categoria) q.set('categoria', opts.categoria);
+  if (opts.transparente) q.set('fondo', 'transparente');
+  return `${origin}/torneo/${encodeURIComponent(slug)}/embed?${q.toString()}`;
+}
+
+const escAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+
+/** El `<iframe>` listo para pegar en la web del club. */
+export function embedSnippet(url: string, title: string, height = 640): string {
+  return `<iframe src="${escAttr(url)}" title="${escAttr(title)}" width="100%" height="${height}" style="border:0;max-width:100%;" loading="lazy" allow="clipboard-write"></iframe>`;
 }
