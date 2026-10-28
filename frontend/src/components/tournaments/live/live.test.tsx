@@ -222,8 +222,13 @@ describe('<LiveScorer /> ergonomía', () => {
     expect(screen.getByTestId('current-set').textContent).toContain('Set 2');
   });
 
-  it('con planilla ofrece etiquetar el punto (opcional) y lo manda con su posición', async () => {
-    post.mockImplementation((url: string) => (String(url).endsWith('/stats') ? Promise.resolve({ ok: true }) : new Promise(() => {})));
+  it('con planilla ofrece etiquetar el punto (opcional) y lo manda DESPUÉS de que el punto llega al servidor (B11)', async () => {
+    let confirmAction: (v: unknown) => void = () => {};
+    post.mockImplementation((url: string) => {
+      if (String(url).endsWith('/stats')) return Promise.resolve({ ok: true });
+      if (String(url).endsWith('/actions')) return new Promise((r) => { confirmAction = r; });
+      return Promise.resolve({ ok: true });
+    });
     get.mockResolvedValue({ roster: [{ id: 'p1', team_id: 'a', side: 'home', name: 'Sofía' }, { id: 'p2', team_id: 'b', side: 'away', name: 'Ana' }] });
     render(<LiveScorer match={match({ id: 'm10', live_state: { status: 'live', points: 'ha', walkover: null } })} endpoints={endpoints} queueKey="qc" onClose={() => {}} />);
     fireEvent.click(screen.getByRole('button', { name: 'Sumar un punto a Monsters' }));
@@ -231,6 +236,11 @@ describe('<LiveScorer /> ergonomía', () => {
     expect(screen.queryByRole('button', { name: 'Ana' })).toBeNull(); // solo las del equipo que hizo el punto
     fireEvent.click(screen.getByRole('button', { name: 'Sofía' }));
     fireEvent.click(screen.getByRole('button', { name: 'Ataque' }));
+    // El punto sigue en cola: la etiqueta espera (antes salía y el BFF respondía 422 punto_invalido).
+    await waitFor(() => expect(screen.getByText(/se guarda apenas el punto se sincronice/)).toBeTruthy());
+    expect(post.mock.calls.some((c) => String(c[0]).endsWith('/stats'))).toBe(false);
+    await waitFor(() => expect(post.mock.calls.some((c) => String(c[0]).endsWith('/actions'))).toBe(true));
+    confirmAction({ duplicate: false, match: match({ id: 'm10', version: 4, live_state: { status: 'live', points: 'hah', walkover: null } }) });
     await waitFor(() => expect(post.mock.calls.some((c) => String(c[0]).endsWith('/stats'))).toBe(true));
     const call = post.mock.calls.find((c) => String(c[0]).endsWith('/stats'))!;
     expect(call[0]).toBe('/api/v1/tournament-live/school/e1/matches/m10/stats');

@@ -27,7 +27,7 @@ import {
   authInvite, createInvite, inviteAddPlayers, inviteHome, invitePaymentProofUrl, inviteRemovePlayer, inviteSubmit,
   inviteUpdateTeam, inviteUploadUrl, listInvites, markInvitePaid, revokeInvite, signupPrefill,
 } from '../services/tournament/tournament-invites.service';
-import { rosterFromPhoto } from '../services/tournament/tournament-players.service';
+import { matchSheetRoster, rosterFromPhoto } from '../services/tournament/tournament-players.service';
 
 const router = Router();
 const prod = process.env.NODE_ENV === 'production';
@@ -289,6 +289,11 @@ router.get('/school/:id/invites/:iid/proof', ...org, async (req: AuthenticatedRe
 /** Foto de la planilla en papel → nombres para revisar (no guarda nada). */
 router.post('/school/:id/roster-photo', ocrLimiter, ...org, async (req: AuthenticatedRequest, res: Response) => {
   try { await ownedEvent(req, String(req.params.id)); return res.json(await rosterFromPhoto(req.body?.image_base64, req.body?.mime)); } catch (e) { return fail(res, req, e); }
+});
+
+/** Nómina del partido para la planilla en PDF: dorsal, categoría y quién no está habilitado (misma regla del QR). */
+router.get('/school/:id/matches/:matchId/sheet-roster', ...org, async (req: AuthenticatedRequest, res: Response) => {
+  try { return res.json(await matchSheetRoster(await ownedEvent(req, String(req.params.id)), String(req.params.matchId))); } catch (e) { return fail(res, req, e); }
 });
 
 // ── Link de inscripción del equipo (delegado, sin cuenta) ────────────────────

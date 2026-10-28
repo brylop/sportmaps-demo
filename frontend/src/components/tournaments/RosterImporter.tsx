@@ -15,8 +15,8 @@ interface Props {
   form: PlayerForm;
   /** Guarda las filas ya revisadas. Lanza Error con el mensaje del BFF si falla. */
   onSave: (drafts: PlayerDraft[]) => Promise<void>;
-  /** Foto de la planilla en papel → nombres (OCR). Sin esto no se ofrece la opción. */
-  readPhoto?: (base64: string, mime: string) => Promise<{ players: Array<{ full_name: string }> }>;
+  /** Foto de la nómina en papel → jugadores (OCR: nombre y, si aparecen, dorsal, documento, nacimiento y posición). */
+  readPhoto?: (base64: string, mime: string) => Promise<{ players: Array<Pick<PlayerDraft, 'full_name' | 'shirt_number' | 'document_number' | 'birth_date' | 'position'>> }>;
   busyLabel?: string;
 }
 
@@ -74,7 +74,11 @@ export function RosterImporter({ form, onSave, readPhoto, busyLabel = 'Guardando
     try {
       const small = await comprimirParaSubir(f, 'documento');
       const r = await readPhoto(await toBase64(small), small.type || 'image/jpeg');
-      setPreview((p) => [...p, ...r.players.map((x) => ({ full_name: x.full_name }))]);
+      setPreview((p) => [...p, ...r.players.map((x) => {
+        const d: PlayerDraft = { full_name: x.full_name };
+        for (const k of ['shirt_number', 'document_number', 'birth_date', 'position'] as const) if (x[k]) d[k] = String(x[k]);
+        return d;
+      })]);
     } catch (e) { setError((e as Error).message || 'No pudimos leer la foto.'); }
     finally { setBusy(false); }
   };
@@ -135,7 +139,7 @@ export function RosterImporter({ form, onSave, readPhoto, busyLabel = 'Guardando
           <Button type="button" variant="outline" disabled={busy} onClick={() => photoRef.current?.click()}><Camera className="mr-1 h-4 w-4" /> {busy ? 'Leyendo la foto…' : 'Tomar o subir foto'}</Button>
           <input ref={photoRef} type="file" accept="image/*" capture="environment" className="hidden" aria-label="Foto de la planilla"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadPhoto(f); e.target.value = ''; }} />
-          <p className="text-xs text-muted-foreground">Leemos los nombres de la planilla en papel. Revísalos antes de guardar.</p>
+          <p className="text-xs text-muted-foreground">Leemos nombres, números, documentos y fechas de la nómina en papel. Revísalos antes de guardar.</p>
         </div>
       )}
 

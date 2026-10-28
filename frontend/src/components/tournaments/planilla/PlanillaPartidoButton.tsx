@@ -16,10 +16,13 @@ import { formatBogota, stageLabel, teamName } from '@/lib/tournamentDisplay';
 import { sheetKindFor, sportForPreset, sportFromName } from '@/lib/tournamentSports';
 import type { ScoringConfig } from '@/lib/tournamentScoring';
 import type { MatchDto } from '@/lib/tournamentTypes';
-import { buildPlanilla, planillaFileName, type PlanillaInfo } from './planillaModel';
+import { buildPlanilla, planillaFileName, type PlanillaInfo, type RosterLine } from './planillaModel';
 import { downloadPlanilla } from './planillaPdf';
 
-export interface PlanillaRoster { home: string[]; away: string[] }
+/** Nómina del partido; `category` viene del BFF si el panel no la pasa. */
+export interface PlanillaRoster { home: RosterLine[]; away: RosterLine[]; category?: string | null }
+
+interface SheetRosterPlayer { name: string; shirt_number: number | null; flag: string | null }
 
 type MatchLike = Pick<MatchDto, 'home_name' | 'away_name' | 'home_label' | 'away_label' | 'stage' | 'group_label' | 'round' | 'court' | 'scheduled_at'> & { config?: ScoringConfig };
 
@@ -34,13 +37,17 @@ interface Props extends Omit<ButtonProps, 'onClick'> {
   label?: string;
 }
 
-/** Nómina del partido desde el BFF (solo organizador: GET …/matches/:id/rosters). */
+/**
+ * Nómina del partido desde el BFF (solo organizador: GET /tournament-live/school/:id/matches/:mid/sheet-roster):
+ * dorsal, categoría y la marca de quien no está habilitado (misma regla que el QR del carné).
+ */
 export async function loadMatchRoster(eventId: string, matchId: string): Promise<PlanillaRoster | null> {
   try {
-    const r = await bffClient.get<{ home: { members: Array<{ full_name: string }> }; away: { members: Array<{ full_name: string }> } }>(
-      `/api/v1/events/school-tournaments/${eventId}/matches/${matchId}/rosters`,
+    const r = await bffClient.get<{ category: string | null; home: SheetRosterPlayer[]; away: SheetRosterPlayer[] }>(
+      `/api/v1/tournament-live/school/${encodeURIComponent(eventId)}/matches/${encodeURIComponent(matchId)}/sheet-roster`,
     );
-    return { home: (r.home?.members ?? []).map((x) => x.full_name), away: (r.away?.members ?? []).map((x) => x.full_name) };
+    const line = (x: SheetRosterPlayer): RosterLine => ({ name: x.name, number: x.shirt_number, flag: x.flag });
+    return { home: (r.home ?? []).map(line), away: (r.away ?? []).map(line), category: r.category ?? null };
   } catch {
     return null;
   }
@@ -53,7 +60,7 @@ export function planillaInfoFor(p: { match?: MatchLike | null; tournamentTitle?:
   return {
     tournament: p.tournamentTitle ?? '',
     sport: p.sport ?? sp?.name ?? null,
-    category: p.categoryName ?? null,
+    category: p.categoryName ?? roster?.category ?? null,
     phase: m ? stageLabel(m) : null,
     court: m?.court ?? null,
     when: m?.scheduled_at ? formatBogota(m.scheduled_at, { day: true }) : null,

@@ -83,6 +83,8 @@ export function TournamentResultsPanel({ eventId, categories }: { eventId: strin
   const knockoutMatches = sorted.filter((m) => m.stage === 'knockout' || m.stage === 'third_place');
   const groupMatches = sorted.filter((m) => m.stage === 'group');
   const leagueMatches = sorted.filter((m) => m.stage === 'league');
+  const cat = categories.find((c) => c.id === catId);
+  const categoryName = cat ? `${cat.division} · ${cat.category} (${cat.rama})` : null;
   const groupLabels = Array.from(new Set(groupMatches.map((m) => m.group_label ?? ''))).sort();
 
   const endpoints: ScorerEndpoints = useMemo(() => ({
@@ -101,7 +103,7 @@ export function TournamentResultsPanel({ eventId, categories }: { eventId: strin
   const anotar = (m: MatchDto) => (
     <div className="flex gap-1">
       <PlanillaPartidoButton size="sm" variant="ghost" match={m} tournamentTitle={config?.event.title} sport={config?.event.sport}
-        loadRoster={() => loadMatchRoster(eventId, m.id)} />
+        categoryName={categoryName} loadRoster={() => loadMatchRoster(eventId, m.id)} />
       <Button size="sm" variant="ghost" onClick={() => setEditing(m)} aria-label="Editar hora y cancha" title="Hora y cancha"><Clock className="h-4 w-4" /></Button>
       <Button size="sm" variant="outline" disabled={!m.home_team_id || !m.away_team_id} title={!m.home_team_id || !m.away_team_id ? 'Los equipos aún no están definidos' : undefined} onClick={() => setScoring(m)} aria-label="Anotar este partido">Anotar</Button>
     </div>

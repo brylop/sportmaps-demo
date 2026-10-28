@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('../../config/supabase', () => ({ supabase: {} }));
 
 import { buildIcs, buildNotice, courtPhrase, finalLine, hasProfanity, publicPlayerName, validateComment, validVideoUrl } from './tournament-follow.notices';
-import { aggregateStats, checkChallenge, countableStats, issueChallenge, mvpVotingOpen, pickWinner } from './tournament-social.service';
+import { aggregateStats, challengeVerdict, checkChallenge, countableStats, issueChallenge, mvpVotingOpen, pickWinner } from './tournament-social.service';
 import { bogotaDayRange, relationFromGender } from './tournament-follow.service';
 
 const ev = { id: 'e1', title: 'Copa Monster 2026', slug: 'copa-monster' };
@@ -119,6 +119,15 @@ describe('comentarios', () => {
     expect(checkChallenge(c.token, 10, t0 + 5000, 'otra')).toBe(false);
     expect(checkChallenge(c.token, 10, t0 + 31 * 60_000, 'k')).toBe(false);
     expect(checkChallenge('basura', 10, t0 + 5000, 'k')).toBe(false);
+  });
+  it('reto anti-spam: «muy rápido» no se confunde con «suma mal» (E2E B14b)', () => {
+    const t0 = 1_700_000_000_000;
+    const c = issueChallenge(t0, () => 0.5, 'k');
+    expect(challengeVerdict(c.token, 10, t0 + 1000, 'k')).toBe('muy_rapido');
+    expect(challengeVerdict(c.token, 9, t0 + 1000, 'k')).toBe('incorrecto');
+    expect(challengeVerdict(c.token, 10, t0 + 5000, 'k')).toBe('ok');
+    expect(challengeVerdict(c.token, 10, t0 + 31 * 60_000, 'k')).toBe('vencido');
+    expect(challengeVerdict(c.token, 10, t0 + 5000, 'otra')).toBe('incorrecto');
   });
   it('videos: solo https de plataformas conocidas', () => {
     expect(validVideoUrl('https://youtu.be/abc')).toBe('https://youtu.be/abc');

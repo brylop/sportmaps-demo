@@ -83,6 +83,9 @@ export function TournamentCardsPanel({ eventId, tournament }: { eventId: string;
   const [cards, setCards] = useState<TournamentCard[]>([]);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
+  // Campos propios de la ficha (EPS, talla…): van al reverso del carné.
+  const [custom, setCustom] = useState<CustomField[]>([]);
+  useEffect(() => { bffClient.get<PlayerForm>(`${base}/player-form`).then((f) => setCustom(f.custom ?? [])).catch(() => setCustom([])); }, [base]);
 
   const loadCards = useCallback(async (tid: string) => {
     try {
@@ -115,7 +118,7 @@ export function TournamentCardsPanel({ eventId, tournament }: { eventId: string;
     if (cards.length === 0) { toast({ title: 'Aún no hay jugadores para imprimir' }); return; }
     setBusy(true);
     try {
-      const items = cards.map((c) => ({ data: toCardData(c, cfg, tournament), publicUrl: c.validate_url }));
+      const items = cards.map((c) => ({ data: toCardData(c, cfg, tournament, custom), publicUrl: c.validate_url }));
       const team = teams.find((t) => t.id === teamId)?.name;
       await exportCardsPdf(items, { mode: 'together', cutMarks: true, fileName: `carnes-${(team ?? tournament.title).toLowerCase().replace(/[^a-z0-9]+/g, '-')}.pdf`, onProgress: (d, t) => setProgress(`${d}/${t}`) });
     } catch (e) { toast({ title: 'No se pudo generar el PDF', description: (e as Error).message, variant: 'destructive' }); }
@@ -161,7 +164,7 @@ export function TournamentCardsPanel({ eventId, tournament }: { eventId: string;
             </div>
           </div>
           <div className="mx-auto w-[340px] max-w-full" data-testid="card-preview">
-            <AthleteIdCard data={toCardData(sample, cfg, tournament)} publicUrl={sample.validate_url} />
+            <AthleteIdCard data={toCardData(sample, cfg, tournament, custom)} publicUrl={sample.validate_url} />
           </div>
         </CardContent>
       </Card>

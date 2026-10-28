@@ -21,6 +21,8 @@ import {
 import { formatBogota, STATUS_LABEL, teamName } from '@/lib/tournamentDisplay';
 import { ShareResultButton } from './live/ShareResultButton';
 import { PointTagger } from './live/PointTagger';
+import { liveApi } from './live/liveApi';
+import { sortTags, type PendingTag } from './live/tagQueue';
 import { scorerScopeFromUrl, setEventText, sideStorageKey } from './live/scorerErgonomics';
 
 /** Dónde pegarle al BFF: igual para el organizador (`/school/:id/...`) y para el token (`/scorer/:token/...`). */
@@ -107,9 +109,22 @@ export function LiveScorer({ match, endpoints, queueKey, onClose, onMatchChange,
   }
   const queue = queueRef.current;
 
+  // Última secuencia confirmada por el servidor (las etiquetas de punto esperan a que su punto esté acá).
+  const pointsRef = useRef(String(match.live_state?.points ?? ''));
+  pointsRef.current = String(serverMatch.live_state?.points ?? '');
+  // Se llena más abajo (necesita el alcance del anotador): procesa las etiquetas de punto en espera.
+  const processTagsRef = useRef<(points: string) => void>(() => {});
+
   const handleEvents = useCallback((events: FlushEvent[]) => {
     if (events.length === 0) return;
     setLastRetry(events.some((e) => e.type === 'retry'));
+    // Secuencia confirmada más reciente de ESTE partido (para soltar las etiquetas que esperaban su punto).
+    let confirmed: string | null = null;
+    for (const e of events) {
+      if (e.type === 'sent' && e.match.id === match.id) confirmed = String(e.match.live_state?.points ?? '');
+      if (e.type === 'conflict' && e.matchId === match.id && e.match) confirmed = String(e.match.live_state?.points ?? '');
+    }
+    if (confirmed !== null || events.some((e) => e.type === 'rule_error' || e.type === 'conflict')) processTagsRef.current(confirmed ?? pointsRef.current);
     for (const e of events) {
       if (e.type === 'sent' && e.match.id === match.id) { setServerMatch(e.match); onMatchChange?.(e.match); setTaken(null); }
       if (e.type === 'sent' && e.warning) toast({ title: 'Aviso', description: e.warning });
@@ -235,6 +250,28 @@ export function LiveScorer({ match, endpoints, queueKey, onClose, onMatchChange,
       : { label: 'Sincronizado', icon: <Wifi className="h-4 w-4" />, cls: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300' };
 
   const scope = useMemo(() => scorerScopeFromUrl(endpoints.actionsUrl(match.id)), [endpoints, match.id]);
+
+  // Etiquetas de punto en espera: se envían cuando su punto ya está confirmado por el servidor (B11).
+  const tagsRef = useRef<PendingTag[]>([]);
+  const sendTag = useCallback((t: PendingTag) => {
+    if (!scope) return Promise.reject(new Error('sin_alcance'));
+    return liveApi.tagPoint(scope, match.id, { member_id: t.member_id, stat: t.stat, point_index: t.point_index });
+  }, [scope, match.id]);
+  const submitTag = useCallback(async (t: PendingTag): Promise<'sent' | 'queued'> => {
+    const { ready, keep } = sortTags([t], pointsRef.current, queue.pending(match.id).length);
+    if (ready.length) { await sendTag(t); return 'sent'; }
+    if (keep.length) { tagsRef.current = [...tagsRef.current.filter((x) => x.point_index !== t.point_index), t]; return 'queued'; }
+    throw new Error('punto_no_sincronizado');
+  }, [queue, match.id, sendTag]);
+  // Se llama al terminar cada envío de la cola, con la secuencia que el servidor acaba de confirmar.
+  processTagsRef.current = (points: string) => {
+    if (tagsRef.current.length === 0) return;
+    const { ready, keep } = sortTags(tagsRef.current, points, queue.pending(match.id).length);
+    tagsRef.current = keep;
+    for (const t of ready) {
+      sendTag(t).catch(() => toast({ title: 'No se guardó quién hizo el punto', description: 'El marcador sí quedó guardado.', variant: 'destructive' }));
+    }
+  };
   const homeName = teamName(match, 'home');
   const awayName = teamName(match, 'away');
   const drawnNow = cfg.model === 'goals' && d.drawn;
@@ -340,7 +377,7 @@ export function LiveScorer({ match, endpoints, queueKey, onClose, onMatchChange,
       {live && lastPoint && kind === 'sets' && scope && (
         <PointTagger
           key={lastPoint.index} scope={scope} matchId={match.id} side={lastPoint.side} pointIndex={lastPoint.index}
-          teamName={lastPoint.side === 'home' ? homeName : awayName} onDone={() => setLastPoint(null)}
+          teamName={lastPoint.side === 'home' ? homeName : awayName} onDone={() => setLastPoint(null)} submit={submitTag}
         />
       )}
 
