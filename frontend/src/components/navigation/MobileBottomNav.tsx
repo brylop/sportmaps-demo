@@ -112,7 +112,11 @@ export function MobileBottomNav() {
     // encima tapaba el botón de pagar en móvil (informe tienda-baseline §1.5).
     location.pathname.startsWith('/tienda/') ||
     location.pathname.startsWith('/checkout') ||
-    location.pathname === '/carrito'
+    location.pathname === '/carrito' ||
+    // Páginas públicas del torneo (en vivo, partido, link del delegado,
+    // validar carné) y el anotador: la barra del rol tapaba sus botones.
+    location.pathname.startsWith('/torneo/') ||
+    location.pathname.startsWith('/anotador/')
   ) {
     return null;
   }
