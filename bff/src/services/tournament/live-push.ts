@@ -31,6 +31,11 @@ export interface LivePushPayload {
   finished_at: string | null;
   /** Hora del servidor al armar el mensaje: el cliente la compara con `server_time` del polling. */
   sent_at: string;
+  /**
+   * true cuando la acción cambia la tabla o la llave (terminar, reabrir, corregir un partido terminado).
+   * El BFF ya descartó su caché pública de ese torneo: el cliente puede pedir el payload completo enseguida.
+   */
+  standings?: boolean;
 }
 
 export interface MatchLike {
@@ -39,7 +44,7 @@ export interface MatchLike {
   sets?: LiveSet[] | null; started_at?: string | null; finished_at?: string | null;
 }
 
-export function buildLivePayload(m: MatchLike, now: Date = new Date()): LivePushPayload {
+export function buildLivePayload(m: MatchLike, now: Date = new Date(), extra: { standings?: boolean } = {}): LivePushPayload {
   return {
     match_id: m.id,
     version: Number(m.version ?? 0),
@@ -50,6 +55,7 @@ export function buildLivePayload(m: MatchLike, now: Date = new Date()): LivePush
     started_at: m.started_at ?? null,
     finished_at: m.finished_at ?? null,
     sent_at: now.toISOString(),
+    ...(extra.standings ? { standings: true } : {}),
   };
 }
 
@@ -179,8 +185,10 @@ export function liveBroadcaster(): LiveBroadcaster {
 }
 
 /** Punto único que llama el servicio tras aplicar una acción (no duplicada). */
-export function pushMatchUpdate(slug: string | null | undefined, match: MatchLike, b: Pick<LiveBroadcaster, 'publish'> = liveBroadcaster()): boolean {
+export function pushMatchUpdate(
+  slug: string | null | undefined, match: MatchLike, b: Pick<LiveBroadcaster, 'publish'> = liveBroadcaster(), extra: { standings?: boolean } = {},
+): boolean {
   if (!slug || livePushDisabled()) return false;
-  b.publish(topicFor(slug), buildLivePayload(match));
+  b.publish(topicFor(slug), buildLivePayload(match, new Date(), extra));
   return true;
 }
