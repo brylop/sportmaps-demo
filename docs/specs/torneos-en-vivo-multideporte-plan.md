@@ -456,3 +456,53 @@ Migración **`20261027180907_torneos_vivo_seguir_social_tiempo_real`** (SIN apli
 - Nombre público: solo nombre de pila; inicial del apellido solo si consta que es mayor de edad. La planilla no tiene número de camiseta (si se agrega, va como `#7`).
 - Voto: uno por dispositivo y partido (hash de dispositivo+partido), 30/min por IP, abierto en juego y hasta 3 h después. El organizador puede elegir (`PUT /school/:id/matches/:id/mvp`) y su elección manda.
 - Estadísticas (ace / ataque / bloqueo; puntos = suma) atadas a `point_index`: cuentan solo si el punto sigue en la secuencia y lo ganó el lado de la jugadora. Deshacer/corregir borra las etiquetas de los puntos que ya no existen. Ranking: `GET /public/:slug/player-stats`. **Pendiente («datos»):** sumar `player_stats` al payload de `/public/:slug/live` con `eventPlayerStats(ev.id)` si se quiere en el mismo JSON.
+
+## Multideporte: plantillas, anotador y planilla (agente «deportes», 2026-10-27)
+
+Motor: `bff/src/services/tournament/scoring.shared.ts` (copia idéntica en `frontend/src/lib/tournamentScoring.ts`, prueba de paridad en `frontend/src/test/tournamentScoringParity.test.ts`). Catálogo de deportes de torneo: `frontend/src/lib/tournamentSports.ts`. Cada plantilla nueva guarda su clave en `scoring_config.preset`, así el anotador y la planilla saben el deporte sin leer `events.sport`. Los torneos existentes (sin `preset`) siguen igual: fútbol 3-1-0 y las plantillas viejas no cambiaron (pádel sigue contando games como unidad, con tope 7).
+
+### Tabla deporte → plantilla → anotador → tabla de posiciones
+
+| Deporte | Plantilla(s) (`preset`) | Anotador | Tabla de posiciones (puntos · desempates) |
+|---|---|---|---|
+| Fútbol, Futsal | `futbol` | Goles +1; en eliminatoria un empate pide **penales** | 3-1-0 · pts, DG, GF, enfrentamiento directo |
+| Balonmano | `balonmano` (2-1-0), `balonmano_3` (3-1-0) | Goles; empate en grupos; en eliminatoria «lanzamientos de 7 m» | 2-1-0 / 3-1-0 · pts, DG, GF, directo |
+| Hockey | `hockey` | Goles; en eliminatoria shoot-out / penales | 3-1-0 · pts, DG, GF, directo |
+| Baloncesto | `baloncesto` | Puntos; sin empate (se juega tiempo extra, no penales) | 2-1 · pts, DG, GF, directo |
+| Voleibol | `voleibol_3`, `voleibol_5` | Puntos por set; el set se cierra solo | 3/2/1/0 (3-0 y 3-1 = 3; 3-2 = 2 y 1) · pts, victorias, ratio sets, ratio puntos, directo |
+| Vóley playa | `voley_playa` (21, decisivo 15) | Igual que vóley | Igual que vóley |
+| Futvóley | `futvoley` (18, decisivo 15) | Igual que vóley | Igual que vóley |
+| Tenis de mesa | `tenis_mesa` (3 de 5 a 11) | Puntos por set | 2-0 · pts, ratio sets, ratio puntos, directo |
+| Bádminton | `badminton` (21, tope 30) | Puntos por set | 2-0 · igual |
+| Pádel | `padel` (games, tope 7) | Games como unidad (sin cambios) | 2-0 · igual |
+| Tenis | `tenis` (2 de 3, tie-break a 7 en 6-6), `tenis_super` (3.º set = super tie-break a 10) | **Puntos 15-30-40-AD**, games y tie-break se cuentan solos; sets se muestran «6-4 · 7-6(4) · [10-8]» | 2-0 · pts, ratio sets, ratio **games** (PF/PA = games), directo |
+| Beach tennis | `beach_tennis` (1 set), `beach_tennis_3` (2 de 3), punto de oro | Como tenis, con punto de oro a 40-40 | 2-0 · igual que tenis |
+| Ajedrez | `ajedrez` | Tres botones: **1-0 · ½-½ · 0-1** (blancas = local). Marcador en medios puntos (2-0, 1-1, 0-2); en eliminatoria tablas → armagedón | 1 · ½ · 0 · pts, directo, victorias, luego **Buchholz y Sonneborn-Berger** (`extra_tiebreakers`) |
+| Bochas | `bochas` (a 12), `bochas_13` (a 13) | Un solo «set» a 12/13 con diferencia de 1 (+1 por bocha) | 2-0 · pts, ratio puntos, directo |
+| Críquet | `criquet` (20 overs) | Manual por innings: runs / wickets / overs por equipo; gana quien más runs; empate posible; en eliminatoria «super over» | 2-1-0 · pts, victorias, diferencia de runs, directo |
+| Videojuegos | `videojuegos_mapas` (mejor de 3), `videojuegos_mapas_5`, `videojuegos_goles` (FIFA) | Mapas: cada toque = un mapa ganado. FIFA: goles con empate | Mapas 3-0 · pts, victorias, ratio mapas, directo. FIFA 3-1-0 |
+| Deporte genérico | `generico` (con empate 3-1-0), `generico_sin_empate` (2-0) | Marcador numérico libre | Según plantilla · pts, DG, GF, directo |
+| Atletismo | — (modo **ranking por marca**, no «A vs B») | `MarksScorer`: marca por participante (tiempo, distancia, altura, puntos), hasta 3 intentos, DNS/DNF/DQ | Posición por marca; puntos por posición (10-8-6-5-4-3-2-1); tabla por delegación sumando pruebas |
+
+Lo que no cabe en la secuencia de puntos va en `live_state.detail` (`penalties: [local, visitante]`, `innings: [{ side, runs, wickets, overs }]`); solo lo cambia «corregir». El servicio en vivo ya lo guarda y lo lee (`stateOf` y `p_live_state`).
+
+### Pendiente para «datos» (no editado por este agente)
+1. `standings.shared.ts`: después de `order(...)`, si `cfg.extra_tiebreakers?.length`, llamar `orderWithExtraTiebreakers(rows, matches, cfg)` (exportado por el motor) y devolver `buchholz` / `sonneborn_berger` en cada fila para mostrarlos en la tabla de ajedrez.
+2. Mostrar puntos de ajedrez con `formatHalfPoints(GF)` (GF está en medios puntos; `Pts` ya viene en 1 · ½ · 0). En tablas y tarjetas públicas («publico»): si `config.half_points`, el marcador 2-0 se muestra «1-0» y 1-1 «½-½».
+3. Sets de tenis: `SetDto` trae `tb` y `super`; en `tournamentDisplay.formatSetsLine` mostrar «7-6(4)» y «[10-8]» (helper `setScoreText` exportado por `LiveScorer.tsx`).
+4. Críquet: mostrar `live_state.detail.innings` como «156/7 (20)».
+5. `PatchTournamentSchema` (events.route.ts) no acepta `competition_format`: el asistente pasa el formato elegido en la URL (`?formato=liga|grupos|copa&nuevo=1`) para que el detalle lo preseleccione en `FixtureGeneratorDialog`.
+6. `POST /api/v1/events/school-tournament` exige fecha, hora, dirección y ciudad: el asistente manda valores de borrador (fecha +14 días, 08:00, «Por definir»). Si se vuelven opcionales, quitar esos valores en `tournamentWizard.logic.ts`.
+7. El motor en vivo (`/tournament-live/school/:id/...`) solo atiende torneos de escuela; el organizador crea con `POST /api/v1/events` y su plantilla queda en la URL (`&reglas=`) hasta que exista un endpoint de config para organizador.
+8. Gate: el frontend lo concentra en `frontend/src/lib/tournaments/tournamentAccess.ts` (`useTournamentAccess` / `tournamentAccessFor`). `CreateTournamentPage` aún usa `hasAddon('tournaments')` directo: cambiarlo al helper al integrar. En el BFF el gate sigue en `POST /school-tournament` (`v_school_entitlements.has_tournaments`).
+
+### Asistente rápido de creación
+`frontend/src/components/tournaments/create/TournamentWizard.tsx` (lógica pura en `tournamentWizard.logic.ts`). Rutas: `/school/tournaments/nuevo-rapido` (admin de la escuela) y `/organizer/torneo-rapido` (organizador). Para enchufarlo: botón «Crear torneo» de la sección Torneos → `/school/tournaments/nuevo-rapido`. Cuatro pasos de una pantalla: nombre → tipo («Un solo torneo» = categoría General; «Con categorías» con sugerencias por edad y rama) → deporte (19, con emoji; si hay varias plantillas, se elige) → formato («Todos contra todos» = `liga`, «Grupos + eliminatoria» = `grupos`, «Eliminatoria» = `copa`; «Puedes cambiarlo después»). Crea en borrador, guarda la plantilla con `PATCH /tournament-live/school/:id/config {preset}` y lleva al detalle. No asume deportistas de la escuela: los equipos (internos o invitados) se agregan después.
+
+### Planilla de juego (PDF)
+`components/tournaments/planilla/`: `planillaModel.ts` (qué tablas lleva cada deporte, puro), `planillaPdf.ts` (jsPDF, A4) y `<PlanillaPartidoButton match tournamentTitle sport loadRoster />`. Precargada con equipos, fase, cancha, hora y nómina (`GET /events/school-tournaments/:id/matches/:matchId/rosters`, solo organizador) o en blanco sin `match`. Voleibol: nóminas, sets con tiempos y cambios, rotaciones I-VI por set. Fútbol / balonmano / hockey: nóminas con goles y tarjetas, resultado por tiempo y penales, goles, tarjetas, cambios. Baloncesto: faltas F1-F5, puntos por cuarto, faltas de equipo y tiempos muertos. Raqueta: sets con tie-break y quién saca. Ajedrez: planilla de 80 jugadas y resultado. Críquet: bateo, resumen por innings y lanzadores. Atletismo: prueba con intentos y posición. Ya está en el anotador; falta ponerlo en cada partido del panel (`SchoolTournamentDetailPage` / `TournamentResultsPanel`, de «datos»).
+
+### Atletismo: ranking por marca
+Motor puro `bff/src/services/tournament/marks.shared.ts` (copia `frontend/src/lib/tournamentMarks.ts`, con paridad): `rankByMark(entries, { unit, points_by_position })`, `teamPoints`, `parseMark` («10,52», «1:02.35», «6.45 m»), `formatMark`. Reglas: tiempo menor es mejor y el empate comparte posición; distancia desempata con la segunda mejor marca, luego la tercera; altura con menos fallos en la altura ganada y luego totales; DNS/DNF/DQ/NM sin posición. Los empatados se reparten los puntos de los puestos que ocupan. Anotador `MarksScorer.tsx` (controlado, sin guardar todavía).
+
+**Persistencia (siguiente fase, sin migración escrita):** tabla `tournament_mark_events` (event_id, category_id, name, unit text CHECK in ('time','distance','height','points'), attempts int, points_by_position int[], status text CHECK) y `tournament_marks` (mark_event_id, team_id → tournament teams, participant_name, marks jsonb, status text CHECK, failures_at_best, failures_total, version). RLS: lectura pública solo si el evento es público (vía vista con columnas publicables, como `v_school_staff_publico`); escritura solo por RPC `SECURITY DEFINER` con `user_staff_school_ids()` sobre la escuela del evento o por token de anotador, con `SET search_path = pg_catalog, public, pg_temp` y `GRANT EXECUTE` explícito. Endpoints: `GET/PUT /tournament-live/school/:id/mark-events/:meId/marks` y la versión con token del anotador.
