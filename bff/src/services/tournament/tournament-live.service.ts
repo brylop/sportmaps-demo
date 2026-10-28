@@ -12,6 +12,7 @@ import {
 import { computeStandings, StandingRow } from './standings.shared';
 import { FormatConfig, Format, generateFixtures, validateFormat } from './fixtures.shared';
 import { onMatchActionApplied } from './tournament-follow.service';
+import { eventPlayerStats } from './tournament-social.service';
 
 // ── Utilidades ───────────────────────────────────────────────────────────────
 
@@ -865,6 +866,14 @@ export function venueOf(ev: Pick<LiveEvent, 'address' | 'city' | 'lat' | 'lng' |
   return { name: ev.venue_name ?? null, address, maps_url: maps };
 }
 
+/** Adjuntos públicos del torneo (reglamento, programación…). Sin la columna (migración sin aplicar) = []. */
+export async function loadAttachments(eventId: string): Promise<Array<{ name: string; url: string }>> {
+  const { data, error } = await supabase.from('events').select('attachments').eq('id', eventId).maybeSingle();
+  if (error) return [];
+  const raw = (data as any)?.attachments;
+  return Array.isArray(raw) ? raw.filter((a) => a && typeof a.name === 'string' && typeof a.url === 'string').map((a) => ({ name: a.name, url: a.url })) : [];
+}
+
 export async function publicLive(slug: string): Promise<{ payload: any; etag: string } | null> {
   const hit = publicCache.get(slug);
   if (hit && Date.now() - hit.at < PUBLIC_TTL_MS) return { payload: hit.payload, etag: hit.etag };
@@ -873,11 +882,13 @@ export async function publicLive(slug: string): Promise<{ payload: any; etag: st
   if (!ev) return null;
   if (ev.visibility === 'school_only' && !ev.live_enabled) return null;
 
-  const [{ data: cats }, teams, matches, sponsors] = await Promise.all([
+  const [{ data: cats }, teams, matches, sponsors, attachments, playerStats] = await Promise.all([
     supabase.from('event_categories_config').select('id, division, level, category, rama').eq('event_id', ev.id),
     loadTeams(ev.id),
     loadMatches(ev.id),
     listSponsors(ev.id),
+    loadAttachments(ev.id),
+    eventPlayerStats(ev.id).catch(() => []),
   ]);
   const live = liveEffective(ev);
   const categories = ((cats ?? []) as any[]).map((c) => ({ id: c.id as string, name: [c.division, c.level, c.category, c.rama].filter(Boolean).join(' · ') }));
@@ -925,6 +936,7 @@ export async function publicLive(slug: string): Promise<{ payload: any; etag: st
     rules_url: ev.rules_url ?? null,
     venue: venueOf(ev),
     sponsors: sponsors.map((sp) => ({ id: sp.id, name: sp.name, logo_url: sp.logo_url ?? null, url: sp.url ?? null, tier: sp.tier })),
+    attachments,
   };
   const payload = {
     payload_version: 2,
@@ -935,6 +947,8 @@ export async function publicLive(slug: string): Promise<{ payload: any; etag: st
     teams: teamDtos,
     matches: outMatches,
     standings,
+    /** Ranking por jugadora (ace/ataque/bloqueo), nombres públicos. Mismo dato que /public/:slug/player-stats. */
+    player_stats: playerStats,
     server_time: new Date().toISOString(),
   };
   const etag = `"${createHash('sha1').update(JSON.stringify({ ...payload, tournament: undefined, server_time: undefined })).digest('hex').slice(0, 20)}"`;

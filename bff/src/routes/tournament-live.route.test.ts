@@ -214,3 +214,40 @@ describe('equipos, patrocinadores y hora/cancha (organizador)', () => {
     expect(db.tables.tournament_sponsors).toHaveLength(0);
   });
 });
+
+describe('jugadores, carné e inscripción por link (HTTP)', () => {
+  it('organizador agrega jugadores a un rival, imprime carnés y el QR valida sin datos privados', async () => {
+    const { ev, cat } = await world({ teams: 2 });
+    const add = await call('POST', `/school/${ev.id}/teams/external`, { category_id: cat, teams: [{ team_name: 'Rival' }] });
+    const teamId = add.json.created[0].id;
+    const p = await call('POST', `/school/${ev.id}/teams/${teamId}/players`, { players: [{ full_name: 'Ana Ruiz', document_number: '777888' }] });
+    expect(p.status).toBe(201);
+    const cards = await call('GET', `/school/${ev.id}/cards?team_id=${teamId}`);
+    expect(cards.json.cards).toHaveLength(1);
+    const v = await call('GET', `/public/${ev.slug}/validate/${cards.json.cards[0].token}`);
+    expect(v.status).toBe(200);
+    expect(v.headers.get('cache-control')).toBe('no-store');
+    expect(v.json.player.first_name).toBe('Ana');
+    expect(JSON.stringify(v.json)).not.toContain('777888');
+    expect((await call('GET', `/public/${ev.slug}/validate/inventado`)).status).toBe(404);
+    auth.schoolId = 'otra-escuela';
+    expect((await call('GET', `/school/${ev.id}/cards`)).status).toBe(404);
+    expect((await call('POST', `/school/${ev.id}/teams/${teamId}/players`, { players: [{ full_name: 'X' }] })).status).toBe(404);
+  });
+  it('el delegado usa el link sin cuenta; un token inventado → 401', async () => {
+    const { ev, cat } = await world({ teams: 2 });
+    const add = await call('POST', `/school/${ev.id}/teams/external`, { category_id: cat, teams: [{ team_name: 'Halcones' }] });
+    const inv = await call('POST', `/school/${ev.id}/teams/${add.json.created[0].id}/invite`, { delegate_phone: '3001234567' });
+    expect(inv.status).toBe(201);
+    const token = inv.json.token as string;
+    const home = await call('GET', `/invite/${token}`);
+    expect(home.status).toBe(200);
+    expect(home.json.team.name).toBe('Halcones');
+    expect((await call('POST', `/invite/${token}/players`, { players: [{ full_name: 'Uno' }] })).status).toBe(201);
+    const sub = await call('POST', `/invite/${token}/submit`, { rules_accepted: true, consent: true, consent_version: home.json.consent.version });
+    expect(sub.status).toBe(200);
+    expect(sub.json.signup_prefill.club_name).toBe('Halcones');
+    expect((await call('GET', `/school/${ev.id}/invites`)).json[0].stage).toBe('listo');
+    expect((await call('GET', `/invite/${'z'.repeat(43)}`)).status).toBe(401);
+  });
+});

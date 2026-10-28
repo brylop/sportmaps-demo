@@ -9,6 +9,7 @@ import {
     invalidatePublicLive, validateHttpsUrl, validateImageUrl, cleanText, isMissingColumn,
 } from '../services/tournament/tournament-live.service';
 import { resolveConfig } from '../services/tournament/scoring.shared';
+import { schoolOrganizesTournament } from '../services/tournament/tournament-access';
 
 const router = Router();
 
@@ -562,14 +563,8 @@ router.post('/school-tournaments/:id/publish', requireAuth, requireRole('school'
 
 // Helper: verifica que el torneo pertenezca a la escuela del usuario
 async function assertOwnedSchoolTournament(eventId: string, schoolId: string): Promise<boolean> {
-    const { data } = await supabase
-        .from('events')
-        .select('id')
-        .eq('id', eventId)
-        .eq('school_id', schoolId)
-        .eq('creator_role', 'school')
-        .maybeSingle();
-    return !!data;
+    // Un solo criterio de «quién organiza»: services/tournament/tournament-access.ts
+    return schoolOrganizesTournament(eventId, schoolId);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -621,7 +616,10 @@ async function notifyTeamMembers(teamIds: string[], payload: { title: string; me
 }
 
 /** Columnas de la migración 20261027180825 (banner_url ya existía). */
-const IDENTITY_V2_COLS = ['logo_url', 'end_date', 'rules_url', 'venue_name', 'venue_maps_url', 'organizer_name'];
+const IDENTITY_V2_COLS = ['logo_url', 'end_date', 'rules_url', 'venue_name', 'venue_maps_url', 'organizer_name', 'attachments'];
+
+/** Link propio del torneo (/torneo/<slug>): minúsculas, números y guiones. */
+export const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,58}[a-z0-9])$/;
 
 /** Logo/portada solo del storage de SportMaps; reglamento y mapa en https; textos recortados. */
 export function cleanTournamentIdentity<T extends Record<string, unknown>>(p: T): Record<string, unknown> {
@@ -633,6 +631,20 @@ export function cleanTournamentIdentity<T extends Record<string, unknown>>(p: T)
     if ('venue_name' in p) out.venue_name = cleanText(p.venue_name, 120, 'El nombre de la sede');
     if ('organizer_name' in p) out.organizer_name = cleanText(p.organizer_name, 120, 'El nombre del organizador');
     if ('end_date' in p && !p.end_date) out.end_date = null;
+    if ('attachments' in p && Array.isArray(p.attachments)) {
+        out.attachments = (p.attachments as Array<{ name: unknown; url: unknown }>).map((a, i) => {
+            const name = cleanText(a.name, 80, `El nombre del adjunto ${i + 1}`);
+            if (!name) throw new LiveError(400, 'adjunto_invalido', `Ponle nombre al adjunto ${i + 1}`);
+            const url = validateHttpsUrl(a.url, `El enlace de «${name}»`);
+            if (!url) throw new LiveError(400, 'adjunto_invalido', `Falta el enlace de «${name}»`);
+            return { name, url };
+        });
+    }
+    if ('slug' in p) {
+        const slug = String(p.slug ?? '').trim().toLowerCase();
+        if (!SLUG_RE.test(slug)) throw new LiveError(400, 'slug_invalido', 'El link solo puede tener minúsculas, números y guiones (3 a 60).');
+        out.slug = slug;
+    }
     return out;
 }
 
@@ -657,6 +669,8 @@ const PatchTournamentSchema = z.object({
     venue_name: z.string().nullable().optional(),
     venue_maps_url: z.string().nullable().optional(),
     organizer_name: z.string().nullable().optional(),
+    attachments: z.array(z.object({ name: z.string(), url: z.string() })).max(20).optional(),
+    slug: z.string().optional(),
     registration_deadline: z.string().nullable().optional(),
     payment_deadline: z.string().nullable().optional(),
     correction_deadline: z.string().nullable().optional(),
@@ -676,6 +690,10 @@ router.patch('/school-tournaments/:id', requireAuth, requireRole('school', 'scho
         let patch: Record<string, unknown>;
         try { patch = cleanTournamentIdentity(parsed.data); }
         catch (e) { if (e instanceof LiveError) return res.status(e.status).json({ error: e.message, code: e.code }); throw e; }
+        if (patch.slug) {
+            const { data: other } = await supabase.from('events').select('id').eq('slug', patch.slug as string).maybeSingle();
+            if (other && (other as any).id !== id) return res.status(409).json({ error: 'Ese link ya lo usa otro evento. Prueba con otro.', code: 'slug_en_uso' });
+        }
         if (patch.end_date) {
             const start = (patch.event_date as string | undefined)
                 ?? ((await supabase.from('events').select('event_date').eq('id', id).maybeSingle()).data as any)?.event_date;

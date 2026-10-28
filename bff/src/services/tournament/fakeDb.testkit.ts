@@ -12,7 +12,7 @@ export const db: { tables: Record<string, Row[]>; rpcCalls: number } = { tables:
 export function resetDb() {
   db.tables = {
     events: [], tournament_matches: [], tournament_match_log: [], tournament_scorekeepers: [],
-    event_teams: [], event_team_members: [], event_categories_config: [], notifications: [], tournament_sponsors: [],
+    event_teams: [], event_team_members: [], event_categories_config: [], notifications: [], tournament_sponsors: [], tournament_team_invites: [], children: [],
   };
   db.rpcCalls = 0;
 }
@@ -93,6 +93,10 @@ function builder(table: string) {
     eq: (c: string, v: any) => { filters.push((r) => (r[c] ?? null) === v); return api; },
     neq: (c: string, v: any) => { filters.push((r) => (r[c] ?? null) !== v); return api; },
     in: (c: string, vs: any[]) => { filters.push((r) => vs.includes(r[c])); return api; },
+    ilike: (c: string, pat: string) => {
+      const needle = String(pat).replace(/%/g, '').toLowerCase(); // solo el caso «%texto%»
+      filters.push((r) => String(r[c] ?? '').toLowerCase().includes(needle)); return api;
+    },
     order: (col: string, o: { ascending?: boolean } = {}) => { orderBy.push({ col, asc: o.ascending !== false }); return api; },
     limit: (n: number) => { lim = n; return api; },
     single: () => { single = 'single'; return Promise.resolve(finish()); },
@@ -104,6 +108,13 @@ function builder(table: string) {
 
 export const fakeSupabase = {
   from: (t: string) => builder(t),
+  storage: {
+    from: (bucket: string) => ({
+      createSignedUploadUrl: async (path: string) => ({ data: { token: 'tok', signedUrl: `https://x.supabase.co/upload/${bucket}/${path}` }, error: null }),
+      createSignedUrl: async (path: string) => ({ data: { signedUrl: `https://x.supabase.co/signed/${bucket}/${path}` }, error: null }),
+      remove: async () => ({ data: null, error: null }),
+    }),
+  },
   rpc: async (fn: string, a: any) => {
     db.rpcCalls++;
     if (fn === 'reschedule_tournament_match') {
