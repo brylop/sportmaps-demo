@@ -71,6 +71,8 @@ export type CardData = {
   } | null;
   revoked_at?: string;
   reason?: string;
+  /** Filas libres (carné de torneo: número, apodo, posición…). Se muestran después de las de siempre. */
+  extra_rows?: Array<{ label: string; value: string }>;
 };
 
 const FEE_BADGE: Record<string, { label: string; bg: string; fg: string; icon: typeof ShieldCheck }> = {
@@ -348,6 +350,7 @@ function dataRows(ctx: LayoutCtx): { icon: typeof ShieldCheck; label: string; va
   if (show.eps && data.athlete?.eps_name) rows.push({ icon: Heart, label: 'EPS', value: data.athlete.eps_name });
   if (show.tshirt_size && data.athlete?.tshirt_size) rows.push({ icon: Shirt, label: 'Talla', value: data.athlete.tshirt_size });
   if (show.emergency_contact && data.athlete?.emergency_contact) rows.push({ icon: Phone, label: 'Emergencia', value: data.athlete.emergency_contact });
+  for (const r of data.extra_rows ?? []) if (r.value) rows.push({ icon: ShieldCheck, label: r.label, value: r.value });
   return rows;
 }
 

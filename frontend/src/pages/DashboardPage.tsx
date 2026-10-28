@@ -24,6 +24,7 @@ import { CoachProfileWizard } from '@/components/coach/CoachProfileWizard';
 import { SchoolOnboardingWizard } from '@/components/onboarding/SchoolOnboardingWizard';
 import { ActivateStoreCTA } from '@/components/vendor/ActivateStoreCTA';
 import { OpenTournamentsCard } from '@/components/dashboard/OpenTournamentsCard';
+import { SchoolTournamentsHomeCard } from '@/components/dashboard/SchoolTournamentsHomeCard';
 import { supabase } from '@/integrations/supabase/client';
 import { getStepsForRole } from '@/lib/onboarding/getStepsForRole';
 import { acceptPendingInvitations } from '@/lib/invitations/acceptPendingInvitations';
@@ -662,6 +663,9 @@ export default function DashboardPage() {
 
       {/* Torneos/ligas internas abiertas en mi escuela — solo padre/atleta */}
       <OpenTournamentsCard />
+
+      {/* Torneos de la escuela con accesos directos — solo admin con el módulo */}
+      <SchoolTournamentsHomeCard />
 
       {/* Pending Enrollment Modal */}
       <PendingEnrollmentModal />

@@ -6,8 +6,10 @@ import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/a
 import { userClient } from '../utils/userClient';
 import {
     LiveError, buildCategoryStandings, generateCategoryFixtures, loadEvent, performMatchAction, toMatchDto, loadMatches,
+    invalidatePublicLive, validateHttpsUrl, validateImageUrl, cleanText, isMissingColumn,
 } from '../services/tournament/tournament-live.service';
 import { resolveConfig } from '../services/tournament/scoring.shared';
+import { schoolOrganizesTournament } from '../services/tournament/tournament-access';
 
 const router = Router();
 
@@ -253,6 +255,10 @@ const SchoolTournamentSchema = z.object({
     capacity: z.number().int().positive().optional(),
     image_url: z.string().optional().nullable(),
     banner_url: z.string().optional().nullable(),
+    logo_url: z.string().optional().nullable(),
+    end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha de cierre inválida').optional().nullable().or(z.literal('')),
+    venue_name: z.string().optional().nullable(),
+    competition_format: z.enum(['liga', 'copa', 'grupos']).optional().nullable(),
 
     // Torneo de escuela
     tournament_scope: z.enum(['internal', 'external']),
@@ -317,15 +323,19 @@ router.post('/school-tournament', requireAuth, requireRole('school', 'school_adm
             return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
         }
         const p = parsed.data;
+        let identity: Record<string, unknown>;
+        try { identity = cleanTournamentIdentity({ logo_url: p.logo_url ?? null, banner_url: p.banner_url ?? null, venue_name: p.venue_name ?? null, end_date: p.end_date || null }); }
+        catch (e) { if (e instanceof LiveError) return res.status(e.status).json({ error: e.message, code: e.code }); throw e; }
+        if (identity.end_date && String(identity.end_date) < String(p.event_date)) {
+            return res.status(400).json({ error: 'La fecha de cierre no puede ser antes de la fecha de inicio', code: 'fechas_invalidas' });
+        }
 
         // Visibilidad por defecto según el alcance
         const visibility = p.visibility
             ?? (p.tournament_scope === 'internal' ? 'school_only' : 'public');
 
         // 1. Insert Event (columnas reales; creator_role='school', organizer_id NULL)
-        const { data: newEvent, error: eventError } = await supabase
-            .from('events')
-            .insert({
+        const row: Record<string, unknown> = {
                 creator_id: userId,
                 creator_role: 'school',
                 school_id: schoolId,
@@ -343,7 +353,11 @@ router.post('/school-tournament', requireAuth, requireRole('school', 'school_adm
                 lng: p.lng ?? null,
                 capacity: p.capacity ?? 50,
                 image_url: p.image_url ?? null,
-                banner_url: p.banner_url ?? null,
+                banner_url: identity.banner_url ?? null,
+                // Solo si vienen: así crear un torneo sigue funcionando aunque la migración 20261027180825 no esté aplicada.
+                ...(identity.logo_url ? { logo_url: identity.logo_url } : {}),
+                ...(identity.end_date ? { end_date: identity.end_date } : {}),
+                ...(identity.venue_name ? { venue_name: identity.venue_name } : {}),
                 slug: slugifyTitle(p.title),
                 status: 'draft',
                 tournament_scope: p.tournament_scope,
@@ -359,11 +373,18 @@ router.post('/school-tournament', requireAuth, requireRole('school', 'school_adm
                 crossover_allowed: p.crossover_allowed,
                 payment_methods: p.payment_methods ?? [],
                 is_paid: p.is_paid,
-            })
-            .select()
-            .single();
+                ...(p.competition_format ? { competition_format: p.competition_format } : {}),
+        };
+        const insertEvent = (r: Record<string, unknown>) => supabase.from('events').insert(r).select().single();
+        let { data: newEvent, error: eventError } = await insertEvent(row);
+        if (isMissingColumn(eventError)) {
+            // Migración 20261027180825 sin aplicar: se crea sin la identidad nueva (se puede editar después).
+            const { logo_url: _l, end_date: _e, venue_name: _v, ...legacy } = row;
+            void _l; void _e; void _v;
+            ({ data: newEvent, error: eventError } = await insertEvent(legacy));
+        }
 
-        if (eventError) {
+        if (eventError || !newEvent) {
             req.log?.error({ err: eventError }, 'Error insertando torneo de escuela');
             return res.status(500).json({ error: 'Error al crear el torneo' });
         }
@@ -544,14 +565,8 @@ router.post('/school-tournaments/:id/publish', requireAuth, requireRole('school'
 
 // Helper: verifica que el torneo pertenezca a la escuela del usuario
 async function assertOwnedSchoolTournament(eventId: string, schoolId: string): Promise<boolean> {
-    const { data } = await supabase
-        .from('events')
-        .select('id')
-        .eq('id', eventId)
-        .eq('school_id', schoolId)
-        .eq('creator_role', 'school')
-        .maybeSingle();
-    return !!data;
+    // Un solo criterio de «quién organiza»: services/tournament/tournament-access.ts
+    return schoolOrganizesTournament(eventId, schoolId);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -602,6 +617,39 @@ async function notifyTeamMembers(teamIds: string[], payload: { title: string; me
     await notifyProfiles(ids, payload);
 }
 
+/** Columnas de la migración 20261027180825 (banner_url ya existía). */
+const IDENTITY_V2_COLS = ['logo_url', 'end_date', 'rules_url', 'venue_name', 'venue_maps_url', 'organizer_name', 'attachments'];
+
+/** Link propio del torneo (/torneo/<slug>): minúsculas, números y guiones. */
+export const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,58}[a-z0-9])$/;
+
+/** Logo/portada solo del storage de SportMaps; reglamento y mapa en https; textos recortados. */
+export function cleanTournamentIdentity<T extends Record<string, unknown>>(p: T): Record<string, unknown> {
+    const out: Record<string, unknown> = { ...p };
+    if ('logo_url' in p) out.logo_url = validateImageUrl(p.logo_url, 'El logo del torneo');
+    if ('banner_url' in p) out.banner_url = validateImageUrl(p.banner_url, 'La portada del torneo');
+    if ('rules_url' in p) out.rules_url = validateHttpsUrl(p.rules_url, 'El enlace del reglamento');
+    if ('venue_maps_url' in p) out.venue_maps_url = validateHttpsUrl(p.venue_maps_url, 'El enlace del mapa');
+    if ('venue_name' in p) out.venue_name = cleanText(p.venue_name, 120, 'El nombre de la sede');
+    if ('organizer_name' in p) out.organizer_name = cleanText(p.organizer_name, 120, 'El nombre del organizador');
+    if ('end_date' in p && !p.end_date) out.end_date = null;
+    if ('attachments' in p && Array.isArray(p.attachments)) {
+        out.attachments = (p.attachments as Array<{ name: unknown; url: unknown }>).map((a, i) => {
+            const name = cleanText(a.name, 80, `El nombre del adjunto ${i + 1}`);
+            if (!name) throw new LiveError(400, 'adjunto_invalido', `Ponle nombre al adjunto ${i + 1}`);
+            const url = validateHttpsUrl(a.url, `El enlace de «${name}»`);
+            if (!url) throw new LiveError(400, 'adjunto_invalido', `Falta el enlace de «${name}»`);
+            return { name, url };
+        });
+    }
+    if ('slug' in p) {
+        const slug = String(p.slug ?? '').trim().toLowerCase();
+        if (!SLUG_RE.test(slug)) throw new LiveError(400, 'slug_invalido', 'El link solo puede tener minúsculas, números y guiones (3 a 60).');
+        out.slug = slug;
+    }
+    return out;
+}
+
 // PATCH /api/v1/events/school-tournaments/:id — editar campos básicos
 const PatchTournamentSchema = z.object({
     title: z.string().min(1).optional(),
@@ -615,6 +663,17 @@ const PatchTournamentSchema = z.object({
     visibility: z.enum(['public', 'invited_only', 'school_only']).optional(),
     payer_mode: z.enum(['school', 'parent', 'flexible']).optional(),
     payment_gates_approval: z.boolean().optional(),
+    // Identidad pública del torneo (payload v2). banner_url = portada.
+    logo_url: z.string().nullable().optional(),
+    banner_url: z.string().nullable().optional(),
+    end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha de cierre inválida').nullable().optional().or(z.literal('')),
+    rules_url: z.string().nullable().optional(),
+    venue_name: z.string().nullable().optional(),
+    venue_maps_url: z.string().nullable().optional(),
+    organizer_name: z.string().nullable().optional(),
+    attachments: z.array(z.object({ name: z.string(), url: z.string() })).max(20).optional(),
+    slug: z.string().optional(),
+    competition_format: z.enum(['liga', 'copa', 'grupos']).nullable().optional(),
     registration_deadline: z.string().nullable().optional(),
     payment_deadline: z.string().nullable().optional(),
     correction_deadline: z.string().nullable().optional(),
@@ -631,15 +690,34 @@ router.patch('/school-tournaments/:id', requireAuth, requireRole('school', 'scho
 
         const parsed = PatchTournamentSchema.safeParse(req.body);
         if (!parsed.success) return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
+        let patch: Record<string, unknown>;
+        try { patch = cleanTournamentIdentity(parsed.data); }
+        catch (e) { if (e instanceof LiveError) return res.status(e.status).json({ error: e.message, code: e.code }); throw e; }
+        if (patch.slug) {
+            const { data: other } = await supabase.from('events').select('id').eq('slug', patch.slug as string).maybeSingle();
+            if (other && (other as any).id !== id) return res.status(409).json({ error: 'Ese link ya lo usa otro evento. Prueba con otro.', code: 'slug_en_uso' });
+        }
+        if (patch.end_date) {
+            const start = (patch.event_date as string | undefined)
+                ?? ((await supabase.from('events').select('event_date').eq('id', id).maybeSingle()).data as any)?.event_date;
+            if (start && String(patch.end_date) < String(start)) return res.status(400).json({ error: 'La fecha de cierre no puede ser antes de la fecha de inicio', code: 'fechas_invalidas' });
+        }
 
-        const { data, error } = await supabase
+        const run = (body: Record<string, unknown>) => supabase
             .from('events')
-            .update({ ...parsed.data, updated_at: new Date().toISOString() })
+            .update({ ...body, updated_at: new Date().toISOString() })
             .eq('id', id)
             .eq('school_id', schoolId)
             .select()
             .single();
+        let { data, error } = await run(patch);
+        if (isMissingColumn(error)) {
+            // Migración 20261027180825 sin aplicar: se guarda lo demás y se omite la identidad nueva.
+            const legacy = Object.fromEntries(Object.entries(patch).filter(([k]) => !IDENTITY_V2_COLS.includes(k)));
+            ({ data, error } = await run(legacy));
+        }
         if (error) { req.log?.error({ err: error }, 'Error editando torneo'); return res.status(500).json({ error: 'Error al editar el torneo' }); }
+        invalidatePublicLive();
         return res.status(200).json(data);
     } catch (err: any) {
         req.log?.error({ err }, 'Error inesperado editando torneo');
@@ -656,9 +734,20 @@ router.put('/school-tournaments/:id/categories', requireAuth, requireRole('schoo
         if (!(await assertOwnedSchoolTournament(String(id), schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
 
         const cats = Array.isArray(req.body?.categories) ? req.body.categories : [];
-        await supabase.from('event_categories_config').delete().eq('event_id', id);
-        if (cats.length > 0) {
-            const rows = cats.map((c: any, i: number) => ({
+        // Se conserva el id de cada categoría que ya existía: borrar y reinsertar dejaba a los equipos y
+        // partidos con category_id = NULL (FK ON DELETE SET NULL) y perdía las reglas por categoría.
+        const { data: prevRows } = await supabase.from('event_categories_config').select('id, division, level, category, rama').eq('event_id', id);
+        const prev = (prevRows ?? []) as Array<{ id: string; division: string; level: string; category: string; rama: string }>;
+        const prevIds = new Set(prev.map((r) => r.id));
+        // Clientes viejos no mandan el id: se empareja por división/nivel/categoría/rama.
+        const natKey = (c: any) => [c?.division || 'General', c?.level || '1', c?.category || 'Open', c?.rama || 'Mixto'].join('|').toLowerCase();
+        const claimed = new Set<string>(cats.filter((c: any) => typeof c?.id === 'string' && prevIds.has(c.id)).map((c: any) => c.id as string));
+        for (const c of cats as any[]) {
+            if (typeof c?.id === 'string' && prevIds.has(c.id)) continue;
+            const hit = prev.find((r) => !claimed.has(r.id) && natKey(r) === natKey(c));
+            if (hit) { c.id = hit.id; claimed.add(hit.id); }
+        }
+        const toRow = (c: any, i: number) => ({
                 event_id: id,
                 division: c.division || 'General',
                 level: c.level || '1',
@@ -675,10 +764,32 @@ router.put('/school-tournaments/:id/categories', requireAuth, requireRole('schoo
                 crossover_allowed: c.crossover_allowed ?? true,
                 active: c.active ?? true,
                 sort_order: c.sort_order ?? i,
-            }));
-            const { error } = await supabase.from('event_categories_config').insert(rows);
+        });
+        const keepIds = new Set<string>(cats.filter((c: any) => typeof c?.id === 'string' && prevIds.has(c.id)).map((c: any) => c.id as string));
+        const removed = [...prevIds].filter((x) => !keepIds.has(x));
+        if (removed.length > 0) {
+            // Una categoría con equipos o partidos no se borra: esos equipos quedarían sin categoría.
+            const [{ data: usedT }, { data: usedM }, { data: usedR }] = await Promise.all([
+                supabase.from('event_teams').select('category_id').eq('event_id', id).in('category_id', removed).limit(1),
+                supabase.from('tournament_matches').select('category_id').eq('event_id', id).in('category_id', removed).limit(1),
+                supabase.from('event_registrations').select('category_id').eq('event_id', id).in('category_id', removed).limit(1),
+            ]);
+            if ((usedT ?? []).length > 0 || (usedM ?? []).length > 0 || (usedR ?? []).length > 0) {
+                return res.status(409).json({ error: 'Una categoría que quitaste ya tiene inscritos, equipos o partidos. Muévelos o borra el calendario antes de quitarla.', code: 'categoria_en_uso' });
+            }
+            await supabase.from('event_categories_config').delete().eq('event_id', id).in('id', removed);
+        }
+        for (const [i, c] of (cats as any[]).entries()) {
+            if (!keepIds.has(c?.id)) continue;
+            const { error } = await supabase.from('event_categories_config').update(toRow(c, i)).eq('id', c.id).eq('event_id', id);
             if (error) { req.log?.error({ err: error }, 'Error guardando categorías'); return res.status(500).json({ error: 'Error al guardar categorías' }); }
         }
+        const fresh = (cats as any[]).map((c, i) => ({ c, i })).filter(({ c }) => !keepIds.has(c?.id)).map(({ c, i }) => toRow(c, i));
+        if (fresh.length > 0) {
+            const { error } = await supabase.from('event_categories_config').insert(fresh);
+            if (error) { req.log?.error({ err: error }, 'Error guardando categorías'); return res.status(500).json({ error: 'Error al guardar categorías' }); }
+        }
+        invalidatePublicLive();
         const { data } = await supabase.from('event_categories_config').select('*').eq('event_id', id).order('sort_order');
         return res.status(200).json(data || []);
     } catch (err: any) {
