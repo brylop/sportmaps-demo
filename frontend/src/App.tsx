@@ -81,6 +81,8 @@ const TournamentResultsPage = lazy(() => import("./pages/events/TournamentResult
 const TournamentLivePage = lazy(() => import("./pages/events/TournamentLivePage"));
 const TournamentTvPage = lazy(() => import("./pages/events/TournamentTvPage"));
 const TournamentScorerPage = lazy(() => import("./pages/events/TournamentScorerPage"));
+const TournamentTeamInvitePage = lazy(() => import("./pages/events/TournamentTeamInvitePage"));
+const TournamentCardValidationPage = lazy(() => import("./pages/events/TournamentCardValidationPage"));
 
 // ─── Polls (lazy) ────────────────────────────────────────────────────────────
 const PollsPage = lazy(() => import("./pages/polls/PollsPage"));
@@ -250,6 +252,7 @@ const SchoolEquipmentPage = lazy(() => import("./pages/school/SchoolEquipmentPag
 const CoachEquipmentPage = lazy(() => import("./pages/coach/CoachEquipmentPage"));
 const SchoolTournamentDetailPage = lazy(() => import("./pages/school/SchoolTournamentDetailPage"));
 const CreateTournamentPage = lazy(() => import("./pages/school/CreateTournamentPage"));
+const TournamentWizard = lazy(() => import("./components/tournaments/create/TournamentWizard"));
 const EventManagementPage = lazy(() => import("./pages/organizer/EventManagementPage"));
 const OrganizerEventsPage = lazy(() => import("./pages/organizer/OrganizerEventsPage"));
 const OrganizerFinancesPage = lazy(() => import("./pages/organizer/OrganizerFinancesPage"));
@@ -428,6 +431,8 @@ const App = () => (
                     <Route path="/torneo/:slug/en-vivo" element={<TournamentLivePage />} />
                     <Route path="/torneo/:slug/tv" element={<TournamentTvPage />} />
                     <Route path="/anotador/:token" element={<TournamentScorerPage />} />
+                    <Route path="/torneo/:slug/equipo/:token" element={<TournamentTeamInvitePage />} />
+                    <Route path="/torneo/:slug/validar/:token" element={<TournamentCardValidationPage />} />
                     <Route path="/s/:slug" element={<PublicSchoolPage />} />
                     <Route path="/polls/v/:pollId" element={<PublicPollPage />} />
 
@@ -681,6 +686,12 @@ const App = () => (
                       <Route path="school/tournaments/new" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
                           <CreateTournamentPage />
+                        </ProtectedRoute>
+                      } />
+                      {/* Asistente rápido de torneo (4 pasos, celular). */}
+                      <Route path="school/tournaments/nuevo-rapido" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
+                          <TournamentWizard />
                         </ProtectedRoute>
                       } />
                       <Route path="school/tournaments/:id" element={
@@ -1137,6 +1148,7 @@ const App = () => (
                         <Route path="organizer/dashboard" element={<OrganizerDashboardPage />} />
                         <Route path="organizer/profile" element={<OrganizerProfilePage />} />
                         <Route path="organizer/create-event" element={<CreateEventPage />} />
+                        <Route path="organizer/torneo-rapido" element={<TournamentWizard />} />
                         <Route path="organizer/event/:id" element={<EventManagementPage />} />
                         <Route path="organizer/events" element={<OrganizerEventsPage />} />
                         <Route path="organizer/finances" element={<OrganizerFinancesPage />} />

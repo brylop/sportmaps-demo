@@ -209,7 +209,13 @@ const GESTION_DEPORTIVA_ESCUELA: NavItem[] = [
   // pantalla del partido. /results-overview (feed de medallas de demostración,
   // pensado para cheer) sale del menú pero la ruta se conserva.
   { title: 'Resultados', href: '/results', icon: Trophy },
-  { title: 'Mis Torneos', href: '/school/tournaments', icon: Trophy, addon: 'tournaments' },
+  {
+    title: 'Torneos', icon: Trophy, addon: 'tournaments',
+    submenu: [
+      { title: 'Mis Torneos', href: '/school/tournaments', icon: Trophy },
+      { title: 'Crear torneo', href: '/school/tournaments/nuevo-rapido', icon: Plus },
+    ],
+  },
   { title: 'Dotación', href: '/school/equipment', icon: Dumbbell },
   // Solo disponibilidad (disponible / restringido / no disponible) que el
   // profesional de salud y la familia autorizaron compartir; nunca diagnóstico.
