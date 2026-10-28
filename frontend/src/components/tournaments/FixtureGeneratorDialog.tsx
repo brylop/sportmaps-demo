@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { bffClient } from '@/lib/api/bffClient';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
@@ -9,8 +9,10 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { ArrowDown, ArrowUp, Dices, Plus, Trash2 } from 'lucide-react';
 import type { FixtureFormat, FixturesResponse } from '@/lib/tournamentTypes';
 import {
-  buildFixturesBody, DEFAULT_DRAFT, moveItem, positionsText, summarizeDraft, validateDraft, type CupDraft, type FormatDraft,
+  buildFixturesBody, DEFAULT_DRAFT, fitCupsToMax, moveItem, positionsText, resolveInitialFormat, summarizeDraft, validateDraft,
+  type CupDraft, type FormatDraft,
 } from '@/lib/tournamentFormats';
+import type { LiveConfigDto } from '@/lib/tournamentTypes';
 
 const selectCls = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
@@ -26,6 +28,8 @@ interface Props {
   /** Equipos de la categoría (si se conocen). Vacío = el BFF valida la cantidad. */
   teams: TeamRef[];
   onGenerated: (r: FixturesResponse) => void;
+  /** Formato guardado del torneo. Si no se pasa, el diálogo lo lee de la configuración en vivo. */
+  initialFormat?: string | null;
 }
 
 const FORMAT_LABEL: Record<FixtureFormat, string> = { liga: 'Liga', copa: 'Copa', grupos: 'Grupos + fase final' };
@@ -59,6 +63,14 @@ export function CupsEditor({ cups, maxPosition, onChange }: { cups: CupDraft[]; 
                   </Button>
                 );
               })}
+              {/* Posiciones que ya no existen (grupos más chicos): se ven en rojo y se quitan con un toque. */}
+              {c.positions.filter((p) => p > positions.length).map((p) => (
+                <Button key={`out-${p}`} type="button" size="sm" variant="destructive" className="h-7 px-2" data-testid="cup-position-out"
+                  aria-label={`Quitar ${p}.º (no existe en el grupo más pequeño)`} title="No existe en el grupo más pequeño: tócalo para quitarlo"
+                  onClick={() => set(i, { positions: c.positions.filter((x) => x !== p) })}>
+                  {p}.º ✕
+                </Button>
+              ))}
             </div>
             <div className="flex items-center justify-between gap-2">
               <Label htmlFor={`fx-cup-third-${i}`} className="text-xs">Partido por el tercer puesto</Label>
@@ -77,7 +89,7 @@ export function CupsEditor({ cups, maxPosition, onChange }: { cups: CupDraft[]; 
   );
 }
 
-export function FixtureGeneratorDialog({ open, onOpenChange, eventId, categoryId, teams, onGenerated }: Props) {
+export function FixtureGeneratorDialog({ open, onOpenChange, eventId, categoryId, teams, onGenerated, initialFormat }: Props) {
   const { toast } = useToast();
   const [draft, setDraft] = useState<FormatDraft>(DEFAULT_DRAFT);
   const [allMatches, setAllMatches] = useState(true);
@@ -92,6 +104,33 @@ export function FixtureGeneratorDialog({ open, onOpenChange, eventId, categoryId
     if (open) { setDraft((d) => ({ ...d, teamOrder: teams.map((t) => t.id) })); setServerError(null); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, categoryId, teams.length]);
+
+  const formatTouched = useRef(false);
+  // Al abrir: el formato elegido en el asistente (guardado en el torneo, o ?formato= de respaldo), no siempre «liga».
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    formatTouched.current = false;
+    const fromUrl = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('formato') : null;
+    // Si el usuario ya eligió otro formato mientras cargaba, se respeta su elección.
+    const apply = (saved: unknown) => { if (alive && !formatTouched.current) setDraft((d) => ({ ...d, format: resolveInitialFormat(saved, fromUrl) })); };
+    if (initialFormat !== undefined) { apply(initialFormat); return () => { alive = false; }; }
+    Promise.resolve()
+      .then(() => bffClient.get<LiveConfigDto>(`${LIVE_BASE}/school/${eventId}/config`))
+      .then((c) => apply(c?.event?.competition_format ?? null))
+      .catch(() => apply(null));
+    return () => { alive = false; };
+  }, [open, eventId, initialFormat]);
+
+  // Copas ajustadas al grupo más pequeño: con 5 equipos en 2 grupos no hay 3.º ni 4.º.
+  const maxPosition = known ? Math.max(1, Math.floor(known / Math.max(draft.groupCount, 1))) : 8;
+  useEffect(() => {
+    if (draft.format !== 'grupos' || !draft.cupsOn) return;
+    setDraft((d) => {
+      const fitted = fitCupsToMax(d.cups, maxPosition);
+      return JSON.stringify(fitted) === JSON.stringify(d.cups) ? d : { ...d, cups: fitted };
+    });
+  }, [maxPosition, draft.format, draft.cupsOn]);
 
   const error = useMemo(() => validateDraft(draft, known), [draft, known]);
   const summary = useMemo(() => summarizeDraft(draft, teams.length), [draft, teams.length]);
@@ -126,7 +165,7 @@ export function FixtureGeneratorDialog({ open, onOpenChange, eventId, categoryId
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="fx-format">Formato</Label>
-            <select id="fx-format" className={selectCls} value={draft.format} onChange={(e) => patch({ format: e.target.value as FixtureFormat })}>
+            <select id="fx-format" className={selectCls} value={draft.format} onChange={(e) => { formatTouched.current = true; patch({ format: e.target.value as FixtureFormat }); }}>
               {(Object.keys(FORMAT_LABEL) as FixtureFormat[]).map((f) => <option key={f} value={f}>{FORMAT_LABEL[f]}</option>)}
             </select>
           </div>
@@ -184,7 +223,7 @@ export function FixtureGeneratorDialog({ open, onOpenChange, eventId, categoryId
               ) : (
                 <CupsEditor
                   cups={draft.cups}
-                  maxPosition={known ? Math.max(1, Math.floor(known / Math.max(draft.groupCount, 1))) : 8}
+                  maxPosition={maxPosition}
                   onChange={(cups) => patch({ cups })}
                 />
               )}

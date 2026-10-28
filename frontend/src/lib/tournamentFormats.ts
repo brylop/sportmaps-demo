@@ -41,6 +41,42 @@ export const DEFAULT_DRAFT: FormatDraft = {
   cupsOn: false, cups: DEFAULT_CUPS,
 };
 
+/**
+ * Copas por defecto según cuántas posiciones tiene el grupo más pequeño: con grupos de 4+ va
+ * oro [1,2] y plata [3,4]; con 3, plata [3]; con 2, oro [1] y plata [2]; con 1, solo oro.
+ */
+export function defaultCupsFor(maxPosition: number): CupDraft[] {
+  const max = Math.max(1, Math.floor(maxPosition));
+  if (max >= 4) return DEFAULT_CUPS.map((c) => ({ ...c, positions: [...c.positions] }));
+  if (max === 3) return [{ label: 'Copa oro', positions: [1, 2], thirdPlace: false }, { label: 'Copa plata', positions: [3], thirdPlace: false }];
+  if (max === 2) return [{ label: 'Copa oro', positions: [1], thirdPlace: false }, { label: 'Copa plata', positions: [2], thirdPlace: false }];
+  return [{ label: 'Copa oro', positions: [1], thirdPlace: false }];
+}
+
+const sameCups = (a: CupDraft[], b: CupDraft[]) => a.length === b.length && a.every((c, i) =>
+  c.label === b[i].label && c.thirdPlace === b[i].thirdPlace && c.positions.join(',') === b[i].positions.join(','));
+
+/**
+ * Ajusta las copas al tamaño real de los grupos. Si siguen siendo unas copas por defecto (el usuario
+ * no las tocó) se reparten de nuevo para ese máximo; si las editó, solo se recortan las posiciones
+ * que ya no existen (con 5 equipos en 2 grupos no hay 3.º ni 4.º en el grupo pequeño).
+ */
+export function fitCupsToMax(cups: CupDraft[], maxPosition: number): CupDraft[] {
+  const isDefault = [1, 2, 3, 4].some((m) => sameCups(cups, defaultCupsFor(m)));
+  if (isDefault) return defaultCupsFor(maxPosition);
+  return cups.map((c) => ({ ...c, positions: c.positions.filter((p) => p >= 1 && p <= maxPosition) }));
+}
+
+const FIXTURE_FORMATS: readonly FixtureFormat[] = ['liga', 'copa', 'grupos'];
+export const isFixtureFormat = (v: unknown): v is FixtureFormat => typeof v === 'string' && (FIXTURE_FORMATS as readonly string[]).includes(v);
+
+/** Formato con el que arranca el generador: el guardado en el torneo, si no el `?formato=` del asistente, si no liga. */
+export function resolveInitialFormat(saved: unknown, fromUrl: unknown): FixtureFormat {
+  if (isFixtureFormat(saved)) return saved;
+  if (isFixtureFormat(fromUrl)) return fromUrl;
+  return 'liga';
+}
+
 /** Mismas reglas que el BFF (validateCups): nombre único, posiciones sin repetir y dentro del grupo más pequeño. */
 export function validateCups(cups: CupDraft[], groupCount: number, minSize: number): string | null {
   if (cups.length === 0) return 'Agrega al menos una copa.';

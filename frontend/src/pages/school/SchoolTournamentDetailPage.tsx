@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ArrowLeft, Trophy, Share2, Rocket, Link2, AlertCircle, Plus, Trash2, Save, UserPlus, Radio, Copy } from 'lucide-react';
@@ -297,8 +298,9 @@ export default function SchoolTournamentDetailPage() {
   const isInternal = t.tournament_scope === 'internal';
   const savedCats = t.categories ?? [];
   const savedPhases = t.phases ?? [];
-  // Un torneo interno GRATIS no tiene tarifa: no exige fase de precio.
-  const esGratis = isInternal && t.is_paid === false;
+  // Un torneo GRATIS (interno o externo, p. ej. el del asistente) no tiene tarifa: no exige fase de precio.
+  // Mismo criterio que el BFF: is_paid === false ⇒ gratis.
+  const esGratis = t.is_paid === false;
   const canPublish = savedCats.length > 0 && (esGratis || savedPhases.length > 0);
   const isShareable = isActive && t.visibility !== 'school_only';
   // La página en vivo existe si el torneo no es privado, o si es interno pero con el marcador en vivo encendido.
@@ -331,7 +333,9 @@ export default function SchoolTournamentDetailPage() {
 
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10"><Trophy className="h-6 w-6 text-primary" /></div>
+          {t.logo_url
+            ? <img src={t.logo_url} alt={`Logo de ${t.title}`} className="h-11 w-11 shrink-0 rounded-lg border bg-white object-contain" data-testid="tournament-header-logo" />
+            : <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary/10"><Trophy className="h-6 w-6 text-primary" /></div>}
           <div>
             <div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-bold">{t.title}</h1><Badge variant={st.variant}>{st.label}</Badge></div>
             <div className="mt-1 flex flex-wrap gap-2">
@@ -341,7 +345,7 @@ export default function SchoolTournamentDetailPage() {
             </div>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {isDraft && (
             <Button onClick={publish} disabled={publishing || !canPublish} title={!canPublish ? (esGratis ? 'Agrega al menos 1 categoría' : 'Agrega al menos 1 categoría y 1 fase de precio') : ''}>
               <Rocket className="mr-1 h-4 w-4" /> {publishing ? 'Publicando…' : 'Publicar'}
@@ -458,6 +462,15 @@ export default function SchoolTournamentDetailPage() {
               </div>
             )}
             {!isInternal && (
+              <div className="flex items-center justify-between gap-3 rounded-lg border p-3 sm:col-span-2">
+                <div>
+                  <Label htmlFor="ext-is-paid" className="cursor-pointer">El torneo tiene costo</Label>
+                  <p className="text-xs text-muted-foreground">Apagado = torneo gratis: se publica sin fase de precio y los equipos no deben nada.</p>
+                </div>
+                <Switch id="ext-is-paid" checked={info.is_paid !== false} onCheckedChange={(v) => setInfo({ ...info, is_paid: v })} />
+              </div>
+            )}
+            {!isInternal && info.is_paid !== false && (
               <div className="space-y-1.5"><Label>¿Quién paga?</Label>
                 <select className={selectCls} value={info.payer_mode ?? 'school'} onChange={(e) => setInfo({ ...info, payer_mode: e.target.value as any })}>
                   <option value="school">La escuela recauda</option><option value="parent">Cada familia paga</option><option value="flexible">Flexible</option>

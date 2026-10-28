@@ -30,7 +30,7 @@ export function SportMapsFooter() {
 
             <div className="flex items-center gap-2">
               <SocialBtn icon={Facebook} href="https://facebook.com/sportmaps" label="Facebook" />
-              <SocialBtn icon={Instagram} href="https://instagram.com/sportmaps" label="Instagram" />
+              <SocialBtn icon={Instagram} href="https://instagram.com/sportmaps_app" label="Instagram" />
               <SocialBtn icon={Twitter} href="https://twitter.com/sportmaps" label="Twitter" />
               <SocialBtn icon={Linkedin} href="https://linkedin.com/company/sportmaps" label="LinkedIn" />
             </div>
