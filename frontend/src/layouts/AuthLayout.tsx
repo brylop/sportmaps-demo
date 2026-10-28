@@ -13,6 +13,7 @@ import { BrandingScope } from "@/components/BrandingScope";
 import { useDeviceContext } from "@/hooks/useDeviceContext";
 import { usePwaTenantSync } from "@/hooks/usePwaTenantSync";
 import { PushPermissionBanner } from "@/components/PushPermissionBanner";
+import { useSincronizarPushSilencioso } from "@/hooks/usePushSubscription";
 import { TrialStatusBanner } from "@/components/entitlements/TrialStatusBanner";
 import { SupportChatButton } from "@/components/support/SupportChatButton";
 import { VolverAcudiente } from "@/components/parent/v2/VolverAcudiente";
@@ -37,6 +38,9 @@ export default function AuthLayout() {
   // Deja el slug de la escuela en localStorage para que la PROXIMA carga pida
   // el manifest con la marca correcta y la app se instale con su logo.
   usePwaTenantSync();
+  // Web: si el permiso ya está concedido, refresca la suscripción push y la
+  // rota si se creó con otra llave VAPID. Silencioso, una vez por sesión.
+  useSincronizarPushSilencioso();
 
   // Logo escuela en header: usar el del context (ya lo hace fetch
   // useSchoolContext.fetchSchoolBranding). Sirve para feature gate por tier.
