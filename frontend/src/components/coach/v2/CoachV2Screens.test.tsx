@@ -27,6 +27,7 @@ const st = vi.hoisted(() => ({
   partidos: null as unknown,
   informes: null as unknown,
   escuela: { schoolId: 'school-1' as string | null, loading: false },
+  ultimaJugada: { data: null } as unknown,
   rpc: vi.fn(),
   post: vi.fn(),
 }));
@@ -47,7 +48,9 @@ vi.mock('./useCoachV2Data', () => ({
   useConvocatoria: (matchId: string | null) => (matchId === 'm1' ? st.conv : { data: null, isLoading: false }),
   useRespuestasConvocatoria: () => ({ data: undefined }),
   useNombresConvocados: () => ({ data: new Map([['child:r9', 'Juan Refuerzo'], ['profile:u7', 'Pedro Inactivo']]) }),
+  useUltimaJugada: () => st.ultimaJugada,
 }));
+vi.mock('@/components/support/SupportChatModal', () => ({ SupportChatModal: () => null }));
 vi.mock('@/hooks/useSchoolContext', () => ({ useSchoolContext: () => ({ ...st.escuela, schoolName: 'Club Campestre Demo' }) }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u-coach' }, profile: { full_name: 'Laura Gómez' } }) }));
 vi.mock('@/hooks/useEntitlements', () => ({ useEntitlements: () => ({ coachHideFinancialInfo: st.hide }) }));
@@ -88,6 +91,7 @@ beforeEach(() => {
   st.partidos = q([]);
   st.informes = q({ puedePublicar: false, equipos: [] });
   st.escuela = { schoolId: 'school-1', loading: false };
+  st.ultimaJugada = { data: null };
   st.post.mockReset();
   vi.mocked(toast.success).mockClear();
   vi.mocked(toast.error).mockClear();
@@ -196,6 +200,21 @@ describe('Evaluar al equipo', () => {
       p_ratings: [{ child_id: 'c1', effort_pct: 90 }, { user_id: 'u2', effort_pct: 60 }],
       p_coach_notes: null,
     });
+    expect(vi.mocked(toast.success).mock.calls.some(([m]) => /Evaluación guardada/.test(String(m)))).toBe(true);
+    expect(screen.getByRole('button', { name: 'Guardado' })).toBeInTheDocument();
+  });
+
+  it('B3: no dice «Guardado» antes de la RPC, y si la base rechaza muestra el motivo de verdad', async () => {
+    st.rpc.mockResolvedValue({ data: null, error: { code: '55000', message: 'La escuela no tiene configurada la métrica de rating del coach.' } });
+    pintar(<CoachEvaluateV2 sessionId="s1" />);
+    fireEvent.click(screen.getByRole('button', { name: /Guardar evaluación/ }));
+    expect(screen.queryByRole('button', { name: 'Guardado' })).toBeNull();
+    expect(vi.mocked(toast.success)).not.toHaveBeenCalled();
+    await act(async () => { vi.advanceTimersByTime(8000); });
+    expect(screen.getByTestId('error-evaluar')).toHaveTextContent('No se guardó: La escuela no tiene configurada la métrica de rating del coach.');
+    expect(JSON.stringify(vi.mocked(toast.error).mock.calls)).not.toMatch(/conexión/);
+    expect(vi.mocked(toast.success)).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /Guardar evaluación/ })).toBeInTheDocument();
   });
 
   it('Felicitar se oculta si la RPC no existe', () => {
@@ -233,6 +252,32 @@ describe('Hoy', () => {
     expect(screen.queryByRole('link', { name: /Avisos/ })).toBeNull();
     expect(document.querySelector('a[href="/notifications"]')).toBeNull();
     expect(screen.getByRole('banner')).toHaveTextContent('Club Campestre Demo');
+  });
+
+  it('botón grande «Pizarra» que abre /pizarra', () => {
+    pintar(<CoachHomeV2 hoy={new Date(2026, 9, 8, 15, 20)} />);
+    expect(screen.getByTestId('boton-pizarra')).toHaveAttribute('href', '/pizarra');
+    expect(screen.queryByTestId('dia-libre')).toBeNull();
+  });
+
+  it('«Hoy no entrenas» no deja la pantalla vacía: semana, última jugada y pizarra', () => {
+    // Martes 6-oct: Fútbol Sub 11 entrena los jueves.
+    st.sesiones = q([{ id: 's0', teamId: 't11', fecha: '2026-10-05', cerrada: true, evaluada: false }]);
+    st.ultimaJugada = { data: { id: 'j1', teamId: 't11', fuente: 'training_session', fecha: '2026-10-04T15:00:00Z' } };
+    pintar(<CoachHomeV2 hoy={new Date(2026, 9, 6, 10, 0)} />);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Hoy no entrenas.');
+    const libre = screen.getByTestId('dia-libre');
+    expect(libre).toHaveTextContent('sin evaluar');
+    expect(screen.getByTestId('ultima-jugada')).toHaveAttribute('href', '/pizarra?jugada=j1');
+    expect(within(libre).getByRole('link', { name: /Abrir la pizarra/ })).toHaveAttribute('href', '/pizarra');
+    expect(screen.queryByTestId('sin-horario')).toBeNull();
+  });
+
+  it('equipo sin horario fijo: ofrece «Agregar horario»', () => {
+    st.equipos = q([{ ...EQUIPO, franjas: [] }]);
+    pintar(<CoachHomeV2 hoy={HOY} />);
+    expect(screen.getByTestId('sin-horario')).toHaveTextContent('Fútbol Sub 11 no tiene horario fijo.');
+    expect(screen.getByTestId('agregar-horario')).toBeInTheDocument();
   });
 
   it('un error al cargar NO dice «Hoy no entrenas»', () => {

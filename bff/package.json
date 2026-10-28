@@ -57,5 +57,11 @@
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
     "vitest": "^2.1.9"
+  },
+  "overrides": {
+    "mailauth": {
+      "undici": "^8.12.3",
+      "nodemailer": "^10.2.1"
+    }
   }
 }

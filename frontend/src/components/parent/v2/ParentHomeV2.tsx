@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 import {
   chipHijo,
   cobrosQueSeDeben,
+  conPuntoFinal,
   fechaCabecera,
   hijoSinEps,
   iniciales,
@@ -35,6 +36,8 @@ import { parentHomeQueryKey, useParentHomeData } from './useParentHomeData';
 import { useParentAgenda } from './useParentCalendarData';
 import { buildAgenda } from './parentCalendarModel';
 import { fraseEntrenoDeAgenda } from './parentHomeLogic';
+import { TarjetaConvocatoria, useConvocatoriasFamilia } from './TarjetaConvocatoria';
+import { proximaConvocatoriaDe, type ConvocatoriaHijo } from './convocatoriasAcudiente';
 
 /** EPS más comunes como respuesta de un toque. `value` = lo que guarda `children.eps_name` (lib/colombian-eps). */
 const OPCIONES_EPS = [
@@ -137,6 +140,8 @@ function Contenido({
     [agenda.data, ahora, userId],
   );
   const entreno = entrenoAgenda !== undefined ? entrenoAgenda : proximoEntreno(hijos, ahora);
+  // B1: «¿Va Tomás?» en la tarjeta de cada hijo convocado.
+  const convocatorias = useConvocatoriasFamilia(userId).data ?? [];
   const deudas = cobrosQueSeDeben(cobros);
 
   return (
@@ -158,7 +163,9 @@ function Contenido({
           <Clock className="h-5 w-5 shrink-0" aria-hidden />
           <p className="text-base leading-snug">
             {entreno.frase.quien} entrena <b>{entreno.frase.cuando}</b>
-            {entreno.frase.donde ? ` en ${entreno.frase.donde}.` : '.'}
+            {entreno.frase.donde
+              ? ` en ${conPuntoFinal(entreno.frase.donde)}`
+              : conPuntoFinal(entreno.frase.cuando).slice(entreno.frase.cuando.trimEnd().length)}
           </p>
         </div>
       )}
@@ -176,7 +183,13 @@ function Contenido({
       ) : (
         <section aria-label="Tus deportistas" className="flex flex-col gap-3">
           {hijos.map((h) => (
-            <TarjetaHijo key={h.id} hijo={h} cobros={deudas.filter((c) => c.child_id === h.id)} />
+            <TarjetaHijo
+              key={h.id}
+              hijo={h}
+              cobros={deudas.filter((c) => c.child_id === h.id)}
+              convocatoria={proximaConvocatoriaDe(convocatorias, h.id)}
+              userId={userId}
+            />
           ))}
         </section>
       )}
@@ -186,7 +199,9 @@ function Contenido({
   );
 }
 
-function TarjetaHijo({ hijo, cobros }: { hijo: Hijo; cobros: Cobro[] }) {
+function TarjetaHijo({
+  hijo, cobros, convocatoria, userId,
+}: { hijo: Hijo; cobros: Cobro[]; convocatoria: ConvocatoriaHijo | null; userId: string | undefined }) {
   const chip = chipHijo(cobros);
   const detalle = [hijo.equipo, hijo.profe ? `Profe ${primerNombre(hijo.profe)}` : null].filter(Boolean).join(' · ');
   return (
@@ -217,6 +232,11 @@ function TarjetaHijo({ hijo, cobros }: { hijo: Hijo; cobros: Cobro[] }) {
             «{hijo.fraseProfe}»
             {hijo.profe && <span className="mt-1 block text-xs text-muted-foreground">Profe {primerNombre(hijo.profe)}</span>}
           </p>
+        </div>
+      )}
+      {convocatoria && (
+        <div className="border-t px-4 py-3.5">
+          <TarjetaConvocatoria conv={convocatoria} userId={userId} compacta />
         </div>
       )}
       <Link

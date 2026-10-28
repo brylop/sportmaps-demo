@@ -2874,8 +2874,8 @@ export default function PaymentsAutomationPage() {
                     <div>
                       <Label className="font-medium">Coaches pueden subir planillas de asistencia</Label>
                       <p className="text-xs text-muted-foreground max-w-[46ch]">
-                        Foto de la planilla en papel de sus equipos. La carga de asistencia por foto
-                        todavía está en construcción: este permiso queda listo para cuando salga.
+                        Foto de la planilla en papel de sus equipos, desde la app o el WhatsApp de la escuela.
+                        Sin este permiso, solo la administración puede subirlas.
                       </p>
                     </div>
                     <Switch

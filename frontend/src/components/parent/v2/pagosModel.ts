@@ -175,3 +175,30 @@ export function paidDetail(t: Transaction, now = new Date()): string {
   const valor = formatCurrency(Number(t.amount_paid || t.amount || 0));
   return [valor, methodLabel(t), dayLabel(t.transaction_date, false, now)].filter(Boolean).join(' · ');
 }
+
+const sinTildes = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+/**
+ * De quién es un cobro SIN `child_id` (B8). Antes salía siempre «Tú (como
+ * atleta)», también para acudientes que no entrenan: el Tenis de Tomás quedaba
+ * rotulado como del papá.
+ *   1. Si el concepto nombra a UNO solo de los hijos («… — Tenis (Tomás)»), es de ese hijo.
+ *   2. «Tú (como atleta)» solo si el acudiente tiene inscripción propia.
+ *   3. Si no, «Sin deportista asignado» (la escuela debe corregirlo).
+ * Solo es el rótulo: el cobro no cambia de dueño.
+ */
+export function rotuloCobroSinHijo(
+  cobro: { concept?: string | null; parent_id?: string | null },
+  userId: string | null | undefined,
+  hijos: { full_name: string | null }[],
+  tieneInscripcionPropia: boolean,
+): string {
+  const concepto = sinTildes(cobro.concept ?? '');
+  if (concepto) {
+    const nombres = [...new Set(hijos.map((h) => (h.full_name ?? '').trim().split(/\s+/)[0]).filter(Boolean))];
+    const nombrados = nombres.filter((n) => new RegExp(`(^|[^a-z])${sinTildes(n)}([^a-z]|$)`).test(concepto));
+    if (nombrados.length === 1) return nombrados[0];
+  }
+  if (userId && cobro.parent_id === userId && tieneInscripcionPropia) return 'Tú (como atleta)';
+  return 'Sin deportista asignado';
+}
