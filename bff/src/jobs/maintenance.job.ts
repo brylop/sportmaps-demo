@@ -28,6 +28,7 @@ import { runPostTrainingReminders } from './post-training-reminders.job';
 import { runWhatsAppQueue } from './whatsapp-queue.job';
 import { runWhatsAppPaymentOutcome } from './whatsapp-payment-outcome.job';
 import { runReceiptReviewAlerts } from './receipt-review-alerts.job';
+import { runBienvenidaEscuelas } from './bienvenida-escuelas.job';
 import { runWhatsAppMantenimiento } from './whatsapp-mantenimiento.job';
 import { vencerComprobantesColgados } from './whatsapp-cola-vencimiento.job';
 import { runWhatsAppPlantillasSync } from './whatsapp-plantillas-sync.job';
@@ -578,6 +579,27 @@ export function initMaintenanceJobs() {
     });
 
     console.log('[CRON] Avisos de comprobantes por validar registrados (cada 5 min).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Bienvenida a escuelas y entrenadores nuevos — cada 10 min.
+    //
+    // Antes la mandaba el navegador y solo en el registro con correo y rol
+    // 'school': con Google o como entrenador personal no salía (2026-10-26).
+    // Correo al dueño + aviso interno a contacto@. Idempotente entre los 3 BFF
+    // por la reserva en email_sends. Kill-switch: DISABLE_BIENVENIDA_ESCUELAS.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('*/10 * * * *', async () => {
+        if (process.env.DISABLE_BIENVENIDA_ESCUELAS === 'true') return;
+        try {
+            const r = await runBienvenidaEscuelas();
+            if (r.enviadas || r.fallos) console.log(`[CRON] Bienvenidas: ${r.enviadas} enviada(s), ${r.fallos} fallida(s).`);
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error enviando bienvenidas:', err?.message || err);
+        }
+    });
+
+    console.log('[CRON] Bienvenida a escuelas nuevas registrada (cada 10 min).');
 
     // ────────────────────────────────────────────────────────────────────────
     // Plazo de la promesa del acuse (P1, análisis 2026-10-06) — cada 2 min.

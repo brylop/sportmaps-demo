@@ -1,0 +1,27 @@
+const lib = await import('../lib.mjs');
+const OUT = process.argv[2]; const M = '03f916e1-5950-4da2-a5b5-c368ddb94407';
+const browser = await lib.launch();
+const { page, errors } = await lib.newSession(browser, 'gerencia@demo.sportmaps.co', { desktop: true });
+await lib.go(page, `/partidos/${M}?paso=cerrar`, 4500);
+await page.getByRole('button', { name: /^Tomás H\./ }).click();
+await lib.settle(page, 500);
+await page.getByRole('button', { name: /^Sumar gol a Tomás Herrera/ }).click();
+await lib.settle(page, 2500);
+await page.getByRole('button', { name: /^Sumar gol a Tomás Herrera/ }).click();
+await lib.settle(page, 2500);
+await page.getByRole('button', { name: /^Tomás D\./ }).click();
+await lib.settle(page, 500);
+await page.getByRole('button', { name: /^Sumar asistencia a Tomás D/ }).click();
+await lib.settle(page, 2500);
+// rival: un gol
+await page.getByRole('button', { name: /Sumar un gol a Deportivo Arrayanes/ }).click().catch(e=>console.log('rival', e.message));
+await lib.settle(page, 800);
+await page.screenshot({ path: `${OUT}/A3-resultado.png`, fullPage: true });
+const g = page.getByRole('button', { name: /^Guardar resultado/ });
+console.log('btn', await g.textContent());
+await g.click();
+await lib.settle(page, 5000);
+await page.screenshot({ path: `${OUT}/A4-tras-guardar.png`, fullPage: true });
+console.log((await page.evaluate(() => document.querySelector('main').innerText)).replace(/\n+/g,' | ').slice(0,1500));
+console.log(errors.join('\n'));
+await browser.close();

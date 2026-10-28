@@ -121,7 +121,12 @@ async function sesion(browser, email, { desk = false } = {}) {
 }
 
 async function ir(page, ruta, ms = 3500) {
-  await page.goto(BASE_URL + ruta);
+  // Un redirect de la página anterior a veces aborta la navegación: un reintento.
+  await page.goto(BASE_URL + ruta).catch(async (e) => {
+    if (!/ERR_ABORTED/.test(e.message)) throw e;
+    await page.waitForTimeout(1500);
+    await page.goto(BASE_URL + ruta);
+  });
   await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
   await page.waitForTimeout(ms);
 }
@@ -223,36 +228,33 @@ async function programar(page, { teamId, rival, fecha, hora, lugar, tipo, nota, 
 
 const FUTURO = () => masDias(hoyCO(), 5);
 
-// Partido A: por jugar (convocatoria, calendario, pizarra)
+// Partido A: por jugar (programar, convocar y avisar, calendario, pizarra) — Sub-12
 SECCIONES.partidoA = async (browser) => {
   const { context, page } = await sesion(browser, COACH);
-  const fecha = FUTURO();
-  const rival = 'Halcones FC';
-  let ex = await partidoExistente(SUB15, rival, fecha);
-  let id = ex?.id;
+  const fecha = masDias(hoyCO(), 12);
+  const rival = 'Deportivo Suba';
+  let id = (await partidoExistente(SUB12, rival, fecha))?.id;
   if (!id) {
-    id = await programar(page, { teamId: SUB15, rival, fecha, hora: '09:00', lugar: 'Cancha fútbol 11, Club Campestre', tipo: 'Liga', nota: 'Llegar 8:15 a.m. con uniforme blanco.', prefijo: '20' });
+    id = await programar(page, { teamId: SUB12, rival, fecha, hora: '09:00', lugar: 'Cancha mini fútbol, Club Campestre', tipo: 'Liga', nota: 'Llegar 8:15 a.m. con uniforme blanco.', prefijo: '20' });
     console.log('  ✓ partido A creado', id);
   } else { await ir(page, `/partidos/${id}?paso=convocar`, 5000); }
-  datos.partidoA = { id, rival, fecha, equipo: 'Fútbol — Sub-15' };
+  datos.partidoA = { id, rival, fecha, equipo: 'Fútbol — Sub-12' };
   await shot(page, '21-convocar');
-  await shot(page, '21-convocar-full', { full: true });
   const conv = page.getByRole('button', { name: /^Convocar/ });
   if (await conv.count()) {
+    fs.writeFileSync(path.join(TXT, '21-boton.txt'), await conv.first().innerText());
     await conv.first().click();
     await espera(page, 3500);
     await shot(page, '22-convocados');
   }
-  // La pestaña Partidos con el próximo partido
-  await ir(page, `/teams?equipo=${SUB15}&tab=partidos`, 6000);
+  await ir(page, `/teams?equipo=${SUB12}&tab=partidos`, 6000);
   await shot(page, '23-tab-proximo');
-  await shot(page, '23-tab-proximo-full', { full: true });
+  await shotEn(page, '23b-tab-proximo-abajo', 'Armar la alineación', { bloque: 'center' });
   await page.getByRole('button', { name: /alineación en la pizarra/ }).click();
   await espera(page, 5000);
   await shot(page, '24-pizarra');
   await context.close();
-  // El evento de calendario que crea create_match
-  datos.partidoA.eventos = await leer(`calendar_events?school_id=eq.${SCHOOL}&title=ilike.*Halcones*&select=id,title,event_type,start_time,team_id`);
+  datos.partidoA.eventos = await leer(`calendar_events?school_id=eq.${SCHOOL}&title=ilike.*Suba*&select=id,title,event_type,start_time,team_id`);
   console.log('  · eventos ligados:', JSON.stringify(datos.partidoA.eventos));
 };
 
@@ -654,6 +656,198 @@ SECCIONES.asistencia = async (browser) => {
   await ir(page, '/coach-attendance/scan', 5000);
   await shot(page, '99-escanear');
   fs.writeFileSync(path.join(TXT, '99-body.txt'), await page.evaluate(() => document.body.innerText));
+  await context.close();
+};
+
+/** Foto de prueba de una planilla en papel (HTML renderizado → JPG), con los nombres reales del grupo. */
+async function fotoPlanilla(browser, archivo, { titulo, fechas, filas }) {
+  const page = await browser.newPage({ viewport: { width: 900, height: 640 }, deviceScaleFactor: 2 });
+  const celdas = (marcas) => marcas.map((m) => `<td>${m}</td>`).join('');
+  await page.setContent(`<body style="margin:0;background:#e9e4d6;font-family:'Segoe Print','Comic Sans MS',cursive">
+    <div style="margin:24px;background:#fffdf5;padding:22px 26px;box-shadow:0 2px 8px #0003;transform:rotate(-0.6deg)">
+      <div style="font:700 22px Arial;margin-bottom:4px">PLANILLA DE ASISTENCIA</div>
+      <div style="font:15px Arial;margin-bottom:14px">${titulo}</div>
+      <table style="border-collapse:collapse;width:100%;font-size:20px">
+        <tr><th style="border:1.5px solid #333;padding:6px;text-align:left;font:700 15px Arial">Nombre</th>${fechas.map((f) => `<th style="border:1.5px solid #333;padding:6px;font:700 15px Arial">${f}</th>`).join('')}</tr>
+        ${filas.map(([n, ...m]) => `<tr><td style="border:1.5px solid #333;padding:8px 10px">${n}</td>${celdas(m).replace(/<td>/g, '<td style="border:1.5px solid #333;text-align:center;font-size:24px">')}</tr>`).join('')}
+      </table>
+      <div style="font:13px Arial;margin-top:12px;color:#555">✓ = vino · X = faltó · Firma del entrenador: A. Ríos</div>
+    </div></body>`);
+  await page.screenshot({ path: archivo, type: 'jpeg', quality: 85 });
+  await page.close();
+}
+
+// Planillas por revisar (asistencia en papel por foto)
+SECCIONES.planillas = async (browser) => {
+  const foto = path.join(SHOTS, '_planilla-prueba.jpg');
+  const f1 = masDias(hoyCO(), -4), f2 = masDias(hoyCO(), -6);
+  const dm = (iso) => `${iso.slice(8)}/${iso.slice(5, 7)}`;
+  await fotoPlanilla(browser, foto, {
+    titulo: 'Fútbol — Sub-15 · Club Campestre Demo · Octubre 2026',
+    fechas: [dm(f2), dm(f1)],
+    filas: [['Julieta Duarte', '✓', '✓'], ['Renata Cárdenas', '✓', 'X'], ['Tomás Duarte', 'X', '✓'], ['Tomás Herrera', '✓', '✓']],
+  });
+  const { context, page } = await sesion(browser, COACH);
+  await ir(page, '/school/attendance-sheets', 6000);
+  await shot(page, '100-planillas-vacia');
+  const previas = await leer(`attendance_sheet_intake?school_id=eq.${SCHOOL}&select=id,status,submitted_by,created_at`).catch((e) => e.message);
+  datos.planillasAntes = previas;
+  const mias = Array.isArray(previas) ? previas.filter((r) => r.submitted_by === '16d36eb1-776f-4324-a0ea-fdf1fe5b4519') : [];
+  if (!mias.length) {
+    await page.locator('input[type="file"]').setInputFiles(foto);
+    await page.getByText(/Planilla leída|No reconocí|No se pudo|no está habilitada|pesa más/).first().waitFor({ timeout: 120000 }).catch(() => {});
+    await espera(page, 3000);
+    await shot(page, '101-planilla-subida');
+    fs.writeFileSync(path.join(TXT, '101-body.txt'), await page.evaluate(() => document.body.innerText));
+  }
+  await ir(page, '/school/attendance-sheets', 6000);
+  await shot(page, '102-planillas-lista');
+  fs.writeFileSync(path.join(TXT, '102-body.txt'), await page.evaluate(() => document.querySelector('main')?.innerText || ''));
+  datos.planillas = await leer(`attendance_sheet_intake?school_id=eq.${SCHOOL}&select=id,status,team_id,session_date,submitted_by,created_at`).catch((e) => e.message);
+  await context.close();
+};
+
+/** Prende o apaga «Coaches pueden subir hojas de matrícula» desde Pagos › Config (owner). */
+async function permisoMatricula(browser, valor, nombre) {
+  const { context, page } = await sesion(browser, OWNER, { desk: true });
+  await ir(page, '/payments-automation', 6000);
+  await page.getByRole('tab', { name: 'Config' }).click(); await espera(page, 2500);
+  const fila = page.locator('div.flex.items-center.justify-between').filter({ has: page.getByText('Coaches pueden subir hojas de matrícula', { exact: true }) }).last();
+  const sw = fila.getByRole('switch');
+  await sw.scrollIntoViewIfNeeded();
+  const actual = (await sw.getAttribute('aria-checked')) === 'true';
+  if (actual !== valor) {
+    await sw.click(); await espera(page, 500);
+    if (nombre) { await fila.evaluate((e) => e.scrollIntoView({ block: 'center' })); await espera(page, 500); await shot(page, nombre); }
+    await page.getByRole('button', { name: 'Guardar Cambios' }).first().click(); await espera(page, 3500);
+  }
+  const s = await leer(`school_settings?school_id=eq.${SCHOOL}&select=coach_can_upload_enrollment_forms`);
+  console.log(`  · coach_can_upload_enrollment_forms = ${s[0]?.coach_can_upload_enrollment_forms}`);
+  await context.close();
+}
+
+// Hojas de matrícula por foto: depende de un permiso de la escuela
+SECCIONES.matricula = async (browser) => {
+  // 1. Sin permiso
+  {
+    const { context, page } = await sesion(browser, COACH);
+    await ir(page, '/school/enrollment-intake', 6000);
+    await shot(page, '110-matricula-sin-permiso');
+    await context.close();
+  }
+  // 2. La escuela lo activa
+  await permisoMatricula(browser, true, '111-owner-permiso-matricula');
+  // 3. El coach sube la foto
+  const foto = path.join(SHOTS, '_matricula-prueba.jpg');
+  {
+    const page = await browser.newPage({ viewport: { width: 820, height: 1000 }, deviceScaleFactor: 2 });
+    const campo = (l, v) => `<div style="display:flex;gap:10px;margin:12px 0;font-size:19px"><b style="font:700 15px Arial;width:230px">${l}</b><span style="flex:1;border-bottom:1.5px solid #333;font-family:'Segoe Print','Comic Sans MS',cursive">${v}</span></div>`;
+    await page.setContent(`<body style="margin:0;background:#ddd"><div style="margin:20px;background:#fffef8;padding:30px 36px;box-shadow:0 2px 8px #0003">
+      <div style="font:800 24px Arial;text-align:center">CLUB CAMPESTRE DEMO</div>
+      <div style="font:700 18px Arial;text-align:center;margin-bottom:18px">FICHA DE INSCRIPCIÓN 2026</div>
+      ${campo('Nombre del deportista', 'Samuel Ortiz Ríos')}${campo('Fecha de nacimiento', '12/03/2012')}
+      ${campo('Documento', 'TI 1012345678')}${campo('Disciplina / categoría', 'Fútbol Sub-15')}
+      ${campo('EPS', 'Sanitas')}${campo('Nombre del acudiente', 'Paola Ríos Gómez')}
+      ${campo('Cédula del acudiente', '52.123.456')}${campo('Celular', '310 555 0199')}
+      ${campo('Correo', 'paola.rios.demo@demo.sportmaps.co')}${campo('Dirección', 'Calle 140 # 12-34, Bogotá')}
+      <div style="margin-top:26px;font:14px Arial">Firma del acudiente: ____________________ &nbsp;&nbsp; Fecha: 26/10/2026</div></div></body>`);
+    await page.screenshot({ path: foto, type: 'jpeg', quality: 85 });
+    await page.close();
+  }
+  {
+    const { context, page } = await sesion(browser, COACH);
+    await ir(page, '/school/enrollment-intake', 6000);
+    await shot(page, '112-matricula-con-permiso');
+    const ya = await leer(`enrollment_form_intake?school_id=eq.${SCHOOL}&select=id,status,created_at&order=created_at.desc&limit=5`).catch((e) => e.message);
+    datos.matriculasAntes = ya;
+    await page.locator('input[type="file"]').first().setInputFiles(foto);
+    await page.getByText(/recibida|leída|Listo|No se pudo|no reconoc|Error|revis/i).first().waitFor({ timeout: 120000 }).catch(() => {});
+    await espera(page, 3000);
+    await shot(page, '113-matricula-subida');
+    fs.writeFileSync(path.join(TXT, '113-body.txt'), await page.evaluate(() => document.body.innerText));
+    await context.close();
+  }
+  datos.matriculas = await leer(`enrollment_form_intake?school_id=eq.${SCHOOL}&select=id,status,submitted_by,created_at&order=created_at.desc&limit=5`).catch((e) => e.message);
+  // 4. La escuela la ve en su bandeja
+  {
+    const { context, page } = await sesion(browser, OWNER, { desk: true });
+    await ir(page, '/school/enrollment-intake', 7000);
+    await shot(page, '114-owner-bandeja-matriculas');
+    fs.writeFileSync(path.join(TXT, '114-body.txt'), await page.evaluate(() => document.querySelector('main')?.innerText || ''));
+    await context.close();
+  }
+  // 5. Se deja el permiso como estaba (apagado)
+  await permisoMatricula(browser, false, null);
+};
+
+// «Más»: cada entrada, con su pantalla y los errores HTTP que dispare
+const RUTAS_MAS = [
+  ['120-mas', '/mas'], ['121-agenda-citas', '/coach-plans'], ['122-informe-mensual', '/informe-mensual'],
+  ['123-informes-entreno', '/coach-reports'], ['124-rutinas', '/school/routines'], ['125-dotacion', '/coach/dotacion'],
+  ['126-salud-equipo', '/disponibilidad-medica'], ['127-mensajes', '/messages'], ['128-anuncios', '/announcements'],
+  ['129-encuestas', '/dashboard/polls'], ['130-notificaciones', '/notifications'], ['131-configuracion', '/settings'],
+  ['132-perfil', '/profile'], ['133-centro-ayuda', '/ayuda'], ['134-mis-deportistas', '/students'], ['135-resultados', '/results'],
+];
+SECCIONES.mas = async (browser) => {
+  const { context, page } = await sesion(browser, COACH);
+  datos.mas = datos.mas ?? {};
+  for (const [nombre, ruta] of RUTAS_MAS) {
+    if (process.env.SOLO_FALTANTES && fs.existsSync(path.join(SHOTS, `${nombre}.png`))) continue;
+    const antes = httpErrores.length;
+    await ir(page, ruta, 6000);
+    await shot(page, nombre);
+    datos.mas[ruta] = { url: page.url(), errores: httpErrores.slice(antes) };
+  }
+  await ir(page, '/mas', 4000);
+  await page.getByText('Preguntarle a Mapi').click(); await espera(page, 2500);
+  await shot(page, '136-mapi');
+  await context.close();
+};
+
+/**
+ * Las acciones con «Deshacer» (convocar, evaluar el entreno, felicitar) se escriben a los 8 s.
+ * Salir por la navegación de la app las ejecuta; RECARGAR la página dentro de esos 8 s las pierde.
+ * Esta sección repite las dos que la primera pasada perdió por recargar, y prueba la salida interna.
+ */
+SECCIONES.deshacer = async (browser) => {
+  const { context, page } = await sesion(browser, COACH);
+  // 1. Convocatoria de Suba: tocar Convocar y esperar la ventana completa en la pantalla
+  if (!process.env.SALTAR_CONV) {
+  await ir(page, `/partidos/${datos.partidoA.id}?paso=convocar`, 6000);
+  const conv = page.getByRole('button', { name: /^Convocar/ });
+  if (await conv.count()) { await conv.first().click(); await espera(page, 11000); }
+  }
+  const lu = await leer(`match_lineups?source_id=eq.${datos.partidoA.id}&select=id,match_lineup_players(count)`);
+  console.log('  · convocatoria Suba en la base:', JSON.stringify(lu));
+  datos.partidoA.convocatoria = lu;
+  // 2. Evaluación del entreno: guardar y salir enseguida con «Volver» (sin recargar)
+  await ir(page, datos.sesionAsistenciaHref, 6000);
+  const g = page.getByRole('radiogroup', { name: /Tomás Herrera/ });
+  await g.getByText('Bien', { exact: true }).click();
+  await page.locator('#nota-familias').fill('Buen entreno de presión tras pérdida. El jueves seguimos con salida desde el fondo.');
+  await page.getByRole('button', { name: /Guardar evaluación/ }).click();
+  await espera(page, 800);
+  await page.getByRole('button', { name: 'Volver' }).first().click().catch(() => page.getByText('Volver a Equipos').click());
+  await espera(page, 5000);
+  const sid = datos.sesionAsistenciaHref.split('/').pop();
+  const pe = await leer(`performance_entries?context_id=eq.${sid}&select=metric_key,value`);
+  console.log('  · evaluación del entreno en la base:', JSON.stringify(pe));
+  datos.evaluacionEntreno = pe;
+  await ir(page, '/dashboard', 10000);
+  await shot(page, '05-hoy');
+  await context.close();
+};
+
+// Retomas de pantallas que cargan lento en dev (render del BFF en frío)
+SECCIONES.retomas = async (browser) => {
+  const { context, page } = await sesion(browser, COACH);
+  await ir(page, '/dashboard', 10000);
+  await shot(page, '05-hoy');
+  await shotEn(page, '05b-hoy-abajo', 'Pendientes', { bloque: 'start' }).catch(() => {});
+  await ir(page, '/training-plans', 12000);
+  await shot(page, '70-sesiones-hoy');
+  await ir(page, '/profile', 12000);
+  await shot(page, '132-perfil');
   await context.close();
 };
 

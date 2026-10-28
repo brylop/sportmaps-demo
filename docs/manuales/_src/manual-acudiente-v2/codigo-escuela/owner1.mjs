@@ -1,0 +1,12 @@
+const lib = await import('../lib.mjs');
+const OUT = process.argv[2];
+const browser = await lib.launch();
+const { page, errors } = await lib.newSession(browser, 'gerencia@demo.sportmaps.co', { desktop: true });
+await lib.go(page, '/students?bandeja=por-asignar', 6000);
+const sec = page.getByText('Mateo Pardo Demo').first();
+await sec.scrollIntoViewIfNeeded().catch(e => console.log('no mateo'));
+await lib.settle(page, 800);
+await page.screenshot({ path: `${OUT}/o1-por-asignar.png` });
+console.log(await page.evaluate(() => { const el=[...document.querySelectorAll('section,div')].find(d=>/Por asignar/.test(d.innerText) && d.innerText.length<3000); return el?el.innerText.replace(/\n+/g,' | '):'none'; }));
+console.log(errors.join(' ## '));
+await browser.close();

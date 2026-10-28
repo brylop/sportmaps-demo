@@ -35,6 +35,10 @@ interface EmailItem {
     // Nombre visible del remitente (escuela con marca blanca). La dirección
     // sigue siendo noreply@sportmaps.co: es el dominio verificado en Resend.
     from_name?: string;
+    // A dónde llegan las respuestas. Solo se acepta un buzón @sportmaps.co
+    // (contacto@, soporte@…): noreply no recibe, y cualquier otro dominio
+    // convertiría esta función en un remitente de SportMaps para terceros.
+    reply_to?: string;
 }
 
 const DEFAULT_FROM = "SportMaps <noreply@sportmaps.co>";
@@ -45,6 +49,40 @@ function buildFrom(name?: string): string {
     const limpio = (name || "").replace(/[\u0000-\u001f"<>\\]/g, "").trim().slice(0, 80);
     return limpio ? `"${limpio}" <noreply@sportmaps.co>` : DEFAULT_FROM;
 }
+
+function replyToSeguro(v?: string): string | undefined {
+    const limpio = (v || "").trim().toLowerCase();
+    return /^[a-z0-9._%+-]+@sportmaps\.co$/.test(limpio) ? limpio : undefined;
+}
+
+/**
+ * ¿La llamada viene del servidor (BFF / service_role)? El gateway ya verificó la
+ * firma del JWT (verify_jwt = true); acá solo se lee el rol.
+ *
+ * Por qué (2026-10-27): con la llave PÚBLICA de la app —la que va en el bundle
+ * del frontend— se podía mandar un correo con asunto y HTML libres desde
+ * noreply@sportmaps.co a cualquier dirección. Phishing con nuestra marca y
+ * cupo de Resend quemado. La app solo usa plantillas (`type`); el contenido
+ * libre lo arma únicamente el BFF, que llama con la llave de servicio.
+ */
+function esLlamadaDeServidor(req: Request): boolean {
+    const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
+    if (!token) return false;
+    const servicio = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (servicio && token === servicio) return true;
+    // Llave secreta del formato nuevo: nunca sale del servidor.
+    if (token.startsWith("sb_secret_")) return true;
+    try {
+        const parte = token.split(".")[1];
+        if (!parte) return false;
+        const json = JSON.parse(atob(parte.replace(/-/g, "+").replace(/_/g, "/")));
+        return json?.role === "service_role";
+    } catch {
+        return false;
+    }
+}
+
+const CONTENIDO_LIBRE_PROHIBIDO = "El contenido libre (subject/html sin 'type') solo se acepta desde el servidor";
 
 interface EmailPayload extends Partial<EmailItem> {
     // Envío masivo: hasta 100 destinatarios en UNA sola llamada a Resend.
@@ -436,7 +474,8 @@ Deno.serve(async (req: Request) => {
 
     try {
         const payload: EmailPayload = await req.json();
-        const { type, to, data, subject: rawSubject, html: rawHtml, batch } = payload;
+        const { type, to, data, subject: rawSubject, html: rawHtml, batch, reply_to } = payload;
+        const deServidor = esLlamadaDeServidor(req);
 
         // ── Envío masivo (POST /emails/batch) ──────────────────────────────
         if (Array.isArray(batch)) {
@@ -457,23 +496,27 @@ Deno.serve(async (req: Request) => {
             try {
                 emails = batch.map((item) => {
                     if (!item.to) throw new Error("Falta 'to' en un elemento del batch");
+                    if (!item.type && !deServidor) throw new Error(CONTENIDO_LIBRE_PROHIBIDO);
                     const built = item.type
                         ? getSubjectAndHtml(item.type, item.data || {})
                         : { subject: item.subject!, html: item.html! };
                     if (!built.subject || !built.html) {
                         throw new Error(`Elemento sin 'type' ni ('subject' y 'html'): ${item.to}`);
                     }
+                    const replyTo = replyToSeguro(item.reply_to);
                     return {
                         from: buildFrom(item.from_name),
                         to: [item.to],
                         subject: built.subject,
                         html: built.html,
+                        ...(replyTo ? { reply_to: replyTo } : {}),
                     };
                 });
             } catch (buildErr) {
+                const msg = (buildErr as Error).message;
                 return new Response(
-                    JSON.stringify({ error: (buildErr as Error).message }),
-                    { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+                    JSON.stringify({ error: msg }),
+                    { status: msg === CONTENIDO_LIBRE_PROHIBIDO ? 403 : 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
                 );
             }
 
@@ -539,6 +582,12 @@ Deno.serve(async (req: Request) => {
             subject = template.subject;
             html = template.html;
         } else if (rawSubject && rawHtml) {
+            if (!deServidor) {
+                return new Response(
+                    JSON.stringify({ error: CONTENIDO_LIBRE_PROHIBIDO }),
+                    { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+                );
+            }
             subject = rawSubject;
             html = rawHtml;
         } else {
@@ -569,6 +618,7 @@ Deno.serve(async (req: Request) => {
                 to: [to],
                 subject,
                 html,
+                ...(replyToSeguro(reply_to) ? { reply_to: replyToSeguro(reply_to) } : {}),
             }),
         });
 
