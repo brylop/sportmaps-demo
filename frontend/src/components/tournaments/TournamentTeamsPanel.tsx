@@ -9,10 +9,35 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ImageUpload } from '@/components/common/ImageUpload';
-import { Pencil, Plus, Shield, Trash2, Users } from 'lucide-react';
+import { Link2, Pencil, Plus, Printer, Shield, Trash2, Users } from 'lucide-react';
 import type { TeamDto } from '@/lib/tournamentTypes';
 import { MAX_PASTE, parsePastedTeams, suggestShortName } from '@/lib/tournamentTeams';
+import { printHtml, teamsListHtml } from '@/lib/tournamentPrint';
 import { LIVE_BASE } from './FixtureGeneratorDialog';
+import { TeamPlayersDialog } from './TeamPlayersDialog';
+import { STAGE_LABEL, TeamInviteDialog, type InviteDto } from './TeamInviteDialog';
+
+const money = (n: number | null) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n ?? 0);
+
+/** Caja rápida «Nombre del equipo + Agregar» (Enter también agrega). */
+export function QuickAddTeam({ onAdd, total }: { onAdd: (name: string) => Promise<boolean>; total: number }) {
+  const [v, setV] = useState('');
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    const name = v.trim();
+    if (!name || busy) return;
+    setBusy(true);
+    if (await onAdd(name)) setV('');
+    setBusy(false);
+  };
+  return (
+    <form className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+      <Input aria-label="Nombre del equipo" placeholder="Nombre del equipo" maxLength={80} value={v} onChange={(e) => setV(e.target.value)} />
+      <Button type="submit" disabled={!v.trim() || busy}><Plus className="mr-1 h-4 w-4" /> Agregar</Button>
+      <span className="whitespace-nowrap text-sm text-muted-foreground" data-testid="teams-total">Total: {total}</span>
+    </form>
+  );
+}
 
 const selectCls = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
@@ -23,6 +48,7 @@ interface Props {
   /** Escuela dueña: la carpeta del bucket school-assets donde puede escribir su admin. */
   schoolId: string | null;
   categories: TeamsPanelCategory[];
+  tournamentTitle?: string;
 }
 
 type AddMode = 'one' | 'list';
@@ -32,7 +58,7 @@ type AddMode = 'one' | 'list';
  * organizador agrega solo con el nombre (sin cuenta ni delegación). Todos entran igual al sorteo,
  * al calendario y a la tabla. Cada equipo puede tener logo y sigla.
  */
-export function TournamentTeamsPanel({ eventId, schoolId, categories }: Props) {
+export function TournamentTeamsPanel({ eventId, schoolId, categories, tournamentTitle = 'Torneo' }: Props) {
   const { toast } = useToast();
   const base = `${LIVE_BASE}/school/${eventId}`;
   const [teams, setTeams] = useState<TeamDto[] | null>(null);
@@ -45,11 +71,49 @@ export function TournamentTeamsPanel({ eventId, schoolId, categories }: Props) {
   const [pasted, setPasted] = useState('');
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState<TeamDto | null>(null);
+  const [playersOf, setPlayersOf] = useState<TeamDto | null>(null);
+  const [inviteFor, setInviteFor] = useState<TeamDto | null>(null);
+  const [invites, setInvites] = useState<InviteDto[]>([]);
 
+  const loadInvites = useCallback(async () => {
+    try { setInvites(await bffClient.get<InviteDto[]>(`${base}/invites`)); } catch { setInvites([]); }
+  }, [base]);
   const load = useCallback(async () => {
     try { setTeams(await bffClient.get<TeamDto[]>(`${base}/teams`)); }
     catch (e) { setTeams([]); toast({ title: 'No se pudieron cargar los equipos', description: (e as Error).message, variant: 'destructive' }); }
-  }, [base, toast]);
+    void loadInvites();
+  }, [base, toast, loadInvites]);
+  const inviteOf = (teamId: string) => invites.find((i) => i.team_id === teamId) ?? null;
+  const catName = (id: string | null) => categories.find((c) => c.id === id)?.name ?? 'Sin categoría';
+
+  const quickAdd = async (catId: string, teamName: string) => {
+    try {
+      const r = await bffClient.post<{ created: TeamDto[]; skipped: string[] }>(`${base}/teams/external`, { category_id: catId, teams: [{ team_name: teamName }] });
+      if (r.created.length === 0) { toast({ title: `«${teamName}» ya está en la categoría` }); return false; }
+      await load();
+      return true;
+    } catch (e) { toast({ title: 'No se pudo agregar', description: (e as Error).message, variant: 'destructive' }); return false; }
+  };
+
+  const inviteAction = async (i: InviteDto, action: 'paid' | 'unpaid' | 'revoke' | 'proof') => {
+    try {
+      if (action === 'proof') {
+        const r = await bffClient.get<{ url: string | null }>(`${base}/invites/${i.id}/proof`);
+        if (r.url) window.open(r.url, '_blank', 'noopener');
+        return;
+      }
+      if (action === 'revoke') {
+        if (!window.confirm('¿Desactivar este link? El delegado ya no podrá entrar.')) return;
+        await bffClient.post(`${base}/invites/${i.id}/revoke`, {});
+      } else await bffClient.patch(`${base}/invites/${i.id}/payment`, { paid: action === 'paid' });
+      await loadInvites();
+    } catch (e) { toast({ title: 'No se pudo hacer', description: (e as Error).message, variant: 'destructive' }); }
+  };
+
+  const printTeams = () => {
+    const list = (teams ?? []).map((t) => ({ id: t.id, name: t.name, club_name: t.club_name, category: catName(t.category_id), is_external: t.is_external, players: inviteOf(t.id)?.players ?? undefined }));
+    if (!printHtml(teamsListHtml(tournamentTitle, list))) toast({ title: 'Permite las ventanas emergentes para imprimir', variant: 'destructive' });
+  };
   useEffect(() => { void load(); }, [load]);
 
   const byCat = useMemo(() => {
@@ -97,7 +161,10 @@ export function TournamentTeamsPanel({ eventId, schoolId, categories }: Props) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base"><Users className="h-4 w-4" /> Equipos del torneo</CardTitle>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="flex items-center gap-2 text-base"><Users className="h-4 w-4" /> Equipos del torneo</CardTitle>
+          {(teams?.length ?? 0) > 0 && <Button size="sm" variant="outline" onClick={printTeams}><Printer className="mr-1 h-4 w-4" /> Imprimir lista</Button>}
+        </div>
         <p className="text-sm text-muted-foreground">Los inscritos y los rivales que agregues con solo el nombre. Todos entran al sorteo, al calendario y a la tabla.</p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -109,8 +176,9 @@ export function TournamentTeamsPanel({ eventId, schoolId, categories }: Props) {
             <div key={c.id} className="space-y-2 rounded-md border p-3" data-testid={`teams-cat-${c.id}`}>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-medium">{c.name} <span className="text-muted-foreground">· {list.length} equipo{list.length === 1 ? '' : 's'}</span></p>
-                <Button size="sm" variant="outline" onClick={() => openAdd(c.id)}><Plus className="mr-1 h-4 w-4" /> Agregar equipo rival</Button>
+                <Button size="sm" variant="ghost" onClick={() => openAdd(c.id)}><Plus className="mr-1 h-4 w-4" /> Agregar equipo rival (más opciones o pegar lista)</Button>
               </div>
+              <QuickAddTeam total={list.length} onAdd={(n) => quickAdd(c.id, n)} />
               {list.length === 0 ? <p className="text-xs text-muted-foreground">Aún no hay equipos en esta categoría.</p> : (
                 <ul className="divide-y">
                   {list.map((t) => (
@@ -123,6 +191,24 @@ export function TournamentTeamsPanel({ eventId, schoolId, categories }: Props) {
                         {t.club_name && <p className="truncate text-xs text-muted-foreground">{t.club_name}</p>}
                       </div>
                       <Badge variant={t.is_external ? 'secondary' : 'outline'}>{t.is_external ? 'Rival externo' : 'Inscrito'}</Badge>
+                      {(() => {
+                        const inv = inviteOf(t.id);
+                        if (!inv) return null;
+                        return (
+                          <span className="flex flex-wrap items-center gap-1 text-xs" data-testid={`invite-${t.id}`}>
+                            <Badge variant={inv.stage === 'listo' ? 'default' : 'outline'}>{STAGE_LABEL[inv.stage]}</Badge>
+                            <span className="text-muted-foreground">Nómina {inv.players ?? 0}{inv.roster_target ? `/${inv.roster_target}` : ''}</span>
+                            {inv.payment_status !== 'not_required' && (
+                              <span className="text-muted-foreground">· {inv.payment_status === 'paid' ? 'Pagado' : inv.payment_status === 'proof_sent' ? 'Comprobante enviado' : `Pago pendiente ${money(inv.payment_amount)}`}</span>
+                            )}
+                            {inv.has_payment_proof && <Button size="sm" variant="link" className="h-6 px-1" onClick={() => inviteAction(inv, 'proof')}>Ver comprobante</Button>}
+                            {inv.payment_status === 'proof_sent' && <Button size="sm" variant="outline" className="h-6 px-2" onClick={() => inviteAction(inv, 'paid')}>Confirmar pago</Button>}
+                            {inv.stage !== 'revocado' && <Button size="sm" variant="ghost" className="h-6 px-1" onClick={() => inviteAction(inv, 'revoke')}>Desactivar</Button>}
+                          </span>
+                        );
+                      })()}
+                      <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={`Jugadores de ${t.name}`} title="Jugadores" onClick={() => setPlayersOf(t)}><Users className="h-4 w-4" /></Button>
+                      {t.is_external && <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={`Link de inscripción de ${t.name}`} title="Link de inscripción" onClick={() => setInviteFor(t)}><Link2 className="h-4 w-4" /></Button>}
                       <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={`Editar ${t.name}`} onClick={() => setEdit(t)}><Pencil className="h-4 w-4" /></Button>
                       {t.is_external && (
                         <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={`Quitar ${t.name}`} onClick={() => remove(t)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
@@ -177,6 +263,11 @@ export function TournamentTeamsPanel({ eventId, schoolId, categories }: Props) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <TeamPlayersDialog eventId={eventId} team={playersOf} categoryName={catName(playersOf?.category_id ?? null)} tournamentTitle={tournamentTitle}
+        onClose={() => { setPlayersOf(null); void loadInvites(); }} />
+      <TeamInviteDialog eventId={eventId} team={inviteFor} current={inviteFor ? inviteOf(inviteFor.id) : null}
+        onClose={() => setInviteFor(null)} onCreated={() => void loadInvites()} />
 
       <TeamEditDialog team={edit} base={base} uploadPath={uploadPath} categories={categories}
         onClose={() => setEdit(null)} onSaved={() => { setEdit(null); void load(); }} />

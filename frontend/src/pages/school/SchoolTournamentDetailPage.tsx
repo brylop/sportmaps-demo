@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { bffClient } from '@/lib/api/bffClient';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,6 +17,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { ImageUpload } from '@/components/common/ImageUpload';
 import { TournamentTeamsPanel } from '@/components/tournaments/TournamentTeamsPanel';
 import { TournamentSponsorsPanel } from '@/components/tournaments/TournamentSponsorsPanel';
+import { TournamentContentPanel } from '@/components/tournaments/TournamentContentPanel';
+import { TournamentCardsPanel } from '@/components/tournaments/TournamentCardsPanel';
 import { getIndividualRegistrations, assignTeams, IndividualRegistration } from '@/lib/api/tournaments';
 import { RegisterAthleteDialog } from '@/components/school/RegisterAthleteDialog';
 import { TournamentResultsPanel } from '@/components/tournaments/TournamentResultsPanel';
@@ -55,6 +57,12 @@ interface Detail {
   // Identidad pública (página en vivo). banner_url = portada.
   logo_url?: string | null; banner_url?: string | null; end_date?: string | null;
   venue_name?: string | null; venue_maps_url?: string | null; rules_url?: string | null; organizer_name?: string | null;
+  attachments?: Array<{ name: string; url: string }> | null;
+}
+
+/** Link propio del torneo: minúsculas, números y guiones (mismo criterio que el BFF). */
+export function slugError(v: string): string | null {
+  return /^[a-z0-9](?:[a-z0-9-]{1,58}[a-z0-9])$/.test(v) ? null : 'Usa de 3 a 60 minúsculas, números o guiones (sin tildes ni espacios).';
 }
 
 /** Enlaces opcionales de la ficha: vacío o https. */
@@ -85,6 +93,10 @@ export default function SchoolTournamentDetailPage() {
   const [publishing, setPublishing] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
+  // ?tab=inscritos|resultados|carnes|contenido: los accesos directos del inicio y del menú abren la pestaña.
+  const [params] = useSearchParams();
+  const TABS = ['info', 'cats', 'inscritos', 'resultados', 'contenido', 'carnes'];
+  const initialTab = TABS.includes(params.get('tab') ?? '') ? String(params.get('tab')) : 'info';
   const { schoolSettings, schoolId } = useSchoolContext();
   // Solo los medios que la escuela ya tiene configurados.
   const medios = mediosDeCobroDeLaEscuela(schoolSettings);
@@ -122,7 +134,7 @@ export default function SchoolTournamentDetailPage() {
         is_paid: d.is_paid !== false, payment_methods: d.payment_methods ?? [],
         logo_url: d.logo_url ?? null, banner_url: d.banner_url ?? null, end_date: d.end_date ?? null,
         venue_name: d.venue_name ?? null, venue_maps_url: d.venue_maps_url ?? null, rules_url: d.rules_url ?? null,
-        organizer_name: d.organizer_name ?? null,
+        organizer_name: d.organizer_name ?? null, attachments: d.attachments ?? [], slug: d.slug,
       });
       setCats((d.categories ?? []).map((c: any) => ({
         id: c.id, division: c.division, level: c.level, category: c.category, rama: c.rama,
@@ -160,6 +172,14 @@ export default function SchoolTournamentDetailPage() {
       toast({ title: 'Error', description: err?.message ?? 'No se pudieron cargar los inscritos.', variant: 'destructive' });
     }
   }, [id, toast]);
+
+  // Abrir directo en Inscritos (acceso del inicio) también carga la lista.
+  useEffect(() => {
+    if (initialTab !== 'inscritos' || !t) return;
+    if (t.tournament_scope === 'internal') { if (!regsLoaded) void loadIndividualRegistrations(); }
+    else if (!delsLoaded) void loadDelegations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t?.id]);
 
   const createTeam = async (catId: string) => {
     const teamName = (teamNameDraft[catId] ?? '').trim();
@@ -215,7 +235,11 @@ export default function SchoolTournamentDetailPage() {
   const money = (n: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n || 0);
   const publicUrl = t ? `${window.location.origin}/event/${t.slug}` : '';
   const liveUrl = t ? `${window.location.origin}/torneo/${t.slug}/en-vivo` : '';
-  const infoErrors = [httpsFieldError(info.venue_maps_url), httpsFieldError(info.rules_url)].filter(Boolean) as string[];
+  const infoErrors = [
+    httpsFieldError(info.venue_maps_url), httpsFieldError(info.rules_url),
+    ...(info.attachments ?? []).map((a) => (!a.name.trim() ? 'Ponle nombre a cada adjunto' : httpsFieldError(a.url) ?? (a.url.trim() ? null : `Falta el enlace de «${a.name}»`))),
+    info.slug != null ? slugError(info.slug) : null,
+  ].filter(Boolean) as string[];
   const endBeforeStart = !!(info.end_date && info.event_date && info.end_date < info.event_date);
 
   const saveInfo = async () => {
@@ -226,6 +250,8 @@ export default function SchoolTournamentDetailPage() {
       ...info,
       end_date: info.end_date || null, venue_name: blank(info.venue_name), venue_maps_url: blank(info.venue_maps_url),
       rules_url: blank(info.rules_url), organizer_name: blank(info.organizer_name),
+      attachments: (info.attachments ?? []).map((a) => ({ name: a.name.trim(), url: a.url.trim() })),
+      ...(info.slug && info.slug !== t?.slug ? { slug: info.slug } : { slug: undefined }),
     };
     try { await bffClient.patch(`/api/v1/events/school-tournaments/${id}`, body); toast({ title: 'Guardado' }); await load(); }
     catch (e: any) { toast({ title: 'Error', description: e?.message, variant: 'destructive' }); }
@@ -352,17 +378,19 @@ export default function SchoolTournamentDetailPage() {
         </CardContent></Card>
       )}
 
-      <Tabs defaultValue="info" onValueChange={(v) => {
+      <Tabs defaultValue={initialTab} onValueChange={(v) => {
         if (v === 'inscritos') {
           if (isInternal && !regsLoaded) void loadIndividualRegistrations();
           if (!isInternal && !delsLoaded) void loadDelegations();
         }
       }}>
-        <TabsList>
+        <TabsList className="flex h-auto w-full justify-start overflow-x-auto">
           <TabsTrigger value="info">Info</TabsTrigger>
           <TabsTrigger value="cats">Categorías y Precios</TabsTrigger>
           <TabsTrigger value="inscritos">Inscritos</TabsTrigger>
           <TabsTrigger value="resultados">Resultados</TabsTrigger>
+          <TabsTrigger value="contenido">Contenido</TabsTrigger>
+          <TabsTrigger value="carnes">Carnés</TabsTrigger>
         </TabsList>
 
         {/* ─── INFO (editable) ─── */}
@@ -399,6 +427,21 @@ export default function SchoolTournamentDetailPage() {
             <div className="space-y-1.5"><Label>Reglamento (enlace, opcional)</Label>
               <Input inputMode="url" placeholder="https://drive.google.com/…" value={info.rules_url ?? ''} onChange={(e) => setInfo({ ...info, rules_url: e.target.value })} aria-invalid={!!httpsFieldError(info.rules_url)} />
               {httpsFieldError(info.rules_url) && <p role="alert" className="text-xs text-destructive">{httpsFieldError(info.rules_url)}</p>}</div>
+            <div className="space-y-1.5 sm:col-span-2"><Label>Link propio del torneo</Label>
+              <div className="flex items-center gap-1 text-sm"><span className="text-muted-foreground">{window.location.host}/torneo/</span>
+                <Input className="max-w-xs" value={info.slug ?? ''} onChange={(e) => setInfo({ ...info, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })} aria-invalid={!!(info.slug && slugError(info.slug))} aria-label="Link propio del torneo" /></div>
+              {info.slug && slugError(info.slug) ? <p role="alert" className="text-xs text-destructive">{slugError(info.slug)}</p>
+                : <p className="text-xs text-muted-foreground">Si lo cambias, los links que ya compartiste dejan de funcionar.</p>}</div>
+            <div className="space-y-1.5 sm:col-span-2"><Label>Adjuntos públicos (reglamento, programación en PDF…)</Label>
+              {(info.attachments ?? []).map((a, i) => (
+                <div key={i} className="flex gap-2">
+                  <Input aria-label={`Nombre del adjunto ${i + 1}`} placeholder="Programación" value={a.name} onChange={(e) => setInfo({ ...info, attachments: (info.attachments ?? []).map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })} />
+                  <Input aria-label={`Enlace del adjunto ${i + 1}`} inputMode="url" placeholder="https://drive.google.com/…" value={a.url} onChange={(e) => setInfo({ ...info, attachments: (info.attachments ?? []).map((x, j) => (j === i ? { ...x, url: e.target.value } : x)) })} />
+                  <Button size="icon" variant="ghost" aria-label={`Quitar adjunto ${i + 1}`} onClick={() => setInfo({ ...info, attachments: (info.attachments ?? []).filter((_, j) => j !== i) })}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                </div>
+              ))}
+              {(info.attachments ?? []).length < 20 && <Button size="sm" variant="outline" onClick={() => setInfo({ ...info, attachments: [...(info.attachments ?? []), { name: '', url: '' }] })}><Plus className="mr-1 h-4 w-4" /> Agregar adjunto</Button>}
+            </div>
             <div className="space-y-1.5"><Label>Organiza (opcional)</Label><Input maxLength={120} placeholder="Si lo dejas vacío, sale el nombre de tu escuela" value={info.organizer_name ?? ''} onChange={(e) => setInfo({ ...info, organizer_name: e.target.value })} /></div>
             {isInternal && (
               <div className="sm:col-span-2">
@@ -509,7 +552,7 @@ export default function SchoolTournamentDetailPage() {
         {/* ─── INSCRITOS ─── */}
         <TabsContent value="inscritos" className="mt-4 space-y-4">
           <TournamentTeamsPanel
-            eventId={String(id)} schoolId={schoolId}
+            eventId={String(id)} schoolId={schoolId} tournamentTitle={t.title}
             categories={savedCats.map((c: any) => ({ id: c.id, name: `${c.division} · ${c.category} (${c.rama})` }))}
           />
           {isInternal && savedCats.length > 0 && (
@@ -662,6 +705,16 @@ export default function SchoolTournamentDetailPage() {
             </CardContent>
           </Card>
           )}
+        </TabsContent>
+
+        {/* ─── CONTENIDO: fotos, videos, noticias, comentarios y MVP ─── */}
+        <TabsContent value="contenido" className="mt-4">
+          <TournamentContentPanel eventId={String(id)} slug={t.slug} />
+        </TabsContent>
+
+        {/* ─── CARNÉS: formulario de jugador, diseño del carné y PDF ─── */}
+        <TabsContent value="carnes" className="mt-4">
+          <TournamentCardsPanel eventId={String(id)} tournament={{ id: t.id, title: t.title, logo_url: t.logo_url ?? null }} />
         </TabsContent>
 
         {/* ─── RESULTADOS: calendario por formato, tablas, cuadro y marcador en vivo ─── */}

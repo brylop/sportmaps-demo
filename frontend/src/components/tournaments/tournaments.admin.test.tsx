@@ -13,7 +13,9 @@ vi.mock('@/lib/api/bffClient', () => ({
   bffClient: { get: (...a: unknown[]) => get(...a), post: (...a: unknown[]) => post(...a), patch: (...a: unknown[]) => patch(...a), delete: (...a: unknown[]) => del(...a) },
   BFFError: class BFFError extends Error {},
 }));
-vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: vi.fn() }) }));
+// toast estable, como el hook real (si cambia en cada render, los useCallback que lo usan se recrean sin fin).
+const toastFn = vi.hoisted(() => ({ toast: () => {} }));
+vi.mock('@/hooks/use-toast', () => ({ useToast: () => toastFn }));
 vi.mock('@/components/common/ImageUpload', () => ({
   ImageUpload: ({ path, onChange }: { path?: string; onChange: (u: string) => void }) => (
     <button type="button" data-testid="upload" data-path={path} onClick={() => onChange('https://x.supabase.co/logo.png')}>subir</button>

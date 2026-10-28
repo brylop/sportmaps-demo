@@ -108,7 +108,7 @@ export function TournamentResultsPanel({ eventId, categories }: { eventId: strin
     return (
       <div className="fixed inset-0 z-50 overflow-y-auto bg-background">
         <LiveScorer
-          match={scoring} endpoints={endpoints} queueKey={`torneo-cola:school:${eventId}`}
+          match={scoring} endpoints={endpoints} queueKey={`torneo-cola:school:${eventId}`} tournamentTitle={config?.event.title}
           onClose={() => { setScoring(null); void loadResults(catId); }}
           onMatchChange={(m) => setMatches((prev) => prev.map((x) => (x.id === m.id ? { ...x, ...m } : x)))}
         />
