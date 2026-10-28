@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { bffClient } from '@/lib/api/bffClient';
-import type { PublicLiveDto } from '@/lib/tournamentTypes';
+import type { PublicLiveV2 } from '@/components/tournaments/public/publicModel';
 import {
   LIVE_EVENT, acceptPush, liveTopic, mergeOverrides, pollIntervalMs, refetchDelayMs, type LivePushPayload, type Overrides,
 } from '@/components/tournaments/live/liveTransport';
@@ -27,30 +27,30 @@ export type LiveTransport = 'push' | 'polling';
  * con push conectado. Solo con la pestaña visible; al ocultarla se suelta el canal.
  *
  * La FORMA de lo que devuelve no cambió ({ data, notFound, error, loading, updatedAt, now });
- * se agregó `transport` (informativo).
+ * se agregó `transport` (informativo) y `reload` (recarga a demanda).
  */
 export function usePublicLive(slug: string | undefined) {
-  const [data, setData] = useState<PublicLiveDto | null>(null);
+  const [data, setData] = useState<PublicLiveV2 | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [transport, setTransport] = useState<LiveTransport>('polling');
-  const polledRef = useRef<PublicLiveDto | null>(null);
+  const polledRef = useRef<PublicLiveV2 | null>(null);
   const overridesRef = useRef<Overrides>(new Map());
   const pushRef = useRef(false);
   const [visible, setVisible] = useState(() => typeof document === 'undefined' || document.visibilityState === 'visible');
 
   const publish = useCallback(() => {
     if (!polledRef.current) return;
-    setData(mergeOverrides(polledRef.current, overridesRef.current));
+    setData(mergeOverrides(polledRef.current, overridesRef.current) as PublicLiveV2);
   }, []);
 
   const load = useCallback(async () => {
     if (!slug) return;
     try {
-      const r = await bffClient.get<PublicLiveDto>(`/api/v1/tournament-live/public/${encodeURIComponent(slug)}/live`, undefined, 'public');
+      const r = await bffClient.get<PublicLiveV2>(`/api/v1/tournament-live/public/${encodeURIComponent(slug)}/live`, undefined, 'public');
       polledRef.current = r;
       publish();
       setNotFound(false); setError(null); setUpdatedAt(Date.now());
@@ -121,5 +121,5 @@ export function usePublicLive(slug: string | undefined) {
     return () => clearInterval(t);
   }, []);
 
-  return { data, notFound, error, loading, updatedAt, now, transport };
+  return { data, notFound, error, loading, updatedAt, now, transport, reload: load };
 }

@@ -80,6 +80,8 @@ const TournamentRegisterPage = lazy(() => import("./pages/events/TournamentRegis
 const TournamentResultsPage = lazy(() => import("./pages/events/TournamentResultsPage"));
 const TournamentLivePage = lazy(() => import("./pages/events/TournamentLivePage"));
 const TournamentTvPage = lazy(() => import("./pages/events/TournamentTvPage"));
+const TournamentMatchPage = lazy(() => import("./pages/events/TournamentMatchPage"));
+const TournamentEmbedPage = lazy(() => import("./pages/events/TournamentEmbedPage"));
 const TournamentScorerPage = lazy(() => import("./pages/events/TournamentScorerPage"));
 const TournamentTeamInvitePage = lazy(() => import("./pages/events/TournamentTeamInvitePage"));
 const TournamentCardValidationPage = lazy(() => import("./pages/events/TournamentCardValidationPage"));
@@ -430,6 +432,8 @@ const App = () => (
                     <Route path="/tournaments/:eventId/results" element={<TournamentResultsPage />} />
                     <Route path="/torneo/:slug/en-vivo" element={<TournamentLivePage />} />
                     <Route path="/torneo/:slug/tv" element={<TournamentTvPage />} />
+                    <Route path="/torneo/:slug/partido/:matchId" element={<TournamentMatchPage />} />
+                    <Route path="/torneo/:slug/embed" element={<TournamentEmbedPage />} />
                     <Route path="/anotador/:token" element={<TournamentScorerPage />} />
                     <Route path="/torneo/:slug/equipo/:token" element={<TournamentTeamInvitePage />} />
                     <Route path="/torneo/:slug/validar/:token" element={<TournamentCardValidationPage />} />
