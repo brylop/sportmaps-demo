@@ -115,6 +115,9 @@ describe('lógica del asistente', () => {
     const p = schoolPayload(base);
     for (const k of ['title', 'sport', 'event_date', 'start_time', 'address', 'city', 'tournament_scope'] as const) expect(p[k]).toBeTruthy();
   });
+  it('el payload de escuela guarda el formato elegido (B5)', () => {
+    expect(schoolPayload({ ...base, format: 'grupos' }).competition_format).toBe('grupos');
+  });
 });
 
 describe('catálogo de deportes', () => {

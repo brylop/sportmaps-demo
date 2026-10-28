@@ -283,12 +283,20 @@ const SchoolTournamentSchema = z.object({
     price_phases: z.array(z.any()).optional(),
 });
 
-function slugifyTitle(title: string): string {
-    const base = title
+/** Base del link del torneo: sin tildes ni diéresis («Vóley» → «voley», «Ñandú» → «nandu»), solo a-z, 0-9 y guiones. */
+export function slugBase(title: string): string {
+    return title
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/(^-|-$)/g, '')
-        .slice(0, 60);
+        .slice(0, 60)
+        .replace(/-$/, '');
+}
+
+export function slugifyTitle(title: string): string {
+    const base = slugBase(title);
     const suffix = Math.random().toString(36).slice(2, 8);
     return `${base || 'torneo'}-${suffix}`;
 }
@@ -1416,11 +1424,13 @@ router.post('/school-tournaments/:id/enroll', requireAuth, requireRole('school',
         // 1. Evento válido para inscripción
         const { data: ev } = await supabase
             .from('events')
-            .select('id, status, tournament_scope, visibility, registrations_open, invited_schools')
+            .select('id, status, tournament_scope, visibility, registrations_open, invited_schools, is_paid')
             .eq('id', eventId)
             .maybeSingle();
         if (!ev) return res.status(404).json({ error: 'Torneo no encontrado' });
         if (ev.tournament_scope === 'internal') return res.status(400).json({ error: 'Un torneo interno no admite inscripción de delegaciones externas.' });
+        // Torneo gratis (is_paid === false, como los del asistente): sin fase de precio, la delegación no debe nada.
+        const esGratis = ev.is_paid === false;
         if (ev.status !== 'active' || ev.registrations_open === false) return res.status(400).json({ error: 'Las inscripciones no están abiertas.' });
         if (ev.visibility === 'invited_only' && !(ev.invited_schools || []).includes(schoolId)) {
             return res.status(403).json({ error: 'Este torneo es solo por invitación.' });
@@ -1437,8 +1447,8 @@ router.post('/school-tournaments/:id/enroll', requireAuth, requireRole('school',
             .eq('event_id', eventId)
             .order('sort_order');
         let phase = null as any;
-        if (p.price_phase_id) phase = (phases || []).find((x) => x.id === p.price_phase_id) || null;
-        if (!phase) {
+        if (!esGratis && p.price_phase_id) phase = (phases || []).find((x) => x.id === p.price_phase_id) || null;
+        if (!esGratis && !phase) {
             const today = todayInZone();
             phase = (phases || []).find((x) => x.valid_until >= today) || (phases || [])[0] || null;
         }

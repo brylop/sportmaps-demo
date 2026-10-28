@@ -32,8 +32,9 @@ export function QuickAddTeam({ onAdd, total }: { onAdd: (name: string) => Promis
   };
   return (
     <form className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
-      <Input aria-label="Nombre del equipo" placeholder="Nombre del equipo" maxLength={80} value={v} onChange={(e) => setV(e.target.value)} />
-      <Button type="submit" disabled={!v.trim() || busy}><Plus className="mr-1 h-4 w-4" /> Agregar</Button>
+      <Input className="min-w-0 flex-1" aria-label="Nombre del equipo" placeholder="Nombre del equipo" maxLength={80} value={v} onChange={(e) => setV(e.target.value)} />
+      {/* En móvil solo el ícono: el texto le robaba el ancho al campo (quedaba «Nomb»). */}
+      <Button type="submit" className="shrink-0 px-3 sm:px-4" aria-label="Agregar equipo" disabled={!v.trim() || busy}><Plus className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">Agregar</span></Button>
       <span className="whitespace-nowrap text-sm text-muted-foreground" data-testid="teams-total">Total: {total}</span>
     </form>
   );
@@ -166,6 +167,7 @@ export function TournamentTeamsPanel({ eventId, schoolId, categories, tournament
           {(teams?.length ?? 0) > 0 && <Button size="sm" variant="outline" onClick={printTeams}><Printer className="mr-1 h-4 w-4" /> Imprimir lista</Button>}
         </div>
         <p className="text-sm text-muted-foreground">Los inscritos y los rivales que agregues con solo el nombre. Todos entran al sorteo, al calendario y a la tabla.</p>
+        <p className="text-xs text-muted-foreground" data-testid="teams-own-hint">¿Juega un equipo de tu escuela? Agrégalo aquí con su nombre y en <strong>Jugadores</strong> usa «Traer deportistas de tu escuela».</p>
       </CardHeader>
       <CardContent className="space-y-4">
         {categories.length === 0 && <p className="text-sm text-muted-foreground">Primero agrega categorías (pestaña Categorías y Precios).</p>}
@@ -176,13 +178,17 @@ export function TournamentTeamsPanel({ eventId, schoolId, categories, tournament
             <div key={c.id} className="space-y-2 rounded-md border p-3" data-testid={`teams-cat-${c.id}`}>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-medium">{c.name} <span className="text-muted-foreground">· {list.length} equipo{list.length === 1 ? '' : 's'}</span></p>
-                <Button size="sm" variant="ghost" onClick={() => openAdd(c.id)}><Plus className="mr-1 h-4 w-4" /> Agregar equipo rival (más opciones o pegar lista)</Button>
+                <Button size="sm" variant="ghost" className="max-w-full" onClick={() => openAdd(c.id)} title="Agregar equipo rival (más opciones o pegar lista)">
+                  <Plus className="mr-1 h-4 w-4" /> <span className="sm:hidden">Más opciones o pegar lista</span><span className="hidden sm:inline">Agregar equipo rival (más opciones o pegar lista)</span>
+                </Button>
               </div>
               <QuickAddTeam total={list.length} onAdd={(n) => quickAdd(c.id, n)} />
               {list.length === 0 ? <p className="text-xs text-muted-foreground">Aún no hay equipos en esta categoría.</p> : (
                 <ul className="divide-y">
                   {list.map((t) => (
-                    <li key={t.id} className="flex items-center gap-2 py-1.5 text-sm">
+                    <li key={t.id} className="flex flex-col gap-1 py-1.5 text-sm sm:flex-row sm:items-center sm:gap-2">
+                      {/* Fila 1: escudo + nombre + estado. Fila 2 (en móvil): invitación y acciones, para que el nombre siempre se vea. */}
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
                       {t.logo_url
                         ? <img src={t.logo_url} alt="" className="h-8 w-8 shrink-0 rounded-full border object-cover" />
                         : <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted"><Shield className="h-4 w-4 text-muted-foreground" /></span>}
@@ -190,7 +196,9 @@ export function TournamentTeamsPanel({ eventId, schoolId, categories, tournament
                         <p className="truncate font-medium">{t.name}{t.short_name ? <span className="ml-1 text-xs text-muted-foreground">({t.short_name})</span> : null}</p>
                         {t.club_name && <p className="truncate text-xs text-muted-foreground">{t.club_name}</p>}
                       </div>
-                      <Badge variant={t.is_external ? 'secondary' : 'outline'}>{t.is_external ? 'Rival externo' : 'Inscrito'}</Badge>
+                      <Badge className="shrink-0" variant={t.is_external ? 'secondary' : 'outline'}>{t.is_external ? 'Rival externo' : 'Inscrito'}</Badge>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-end gap-1 sm:shrink-0">
                       {(() => {
                         const inv = inviteOf(t.id);
                         if (!inv) return null;
@@ -213,6 +221,7 @@ export function TournamentTeamsPanel({ eventId, schoolId, categories, tournament
                       {t.is_external && (
                         <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={`Quitar ${t.name}`} onClick={() => remove(t)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                       )}
+                      </div>
                     </li>
                   ))}
                 </ul>

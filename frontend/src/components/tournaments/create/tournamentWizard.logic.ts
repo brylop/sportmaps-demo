@@ -80,6 +80,8 @@ export function schoolPayload(a: WizardAnswers, now = new Date()) {
     is_paid: false,
     payment_methods: [] as string[],
     categories: categoryRows(a),
+    // El formato elegido queda en el torneo: el generador de calendario arranca con él.
+    competition_format: a.format,
   };
 }
 
