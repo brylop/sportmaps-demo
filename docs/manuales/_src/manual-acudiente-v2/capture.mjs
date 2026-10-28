@@ -16,8 +16,6 @@
 // El flujo del código de escuela (registro de la cuenta sin escuela, /unirse,
 // asignación en «Por asignar») se corrió una sola vez con codigo-escuela/*.mjs:
 // no se puede repetir con la misma cuenta. Sus capturas ya están en shots/.
-// Los dos partidos del demo (vs Halcones FC y vs Deportivo Arrayanes, con convocatoria,
-// resultado, evaluación y reporte) se crearon como owner con partidos-demo/*.mjs.
 import fs from 'node:fs';
 import path from 'node:path';
 import * as lib from './lib.mjs';

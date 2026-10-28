@@ -65,20 +65,3 @@ table.tbl th { background: #f1f6f2; font-weight: 700; color: #16241a; }
 
 .footer { position:absolute; bottom: 28px; left: 60px; right: 60px; display:flex; justify-content:space-between; align-items:center; border-top: 1px solid #e6ebe7; padding-top: 10px; font-size: 11px; color: #7c8b81; }
 .footer.internal-mark { color: #b5591a; font-weight:700; }
-
-/* ── Manual del entrenador V2: capturas del celular ── */
-p.intro { margin: 0 0 16px; font-size: 13.5px; line-height: 1.55; color: #33413a; }
-.step ul { margin: 0 0 10px 0; padding-left: 18px; font-size: 13px; line-height: 1.5; color: #33413a; }
-.step ul li { margin-bottom: 3px; }
-.tels { display: flex; gap: 16px; justify-content: center; align-items: flex-start; margin: 8px 0 4px; }
-figure { margin: 0; }
-.tel { flex-shrink: 0; text-align: center; }
-.tel img { display: block; width: 100%; height: auto; border: 1px solid #dfe6e1; border-radius: 16px; box-shadow: 0 6px 18px rgba(20,50,30,.12); }
-.tel figcaption, .esc figcaption { font-size: 10.5px; color: #7c8b81; margin-top: 6px; font-style: italic; line-height: 1.3; }
-.esc { text-align: center; margin: 8px 0 4px; }
-.esc img { display: block; margin: 0 auto; height: auto; border: 1px solid #dfe6e1; border-radius: 12px; box-shadow: 0 6px 18px rgba(20,50,30,.12); }
-.lado { display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: start; }
-.lado > div:first-child > p { margin: 0 0 10px; font-size: 13.5px; line-height: 1.55; color: #33413a; }
-.lado ul { margin: 0 0 10px; padding-left: 18px; font-size: 13px; line-height: 1.5; color: #33413a; }
-table.tbl code, .callout code { font-size: 11px; }
-.chica table.tbl { font-size: 11px; } .chica table.tbl td, .chica table.tbl th { padding: 6px 7px; }

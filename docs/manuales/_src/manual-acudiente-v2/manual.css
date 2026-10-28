@@ -65,15 +65,3 @@ table.tbl th { background: #f1f6f2; font-weight: 700; color: #16241a; }
 
 .footer { position:absolute; bottom: 28px; left: 60px; right: 60px; display:flex; justify-content:space-between; align-items:center; border-top: 1px solid #e6ebe7; padding-top: 10px; font-size: 11px; color: #7c8b81; }
 .footer.internal-mark { color: #b5591a; font-weight:700; }
-
-/* ── Capturas del celular (manual del acudiente V2) ── */
-.phones { display:flex; gap:18px; justify-content:center; align-items:flex-start; margin: 6px 0 12px; flex-wrap: wrap; }
-figure.ph { margin:0; text-align:center; }
-figure.ph .shot { margin: 0 auto; border-radius: 14px; }
-.srow { display:flex; gap:22px; align-items:flex-start; margin-bottom: 18px; }
-.srow .stext { flex:1; min-width:0; }
-.srow .stext .step { margin-bottom: 0; }
-.srow .spic { flex-shrink:0; }
-ul.lst { margin: 0 0 10px; padding-left: 18px; font-size: 13px; line-height: 1.5; color:#33413a; }
-ul.lst li { margin-bottom: 4px; }
-.page > p { font-size: 13.5px; }
