@@ -273,25 +273,28 @@ async function llamarSendEmail(body: unknown): Promise<{ ok: boolean; status: nu
  */
 export async function enviarPlantilla(
     tipo: string | null, destinos: string[], data: Record<string, string>, respaldo: Respaldo,
+    opciones: { replyTo?: string } = {},
 ): Promise<{ ok: boolean; error?: string; messageId?: string | null }> {
     if (!destinos.length) return { ok: false, error: 'sin destinatarios' };
     const lote = destinos.slice(0, 100);
+    // send-email solo acepta respuestas hacia @sportmaps.co; sin esto, contestar cae en noreply.
+    const extra = opciones.replyTo ? { reply_to: opciones.replyTo } : {};
 
     // tipo null = sin plantilla en send-email: va directo el HTML del respaldo.
     if (tipo === null) {
         const html = htmlDeRespaldo(respaldo);
-        const d = await llamarSendEmail({ batch: lote.map((to) => ({ to, subject: respaldo.subject, html })) });
+        const d = await llamarSendEmail({ batch: lote.map((to) => ({ to, subject: respaldo.subject, html, ...extra })) });
         if (!d.ok) return { ok: false, error: `send-email ${d.status}: ${d.texto}` };
         let id: string | null = null;
         try { id = JSON.parse(d.texto)?.results?.[0]?.id ?? null; } catch { /* sin id, no importa */ }
         return { ok: true, messageId: id };
     }
 
-    let r = await llamarSendEmail({ batch: lote.map((to) => ({ type: tipo, to, data })) });
+    let r = await llamarSendEmail({ batch: lote.map((to) => ({ type: tipo, to, data, ...extra })) });
     if (!r.ok && /no soportado/i.test(r.texto)) {
         console.warn(`[avisos-correo] send-email no conoce '${tipo}' (¿falta desplegarla?): se manda el respaldo.`);
         const html = htmlDeRespaldo(respaldo);
-        r = await llamarSendEmail({ batch: lote.map((to) => ({ to, subject: respaldo.subject, html })) });
+        r = await llamarSendEmail({ batch: lote.map((to) => ({ to, subject: respaldo.subject, html, ...extra })) });
     }
     if (!r.ok) return { ok: false, error: `send-email ${r.status}: ${r.texto}` };
 
@@ -306,10 +309,12 @@ export async function enviarConReserva(p: {
     destinos: string[]; data: Record<string, string>; respaldo: Respaldo;
     /** Plantilla de send-email, si difiere del tipo que se registra en el log. null = sin plantilla (HTML del respaldo). */
     plantilla?: string | null;
+    /** A dónde llegan las respuestas. Solo @sportmaps.co (lo filtra send-email). */
+    replyTo?: string;
 }): Promise<'enviado' | 'duplicado' | 'fallo'> {
     const reserva = await reservarEnvio(p);
     if (!reserva) return 'duplicado';
-    const r = await enviarPlantilla(p.plantilla === null ? null : (p.plantilla ?? p.tipo), p.destinos, p.data, p.respaldo);
+    const r = await enviarPlantilla(p.plantilla === null ? null : (p.plantilla ?? p.tipo), p.destinos, p.data, p.respaldo, { replyTo: p.replyTo });
     await cerrarEnvio(reserva, r);
     if (!r.ok) console.error('[avisos-correo] envío fallido', { tipo: p.tipo, clave: p.clave, error: r.error });
     return r.ok ? 'enviado' : 'fallo';

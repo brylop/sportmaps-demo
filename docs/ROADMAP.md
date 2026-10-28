@@ -1,11 +1,66 @@
 # SportMaps — Roadmap Maestro
 
-**Versión:** 2.38 · **Fecha:** 2026-10-23 · **Rama:** `develop`
+**Versión:** 2.39 · **Corte de consolidación:** 2026-10-27 · **Rama:** `develop`
 
 > **Este es el único roadmap.** Todo lo demás en `docs/` es *spec* (qué se construye y por qué),
 > *plan de fase* (cómo se migra), *doctrina de arquitectura* (cómo se hace) o *auditoría* (qué está
 > mal). Ninguno de esos documentos define prioridades: las define esta cola. Si un pendiente no
 > aparece aquí, no existe.
+
+## Estado vigente y cola unificada — corte 2026-10-27
+
+Esta sección reemplaza cualquier prioridad, fecha o estado anterior que la contradiga. El resto del
+documento conserva el contexto y las decisiones históricas; sus notas fechadas no prueban que una
+tarea esté hecha hoy. El plan de ejecución fechado el 14-oct declara que no verificó base ni código
+vivo: las olas de abajo son plan, no reporte de avance. No se consultaron servicios en esta
+consolidación.
+
+### Decisión de orden
+
+No iniciar un lanzamiento de una feature grande con datos sensibles, cobro o acceso multi-tenant
+hasta cerrar los gates G0 de seguridad. El desarrollo aislado que no depende de esos controles puede
+continuar, pero migración, despliegue y piloto quedan sujetos a los criterios de salida indicados.
+
+### Cola priorizada
+
+| Orden | Prioridad | Trabajo | Bloqueos / dependencias | Criterio de salida |
+|---|---|---|---|---|
+| G0.1 | P0 · antes de nuevas features | **Aislamiento de documentos.** Corregir `identity_docs_staff_read`, que en el código versionado no restringe lectura a la escuela del documento. Revisar también cargas, borrado, rutas de documentos de atletas no registrados y bucket privado. | Auditoría `docs/security/auditoria-2026-10-27.md` SEC-01/10; migración nueva, revisión de policy línea por línea. | Staff de escuela A no puede leer, reemplazar ni borrar documentos de escuela B; familia y roles autorizados conservan su flujo; resultado verificado en cada ambiente. |
+| G0.2 | P0 · antes de nuevos pilotos | **Separación dev/stg/prod.** Confirmar variables y proyecto Supabase por los 3 BFF y frontend; después separar datos/credenciales para que dev/stg no compartan la base productiva. | `docs/specs/separar-prod-de-dev-stg.md`; auditoría SEC-02/04. | Matriz de proyecto y credenciales por servicio/ambiente; prueba negativa de que dev/stg no lee ni modifica datos prod; secretos rotados si se confirma exposición. |
+| G0.3 | P0 · antes de cobrar con Wompi | **Unificar webhook Wompi.** Determinar cuál endpoint está configurado; comparar Edge Function heredada con BFF; retirar la ruta no usada o completar validación de referencia única, monto vigente, idempotencia y conciliación. | Auditoría SEC-03; `bff/src/routes/wompi.ts` vs `supabase/functions/wompi-webhook/index.ts`. | Un endpoint operativo documentado; transacción validada contra referencia, escuela, monto y estado; evento repetido no duplica efecto; prueba en sandbox. |
+| G0.4 | P0 · antes de tokenizar | **Verificar grants y tokens de autopay** en cada ambiente, incluidas todas las sobrecargas de RPC y acceso a `payment_tokens`, consentimientos y tarjetas pendientes. | `docs/plan-debito-automatico.md` fases F0–F5; auditoría SEC-09 (sospecha hasta consulta viva). | `anon`/`PUBLIC` sin ejecutar mutaciones sensibles; token limitado a actor/escuela/mandato; revocación e idempotencia demostradas. Nequi/Bancolombia no se habilitan antes de esto. |
+| G0.5 | P0 · calidad de lanzamiento | **Inventario de tablas/RPC/endpoints multi-tenant.** Verificar RLS efectiva, grants, vistas y funciones; revisar el BFF que usa service role, rate limits públicos y logs/telemetría con PII. | Auditoría SEC-04/07/08; pruebas de seguridad solo en gemelo local; consultas vivas de solo lectura para confirmar catálogo. | Inventario reproducible por ambiente; cero tabla tenant-scoped sin RLS; endpoints documentados con actor, rol, tenant derivado y ownership; reporte actualizado de dependencias. |
+| C1 | P0 · cerrar compromisos | **Cerrar los ítems operativos aún vigentes de v2.38** (Dynasty checkout y cobros, Besser sin pagador/WhatsApp, Monster recaudo/becas, datos de Dynasty, reporte de partido, migraciones no verificables). | No asumir vigencia de saldos, pagos, nombres ni fechas del 23-oct. Confirmar con el reporte operativo más reciente y propietario del frente antes de tocar datos reales. | Cada ítem se marca Hecho/Pausado/Cancelado con evidencia y fecha; tareas de datos financieros se validan con escuela y no se ejecutan desde este roadmap. |
+| O1 | P1 · ola en curso, 22–28 oct según plan | **Motor de reservas, mecanismo de piloto, organizador anfitrión y trainer.** Mantener los paquetes previstos por `docs/plan-ejecucion-ecosistema-2026-10.md` solo después de G0 cuando sus datos, pagos o políticas se vean afectados. | Revisión R1 prevista 28-oct; comprobar qué paquetes y migraciones realmente cerraron. No inferir avance por fecha. | R1 actualizada con estado real por paquete; migraciones versionadas en ledger; revisión negativa multi-tenant y concurrencia en gemelo; smoke de rutas desplegadas. |
+| O2 | P1 · planificada, 29 oct–6 nov | **Cobros y canales de Canchas, familia y “Hoy” del coach, Bienestar con escuela.** Secuenciar pagos y salud después de G0.1–G0.5; Canchas con acceso público lleva límites y validación de booking. | L2 y R2 del plan de ejecución; sandbox para pasarela; consentimiento explícito para datos clínicos. | R2 aprueba por frente; reservas idempotentes con control de concurrencia; pago conciliado; accesos clínicos auditables y limitados por paciente/escuela. |
+| O3 | P1 · planificada, 9–20 nov | **Canchas avanzado, torneos en cancha, organizador v2 y directorio público.** Los datos públicos se minimizan; roster y OCR de eventos conservan el tenant del organizador. | L3/R3; seguridad de endpoints públicos y validación de archivos antes de exposición. | Sin cruces de roster/documentos entre escuelas; directorio publica solo datos opt-in; concurrencia de cancha/torneo verificada. |
+| O4 | P1 · planificada, 23 nov–4 dic | **Operación Canchas, ligas, Marcas v0 y deportista.** Marcas y analítica solo agregadas; acceso de federaciones/ligas aislado por afiliación. | L4/R4; privacidad por diseño para menores y k-anonimato donde aplique. | Pruebas negativas de tenant y afiliación; opt-in/opt-out probado; ningún reporte de marca contiene datos identificables de menores. |
+| O5–O6 | P2 · planificadas, dic–feb | **Torneo avanzado, SportPoints, ligas, Athlete ID y marketplace.** Mantener el orden original sujeto a gates y decisiones de producto. | L5/L6; marketplace clínico sujeto además al spec de consentimiento; Athlete ID sujeto a privacidad y revocación de acceso. | Specs actualizados y aprobados antes de SQL; releases con alcance de datos y autorizaciones revisado. |
+
+### Features estratégicas: estado de planificación
+
+| Feature | Estado en esta consolidación | Condición para entrar a una ola |
+|---|---|---|
+| Agentes IA por WhatsApp | Diseño existente/propuesta; no se considera autorizado ampliar capacidades solo porque hay PoC/código. Fuentes: `docs/specs/sportmaps-agents-platform.md`, `docs/specs/canal-whatsapp-plataforma.md`, `docs/specs/profesionales-independientes-agentes-ia.md`. | G0.1–G0.5; herramientas allowlist tenant-scoped, límites/costos, opt-in y confirmación humana para acciones sensibles descritas en spec. |
+| Marketplace de profesionales y cobro de consultas | Spec de profesionales independientes tiene diseño detallado; el cobro F4 aparece en el plan de ecosistema. Fuentes: `docs/specs/profesionales-independientes-agentes-ia.md`, `docs/specs/profesionales-salud-fisioterapia.md`, `docs/payments-connected-accounts-plan.md`. | Consentimiento verificable por paciente/tutor, acceso clínico objeto-a-objeto y checkout transaccional/idempotente. No crear un camino de pago adicional sin censo. |
+| Nequi/DaviPlata/Bancolombia tokenizados | Plan de débito automático por fases; no tratar disponibilidad comercial como feature lista. Fuente: `docs/plan-debito-automatico.md`. | G0.4, respuesta de proveedor, mandato y cancelación/revocación; sandbox y control de cobro duplicado. |
+| White-label por tiers | Marca blanca y separación de ambientes aparecen en planes distintos; no hay evidencia en esta revisión de un spec completo de seguridad para dominios/branding. Fuentes: `docs/plan-pwa-marca-en-toda-la-app-2026-08-14.md`, `docs/specs/separar-prod-de-dev-stg.md`. | Resolución de tenant por dominio allowlisted, CSP/XSS y cache tenant-aware incluidos en spec. |
+| App iOS | Plan móvil contempla Capacitor y fases; es inversión planificada, no prioridad que salte G0. Fuentes: `docs/MOBILE_ROADMAP_EXECUTION.md`, `docs/MOBILE_DEEP_LINKS.md`. | Keychain/deep links, redacción de PII en push/analytics, permisos nativos y expiración de sesiones añadidos al spec móvil. |
+| Control de acceso de sedes | Código y planes de ADMS/control de acceso existen; hardening por dispositivo debe revisarse antes de expandir sedes. Fuentes: `docs/specs/adms-ip-allowlist-per-device.md`, `docs/ACCESS_CONTROL_ZKTECO_HANDOFF.md`. | Credencial por dispositivo, anti-replay, mapeo dispositivo-sede, rate limits y auditoría de eventos. |
+| Pasaporte deportivo / carta de salida | Athlete ID portable aparece en estrategia; pasaporte/carta requieren definir formalmente destinatario y transferencia. Fuente: `docs/specs/identidad-de-atleta-propuesta.md`. | Spec de identidad y consentimientos de menor, acceso temporal/revocable, hash/firma y auditoría de descarga. |
+| Expansión internacional | Visión estratégica, sin puerta de entrada/país definida en este corte. Fuente de visión: `docs/sportmaps-strategic-roadmap.md`; sin plan de lanzamiento país en esta cola. | Matriz país × dato × finalidad × retención, transferencias internacionales, pagos/impuestos y respuesta a derechos antes del primer país. |
+
+### Fuente de verdad y mantenimiento
+
+- Prioridad y secuencia: esta sección de `docs/ROADMAP.md`.
+- Alcance, criterios funcionales y decisiones: los specs bajo `docs/specs/` y los backlogs citados por el plan de ejecución; un spec no agrega prioridad por sí mismo.
+- Ejecución y dueño por ola: `docs/plan-ejecucion-ecosistema-2026-10.md`; sus fechas son objetivos de calendario y cada estado debe confirmarse en revisión.
+- Seguridad: `docs/security/auditoria-2026-10-27.md`; elementos marcados “SOSPECHA - VERIFICAR” solo pasan a bloqueo confirmado tras evidencia viva.
+- Planes transversales revisados para esta consolidación: `docs/plan-mitigacion-seguridad-2026-10-21.md`, `docs/plan-debito-automatico.md`, `docs/payments-connected-accounts-plan.md`, `docs/MOBILE_ROADMAP_EXECUTION.md`, `docs/MOBILE_DEEP_LINKS.md`, `docs/ACCESS_CONTROL_ZKTECO_HANDOFF.md` y los specs estratégicos citados en la tabla.
+- Planes estratégicos antiguos (`docs/sportmaps-strategic-roadmap.md`, `docs/plan-maestro-ecosistema-2026-10.md`) conservan visión e inventarios, pero no alteran el orden de esta cola.
+- Al cierre de cada ola, actualizar esta sección primero: fecha de corte, estado (Hecho/En curso/Bloqueado/Pausado), evidencia, decisión y siguiente gate. No copiar métricas de base viva sin nueva consulta fechada.
+
+**Cambios v2.38 → v2.39:** se incorpora corte actualizado al 27-oct; gates de seguridad antes de funciones sensibles; se integra la secuencia de olas con el plan de ejecución y se explicita el estado de las ocho features estratégicas. El historial abajo no representa estado vivo.
 
 **Cambios v2.37 → v2.38** (2026-10-14 → 23). Se unifican en este documento los pendientes de todas las sesiones y se abre el **plan de cierre**: antes de empezar cualquier ola nueva del track V2, se cierra lo que ya está construido o prometido. Este bloque manda sobre el orden inmediato de v2.37.
 

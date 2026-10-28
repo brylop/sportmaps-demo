@@ -254,3 +254,9 @@ docs/gym-rm-atletas-sin-plan-*.csv
 
 # Volcados reales de usuarios de los lectores (datos personales): no se commitean
 scripts/dreamers-bridge/usuarios_*.csv
+
+# Manuales V2: viven solo en disco, no en el repo (decisión del usuario 2026-10-27)
+docs/manuales/v2/
+docs/manuales/_src/manual-acudiente-v2/codigo-escuela/
+docs/manuales/_src/manual-acudiente-v2/partidos-demo/
+docs/manuales/_src/manual-entrenador-v2/build.mjs
