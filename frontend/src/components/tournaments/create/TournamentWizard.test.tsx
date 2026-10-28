@@ -11,9 +11,11 @@ vi.mock('@/lib/api/bffClient', () => ({
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: vi.fn() }) }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ profile: { role: 'school' }, loading: false }) }));
 vi.mock('@/hooks/useEntitlements', () => ({ useEntitlements: () => ({ hasAddon: () => true, isLoading: false }) }));
+vi.mock('@/hooks/useSchoolContext', () => ({ useSchoolContext: () => ({ schoolId: null, teams: [] }) }));
+vi.mock('@/integrations/supabase/client', () => ({ supabase: { from: vi.fn() } }));
 
 import { TournamentWizard } from './TournamentWizard';
-import { categoryRows, createFromWizard, draftDate, schoolPayload, validateStep, type WizardAnswers } from './tournamentWizard.logic';
+import { categoryRows, createFromWizard, draftDate, schoolPayload, sportsForSchool, validateStep, type WizardAnswers } from './tournamentWizard.logic';
 import { TOURNAMENT_SPORTS, sportFromName, scorerKindFor, sheetKindFor } from '@/lib/tournamentSports';
 import { tournamentAccessFor } from '@/lib/tournaments/tournamentAccess';
 import { SCORING_PRESETS, presetKeyForSport, resolveConfig } from '@/lib/tournamentScoring';
@@ -150,5 +152,36 @@ describe('catálogo de deportes', () => {
     expect(tournamentAccessFor({ role: 'school_admin', hasTournamentsAddon: true }).actor).toBe('school');
     expect(tournamentAccessFor({ role: 'school', hasTournamentsAddon: false }).allowed).toBe(false);
     expect(tournamentAccessFor({ role: 'parent', hasTournamentsAddon: true }).allowed).toBe(false);
+  });
+});
+
+describe('paso «¿Qué deporte?» según la escuela', () => {
+  it('escuela de un solo deporte: ese arriba y los demás plegados', () => {
+    const g = sportsForSchool(TOURNAMENT_SPORTS, ['Voleibol', 'voleibol ']);
+    expect(g.main.map((s) => s.name)).toContain('Voleibol');
+    expect(g.main.map((s) => s.name)).not.toContain('Fútbol');
+    expect(g.main.length + g.others.length).toBe(TOURNAMENT_SPORTS.length);
+  });
+  it('multideporte o varios deportes: todos, los suyos primero', () => {
+    expect(sportsForSchool(TOURNAMENT_SPORTS, ['Multideporte']).others).toHaveLength(0);
+    const g = sportsForSchool(TOURNAMENT_SPORTS, ['Baloncesto', 'Ajedrez']);
+    expect(g.others).toHaveLength(0);
+    expect(g.main.slice(0, 2).map((s) => s.name).sort()).toEqual(['Ajedrez', 'Baloncesto']);
+    expect(sportsForSchool(TOURNAMENT_SPORTS, []).main.map((s) => s.name)).toEqual(TOURNAMENT_SPORTS.map((s) => s.name));
+  });
+  it('en pantalla: Voleibol preseleccionado y «Ver otros deportes» despliega el resto', () => {
+    render(
+      <MemoryRouter><TournamentWizard schoolSports={['Voleibol']} access={tournamentAccessFor({ role: 'school', hasTournamentsAddon: true })} /></MemoryRouter>,
+    );
+    fireEvent.change(screen.getByLabelText('Nombre del torneo'), { target: { value: 'Copa' } });
+    fireEvent.click(screen.getByTestId('wz-next'));
+    fireEvent.click(screen.getByText('Un solo torneo'));
+    fireEvent.click(screen.getByTestId('wz-next'));
+    const main = screen.getByTestId('wz-sports-main');
+    expect(main.textContent).toContain('Voleibol');
+    expect(screen.queryByText('Ajedrez')).toBeNull();
+    expect(screen.getByText('Voleibol').closest('button')?.getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByTestId('wz-sports-others-toggle'));
+    expect(screen.getByText('Ajedrez')).toBeTruthy();
   });
 });

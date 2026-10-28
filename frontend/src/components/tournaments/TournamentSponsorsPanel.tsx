@@ -94,7 +94,7 @@ export function TournamentSponsorsPanel({ eventId, schoolId }: { eventId: string
                   <p className="truncate font-medium">{s.name}</p>
                   {s.url && <a href={s.url} target="_blank" rel="noreferrer" className="truncate text-xs text-muted-foreground underline">{s.url}</a>}
                 </div>
-                <select aria-label={`Categoría de ${s.name}`} className={selectCls + ' h-8 w-28'} value={s.tier} onChange={(e) => patch(s, { tier: e.target.value as SponsorTier })}>
+                <select aria-label={`Categoría de ${s.name}`} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-0 text-sm leading-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-9 sm:w-32" value={s.tier} onChange={(e) => patch(s, { tier: e.target.value as SponsorTier })}>
                   {(Object.keys(TIER_LABEL) as SponsorTier[]).map((t) => <option key={t} value={t}>{TIER_LABEL[t]}</option>)}
                 </select>
                 <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={`Subir ${s.name}`} disabled={i === 0 || list[i - 1].tier !== s.tier} onClick={() => move(i, -1)}><ArrowUp className="h-4 w-4" /></Button>

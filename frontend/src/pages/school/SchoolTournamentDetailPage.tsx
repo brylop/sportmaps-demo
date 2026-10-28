@@ -345,7 +345,7 @@ export default function SchoolTournamentDetailPage() {
             </div>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {isDraft && (
             <Button onClick={publish} disabled={publishing || !canPublish} title={!canPublish ? (esGratis ? 'Agrega al menos 1 categoría' : 'Agrega al menos 1 categoría y 1 fase de precio') : ''}>
               <Rocket className="mr-1 h-4 w-4" /> {publishing ? 'Publicando…' : 'Publicar'}

@@ -35,7 +35,7 @@ export function QuickAddTeam({ onAdd, total }: { onAdd: (name: string) => Promis
       <Input className="min-w-0 flex-1" aria-label="Nombre del equipo" placeholder="Nombre del equipo" maxLength={80} value={v} onChange={(e) => setV(e.target.value)} />
       {/* En móvil solo el ícono: el texto le robaba el ancho al campo (quedaba «Nomb»). */}
       <Button type="submit" className="shrink-0 px-3 sm:px-4" aria-label="Agregar equipo" disabled={!v.trim() || busy}><Plus className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">Agregar</span></Button>
-      <span className="whitespace-nowrap text-sm text-muted-foreground" data-testid="teams-total">Total: {total}</span>
+      <span className="hidden whitespace-nowrap text-sm text-muted-foreground sm:inline" data-testid="teams-total">Total: {total}</span>
     </form>
   );
 }
@@ -193,7 +193,7 @@ export function TournamentTeamsPanel({ eventId, schoolId, categories, tournament
                         ? <img src={t.logo_url} alt="" className="h-8 w-8 shrink-0 rounded-full border object-cover" />
                         : <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted"><Shield className="h-4 w-4 text-muted-foreground" /></span>}
                       <div className="min-w-0 flex-1">
-                        <p className="truncate font-medium">{t.name}{t.short_name ? <span className="ml-1 text-xs text-muted-foreground">({t.short_name})</span> : null}</p>
+                        <p className="line-clamp-2 break-words font-medium">{t.name}{t.short_name ? <span className="ml-1 text-xs text-muted-foreground">({t.short_name})</span> : null}</p>
                         {t.club_name && <p className="truncate text-xs text-muted-foreground">{t.club_name}</p>}
                       </div>
                       <Badge className="shrink-0" variant={t.is_external ? 'secondary' : 'outline'}>{t.is_external ? 'Rival externo' : 'Inscrito'}</Badge>

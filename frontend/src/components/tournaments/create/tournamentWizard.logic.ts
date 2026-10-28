@@ -4,6 +4,7 @@
  */
 import type { TournamentSport, WizardFormat } from '@/lib/tournamentSports';
 import type { TournamentActor } from '@/lib/tournaments/tournamentAccess';
+import { resolveSport } from '@/lib/sports/sportCatalog';
 
 export type WizardKind = 'single' | 'categories';
 
@@ -43,6 +44,35 @@ export function categoryRows(a: Pick<WizardAnswers, 'kind' | 'categories'>) {
     seen.add(k); return true;
   }).slice(0, 30);
   return names.map((c, i) => ({ division: 'General', category: c, rama: ramaFor(c), sort_order: i }));
+}
+
+/**
+ * Deportes de la escuela (schools.sports ∪ deporte de sus equipos) como claves del catálogo único
+ * (`resolveSport`, que entiende tildes, plurales y sinónimos). «Multideporte» o vacío = sin filtro.
+ */
+export function schoolSportKeys(texts: ReadonlyArray<string | null | undefined>): { keys: Set<string>; multi: boolean } {
+  const keys = new Set<string>();
+  let multi = false;
+  for (const t of texts) {
+    const r = resolveSport(t);
+    if (r.key === 'multideporte') multi = true;
+    else if (r.key !== 'desconocido') keys.add(r.key);
+  }
+  return { keys, multi };
+}
+
+/**
+ * Paso «¿Qué deporte?»: si la escuela es de UN solo deporte, ese va arriba y los demás plegados
+ * en «Ver otros deportes». Multideporte (o sin deportes conocidos): todos, los suyos primero.
+ */
+export function sportsForSchool<T extends { name: string }>(all: readonly T[], texts: ReadonlyArray<string | null | undefined>): { main: T[]; others: T[] } {
+  const { keys, multi } = schoolSportKeys(texts);
+  // Solo coincidencias exactas del catálogo: «Futvóley» se parece a voleibol pero es otro deporte.
+  const isMine = (s: T) => { const r = resolveSport(s.name); return r.match === 'exacto' && keys.has(r.key); };
+  const mine = all.filter(isMine);
+  const rest = all.filter((s) => !isMine(s));
+  if (!multi && keys.size === 1 && mine.length > 0) return { main: mine, others: rest };
+  return { main: [...mine, ...rest], others: [] };
 }
 
 export function validateStep(step: number, a: Partial<WizardAnswers>): string | null {
