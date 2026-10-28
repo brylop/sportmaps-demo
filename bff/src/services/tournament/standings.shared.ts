@@ -2,7 +2,7 @@
  * Tabla de posiciones genérica — PURA. Reemplaza las dos copias (solo fútbol) de events.route.ts.
  * Puntos y desempates salen de la configuración del torneo; sin configuración = fútbol 3-1-0 como hoy.
  */
-import { matchOutcome, ScoringConfig, TiebreakerKey, StandingsPoints } from './scoring.shared';
+import { matchOutcome, orderWithExtraTiebreakers, ScoringConfig, TiebreakerKey, StandingsPoints } from './scoring.shared';
 
 export interface StandingsTeam { id: string; team_name: string }
 export interface StandingsMatch {
@@ -134,5 +134,7 @@ export function computeStandings(teams: StandingsTeam[], matches: StandingsMatch
   accumulate(rows, matches, cfg);
   const keys = cfg.tiebreakers && cfg.tiebreakers.length ? cfg.tiebreakers : (['pts', 'gd', 'gf'] as TiebreakerKey[]);
   const played = matches.filter((m) => m.status === 'played' || m.status === 'walkover');
-  return order(Object.values(rows), keys, played, cfg);
+  const ordered = order(Object.values(rows), keys, played, cfg);
+  // Ajedrez (Buchholz / Sonneborn-Berger): solo entre los que siguen empatados en puntos.
+  return cfg.extra_tiebreakers?.length ? orderWithExtraTiebreakers(ordered, played, cfg) : ordered;
 }

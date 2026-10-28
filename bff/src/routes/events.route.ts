@@ -258,6 +258,7 @@ const SchoolTournamentSchema = z.object({
     logo_url: z.string().optional().nullable(),
     end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha de cierre inválida').optional().nullable().or(z.literal('')),
     venue_name: z.string().optional().nullable(),
+    competition_format: z.enum(['liga', 'copa', 'grupos']).optional().nullable(),
 
     // Torneo de escuela
     tournament_scope: z.enum(['internal', 'external']),
@@ -372,6 +373,7 @@ router.post('/school-tournament', requireAuth, requireRole('school', 'school_adm
                 crossover_allowed: p.crossover_allowed,
                 payment_methods: p.payment_methods ?? [],
                 is_paid: p.is_paid,
+                ...(p.competition_format ? { competition_format: p.competition_format } : {}),
         };
         const insertEvent = (r: Record<string, unknown>) => supabase.from('events').insert(r).select().single();
         let { data: newEvent, error: eventError } = await insertEvent(row);
@@ -671,6 +673,7 @@ const PatchTournamentSchema = z.object({
     organizer_name: z.string().nullable().optional(),
     attachments: z.array(z.object({ name: z.string(), url: z.string() })).max(20).optional(),
     slug: z.string().optional(),
+    competition_format: z.enum(['liga', 'copa', 'grupos']).nullable().optional(),
     registration_deadline: z.string().nullable().optional(),
     payment_deadline: z.string().nullable().optional(),
     correction_deadline: z.string().nullable().optional(),

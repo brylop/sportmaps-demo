@@ -11,7 +11,9 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ArrowLeft, ArrowLeftRight, Undo2, Play, Flag, Pencil, RotateCcw, Plus, Trash2, Wifi, WifiOff, Loader2, Trophy } from 'lucide-react';
-import { applyAction, derive, emptyState, type Action, type LiveState, type Side } from '@/lib/tournamentScoring';
+import { applyAction, derive, emptyState, formatHalfPoints, type Action, type CricketInnings, type LiveState, type Side } from '@/lib/tournamentScoring';
+import { scorerKindFor, sportForPreset } from '@/lib/tournamentSports';
+import { PlanillaPartidoButton, loadMatchRoster } from './planilla/PlanillaPartidoButton';
 import type { ActionResponse, MatchDto } from '@/lib/tournamentTypes';
 import {
   ActionQueue, classifyError, safeStorage, type FlushEvent, type QueuedAction, type SendResult,
@@ -40,8 +42,15 @@ interface Props {
   tournamentTitle?: string;
 }
 
-const toLiveState = (m: MatchDto): LiveState =>
-  m.live_state ? { status: m.live_state.status, points: m.live_state.points ?? '', walkover: m.live_state.walkover ?? null } : emptyState(m.status);
+const toLiveState = (m: MatchDto): LiveState => {
+  if (!m.live_state) return emptyState(m.status);
+  const st: LiveState = { status: m.live_state.status, points: m.live_state.points ?? '', walkover: m.live_state.walkover ?? null };
+  if (m.live_state.detail) st.detail = m.live_state.detail;
+  return st;
+};
+
+/** «156/7 (20)» */
+export const inningsText = (i: CricketInnings | undefined) => (i ? `${i.runs}/${i.wickets} (${i.overs})` : '—');
 
 /** Estado local = estado confirmado + acciones pendientes aplicadas con el motor (las que no apliquen se ignoran). */
 export function foldPending(base: LiveState, pending: QueuedAction[], cfg: MatchDto['config'], knockout: boolean): LiveState {
@@ -56,6 +65,12 @@ export function foldPending(base: LiveState, pending: QueuedAction[], cfg: Match
 export function LiveScorer({ match, endpoints, queueKey, onClose, onMatchChange, tournamentTitle }: Props) {
   const { toast } = useToast();
   const cfg = match.config;
+  const kind = scorerKindFor(cfg);
+  const sportInfo = sportForPreset(cfg.preset);
+  const setWord = kind === 'maps' ? 'Mapa' : 'Set';
+  const [shootOpen, setShootOpen] = useState(false);
+  // El botón de desempate aparece cuando se intentó terminar (o cargar) un empate que no se admite.
+  const [shootAsked, setShootAsked] = useState(false);
   const knockout = match.stage === 'knockout' || match.stage === 'third_place';
   const epRef = useRef(endpoints);
   epRef.current = endpoints;
@@ -178,8 +193,9 @@ export function LiveScorer({ match, endpoints, queueKey, onClose, onMatchChange,
   const awayScore = legacy ? serverMatch.away_score ?? 0 : d.awayScore;
   const sets = legacy ? serverMatch.sets : d.sets;
   const openSet = sets.find((s) => !s.closed) ?? null;
-  const bigHome = cfg.model === 'sets' ? (openSet?.home ?? 0) : homeScore;
-  const bigAway = cfg.model === 'sets' ? (openSet?.away ?? 0) : awayScore;
+  const bigHome: number | string = kind === 'tennis' ? (d.game?.home ?? '0') : kind === 'maps' ? homeScore : cfg.model === 'sets' ? (openSet?.home ?? 0) : homeScore;
+  const bigAway: number | string = kind === 'tennis' ? (d.game?.away ?? '0') : kind === 'maps' ? awayScore : cfg.model === 'sets' ? (openSet?.away ?? 0) : awayScore;
+  const fmtGoal = (n: number) => (cfg.half_points ? formatHalfPoints(n) : String(n));
   const decided = cfg.model === 'sets' && d.decided;
   // Aviso grande de set / partido ganado (solo cuando se cierra un set nuevo en este celular).
   const closedCount = sets.filter((s) => s.closed).length;
@@ -194,14 +210,22 @@ export function LiveScorer({ match, endpoints, queueKey, onClose, onMatchChange,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [closedCount]);
 
+  // Estado tras la última acción encolada en este mismo render (para encadenar dos acciones seguidas).
+  const chained = useRef<LiveState | null>(null);
+  chained.current = null;
   const run = (action: Action): boolean => {
-    const r = applyAction(state, action, cfg, { knockout });
+    const r = applyAction(chained.current ?? state, action, cfg, { knockout });
+    if (r.ok === false && r.code === 'empate_no_permitido') setShootAsked(true);
     if (r.ok === false) { toast({ title: 'No se puede', description: r.message, variant: 'destructive' }); return false; }
+    chained.current = r.state;
+    if (action.type === 'correct' && action.penalties) setShootAsked(false);
     queue.enqueue(match.id, action);
     void flush(true);
     setLastPoint(action.type === 'point' ? { side: action.side, index: Math.max(0, (r.state.points?.length ?? 1) - 1) } : null);
     return true;
   };
+
+  const runAfter = (action: Action) => { run(action); };
 
   const totalPending = queue.size;
   const sync = !online || lastRetry
@@ -213,18 +237,20 @@ export function LiveScorer({ match, endpoints, queueKey, onClose, onMatchChange,
   const scope = useMemo(() => scorerScopeFromUrl(endpoints.actionsUrl(match.id)), [endpoints, match.id]);
   const homeName = teamName(match, 'home');
   const awayName = teamName(match, 'away');
+  const drawnNow = cfg.model === 'goals' && d.drawn;
+  const needsShootout = live && drawnNow && shootAsked && (knockout || !cfg.allow_draw) && cfg.preset !== 'baloncesto';
   const canUndo = live && (state.points?.length ?? 0) > 0;
 
-  const scoreButton = (side: Side, name: string, value: number) => (
+  const scoreButton = (side: Side, name: string, value: number | string) => (
     <Button
       type="button" disabled={!live || decided}
       onClick={() => run({ type: 'point', side })}
       className={`flex h-52 flex-1 touch-manipulation select-none flex-col items-center justify-center gap-1 rounded-2xl text-center active:scale-[0.97] motion-reduce:active:scale-100 ${side === 'away' ? 'bg-orange-600 text-white hover:bg-orange-600/90' : ''}`}
-      aria-label={`Sumar un punto a ${name}`}
+      aria-label={kind === 'maps' ? `${name} gana el mapa` : `Sumar un punto a ${name}`}
     >
       <span className="line-clamp-2 px-1 text-base font-semibold">{name}</span>
       <span className="text-6xl font-bold tabular-nums">{value}</span>
-      <span className="flex items-center gap-1 text-sm opacity-90"><Plus className="h-4 w-4" /> 1</span>
+      <span className="flex items-center gap-1 text-sm opacity-90">{kind === 'maps' ? 'Gana el mapa' : <><Plus className="h-4 w-4" /> 1</>}</span>
     </Button>
   );
 
@@ -249,12 +275,16 @@ export function LiveScorer({ match, endpoints, queueKey, onClose, onMatchChange,
 
       {cfg.model === 'sets' && (
         <div className="rounded-lg border p-2 text-center text-sm">
-          <div className="text-xs text-muted-foreground">Sets ganados</div>
+          <div className="text-xs text-muted-foreground">{kind === 'maps' ? 'Mapas ganados' : 'Sets ganados'}</div>
           <div className="text-2xl font-bold tabular-nums" data-testid="sets-won">{homeScore} - {awayScore}</div>
-          {sets.filter((s) => s.closed).length > 0 && (
-            <div className="text-muted-foreground">{sets.filter((s) => s.closed).map((s) => `${s.home}-${s.away}`).join(' · ')}</div>
+          {kind !== 'maps' && sets.filter((s) => s.closed).length > 0 && (
+            <div className="text-muted-foreground">{sets.filter((s) => s.closed).map(setScoreText).join(' · ')}</div>
           )}
-          {live && !decided && <div className="mt-0.5 text-xs">Set {Math.min(sets.length + (openSet ? 0 : 1), cfg.best_of)} en juego · el set se cierra solo al llegar a los puntos</div>}
+          {kind === 'tennis' && live && !decided && openSet && (
+            <div className="mt-0.5 text-sm font-semibold tabular-nums" data-testid="tennis-games">Games: {openSet.home} - {openSet.away}{d.game?.tiebreak ? (openSet.super ? ' · super tie-break' : ' · tie-break') : ''}</div>
+          )}
+          {live && !decided && kind !== 'maps' && <div className="mt-0.5 text-xs">{setWord} {Math.min(sets.length + (openSet ? 0 : 1), cfg.best_of)} en juego · {kind === 'tennis' ? 'los games y el set se cuentan solos' : 'el set se cierra solo al llegar a los puntos'}</div>}
+          {live && !decided && kind === 'maps' && <div className="mt-0.5 text-xs">Al mejor de {cfg.best_of}: toca el equipo que gana cada mapa</div>}
           {decided && <div className="mt-0.5 text-xs font-medium text-primary">Partido decidido: termínalo o deshaz el último punto</div>}
         </div>
       )}
@@ -267,31 +297,61 @@ export function LiveScorer({ match, endpoints, queueKey, onClose, onMatchChange,
 
       {cfg.model === 'sets' && live && !decided && (
         <div className="text-center text-sm font-semibold uppercase tracking-wide text-muted-foreground" data-testid="current-set">
-          Set {Math.min(sets.length + (openSet ? 0 : 1), cfg.best_of)}{openSet?.deciding ? ' · decisivo' : ''}
+          {setWord} {Math.min(sets.length + (openSet ? 0 : 1), cfg.best_of)}{openSet?.deciding ? ' · decisivo' : ''}
         </div>
       )}
 
-      <div className="flex gap-3">
-        {swapped
-          ? <>{scoreButton('away', awayName, bigAway)}{scoreButton('home', homeName, bigHome)}</>
-          : <>{scoreButton('home', homeName, bigHome)}{scoreButton('away', awayName, bigAway)}</>}
-      </div>
+      {kind === 'chess' && (
+        <ChessResultPanel
+          status={status} homeName={homeName} awayName={awayName}
+          sideHome={sportInfo?.sides?.home ?? 'Blancas'} sideAway={sportInfo?.sides?.away ?? 'Negras'}
+          scoreText={status === 'scheduled' ? null : `${fmtGoal(homeScore)} - ${fmtGoal(awayScore)}`}
+          onResult={(h, a) => { if (run({ type: 'correct', home: h, away: a }) && live && !(h === a && knockout)) runAfter({ type: 'finish' }); }}
+        />
+      )}
 
-      {live && lastPoint && cfg.model === 'sets' && scope && (
+      {kind === 'cricket' && (
+        <CricketPanel
+          status={status} homeName={homeName} awayName={awayName} maxOvers={cfg.cricket?.overs ?? 20}
+          innings={state.detail?.innings ?? []}
+          onSave={(innings) => run({ type: 'correct', innings })}
+        />
+      )}
+
+      {kind !== 'chess' && kind !== 'cricket' && (
+        <div className="flex gap-3">
+          {swapped
+            ? <>{scoreButton('away', awayName, bigAway)}{scoreButton('home', homeName, bigHome)}</>
+            : <>{scoreButton('home', homeName, bigHome)}{scoreButton('away', awayName, bigAway)}</>}
+        </div>
+      )}
+
+      {cfg.model === 'goals' && d.byPenalties && state.detail?.penalties && (
+        <div className="text-center text-sm text-muted-foreground" data-testid="shootout-result">
+          {sportInfo?.shootout ?? 'Penales'}: {state.detail.penalties[0]} - {state.detail.penalties[1]}
+        </div>
+      )}
+      {needsShootout && (
+        <Button type="button" variant="secondary" className="h-12" onClick={() => setShootOpen(true)} data-testid="shootout-open">
+          Empate: definir por {(sportInfo?.shootout ?? 'penales').toLowerCase()}
+        </Button>
+      )}
+
+      {live && lastPoint && kind === 'sets' && scope && (
         <PointTagger
           key={lastPoint.index} scope={scope} matchId={match.id} side={lastPoint.side} pointIndex={lastPoint.index}
           teamName={lastPoint.side === 'home' ? homeName : awayName} onDone={() => setLastPoint(null)}
         />
       )}
 
-      <div className="grid grid-cols-[1fr_auto] gap-2">
+      {kind !== 'chess' && kind !== 'cricket' && <div className="grid grid-cols-[1fr_auto] gap-2">
         <Button type="button" variant="outline" className="h-16 text-lg" disabled={!canUndo} onClick={() => run({ type: 'undo' })}>
           <Undo2 className="mr-2 h-5 w-5" /> Deshacer
         </Button>
         <Button type="button" variant="outline" className="h-16" onClick={toggleSides} aria-pressed={swapped} aria-label="Cambiar de lado">
           <ArrowLeftRight className="mr-1 h-5 w-5" /> Lado
         </Button>
-      </div>
+      </div>}
 
       <div className="grid grid-cols-2 gap-2">
         {status === 'scheduled' && (
@@ -313,9 +373,14 @@ export function LiveScorer({ match, endpoints, queueKey, onClose, onMatchChange,
         {(status === 'scheduled' || status === 'live') && (
           <Button type="button" variant="outline" onClick={() => setWoOpen(true)}>W.O.</Button>
         )}
-        {status !== 'cancelled' && (
+        {status !== 'cancelled' && kind !== 'chess' && kind !== 'cricket' && (
           <Button type="button" variant="outline" onClick={() => setFixOpen(true)}><Pencil className="mr-1 h-4 w-4" /> Corregir marcador</Button>
         )}
+        <PlanillaPartidoButton
+          className="col-span-2" match={serverMatch} tournamentTitle={tournamentTitle} sport={sportInfo?.name ?? null}
+          loadRoster={scope?.kind === 'school' ? () => loadMatchRoster(scope.eventId, match.id) : undefined}
+          label="Planilla (PDF)"
+        />
       </div>
 
       <AlertDialog open={confirmFinish} onOpenChange={setConfirmFinish}>
@@ -323,7 +388,7 @@ export function LiveScorer({ match, endpoints, queueKey, onClose, onMatchChange,
           <AlertDialogHeader>
             <AlertDialogTitle>¿Terminar el partido?</AlertDialogTitle>
             <AlertDialogDescription>
-              {homeName} {homeScore} - {awayScore} {awayName}. Podrás reabrirlo si te equivocas.
+              {homeName} {fmtGoal(homeScore)} - {fmtGoal(awayScore)} {awayName}. Podrás reabrirlo si te equivocas.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -333,6 +398,13 @@ export function LiveScorer({ match, endpoints, queueKey, onClose, onMatchChange,
         </AlertDialogContent>
       </AlertDialog>
 
+      <ShootoutDialog
+        open={shootOpen} onOpenChange={setShootOpen} title={sportInfo?.shootout ?? 'Penales'} homeName={homeName} awayName={awayName}
+        onSubmit={(ph, pa) => {
+          const [h, a] = kind === 'chess' ? [1, 1] : [homeScore, awayScore];
+          if (run({ type: 'correct', home: h, away: a, penalties: [ph, pa] })) setShootOpen(false);
+        }}
+      />
       <WalkoverDialog open={woOpen} onOpenChange={setWoOpen} homeName={homeName} awayName={awayName} onPick={(winner) => { if (run({ type: 'walkover', winner })) setWoOpen(false); }} />
       <CorrectDialog
         open={fixOpen} onOpenChange={setFixOpen} model={cfg.model} homeName={homeName} awayName={awayName}
@@ -412,6 +484,102 @@ function CorrectDialog({ open, onOpenChange, model, homeName, awayName, initialG
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
           <Button onClick={submit}>Guardar marcador</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** «6-4», «7-6(4)» (tie-break del que perdió), «[10-8]» (super tie-break). */
+export function setScoreText(s: { home: number; away: number; tb?: { home: number; away: number }; super?: boolean }): string {
+  if (s.super && s.tb) return `[${s.tb.home}-${s.tb.away}]`;
+  if (s.tb && s.home !== s.away) return `${s.home}-${s.away}(${Math.min(s.tb.home, s.tb.away)})`;
+  return `${s.home}-${s.away}`;
+}
+
+function ChessResultPanel({ status, homeName, awayName, sideHome, sideAway, scoreText, onResult }: {
+  status: string; homeName: string; awayName: string; sideHome: string; sideAway: string; scoreText: string | null;
+  onResult: (home: number, away: number) => void;
+}) {
+  const open = status === 'scheduled' || status === 'live';
+  return (
+    <div className="space-y-2" data-testid="chess-panel">
+      <div className="grid grid-cols-2 gap-2 text-center text-sm">
+        <div className="rounded-lg border p-2"><div className="text-xs text-muted-foreground">{sideHome}</div><div className="font-semibold">{homeName}</div></div>
+        <div className="rounded-lg border p-2"><div className="text-xs text-muted-foreground">{sideAway}</div><div className="font-semibold">{awayName}</div></div>
+      </div>
+      {scoreText && <div className="text-center text-4xl font-bold tabular-nums" data-testid="chess-score">{scoreText}</div>}
+      {open && (
+        <div className="grid gap-2">
+          <Button className="h-14 text-base" onClick={() => onResult(2, 0)}>Ganan {sideHome.toLowerCase()} · 1 - 0</Button>
+          <Button className="h-14 text-base" variant="secondary" onClick={() => onResult(1, 1)}>Tablas · ½ - ½</Button>
+          <Button className="h-14 bg-orange-600 text-base text-white hover:bg-orange-600/90" onClick={() => onResult(0, 2)}>Ganan {sideAway.toLowerCase()} · 0 - 1</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CricketPanel({ status, homeName, awayName, maxOvers, innings, onSave }: {
+  status: string; homeName: string; awayName: string; maxOvers: number; innings: CricketInnings[];
+  onSave: (innings: CricketInnings[]) => void;
+}) {
+  const init = (side: Side) => {
+    const i = innings.find((x) => x.side === side);
+    return { runs: String(i?.runs ?? 0), wickets: String(i?.wickets ?? 0), overs: String(i?.overs ?? 0) };
+  };
+  const [vals, setVals] = useState(() => ({ home: init('home'), away: init('away') }));
+  const editable = status !== 'cancelled';
+  const field = (side: Side, key: 'runs' | 'wickets' | 'overs', label: string) => (
+    <div className="space-y-1">
+      <Label className="text-xs">{label}</Label>
+      <Input
+        aria-label={`${label} ${side === 'home' ? homeName : awayName}`} inputMode="decimal" value={vals[side][key]} disabled={!editable}
+        onChange={(e) => setVals((p) => ({ ...p, [side]: { ...p[side], [key]: e.target.value } }))} className="h-12 text-center text-lg"
+      />
+    </div>
+  );
+  return (
+    <div className="space-y-3" data-testid="cricket-panel">
+      {(['home', 'away'] as const).map((side) => (
+        <div key={side} className="rounded-xl border p-3">
+          <div className="mb-2 flex items-baseline justify-between">
+            <span className="font-semibold">{side === 'home' ? homeName : awayName}</span>
+            <span className="text-sm tabular-nums text-muted-foreground">{inningsText(innings.find((x) => x.side === side))}</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {field(side, 'runs', 'Runs')}{field(side, 'wickets', 'Wickets')}{field(side, 'overs', `Overs (máx. ${maxOvers})`)}
+          </div>
+        </div>
+      ))}
+      {editable && (
+        <Button className="h-12 w-full" onClick={() => onSave((['home', 'away'] as const).map((side) => ({
+          side, runs: Number(vals[side].runs), wickets: Number(vals[side].wickets), overs: Number(String(vals[side].overs).replace(',', '.')),
+        })))}>Guardar innings</Button>
+      )}
+    </div>
+  );
+}
+
+function ShootoutDialog({ open, onOpenChange, title, homeName, awayName, onSubmit }: {
+  open: boolean; onOpenChange: (o: boolean) => void; title: string; homeName: string; awayName: string; onSubmit: (h: number, a: number) => void;
+}) {
+  const [h, setH] = useState('0');
+  const [a, setA] = useState('0');
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>El partido terminó empatado. Escribe el resultado del desempate; el marcador del partido no cambia.</DialogDescription>
+        </DialogHeader>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5"><Label>{homeName}</Label><Input aria-label={`${title} ${homeName}`} type="number" min={0} value={h} onChange={(e) => setH(e.target.value)} className="h-12 text-center text-xl" /></div>
+          <div className="space-y-1.5"><Label>{awayName}</Label><Input aria-label={`${title} ${awayName}`} type="number" min={0} value={a} onChange={(e) => setA(e.target.value)} className="h-12 text-center text-xl" /></div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <Button onClick={() => onSubmit(Number(h), Number(a))}>Guardar desempate</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

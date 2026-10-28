@@ -111,7 +111,9 @@ export async function loadMatches(eventId: string, categoryId?: string | null): 
 export function stateOf(m: Pick<MatchRow, 'status' | 'live_state' | 'home_score' | 'away_score'>, cfg: ScoringConfig): LiveState {
   const ls = m.live_state;
   if (ls && typeof ls === 'object' && typeof ls.points === 'string') {
-    return { status: m.status, points: ls.points, walkover: (ls.walkover as Side | null) ?? null };
+    const st: LiveState = { status: m.status, points: ls.points, walkover: (ls.walkover as Side | null) ?? null };
+    if (ls.detail && typeof ls.detail === 'object') st.detail = ls.detail;
+    return st;
   }
   // Partido anterior al motor: si es de goles reconstruimos la secuencia desde el marcador.
   if (cfg.model === 'goals' && (m.home_score != null || m.away_score != null)) {
@@ -364,13 +366,13 @@ export async function performMatchAction(ev: LiveEvent, matchId: string, actor: 
   const expected = input.expected_version ?? match.version;
   const { data: rpc, error } = await supabase.rpc('apply_tournament_match_action', {
     p_match_id: matchId, p_expected_version: expected, p_status: next.status,
-    p_live_state: { status: next.status, points: next.points, walkover: next.walkover ?? null },
+    p_live_state: { status: next.status, points: next.points, walkover: next.walkover ?? null, ...(next.detail ? { detail: next.detail } : {}) },
     p_home_score: d.homeScore, p_away_score: d.awayScore,
     p_started_at: startedAt, p_finished_at: finishedAt,
     p_scorer_ref: actorRef, p_scorer_label: actor.label,
     p_actor_type: actor.type, p_actor_id: actor.id, p_action: action.type,
     p_client_action_id: input.client_action_id ?? null,
-    p_before: before, p_after: { status: next.status, points: next.points, walkover: next.walkover ?? null, home: d.homeScore, away: d.awayScore },
+    p_before: before, p_after: { status: next.status, points: next.points, walkover: next.walkover ?? null, ...(next.detail ? { detail: next.detail } : {}), home: d.homeScore, away: d.awayScore },
   });
   if (error) throw new LiveError(500, 'error_guardando', 'No se pudo guardar la acción');
   const out = rpc as { ok?: boolean; duplicate?: boolean; error?: string; version?: number };

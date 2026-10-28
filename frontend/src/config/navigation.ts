@@ -213,7 +213,7 @@ const GESTION_DEPORTIVA_ESCUELA: NavItem[] = [
     title: 'Torneos', icon: Trophy, addon: 'tournaments',
     submenu: [
       { title: 'Mis Torneos', href: '/school/tournaments', icon: Trophy },
-      { title: 'Crear torneo', href: '/school/tournaments/new', icon: Plus },
+      { title: 'Crear torneo', href: '/school/tournaments/nuevo-rapido', icon: Plus },
     ],
   },
   { title: 'Dotación', href: '/school/equipment', icon: Dumbbell },

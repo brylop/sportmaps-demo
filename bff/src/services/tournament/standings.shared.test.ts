@@ -130,3 +130,15 @@ describe('vóley: diferencias, cocientes y desempates configurables', () => {
     expect(order(['point_ratio'])[0]).toBe('a');
   });
 });
+
+describe('ajedrez: Buchholz en la tabla genérica', () => {
+  it('computeStandings aplica extra_tiebreakers entre los empatados en puntos', () => {
+    const cfg = resolveConfig(SCORING_PRESETS.ajedrez.config);
+    // a y b ganan 1 cada uno; a le ganó a c (que luego le gana a d) → a tiene mejor Buchholz.
+    const g = (h: string, a: string, hs: number, as: number) => ({ home_team_id: h, away_team_id: a, home_score: hs, away_score: as, status: 'played' });
+    const rows = computeStandings(T('b', 'a', 'c', 'd'), [g('a', 'c', 2, 0), g('b', 'd', 2, 0), g('c', 'd', 2, 0)], cfg) as Array<{ team_id: string; buchholz?: number }>;
+    const a = rows.find((r) => r.team_id === 'a')!, b = rows.find((r) => r.team_id === 'b')!;
+    expect(a.buchholz).toBeGreaterThan(b.buchholz ?? 0);
+    expect(rows.findIndex((r) => r.team_id === 'a')).toBeLessThan(rows.findIndex((r) => r.team_id === 'b'));
+  });
+});

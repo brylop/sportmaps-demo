@@ -11,6 +11,7 @@ import { FixtureGeneratorDialog, LIVE_BASE, type TeamRef } from './FixtureGenera
 import { LiveSettingsPanel } from './LiveSettingsPanel';
 import { LiveScorer, type ScorerEndpoints } from './LiveScorer';
 import { MatchScheduleDialog } from './MatchScheduleDialog';
+import { PlanillaPartidoButton, loadMatchRoster } from './planilla/PlanillaPartidoButton';
 
 const selectCls = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
@@ -99,6 +100,8 @@ export function TournamentResultsPanel({ eventId, categories }: { eventId: strin
 
   const anotar = (m: MatchDto) => (
     <div className="flex gap-1">
+      <PlanillaPartidoButton size="sm" variant="ghost" match={m} tournamentTitle={config?.event.title} sport={config?.event.sport}
+        loadRoster={() => loadMatchRoster(eventId, m.id)} />
       <Button size="sm" variant="ghost" onClick={() => setEditing(m)} aria-label="Editar hora y cancha" title="Hora y cancha"><Clock className="h-4 w-4" /></Button>
       <Button size="sm" variant="outline" disabled={!m.home_team_id || !m.away_team_id} title={!m.home_team_id || !m.away_team_id ? 'Los equipos aún no están definidos' : undefined} onClick={() => setScoring(m)} aria-label="Anotar este partido">Anotar</Button>
     </div>

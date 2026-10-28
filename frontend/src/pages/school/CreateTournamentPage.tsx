@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
 import { useToast } from '@/hooks/use-toast';
-import { useEntitlements } from '@/hooks/useEntitlements';
+import { useTournamentAccess } from '@/lib/tournaments/tournamentAccess';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -69,7 +69,9 @@ const selectCls =
 export default function CreateTournamentPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { hasAddon, isLoading: entLoading } = useEntitlements();
+  // Un solo criterio de acceso (complemento de la escuela u organizador): lib/tournaments/tournamentAccess.ts
+  const access = useTournamentAccess();
+  const entLoading = access.loading;
   const [form, setForm] = useState<FormState>(INITIAL);
   const [submitting, setSubmitting] = useState(false);
   // Viene del catálogo de cobros: se prellena con el cobro y, al crear, queda vinculado a él.
@@ -92,7 +94,7 @@ export default function CreateTournamentPage() {
     }));
   };
 
-  const hasTournaments = hasAddon('tournaments');
+  const hasTournaments = access.allowed;
 
   useEffect(() => {
     if (!fromItem) return;
@@ -135,12 +137,12 @@ export default function CreateTournamentPage() {
             </div>
             <CardTitle>Módulo de Torneos no activo</CardTitle>
             <CardDescription>
-              Activa el módulo de Torneos para crear y gestionar tus propios torneos.
+              {access.reason ?? 'Activa el módulo de Torneos para crear y gestionar tus propios torneos.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="flex justify-center gap-2">
             <Button variant="outline" onClick={() => navigate(-1)}>Volver</Button>
-            <Button onClick={() => navigate('/mi-plan')}>Ir a Mi Plan</Button>
+            {access.upgradeHref && <Button onClick={() => navigate(access.upgradeHref!)}>Ir a Mi Plan</Button>}
           </CardContent>
         </Card>
       </div>

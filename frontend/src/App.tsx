@@ -252,6 +252,7 @@ const SchoolEquipmentPage = lazy(() => import("./pages/school/SchoolEquipmentPag
 const CoachEquipmentPage = lazy(() => import("./pages/coach/CoachEquipmentPage"));
 const SchoolTournamentDetailPage = lazy(() => import("./pages/school/SchoolTournamentDetailPage"));
 const CreateTournamentPage = lazy(() => import("./pages/school/CreateTournamentPage"));
+const TournamentWizard = lazy(() => import("./components/tournaments/create/TournamentWizard"));
 const EventManagementPage = lazy(() => import("./pages/organizer/EventManagementPage"));
 const OrganizerEventsPage = lazy(() => import("./pages/organizer/OrganizerEventsPage"));
 const OrganizerFinancesPage = lazy(() => import("./pages/organizer/OrganizerFinancesPage"));
@@ -685,6 +686,12 @@ const App = () => (
                       <Route path="school/tournaments/new" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
                           <CreateTournamentPage />
+                        </ProtectedRoute>
+                      } />
+                      {/* Asistente rápido de torneo (4 pasos, celular). */}
+                      <Route path="school/tournaments/nuevo-rapido" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
+                          <TournamentWizard />
                         </ProtectedRoute>
                       } />
                       <Route path="school/tournaments/:id" element={
@@ -1141,6 +1148,7 @@ const App = () => (
                         <Route path="organizer/dashboard" element={<OrganizerDashboardPage />} />
                         <Route path="organizer/profile" element={<OrganizerProfilePage />} />
                         <Route path="organizer/create-event" element={<CreateEventPage />} />
+                        <Route path="organizer/torneo-rapido" element={<TournamentWizard />} />
                         <Route path="organizer/event/:id" element={<EventManagementPage />} />
                         <Route path="organizer/events" element={<OrganizerEventsPage />} />
                         <Route path="organizer/finances" element={<OrganizerFinancesPage />} />

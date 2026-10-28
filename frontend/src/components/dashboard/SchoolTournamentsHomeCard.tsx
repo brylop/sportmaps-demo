@@ -40,7 +40,7 @@ export function SchoolTournamentsHomeCard() {
           <p className="flex items-center gap-2 font-semibold"><Trophy className="h-4 w-4 text-primary" /> Torneos</p>
           <div className="flex gap-2">
             <Button size="sm" variant="ghost" onClick={() => navigate('/school/tournaments')}>Ver todos</Button>
-            <Button size="sm" onClick={() => navigate('/school/tournaments/new')}><Plus className="mr-1 h-4 w-4" /> Crear torneo</Button>
+            <Button size="sm" onClick={() => navigate('/school/tournaments/nuevo-rapido')}><Plus className="mr-1 h-4 w-4" /> Crear torneo</Button>
           </div>
         </div>
         {list.length === 0 ? (
