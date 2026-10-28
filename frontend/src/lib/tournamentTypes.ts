@@ -2,19 +2,26 @@
  * Tipos (DTO) del BFF de «Torneos en vivo» — base `/api/v1/tournament-live`.
  * Contrato: docs/specs/torneos-en-vivo-multideporte-plan.md.
  */
-import type { Action, ScoringConfig, ScoreModel, MatchStatus } from '@/lib/tournamentScoring';
+import type { Action, ScoringConfig, ScoreModel, MatchStatus, MatchDetail } from '@/lib/tournamentScoring';
 
 export type { Action, ScoringConfig, ScoreModel, MatchStatus };
 
 export type MatchStage = 'league' | 'group' | 'knockout' | 'third_place';
 export type FixtureFormat = 'liga' | 'copa' | 'grupos';
 
-export interface SetDto { home: number; away: number; closed: boolean; deciding: boolean }
+export interface SetDto {
+  home: number; away: number; closed: boolean; deciding: boolean;
+  /** Tenis: puntos del tie-break / super tie-break. */
+  tb?: { home: number; away: number };
+  super?: boolean;
+}
 
 export interface LiveStateDto {
   status: MatchStatus;
   points: string;
   walkover?: 'home' | 'away' | null;
+  /** Penales / desempate e innings de críquet. */
+  detail?: MatchDetail | null;
 }
 
 export interface MatchDto {
