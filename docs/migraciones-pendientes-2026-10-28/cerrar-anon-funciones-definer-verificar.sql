@@ -152,7 +152,11 @@ chk_fn AS (
       WHEN oid IS NULL THEN 'no existe la función (¿cambió la firma?)'
       WHEN cat = 'A' AND NOT has_function_privilege('anon', oid, 'EXECUTE') THEN 'anon PERDIÓ EXECUTE: flujo público roto'
       WHEN cat <> 'A' AND has_function_privilege('anon', oid, 'EXECUTE') THEN 'anon sigue con EXECUTE'
-      WHEN NOT has_function_privilege('authenticated', oid, 'EXECUTE') THEN 'authenticated perdió EXECUTE'
+      -- access_demo_link y claim_child_for_parent: 20261028111725_gates_definer_authenticated
+      -- (posterior) también las revoca de authenticated a propósito (sin llamador / CRIT).
+      WHEN NOT has_function_privilege('authenticated', oid, 'EXECUTE')
+           AND sig NOT IN ('access_demo_link(text)', 'claim_child_for_parent(uuid,text,text)')
+        THEN 'authenticated perdió EXECUTE'
       WHEN NOT has_function_privilege('service_role', oid, 'EXECUTE') THEN 'service_role perdió EXECUTE'
     END AS problema
   FROM f
