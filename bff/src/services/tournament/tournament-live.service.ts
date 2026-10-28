@@ -504,6 +504,9 @@ export async function patchConfig(ev: LiveEvent, body: Record<string, any>) {
     const p = SCORING_PRESETS[String(body.preset)];
     if (!p) throw new LiveError(400, 'preset_invalido', 'Plantilla de marcador desconocida');
     patch.scoring_config = p.config.model ? { ...p.config } : { model: 'goals', ...p.config };
+    // Cambiar la plantilla del torneo no borra las reglas que ya tenga cada categoría.
+    const byCat = ev.scoring_config?.by_category;
+    if (byCat && typeof byCat === 'object' && Object.keys(byCat).length) (patch.scoring_config as any).by_category = byCat;
   } else if ('scoring_config' in body) {
     const bad = validateConfig(body.scoring_config);
     if (bad) throw new LiveError(400, 'config_invalida', bad);

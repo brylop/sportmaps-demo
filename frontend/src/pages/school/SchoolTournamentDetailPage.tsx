@@ -11,7 +11,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ArrowLeft, Trophy, Share2, Rocket, Link2, AlertCircle, Plus, Trash2, Save, UserPlus } from 'lucide-react';
+import { ArrowLeft, Trophy, Share2, Rocket, Link2, AlertCircle, Plus, Trash2, Save, UserPlus, Radio, Copy } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ImageUpload } from '@/components/common/ImageUpload';
+import { TournamentTeamsPanel } from '@/components/tournaments/TournamentTeamsPanel';
+import { TournamentSponsorsPanel } from '@/components/tournaments/TournamentSponsorsPanel';
 import { getIndividualRegistrations, assignTeams, IndividualRegistration } from '@/lib/api/tournaments';
 import { RegisterAthleteDialog } from '@/components/school/RegisterAthleteDialog';
 import { TournamentResultsPanel } from '@/components/tournaments/TournamentResultsPanel';
@@ -20,6 +25,8 @@ import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { mediosDeCobroDeLaEscuela, soloEfectivo } from '@/lib/tournaments/mediosDeCobro';
 
 interface Category {
+  /** Id de la categoría guardada: se manda para que el BFF la actualice sin cambiarle el id. */
+  id?: string;
   division: string; level: string; category: string; rama: string;
   age_min: number | null; age_max: number | null; team_min: number | null; team_max: number | null;
 }
@@ -44,6 +51,17 @@ interface Detail {
   /** false = torneo gratis (sin cobro). Solo aplica a internos. */
   is_paid?: boolean; payment_methods?: string[] | null;
   categories?: any[]; phases?: any[];
+  live_enabled?: boolean;
+  // Identidad pública (página en vivo). banner_url = portada.
+  logo_url?: string | null; banner_url?: string | null; end_date?: string | null;
+  venue_name?: string | null; venue_maps_url?: string | null; rules_url?: string | null; organizer_name?: string | null;
+}
+
+/** Enlaces opcionales de la ficha: vacío o https. */
+export function httpsFieldError(v: string | null | undefined): string | null {
+  const t = (v ?? '').trim();
+  if (!t) return null;
+  try { return new URL(t).protocol === 'https:' ? null : 'Debe empezar por https://'; } catch { return 'El enlace no es válido'; }
 }
 
 const STATUS_LABEL: Record<string, { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }> = {
@@ -66,7 +84,8 @@ export default function SchoolTournamentDetailPage() {
   const [loading, setLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
-  const { schoolSettings } = useSchoolContext();
+  const [qrOpen, setQrOpen] = useState(false);
+  const { schoolSettings, schoolId } = useSchoolContext();
   // Solo los medios que la escuela ya tiene configurados.
   const medios = mediosDeCobroDeLaEscuela(schoolSettings);
 
@@ -101,9 +120,12 @@ export default function SchoolTournamentDetailPage() {
         end_time: d.end_time, address: d.address, city: d.city, capacity: d.capacity,
         visibility: d.visibility, payer_mode: d.payer_mode, registration_deadline: d.registration_deadline,
         is_paid: d.is_paid !== false, payment_methods: d.payment_methods ?? [],
+        logo_url: d.logo_url ?? null, banner_url: d.banner_url ?? null, end_date: d.end_date ?? null,
+        venue_name: d.venue_name ?? null, venue_maps_url: d.venue_maps_url ?? null, rules_url: d.rules_url ?? null,
+        organizer_name: d.organizer_name ?? null,
       });
       setCats((d.categories ?? []).map((c: any) => ({
-        division: c.division, level: c.level, category: c.category, rama: c.rama,
+        id: c.id, division: c.division, level: c.level, category: c.category, rama: c.rama,
         age_min: c.age_min, age_max: c.age_max, team_min: c.team_min, team_max: c.team_max,
       })));
       setPhases((d.phases ?? []).map((p: any) => ({
@@ -192,10 +214,20 @@ export default function SchoolTournamentDetailPage() {
   const fmt = (d?: string | null) => d ? new Date(d).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
   const money = (n: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n || 0);
   const publicUrl = t ? `${window.location.origin}/event/${t.slug}` : '';
+  const liveUrl = t ? `${window.location.origin}/torneo/${t.slug}/en-vivo` : '';
+  const infoErrors = [httpsFieldError(info.venue_maps_url), httpsFieldError(info.rules_url)].filter(Boolean) as string[];
+  const endBeforeStart = !!(info.end_date && info.event_date && info.end_date < info.event_date);
 
   const saveInfo = async () => {
+    if (infoErrors.length || endBeforeStart) { toast({ title: 'Revisa los datos', description: endBeforeStart ? 'La fecha de cierre no puede ser antes de la fecha de inicio.' : infoErrors[0], variant: 'destructive' }); return; }
     setSavingInfo(true);
-    try { await bffClient.patch(`/api/v1/events/school-tournaments/${id}`, info); toast({ title: 'Guardado' }); await load(); }
+    const blank = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);
+    const body = {
+      ...info,
+      end_date: info.end_date || null, venue_name: blank(info.venue_name), venue_maps_url: blank(info.venue_maps_url),
+      rules_url: blank(info.rules_url), organizer_name: blank(info.organizer_name),
+    };
+    try { await bffClient.patch(`/api/v1/events/school-tournaments/${id}`, body); toast({ title: 'Guardado' }); await load(); }
     catch (e: any) { toast({ title: 'Error', description: e?.message, variant: 'destructive' }); }
     finally { setSavingInfo(false); }
   };
@@ -215,8 +247,14 @@ export default function SchoolTournamentDetailPage() {
     catch (e: any) { toast({ title: 'Error al publicar', description: e?.message, variant: 'destructive' }); }
     finally { setPublishing(false); }
   };
-  const share = async () => {
-    try { if (navigator.share) await navigator.share({ title: t?.title, url: publicUrl }); else { await navigator.clipboard.writeText(publicUrl); toast({ title: 'Enlace copiado' }); } } catch { /* cancelado */ }
+  const shareUrl = async (url: string, copied: string) => {
+    try { if (navigator.share) await navigator.share({ title: t?.title, url }); else { await navigator.clipboard.writeText(url); toast({ title: copied }); } } catch { /* cancelado */ }
+  };
+  const share = () => shareUrl(publicUrl, 'Enlace de inscripción copiado');
+  const shareLive = () => shareUrl(liveUrl, 'Enlace de la página en vivo copiado');
+  const copyLive = async () => {
+    try { await navigator.clipboard.writeText(liveUrl); toast({ title: 'Enlace copiado' }); }
+    catch { toast({ title: 'No se pudo copiar', description: 'Selecciona el enlace y cópialo a mano.', variant: 'destructive' }); }
   };
 
   if (loading) return <div className="mx-auto max-w-4xl px-4 py-6 space-y-4"><Skeleton className="h-8 w-40" /><Skeleton className="h-40 w-full" /></div>;
@@ -237,6 +275,8 @@ export default function SchoolTournamentDetailPage() {
   const esGratis = isInternal && t.is_paid === false;
   const canPublish = savedCats.length > 0 && (esGratis || savedPhases.length > 0);
   const isShareable = isActive && t.visibility !== 'school_only';
+  // La página en vivo existe si el torneo no es privado, o si es interno pero con el marcador en vivo encendido.
+  const isLiveShareable = !isDraft && t.status !== 'cancelled' && (t.visibility !== 'school_only' || !!t.live_enabled);
 
   const payStatus = (d: Delegation) => {
     const owed = Number(d.total_owed || 0), paid = Number(d.total_paid || 0);
@@ -281,9 +321,27 @@ export default function SchoolTournamentDetailPage() {
               <Rocket className="mr-1 h-4 w-4" /> {publishing ? 'Publicando…' : 'Publicar'}
             </Button>
           )}
-          {isShareable && <Button variant="outline" onClick={share}><Share2 className="mr-1 h-4 w-4" /> Compartir</Button>}
+          {isShareable && <Button variant="outline" onClick={share} title="Enlace para inscribirse"><Share2 className="mr-1 h-4 w-4" /> Compartir inscripción</Button>}
+          {isLiveShareable && <Button variant="outline" onClick={shareLive}><Radio className="mr-1 h-4 w-4" /> Compartir página en vivo</Button>}
+          {isLiveShareable && <Button variant="ghost" onClick={() => setQrOpen(true)} aria-label="Ver QR de la página en vivo">QR</Button>}
         </div>
       </div>
+
+      <Dialog open={qrOpen} onOpenChange={setQrOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Página en vivo</DialogTitle>
+            <DialogDescription>Imprímelo o muéstralo en el coliseo: las familias ven posiciones, partidos y marcador sin iniciar sesión.</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col items-center gap-3">
+            <div className="rounded bg-white p-3" data-testid="live-qr"><QRCodeSVG value={liveUrl} size={208} level="M" /></div>
+            <div className="flex w-full gap-2">
+              <Input readOnly value={liveUrl} onFocus={(e) => e.currentTarget.select()} aria-label="Enlace de la página en vivo" />
+              <Button variant="outline" onClick={copyLive} aria-label="Copiar enlace"><Copy className="h-4 w-4" /></Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {isDraft && !canPublish && (
         <Card className="mb-6 border-amber-300/50 bg-amber-50/50 dark:bg-amber-950/20"><CardContent className="flex items-start gap-3 py-4 text-sm">
@@ -319,6 +377,29 @@ export default function SchoolTournamentDetailPage() {
             <div className="space-y-1.5"><Label>Dirección</Label><Input value={info.address ?? ''} onChange={(e) => setInfo({ ...info, address: e.target.value })} /></div>
             <div className="space-y-1.5"><Label>Ciudad</Label><Input value={info.city ?? ''} onChange={(e) => setInfo({ ...info, city: e.target.value })} /></div>
             <div className="space-y-1.5"><Label>Cupo</Label><Input type="number" min={1} value={info.capacity ?? ''} onChange={(e) => setInfo({ ...info, capacity: e.target.value ? Number(e.target.value) : null })} /></div>
+            <div className="space-y-1.5"><Label>Último día (si dura varios días)</Label>
+              <Input type="date" min={info.event_date ?? undefined} value={info.end_date ?? ''} onChange={(e) => setInfo({ ...info, end_date: e.target.value || null })} aria-invalid={endBeforeStart} />
+              {endBeforeStart && <p role="alert" className="text-xs text-destructive">No puede ser antes de la fecha de inicio.</p>}</div>
+
+            <div className="border-t pt-4 sm:col-span-2"><p className="text-sm font-semibold">Página en vivo</p>
+              <p className="text-xs text-muted-foreground">Así se ve el torneo en /torneo/{t.slug}/en-vivo.</p></div>
+            <div className="space-y-1.5"><Label>Logo del torneo</Label>
+              {schoolId
+                ? <ImageUpload compact value={info.logo_url ?? null} path={`logos/${schoolId}/torneos/${t.id}`} onChange={(url) => setInfo({ ...info, logo_url: url })} onRemove={() => setInfo({ ...info, logo_url: null })} />
+                : <p className="text-xs text-muted-foreground">Cargando tu escuela…</p>}</div>
+            <div className="space-y-1.5"><Label>Portada</Label>
+              {schoolId
+                ? <ImageUpload value={info.banner_url ?? null} path={`covers/${schoolId}/torneos/${t.id}`} onChange={(url) => setInfo({ ...info, banner_url: url })} onRemove={() => setInfo({ ...info, banner_url: null })} className="h-32" />
+                : <p className="text-xs text-muted-foreground">Cargando tu escuela…</p>}</div>
+            <div className="space-y-1.5"><Label>Sede (nombre del coliseo o cancha)</Label><Input maxLength={120} placeholder="Coliseo Iván de Bedout" value={info.venue_name ?? ''} onChange={(e) => setInfo({ ...info, venue_name: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label>Enlace del mapa (opcional)</Label>
+              <Input inputMode="url" placeholder="https://maps.app.goo.gl/…" value={info.venue_maps_url ?? ''} onChange={(e) => setInfo({ ...info, venue_maps_url: e.target.value })} aria-invalid={!!httpsFieldError(info.venue_maps_url)} />
+              {httpsFieldError(info.venue_maps_url) ? <p role="alert" className="text-xs text-destructive">{httpsFieldError(info.venue_maps_url)}</p>
+                : <p className="text-xs text-muted-foreground">Si lo dejas vacío, se arma con la dirección.</p>}</div>
+            <div className="space-y-1.5"><Label>Reglamento (enlace, opcional)</Label>
+              <Input inputMode="url" placeholder="https://drive.google.com/…" value={info.rules_url ?? ''} onChange={(e) => setInfo({ ...info, rules_url: e.target.value })} aria-invalid={!!httpsFieldError(info.rules_url)} />
+              {httpsFieldError(info.rules_url) && <p role="alert" className="text-xs text-destructive">{httpsFieldError(info.rules_url)}</p>}</div>
+            <div className="space-y-1.5"><Label>Organiza (opcional)</Label><Input maxLength={120} placeholder="Si lo dejas vacío, sale el nombre de tu escuela" value={info.organizer_name ?? ''} onChange={(e) => setInfo({ ...info, organizer_name: e.target.value })} /></div>
             {isInternal && (
               <div className="sm:col-span-2">
                 <CobroTorneoFields
@@ -342,6 +423,7 @@ export default function SchoolTournamentDetailPage() {
             )}
             <div className="sm:col-span-2"><Button onClick={saveInfo} disabled={savingInfo}><Save className="mr-1 h-4 w-4" /> {savingInfo ? 'Guardando…' : 'Guardar cambios'}</Button></div>
           </CardContent></Card>
+          <div className="mt-6"><TournamentSponsorsPanel eventId={String(id)} schoolId={schoolId} /></div>
         </TabsContent>
 
         {/* ─── CATEGORÍAS Y PRECIOS ─── */}
@@ -426,6 +508,10 @@ export default function SchoolTournamentDetailPage() {
 
         {/* ─── INSCRITOS ─── */}
         <TabsContent value="inscritos" className="mt-4 space-y-4">
+          <TournamentTeamsPanel
+            eventId={String(id)} schoolId={schoolId}
+            categories={savedCats.map((c: any) => ({ id: c.id, name: `${c.division} · ${c.category} (${c.rama})` }))}
+          />
           {isInternal && savedCats.length > 0 && (
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm text-muted-foreground">

@@ -6,7 +6,7 @@ import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/a
 import { userClient } from '../utils/userClient';
 import {
     LiveError, buildCategoryStandings, generateCategoryFixtures, loadEvent, performMatchAction, toMatchDto, loadMatches,
-    invalidatePublicLive, validateHttpsUrl, validateImageUrl, cleanText,
+    invalidatePublicLive, validateHttpsUrl, validateImageUrl, cleanText, isMissingColumn,
 } from '../services/tournament/tournament-live.service';
 import { resolveConfig } from '../services/tournament/scoring.shared';
 
@@ -333,9 +333,7 @@ router.post('/school-tournament', requireAuth, requireRole('school', 'school_adm
             ?? (p.tournament_scope === 'internal' ? 'school_only' : 'public');
 
         // 1. Insert Event (columnas reales; creator_role='school', organizer_id NULL)
-        const { data: newEvent, error: eventError } = await supabase
-            .from('events')
-            .insert({
+        const row: Record<string, unknown> = {
                 creator_id: userId,
                 creator_role: 'school',
                 school_id: schoolId,
@@ -373,11 +371,17 @@ router.post('/school-tournament', requireAuth, requireRole('school', 'school_adm
                 crossover_allowed: p.crossover_allowed,
                 payment_methods: p.payment_methods ?? [],
                 is_paid: p.is_paid,
-            })
-            .select()
-            .single();
+        };
+        const insertEvent = (r: Record<string, unknown>) => supabase.from('events').insert(r).select().single();
+        let { data: newEvent, error: eventError } = await insertEvent(row);
+        if (isMissingColumn(eventError)) {
+            // Migración 20261027180825 sin aplicar: se crea sin la identidad nueva (se puede editar después).
+            const { logo_url: _l, end_date: _e, venue_name: _v, ...legacy } = row;
+            void _l; void _e; void _v;
+            ({ data: newEvent, error: eventError } = await insertEvent(legacy));
+        }
 
-        if (eventError) {
+        if (eventError || !newEvent) {
             req.log?.error({ err: eventError }, 'Error insertando torneo de escuela');
             return res.status(500).json({ error: 'Error al crear el torneo' });
         }
@@ -616,6 +620,9 @@ async function notifyTeamMembers(teamIds: string[], payload: { title: string; me
     await notifyProfiles(ids, payload);
 }
 
+/** Columnas de la migración 20261027180825 (banner_url ya existía). */
+const IDENTITY_V2_COLS = ['logo_url', 'end_date', 'rules_url', 'venue_name', 'venue_maps_url', 'organizer_name'];
+
 /** Logo/portada solo del storage de SportMaps; reglamento y mapa en https; textos recortados. */
 export function cleanTournamentIdentity<T extends Record<string, unknown>>(p: T): Record<string, unknown> {
     const out: Record<string, unknown> = { ...p };
@@ -675,13 +682,19 @@ router.patch('/school-tournaments/:id', requireAuth, requireRole('school', 'scho
             if (start && String(patch.end_date) < String(start)) return res.status(400).json({ error: 'La fecha de cierre no puede ser antes de la fecha de inicio', code: 'fechas_invalidas' });
         }
 
-        const { data, error } = await supabase
+        const run = (body: Record<string, unknown>) => supabase
             .from('events')
-            .update({ ...patch, updated_at: new Date().toISOString() })
+            .update({ ...body, updated_at: new Date().toISOString() })
             .eq('id', id)
             .eq('school_id', schoolId)
             .select()
             .single();
+        let { data, error } = await run(patch);
+        if (isMissingColumn(error)) {
+            // Migración 20261027180825 sin aplicar: se guarda lo demás y se omite la identidad nueva.
+            const legacy = Object.fromEntries(Object.entries(patch).filter(([k]) => !IDENTITY_V2_COLS.includes(k)));
+            ({ data, error } = await run(legacy));
+        }
         if (error) { req.log?.error({ err: error }, 'Error editando torneo'); return res.status(500).json({ error: 'Error al editar el torneo' }); }
         invalidatePublicLive();
         return res.status(200).json(data);

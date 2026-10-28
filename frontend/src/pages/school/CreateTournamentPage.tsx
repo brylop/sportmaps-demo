@@ -23,8 +23,12 @@ interface FormState {
   sport: string;
   description: string;
   event_date: string;
+  /** Último día, si el torneo dura varios días (opcional). */
+  end_date: string;
   start_time: string;
   end_time: string;
+  /** Nombre del coliseo o cancha (sale en la página en vivo). */
+  venue_name: string;
   address: string;
   city: string;
   capacity: string;
@@ -43,8 +47,10 @@ const INITIAL: FormState = {
   sport: '',
   description: '',
   event_date: '',
+  end_date: '',
   start_time: '08:00',
   end_time: '',
+  venue_name: '',
   address: '',
   city: '',
   capacity: '',
@@ -146,6 +152,7 @@ export default function CreateTournamentPage() {
     if (!form.sport.trim()) return 'El deporte es requerido.';
     if (!form.event_date) return 'La fecha es requerida.';
     if (!form.start_time) return 'La hora de inicio es requerida.';
+    if (form.end_date && form.end_date < form.event_date) return 'El último día no puede ser antes de la fecha de inicio.';
     if (!form.address.trim()) return 'La dirección es requerida.';
     if (!form.city.trim()) return 'La ciudad es requerida.';
     if (form.tournament_scope === 'internal') {
@@ -174,6 +181,8 @@ export default function CreateTournamentPage() {
         event_date: form.event_date,
         start_time: form.start_time,
         end_time: form.end_time || null,
+        ...(form.end_date ? { end_date: form.end_date } : {}),
+        ...(form.venue_name.trim() ? { venue_name: form.venue_name.trim() } : {}),
         address: form.address.trim(),
         city: form.city.trim(),
         capacity: form.capacity ? Number(form.capacity) : undefined,
@@ -365,6 +374,10 @@ export default function CreateTournamentPage() {
               <Input id="event_date" type="date" value={form.event_date} onChange={(e) => set('event_date', e.target.value)} />
             </div>
             <div className="space-y-1.5">
+              <Label htmlFor="end_date">Último día (si dura varios días)</Label>
+              <Input id="end_date" type="date" min={form.event_date || undefined} value={form.end_date} onChange={(e) => set('end_date', e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
               <Label htmlFor="registration_deadline">Cierre de inscripciones</Label>
               <Input id="registration_deadline" type="date" value={form.registration_deadline} onChange={(e) => set('registration_deadline', e.target.value)} />
             </div>
@@ -375,6 +388,10 @@ export default function CreateTournamentPage() {
             <div className="space-y-1.5">
               <Label htmlFor="end_time">Hora fin</Label>
               <Input id="end_time" type="time" value={form.end_time} onChange={(e) => set('end_time', e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="venue_name">Sede (opcional)</Label>
+              <Input id="venue_name" maxLength={120} value={form.venue_name} onChange={(e) => set('venue_name', e.target.value)} placeholder="Coliseo Iván de Bedout" />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="address">Dirección *</Label>

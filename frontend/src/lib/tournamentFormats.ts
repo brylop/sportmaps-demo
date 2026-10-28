@@ -21,14 +21,55 @@ export interface FormatDraft {
   courts: number;
   slotMinutes: number;
   breakMinutes: number;
+  /** Grupos: varias copas (oro, plata…) en vez de una sola fase final. */
+  cupsOn: boolean;
+  cups: CupDraft[];
 }
+
+export interface CupDraft { label: string; positions: number[]; thirdPlace: boolean }
+
+export const DEFAULT_CUPS: CupDraft[] = [
+  { label: 'Copa oro', positions: [1, 2], thirdPlace: false },
+  { label: 'Copa plata', positions: [3, 4], thirdPlace: false },
+];
 
 export const DEFAULT_DRAFT: FormatDraft = {
   format: 'liga', matchesPerTeam: null, doubleRound: false,
   groupCount: 2, advance: 2, thirdPlace: false,
   draw: 'random', seed: '', teamOrder: [],
   scheduleOn: false, start: '', courts: 1, slotMinutes: 60, breakMinutes: 10,
+  cupsOn: false, cups: DEFAULT_CUPS,
 };
+
+/** Mismas reglas que el BFF (validateCups): nombre único, posiciones sin repetir y dentro del grupo más pequeño. */
+export function validateCups(cups: CupDraft[], groupCount: number, minSize: number): string | null {
+  if (cups.length === 0) return 'Agrega al menos una copa.';
+  if (cups.length > 8) return 'Máximo 8 copas.';
+  const labels = new Set<string>();
+  const used = new Set<number>();
+  for (const c of cups) {
+    const label = c.label.trim();
+    if (!label) return 'Ponle nombre a cada copa (por ejemplo «Copa oro»).';
+    if (label.length > 40) return 'El nombre de la copa puede tener máximo 40 caracteres.';
+    if (labels.has(label.toLowerCase())) return `La copa «${label}» está repetida.`;
+    labels.add(label.toLowerCase());
+    if (c.positions.length === 0) return `Elige qué posiciones juegan la ${label}.`;
+    for (const p of c.positions) {
+      if (p > minSize) return `En la ${label} las posiciones deben estar entre 1 y ${minSize} (el grupo más pequeño).`;
+      if (used.has(p)) return `El ${p}.º de cada grupo está en dos copas.`;
+      used.add(p);
+    }
+    if (c.positions.length * groupCount < 2) return `La ${label} necesita al menos 2 equipos.`;
+  }
+  return null;
+}
+
+/** Texto corto de las posiciones de una copa: [1,2] → «1.º y 2.º». */
+export function positionsText(positions: number[]): string {
+  const p = [...positions].sort((a, b) => a - b).map((n) => `${n}.º`);
+  if (p.length <= 1) return p.join('');
+  return `${p.slice(0, -1).join(', ')} y ${p[p.length - 1]}`;
+}
 
 /** Reparte `teams` equipos en `count` grupos lo más parejos posible (los primeros grupos reciben el sobrante). */
 export function groupSizes(teams: number, count: number): number[] {
@@ -71,9 +112,14 @@ export function validateDraft(d: FormatDraft, teamsOrNull: number | null): strin
     if (!Number.isInteger(d.groupCount) || d.groupCount < 2) return 'Debe haber al menos 2 grupos.';
     const min = known ? Math.floor(teams / d.groupCount) : Number.POSITIVE_INFINITY;
     if (min < 2) return `Con ${teams} equipos no se pueden armar ${d.groupCount} grupos de al menos 2 equipos.`;
-    if (!Number.isInteger(d.advance) || d.advance < 1) return 'Debe clasificar al menos 1 equipo por grupo.';
-    if (d.advance > min) return `No pueden clasificar ${d.advance} por grupo: el grupo más pequeño tiene ${min} equipos.`;
-    if (d.advance * d.groupCount < 2) return 'La fase final necesita al menos 2 equipos clasificados.';
+    if (d.cupsOn) {
+      const err = validateCups(d.cups, d.groupCount, min);
+      if (err) return err;
+    } else {
+      if (!Number.isInteger(d.advance) || d.advance < 1) return 'Debe clasificar al menos 1 equipo por grupo.';
+      if (d.advance > min) return `No pueden clasificar ${d.advance} por grupo: el grupo más pequeño tiene ${min} equipos.`;
+      if (d.advance * d.groupCount < 2) return 'La fase final necesita al menos 2 equipos clasificados.';
+    }
   }
   if (known && d.format === 'copa' && d.thirdPlace && teams < 4) return 'El partido por el tercer puesto necesita al menos 4 equipos.';
   if (d.draw === 'manual' && (!known || d.teamOrder.length !== teams)) return 'El orden manual debe incluir a todos los equipos.';
@@ -101,10 +147,16 @@ export function summarizeDraft(d: FormatDraft, teams: number): FormatSummary {
   } else {
     const sizes = groupSizes(teams, Math.max(d.groupCount, 1));
     groupMatches = sizes.reduce((s, n) => s + roundRobin(n) * (d.doubleRound ? 2 : 1), 0);
-    ko = knockoutMatches(d.advance * d.groupCount, d.thirdPlace);
     const distinct = Array.from(new Set(sizes));
     const sizeTxt = distinct.length === 1 ? `de ${distinct[0]}` : `de ${distinct.join(' o ')}`;
-    text = `${eq} · ${d.groupCount} grupos ${sizeTxt} · ${groupMatches} partidos de grupo + ${ko} de fase final`;
+    if (d.cupsOn && d.cups.length > 0) {
+      const parts = d.cups.map((c) => ({ label: c.label.trim() || 'Copa', n: knockoutMatches(c.positions.length * d.groupCount, c.thirdPlace) }));
+      ko = parts.reduce((s, p) => s + p.n, 0);
+      text = `${eq} · ${d.groupCount} grupos ${sizeTxt} · ${groupMatches} partidos de grupo + ${parts.map((p) => `${p.n} de ${p.label}`).join(' + ')}`;
+    } else {
+      ko = knockoutMatches(d.advance * d.groupCount, d.thirdPlace);
+      text = `${eq} · ${d.groupCount} grupos ${sizeTxt} · ${groupMatches} partidos de grupo + ${ko} de fase final`;
+    }
   }
   return { groupMatches, leagueMatches, knockoutMatches: ko, total: groupMatches + leagueMatches + ko, text };
 }
@@ -113,6 +165,13 @@ export function summarizeDraft(d: FormatDraft, teams: number): FormatSummary {
 export function toColombiaIso(local: string): string {
   const base = local.length === 16 ? `${local}:00` : local;
   return `${base}-05:00`;
+}
+
+/** ISO (cualquier zona) → `YYYY-MM-DDTHH:mm` en hora de Colombia, para un `<input type="datetime-local">`. */
+export function toColombiaLocalInput(iso: string): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return '';
+  return new Date(t - 5 * 3600_000).toISOString().slice(0, 16);
 }
 
 /** Cuerpo para POST /school/:id/categories/:catId/fixtures. */
@@ -129,9 +188,16 @@ export function buildFixturesBody(d: FormatDraft, teams: number): { format: Fixt
   } else if (d.format === 'copa') {
     config.third_place = d.thirdPlace;
   } else {
-    config.groups = { count: d.groupCount, advance: d.advance };
     config.double_round = d.doubleRound;
-    config.third_place = d.thirdPlace;
+    if (d.cupsOn && d.cups.length > 0) {
+      const maxPos = Math.max(...d.cups.flatMap((c) => c.positions));
+      config.groups = { count: d.groupCount, advance: maxPos };
+      config.cups = d.cups.map((c) => ({ label: c.label.trim(), positions: [...c.positions].sort((a, b) => a - b), third_place: c.thirdPlace }));
+      config.third_place = false;
+    } else {
+      config.groups = { count: d.groupCount, advance: d.advance };
+      config.third_place = d.thirdPlace;
+    }
   }
   config.schedule = d.scheduleOn
     ? { start: toColombiaIso(d.start), courts: d.courts, slot_minutes: d.slotMinutes, break_minutes: d.breakMinutes }
