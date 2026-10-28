@@ -55,6 +55,17 @@ const ROL_VISIBLE: Record<string, string> = {
 
 const uniq = <T,>(xs: T[]) => [...new Set(xs)];
 
+/**
+ * Ids con los que un coach puede figurar en `teams.coach_id` y
+ * `team_coaches.coach_id`: su perfil (cuentas viejas) y sus filas de
+ * school_staff (coach_auth_id = perfil), que es lo que guarda hoy la app.
+ * TeamsPage acepta las dos.
+ */
+export async function idsDeCoach(userId: string): Promise<string[]> {
+    const { data: staff } = await supabase.from('school_staff').select('id').eq('coach_auth_id', userId);
+    return uniq([userId, ...((staff as any[]) || []).map((s) => s.id)]);
+}
+
 export async function construirContextoMapi(userId: string, schoolId: string | null): Promise<ContextoMapi> {
     const ctx: ContextoMapi = {
         nombre: null,
@@ -94,12 +105,12 @@ export async function construirContextoMapi(userId: string, schoolId: string | n
 
     if (ctx.roles.includes('coach') && idActiva) {
         tareas.push((async () => {
-            // Un coach puede estar asignado por su perfil o por su fila de
-            // school_staff (coach_auth_id) — TeamsPage acepta las dos.
-            const { data: staff } = await supabase.from('school_staff').select('id').eq('coach_auth_id', userId);
-            const ids = [userId, ...((staff as any[]) || []).map((s) => s.id)];
+            const ids = await idsDeCoach(userId);
             const [{ data: directos }, { data: asignados }] = await Promise.all([
-                supabase.from('teams').select('name').eq('school_id', idActiva).eq('coach_id', userId),
+                // teams.coach_id guarda el id de school_staff (no el del perfil):
+                // con .eq('coach_id', userId) Mapi le decía a Carlos Ramírez que
+                // no tenía equipos teniendo Lightning y Thunder (2026-10-27).
+                supabase.from('teams').select('name').eq('school_id', idActiva).in('coach_id', ids),
                 supabase.from('team_coaches').select('teams(name)').eq('school_id', idActiva).in('coach_id', ids),
             ]);
             ctx.equiposQueEntrena = uniq([

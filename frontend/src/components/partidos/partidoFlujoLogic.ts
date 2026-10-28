@@ -8,6 +8,18 @@
  * submit_match_evaluation, publish_match_evaluation).
  */
 
+// ── Barra de guardar (celular) ──────────────────────────────────────────────
+
+/**
+ * Barra fija de «Guardar resultado» / «Guardar evaluación». En el celular va
+ * ENCIMA de MobileBottomNav (`bottom-nav-safe` = alto de la barra + safe-area;
+ * antes era `bottom-0 z-20` y la barra de pestañas, z-30, tapaba el botón) y
+ * deja libre la esquina derecha donde flota el botón de Mapi (`pr-20`). En
+ * md+ la navegación inferior no existe y la barra vuelve al flujo normal.
+ */
+export const BARRA_GUARDAR =
+  'fixed inset-x-0 bottom-nav-safe z-30 border-t bg-background/95 py-3 pl-3 pr-20 backdrop-blur md:static md:border-0 md:bg-transparent md:p-0';
+
 // ── Pasos ───────────────────────────────────────────────────────────────────
 
 export type PasoPartido = 'programar' | 'convocar' | 'cerrar' | 'evaluar' | 'reporte';

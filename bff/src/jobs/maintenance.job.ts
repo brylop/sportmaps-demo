@@ -57,9 +57,14 @@ export function initMaintenanceJobs() {
     // (correos dobles, bloqueos dobles, glosas, conciliación...). Los
     // DISABLE_* por tarea no alcanzan: ~15 tareas no tienen interruptor.
     //
-    // CRONS_ENABLED=false en sportmaps-bff-dev y sportmaps-bff-stg; en prod
-    // sin definir (= habilitado), así prod no necesita cambio de entorno.
-    // Los DISABLE_* de cada tarea siguen funcionando dentro de prod.
+    // La INTENCIÓN era CRONS_ENABLED=false en sportmaps-bff-dev y
+    // sportmaps-bff-stg y sin definir en prod (= habilitado). OJO: al
+    // 2026-10-27 sportmaps-bff-dev NO tiene CRONS_ENABLED=false, así que sus
+    // crons SÍ corren contra la base compartida (y además
+    // notification_settings.bff_dispatch_url apunta a bffdev). stg no está
+    // verificado. Antes de asumir que un cron no corre en dev/stg, mirar las
+    // variables de cada servicio en Render. Los DISABLE_* de cada tarea siguen
+    // funcionando en cualquier proceso.
     // ────────────────────────────────────────────────────────────────────────
     if (process.env.CRONS_ENABLED === 'false') {
         console.log('[CRON] CRONS_ENABLED=false: no se registra ningún cron en este proceso.');

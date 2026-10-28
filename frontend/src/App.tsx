@@ -202,6 +202,9 @@ const PayrollConfigPage = lazy(() => import("./pages/admin/PayrollConfigPage"));
 const AdminAccessLogsPage = lazy(() => import("./pages/AdminAccessLogsPage"));
 const AthleteCardPublicPage = lazy(() => import("./pages/AthleteCardPublicPage"));
 const CobroPublicoPage = lazy(() => import("./pages/CobroPublicoPage"));
+// Pizarra: jugada compartida por enlace (pública) y pizarra libre sin sesión.
+const JugadaCompartidaPage = lazy(() => import("./pages/JugadaCompartidaPage"));
+const PizarraLibrePage = lazy(() => import("./pages/PizarraLibrePage"));
 const SchoolCardsAdminPage = lazy(() => import("./pages/SchoolCardsAdminPage"));
 const SchoolCertificatesAdminPage = lazy(() => import("./pages/SchoolCertificatesAdminPage"));
 const CertificateTemplatesPage = lazy(() => import("./pages/CertificateTemplatesPage"));
@@ -359,6 +362,8 @@ const App = () => (
                     {/* Enlace sin login de UN cobro: botón de las plantillas de cobranza de WhatsApp
                         (sportmaps.co/p/* redirige aquí desde la landing). El token es la credencial. */}
                     <Route path="/p/:token" element={<CobroPublicoPage />} />
+                    {/* Jugada de la pizarra compartida por WhatsApp: solo lectura, sin login. */}
+                    <Route path="/jugada/:token" element={<JugadaCompartidaPage />} />
                     <Route path="/cert/:folio" element={<CertificateVerifyPublicPage />} />
                     <Route path="/join/:slug" element={<JoinSchoolPublicPage />} />
                     <Route path="/inscripcion/:slug" element={<SchoolLeadFormPage />} />
@@ -464,6 +469,12 @@ const App = () => (
                         </ModuleGate>
                       } />
                       <Route path="notifications" element={<NotificationsPage />} />
+                      {/* Pizarra libre: dibujar sin sesión y luego guardar en Mis jugadas o agregar a una sesión. */}
+                      <Route path="pizarra" element={
+                        <ProtectedRoute allowedRoles={['coach', 'school', 'school_admin', 'admin', 'super_admin']}>
+                          <PizarraLibrePage />
+                        </ProtectedRoute>
+                      } />
                       <Route path="settings" element={<SettingsPage />} />
                       <Route path="messages" element={<MessagesPage />} />
 
