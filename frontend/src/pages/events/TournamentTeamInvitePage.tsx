@@ -139,7 +139,7 @@ export default function TournamentTeamInvitePage() {
   const needsPay = home.invite.payment_status === 'pending' || home.invite.payment_status === 'proof_sent';
   const cat = home.category;
   return (
-    <div className="mx-auto max-w-2xl space-y-4 px-4 py-6">
+    <div className="mx-auto max-w-2xl space-y-4 px-4 pt-6 pb-[calc(7rem+env(safe-area-inset-bottom))]" data-testid="invite-form">
       <div className="flex items-center gap-3">
         {home.tournament.logo_url ? <img src={home.tournament.logo_url} alt="" className="h-12 w-12 rounded-full border object-cover" /> : <Shield className="h-10 w-10 text-primary" />}
         <div>
@@ -202,6 +202,7 @@ export default function TournamentTeamInvitePage() {
             <p className="text-muted-foreground">Haz la transferencia con los datos que te dio el organizador y sube aquí el comprobante (foto o PDF).</p>
             <Button variant="outline" disabled={busy} onClick={() => proofRef.current?.click()}><Upload className="mr-1 h-4 w-4" /> {proofPath || home.invite.has_payment_proof ? 'Cambiar comprobante' : 'Subir comprobante'}</Button>
             <input ref={proofRef} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden" aria-label="Comprobante de pago" onChange={(e) => { const f = e.target.files?.[0]; if (f) void sendProof(f); e.target.value = ''; }} />
+            {proofPath && <p className="text-green-700 dark:text-green-300">Comprobante cargado. Termina abajo con «{home.invite.completed_at ? 'Actualizar inscripción' : 'Enviar inscripción'}».</p>}
           </CardContent>
         </Card>
       )}

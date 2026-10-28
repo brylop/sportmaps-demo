@@ -4,8 +4,9 @@ import { usePublicLive, useNoIndex } from '@/hooks/usePublicLive';
 import { brandStyle } from '@/components/tournaments/public/brand';
 import { CupsTab, EmptyState, MatchesTab, ScheduleTab, StandingsTab } from '@/components/tournaments/public/PublicTabs';
 import { TeamSheet } from '@/components/tournaments/public/TeamSheet';
+import { PublicSportProvider } from '@/components/tournaments/public/sportContext';
 import { cn } from '@/lib/utils';
-import { parseEmbedView, pickCategory, teamIndex, tournamentView, type PublicMatchV2 } from '@/components/tournaments/public/publicModel';
+import { parseEmbedView, pickCategory, shortCategoryName, teamIndex, tournamentView, type PublicMatchV2 } from '@/components/tournaments/public/publicModel';
 
 /**
  * Vista para INSERTAR en otra web: /torneo/:slug/embed?vista=posiciones|partidos|programacion|copas&categoria=…&fondo=transparente
@@ -47,11 +48,13 @@ export default function TournamentEmbedPage() {
   const { style } = brandStyle(t.brand_color);
   const catId = pickCategory(data.categories, params.get('categoria'), matches);
   const catMatches = matches.filter((m) => !catId || m.category_id === catId);
-  const catName = data.categories.find((c) => c.id === catId)?.name;
+  const catFull = data.categories.find((c) => c.id === catId)?.name;
+  const catName = catFull ? shortCategoryName(catFull) : undefined;
   const full = `/torneo/${encodeURIComponent(slug)}/en-vivo${catId ? `?cat=${encodeURIComponent(catId)}` : ''}`;
   const props = { matches: catMatches, teams, onTeam: setTeamOpen };
 
   return (
+    <PublicSportProvider sport={t.sport}>
     <div ref={rootRef} className={cn('p-3 text-foreground', !transparent && 'bg-background')} style={style} data-testid="embed">
       {catName && data.categories.length > 1 && <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[var(--brand-ink)]">{catName}</p>}
       {vista === 'posiciones' && <StandingsTab standings={catId ? data.standings[catId] : undefined} {...props} />}
@@ -64,5 +67,6 @@ export default function TournamentEmbedPage() {
       </p>
       <TeamSheet teamId={teamOpen} onClose={() => setTeamOpen(null)} matches={matches} standings={catId ? data.standings[catId] : undefined} teams={teams} />
     </div>
+    </PublicSportProvider>
   );
 }
