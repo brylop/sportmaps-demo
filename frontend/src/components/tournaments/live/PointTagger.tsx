@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { liveApi, type RosterEntry, type ScorerScope } from './liveApi';
+import type { PendingTag } from './tagQueue';
 
 type Stat = 'attack' | 'ace' | 'block';
 const STATS: Array<{ key: Stat; label: string }> = [
@@ -24,13 +25,15 @@ function rosterFor(scope: ScorerScope, matchId: string): Promise<RosterEntry[]> 
  * OPCIONAL, después de un punto: «¿Quién hizo el punto?» → jugadora + tipo. Si el equipo no tiene
  * planilla no se muestra nada. No bloquea el anotador: si no se toca, desaparece con el siguiente punto.
  * Si se deshace el punto, la estadística deja de contar sola (el BFF la cruza con la secuencia).
+ * `submit` (el anotador) encola la etiqueta detrás del punto si este aún no llegó al servidor.
  */
-export function PointTagger({ scope, matchId, side, pointIndex, teamName, onDone }: {
+export function PointTagger({ scope, matchId, side, pointIndex, teamName, onDone, submit }: {
   scope: ScorerScope; matchId: string; side: 'home' | 'away'; pointIndex: number; teamName: string; onDone: () => void;
+  submit?: (tag: PendingTag) => Promise<'sent' | 'queued'>;
 }) {
   const [roster, setRoster] = useState<RosterEntry[] | null>(null);
   const [player, setPlayer] = useState<string | null>(null);
-  const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'queued' | 'error'>('idle');
 
   useEffect(() => {
     let alive = true;
@@ -44,9 +47,11 @@ export function PointTagger({ scope, matchId, side, pointIndex, teamName, onDone
     if (!player) return;
     setState('saving');
     try {
-      await liveApi.tagPoint(scope, matchId, { member_id: player, stat, point_index: pointIndex });
-      setState('saved');
-      setTimeout(onDone, 600);
+      const r = submit
+        ? await submit({ member_id: player, stat, point_index: pointIndex, side })
+        : (await liveApi.tagPoint(scope, matchId, { member_id: player, stat, point_index: pointIndex }), 'sent' as const);
+      setState(r === 'queued' ? 'queued' : 'saved');
+      setTimeout(onDone, r === 'queued' ? 1200 : 600);
     } catch { setState('error'); }
   };
 
@@ -66,11 +71,12 @@ export function PointTagger({ scope, matchId, side, pointIndex, teamName, onDone
       {player && (
         <div className="grid grid-cols-3 gap-1.5">
           {STATS.map((s) => (
-            <Button key={s.key} type="button" variant="secondary" className="h-11" disabled={state === 'saving' || state === 'saved'} onClick={() => save(s.key)}>{s.label}</Button>
+            <Button key={s.key} type="button" variant="secondary" className="h-11" disabled={state === 'saving' || state === 'saved' || state === 'queued'} onClick={() => save(s.key)}>{s.label}</Button>
           ))}
         </div>
       )}
       {state === 'saved' && <p className="text-xs text-emerald-700 dark:text-emerald-300">Guardado.</p>}
+      {state === 'queued' && <p className="text-xs text-muted-foreground">Listo: se guarda apenas el punto se sincronice.</p>}
       {state === 'error' && <p className="text-xs text-destructive">No se guardó (puede que el punto aún no esté sincronizado). Sigue anotando.</p>}
     </div>
   );

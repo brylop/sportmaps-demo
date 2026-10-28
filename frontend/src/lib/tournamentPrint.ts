@@ -4,7 +4,7 @@
  * Carnés = el motor de Carnets Digitales (AthleteIdCard + exportCardsPdf), no uno nuevo.
  */
 import type { CardData } from '@/components/cards/AthleteIdCard';
-import type { PlayerDto } from './tournamentPlayers';
+import type { CustomField, PlayerDto } from './tournamentPlayers';
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 
@@ -56,8 +56,19 @@ export const CARD_FIELD_LABEL: Record<CardField, string> = { shirt_number: 'Núm
 
 export interface TournamentCard { player: PlayerDto; team_name: string | null; team_logo_url: string | null; token: string; validate_url: string }
 
-/** Carné de jugador del torneo con el mismo modelo de datos de Carnets Digitales. */
-export function toCardData(c: TournamentCard, cfg: TournamentCardConfig, t: { id: string; title: string; logo_url: string | null }): CardData {
+/** Valor de un campo propio de la ficha, legible en el carné («Sí»/«No», fecha DD/MM/AAAA). */
+export function customValue(f: Pick<CustomField, 'type'>, v: unknown): string {
+  if (v == null || v === '') return '';
+  if (f.type === 'bool') return v === true ? 'Sí' : 'No';
+  if (f.type === 'date' && typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v.split('-').reverse().join('/');
+  return String(v);
+}
+
+/**
+ * Carné de jugador del torneo con el mismo modelo de datos de Carnets Digitales.
+ * `custom` = campos propios del formulario (EPS, talla…): van al REVERSO, junto a los de emergencia.
+ */
+export function toCardData(c: TournamentCard, cfg: TournamentCardConfig, t: { id: string; title: string; logo_url: string | null }, custom: CustomField[] = []): CardData {
   const rows = cfg.fields
     .filter((f) => f !== 'document_number')
     .map((f) => ({ label: CARD_FIELD_LABEL[f], value: c.player[f] == null ? '' : String(c.player[f]) }));
@@ -75,5 +86,8 @@ export function toCardData(c: TournamentCard, cfg: TournamentCardConfig, t: { id
     },
     team_name: c.team_name,
     extra_rows: rows,
+    back_rows: custom
+      .map((f) => ({ label: f.label, value: customValue(f, c.player.extra?.[f.key]) }))
+      .filter((r) => r.value !== ''),
   };
 }

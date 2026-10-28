@@ -79,8 +79,15 @@ function Comments({ slug, matchId, data, onPosted }: { slug: string; matchId: st
       try { if (!user) localStorage.setItem('sm_tlive_name', name); } catch { /* sin almacenamiento */ }
       onPosted();
     } catch (e) {
-      toast({ title: 'No se publicó', description: (e as Error)?.message ?? 'Intenta de nuevo.', variant: 'destructive' });
-      setChallenge(null);
+      // «Muy rápido» no es un error de la suma: se conserva la misma pregunta y la respuesta escrita.
+      const code = (e as { body?: { code?: string } })?.body?.code;
+      if (code === 'reto_muy_rapido') {
+        toast({ title: 'Un momento', description: (e as Error)?.message || 'Espera un momento y vuelve a enviar.' });
+      } else {
+        toast({ title: 'No se publicó', description: (e as Error)?.message ?? 'Intenta de nuevo.', variant: 'destructive' });
+        if (code === 'reto_invalido' || code === 'reto_vencido') setAnswer('');
+        setChallenge(null);
+      }
     } finally { setBusy(false); }
   };
 

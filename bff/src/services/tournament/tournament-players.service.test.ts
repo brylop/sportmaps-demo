@@ -10,8 +10,9 @@ import { loadEvent, _clearPublicCache, publicLive, type LiveEvent } from './tour
 import {
   addPlayers, listPlayers, updatePlayer, deletePlayer, savePlayerForm, validateForm, playerRow, DEFAULT_FORM,
   cardToken, parseCardToken, validateCardPublic, cardsFor, reissueCard, saveCardConfig, validateCardConfig, ageEligibility, ageOn,
-  addFromSchool, schoolAthletes, rosterFromSheet,
+  addFromSchool, schoolAthletes, rosterFromSheet, playerEligibility, matchSheetRoster, sheetFlag,
 } from './tournament-players.service';
+import { matchRoster } from './tournament-social.service';
 import {
   createInvite, authInvite, inviteHome, inviteAddPlayers, inviteSubmit, inviteUpdateTeam, inviteUploadUrl, listInvites,
   inviteStage, markInvitePaid, revokeInvite, whatsappLink, CONSENT_VERSION, signupPrefill,
@@ -204,5 +205,63 @@ describe('link de inscripción del equipo', () => {
     expect(inviteStage({ ...base, roster_submitted_at: 'x', completed_at: 'x' })).toBe('listo');
     expect(whatsappLink(null, 'x')).toBeNull();
     expect(whatsappLink('+57 300 123 4567', 'hola')).toBe('https://wa.me/573001234567?text=hola');
+  });
+});
+
+describe('habilitación: una sola regla para QR, etiquetador, MVP y planilla (E2E B13)', () => {
+  const seedMatch = (home: string, away: string) => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    db.tables.tournament_matches.push({ id, event_id: ev.id, home_team_id: home, away_team_id: away, status: 'live', version: 0 });
+    return id;
+  };
+  it('playerEligibility: suspensión, edad y equipo rechazado', () => {
+    const lim = { age_max: 14 };
+    expect(playerEligibility({ birth_date: '2013-01-01' }, lim, '2026-11-07')).toEqual([]);
+    expect(playerEligibility({ birth_date: '2010-01-01' }, lim, '2026-11-07').map((i) => i.code)).toEqual(['edad']);
+    expect(playerEligibility({ suspended: true, birth_date: '2013-01-01' }, lim, '2026-11-07').map((i) => i.code)).toEqual(['suspendido']);
+    expect(playerEligibility({ birth_date: '2013-01-01' }, lim, '2026-11-07', 'rejected').map((i) => i.code)).toEqual(['equipo_rechazado']);
+    expect(sheetFlag(playerEligibility({ suspended: true, birth_date: '2010-01-01' }, lim, '2026-11-07'))).toBe('Suspensión');
+    expect(sheetFlag(playerEligibility({ birth_date: '2010-01-01' }, lim, '2026-11-07'))).toBe('Fuera de edad');
+    expect(sheetFlag(playerEligibility({}, lim, '2026-11-07'))).toBe('Sin fecha de nacimiento');
+  });
+  it('etiquetador / MVP sin suspendidas ni fuera de edad; la planilla las marca con dorsal y categoría', async () => {
+    const [a, b] = seedTeams(ev.id, cat, 2);
+    const [ok, susp, old] = await addPlayers(ev, a.id, [
+      { full_name: 'Ana Ruiz', shirt_number: '9', birth_date: '2013-03-03' },
+      { full_name: 'Bea Gómez', shirt_number: '4', birth_date: '2013-05-05' },
+      { full_name: 'Carla Díaz', shirt_number: '12', birth_date: '2010-01-01' },
+    ]);
+    await updatePlayer(ev, susp.id, { suspended: true, suspended_reason: 'Doble amarilla' });
+    await addPlayers(ev, b.id, [{ full_name: 'Zoe Paz', birth_date: '2012-12-12' }]);
+    const matchId = seedMatch(a.id, b.id);
+
+    const roster = await matchRoster({ home_team_id: a.id, away_team_id: b.id });
+    const ids = roster.map((r) => r.id);
+    expect(ids).toContain(ok.id);
+    expect(ids).not.toContain(susp.id);
+    expect(ids).not.toContain(old.id);
+    expect(roster).toHaveLength(2);
+
+    const sheet = await matchSheetRoster(ev, matchId);
+    expect(sheet.category).toBe('Infantil · A · Sub 14 · Femenina');
+    expect(sheet.home).toEqual([
+      { id: susp.id, name: 'Bea Gómez', shirt_number: 4, flag: 'Suspensión' },
+      { id: ok.id, name: 'Ana Ruiz', shirt_number: 9, flag: null },
+      { id: old.id, name: 'Carla Díaz', shirt_number: 12, flag: 'Fuera de edad' },
+    ]);
+    expect(sheet.away).toHaveLength(1);
+    await expect(matchSheetRoster(ev, '22222222-2222-4222-8222-222222222222')).rejects.toMatchObject({ code: 'partido_no_encontrado' });
+  });
+});
+
+describe('foto de la nómina (E2E B4)', () => {
+  it('rosterFromSheet conserva dorsal, documento, nacimiento y posición', () => {
+    expect(rosterFromSheet([
+      { name: 'Laura Pérez', shirt_number: '7', document_number: '1011111111', birth_date: '2012-03-04', position: null },
+      { name: 'Sofía Gómez', shirt_number: null, document_number: null, birth_date: null, position: 'Líbero' },
+    ])).toEqual([
+      { full_name: 'Laura Pérez', shirt_number: '7', document_number: '1011111111', birth_date: '2012-03-04' },
+      { full_name: 'Sofía Gómez', position: 'Líbero' },
+    ]);
   });
 });
