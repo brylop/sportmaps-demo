@@ -109,6 +109,12 @@ export function initMaintenanceJobs() {
                 .from('subscriptions_due_for_billing')
                 .select('*');
 
+            // La vista se crea solo si existe la tabla legacy `subscriptions`, y en
+            // la base viva no existe (2026-10-29): no hay nada que cobrar, no es error.
+            if (error && (error.code === 'PGRST205' || error.code === '42P01')) {
+                console.log('[CRON] Auto-cobro legacy: la vista subscriptions_due_for_billing no existe; nada que cobrar.');
+                return;
+            }
             if (error) {
                 console.error('[CRON] Error consultando subscriptions_due_for_billing:', error.message);
                 return;

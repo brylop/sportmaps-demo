@@ -185,6 +185,9 @@ router.post('/', async (req: Request, res: Response) => {
     }
 });
 
+/** Los valores del CHECK `whatsapp_messages_status_check`. */
+const ESTADOS_GUARDABLES = new Set(['received', 'queued', 'sent', 'delivered', 'read', 'failed']);
+
 /**
  * Guarda el estado de entrega de los salientes y, sobre todo, lo que Meta cobro.
  *
@@ -204,10 +207,11 @@ async function procesarEstados(req: Request, body: any): Promise<void> {
             continue;
         }
 
-        const parche: Record<string, unknown> = {
-            status: e.status,
-            status_at: e.timestamp,
-        };
+        // Un estado que el CHECK no conoce tumbaría el UPDATE entero y con él
+        // el cobro de Meta: se guarda lo demás.
+        const parche: Record<string, unknown> = ESTADOS_GUARDABLES.has(e.status)
+            ? { status: e.status, status_at: e.timestamp }
+            : {};
         // Solo se pisa lo de cobro si el evento lo trae. Meta manda varios
         // estados por mensaje (sent, delivered, read) y no todos incluyen
         // `pricing`: sobrescribir con null borraria el dato del medidor.
@@ -217,6 +221,7 @@ async function procesarEstados(req: Request, body: any): Promise<void> {
             parche.pricing_raw = e.pricingRaw;
         }
         if (e.errorDetail) parche.error_detail = e.errorDetail;
+        if (Object.keys(parche).length === 0) continue;
 
         const { error } = await supabase
             .from('whatsapp_messages')
@@ -339,7 +344,16 @@ async function procesarEventosDeCuenta(req: Request, body: any): Promise<void> {
 // ─── Procesamiento de un mensaje entrante ────────────────────────────────────
 async function processInboundMessage(req: Request, msg: ParsedInboundMessage): Promise<void> {
     if (!msg.phoneNumberId || !msg.contactWaId || !msg.waMessageId) {
-        req.log?.warn({ msg }, 'WhatsApp: inbound message missing required fields');
+        // Con `{ msg }` pino pisaba el objeto con el texto del aviso y no se veía
+        // qué llegaba (~10 al día, 2026-10-29). Solo la forma, sin texto ni teléfono.
+        const raw = (msg.raw ?? {}) as Record<string, unknown>;
+        req.log?.warn({
+            faltan: [!msg.phoneNumberId && 'phone_number_id', !msg.contactWaId && 'from', !msg.waMessageId && 'id'].filter(Boolean),
+            tipo: msg.type,
+            tipoOriginal: raw.type ?? null,
+            claves: Object.keys(raw),
+            errores: Array.isArray(raw.errors) ? (raw.errors as any[]).map((e) => e?.code ?? e?.title ?? null) : null,
+        }, 'WhatsApp: inbound message missing required fields');
         return;
     }
 
