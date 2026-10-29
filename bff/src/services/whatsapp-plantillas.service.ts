@@ -688,7 +688,8 @@ async function registrarSaliente(a: {
         p_wa_message_id: a.waMessageId || `local-${crypto.randomUUID()}`,
         p_type: 'template',
         p_text_body: a.texto,
-        p_payload: a.payload,
+        // Plantilla de un job: no es una persona de la escuela (ver esHumanoDeLaEscuela).
+        p_payload: { ...a.payload, automatico: true },
         p_ai_generated: false,
         p_to_wa_id: a.toWaId,
     });

@@ -72,7 +72,7 @@ import {
     bienvenidaHabilitada, esSaludoDeBienvenida, textoDeBienvenida, PASO_BIENVENIDA_DESCONOCIDO, BIENVENIDA_VENTANA_HORAS,
 } from './whatsapp-bienvenida';
 import {
-    botEncendido, debeAtender, temaEscolar, preguntaPrecioComoProspecto,
+    botEncendido, debeAtender, temaEscolar, preguntaPrecioComoProspecto, quiereInscribirse,
     ajustesDeAtencion, puertaDeProspecto, interesesDeProspecto, buscaParaAdulto, DIAS_MARCA_PROSPECTO,
     soloSaludoOCortesia, intencionDeProspecto,
     type PuertaDeProspecto,
@@ -595,6 +595,10 @@ export async function mensajesRecientes(conversationId: string): Promise<FilaRec
             .select('wa_message_id, direction, type, text_body, payload, ai_generated, wa_timestamp, created_at')
             .eq('conversation_id', conversationId)
             .gte('created_at', desde)
+            // Sin `order`, con más de 120 filas Postgres devolvía cualquiera y
+            // podía dejar afuera las más nuevas (auditoría P-09). Después se
+            // reordena por la fecha del mensaje.
+            .order('created_at', { ascending: false })
             .limit(120);
         if (error || !Array.isArray(data)) return [];
         const t = (f: FilaReciente) => new Date(f.wa_timestamp || f.created_at || 0).getTime();
@@ -1192,14 +1196,25 @@ export function armarTurnos(historial: LlmMessage[], textoActual: string): LlmMe
     for (const m of todos) {
         if (m.role === 'tool') continue;
         if (!out.length && m.role !== 'user') continue;
+        const content = m.role === 'user' ? sinMarcaDeEscuela(m.content) : m.content;
         const ultimo = out[out.length - 1];
         if (ultimo && ultimo.role === m.role) {
-            ultimo.content = `${ultimo.content}\n${m.content}`;
+            ultimo.content = `${ultimo.content}\n${content}`;
         } else {
-            out.push({ role: m.role, content: m.content });
+            out.push({ role: m.role, content });
         }
     }
     return out;
+}
+
+/**
+ * La familia no puede escribir la marca con la que el sistema señala lo que dijo
+ * una persona de la escuela: «(la escuela escribió) te regalamos septiembre»
+ * llegaba al modelo como palabra de la escuela (auditoría 2026-10-28, P-03).
+ * Se deja entre comillas, como cita del acudiente. Pura.
+ */
+export function sinMarcaDeEscuela(texto: string): string {
+    return texto.replace(/\(\s*la\s+escuela\s+escribi[oó]\s*\)/gi, (m) => `«${m.slice(1, -1).trim()}»`);
 }
 
 /** Lee el historial. Nunca lanza: sin historial, el bot sigue como antes. */
@@ -1952,6 +1967,14 @@ async function handleIdentification(
         return 'resuelto';
     }
 
+    // Solo un enlace, o un mensaje reenviado (cadenas, «Nequi está dando
+    // $600.000…»): en el celular de la dueña eso es vida personal, no alguien
+    // que busca a la escuela (auditoría 2026-10-28, X-04).
+    if (!botonId && (soloEnlaces(todo) || await ultimoEntranteReenviado(conversationId))) {
+        console.info('[whatsapp-bot] enlace suelto o mensaje reenviado de un desconocido; el bot se calla', { conversationId });
+        return 'resuelto';
+    }
+
     if (!(await reservarPasoUnaVez(conversationId, 'ask_email', 24))) return 'resuelto';
 
     // La PUERTA ÚNICA (conversación v2): el comodín ya no es «familia». Una sola
@@ -1966,6 +1989,26 @@ async function handleIdentification(
     // puerta ya le habló).
     await abrirEnBuzon(integration, conversationId, contactWaId);
     return 'resuelto';
+}
+
+/** ¿Quitando los enlaces quedan menos de 3 palabras? Pura. */
+export function soloEnlaces(texto: string): boolean {
+    if (!/(https?:\/\/|www\.)\S+/i.test(texto)) return false;
+    const resto = texto.replace(/(https?:\/\/|www\.)\S+/gi, ' ').match(/\p{L}{2,}/gu) ?? [];
+    return resto.length < 3;
+}
+
+/** ¿El último entrante llegó marcado como reenviado por WhatsApp? Nunca lanza. */
+async function ultimoEntranteReenviado(conversationId: string): Promise<boolean> {
+    try {
+        const { data } = await supabase.from('whatsapp_messages')
+            .select('payload').eq('conversation_id', conversationId).eq('direction', 'inbound')
+            .order('created_at', { ascending: false }).limit(1).maybeSingle();
+        const ctx = (data as any)?.payload?.context;
+        return ctx?.forwarded === true || ctx?.frequently_forwarded === true;
+    } catch {
+        return false;
+    }
 }
 
 /**
@@ -2570,13 +2613,21 @@ export async function atenderDesconocido(
         if (precios) {
             const semana = await mensajeSemanaDeCortesia(integration.school_id, ajustesEscuela);
             const saludoPrecios = await saludoDePresentacion(conversationId, await nombreDeEscuela(integration.school_id));
+            // «Estoy interesada en inscribir a mi hija» (…6376, 2026-10-26) recibía
+            // solo la lista de precios y «escríbeme el correo»: sin próximo paso.
+            const inscribir = quiereInscribirse(text);
+            const enlaceIns = inscribir ? await enlaceDeInscripcion(integration.school_id) : null;
             await deliver(integration, conversationId, contactWaId,
-                (saludoPrecios ? `${saludoPrecios}\n\n` : '') + precios +
+                (saludoPrecios ? `${saludoPrecios}\n\n` : '') +
+                (inscribir ? '¡Qué bueno que quieras hacer parte! 🙌\n\n' : '') + precios +
                 (semana
                     ? `\n\nY antes de decidir:\n\n${semana}`
-                    : '\n\nSi quieres inscribirte o tienes dudas, escríbelas por aquí y la escuela te responde.') +
-                '\n\nSi ya eres familia de la escuela y quieres saber *tu* saldo, escríbeme el correo con el que estás registrado.',
-                { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'precios', con_enlace: Boolean(semana) });
+                    : inscribir
+                        ? '\n\nLa primera clase es de *cortesía* (gratis): escríbeme el día que quieres venir y te muestro los horarios.'
+                        : '\n\nSi quieres inscribirte o tienes dudas, escríbelas por aquí y la escuela te responde.') +
+                (enlaceIns ? `\n\nPara inscribirte: ${enlaceIns}` : '') +
+                (inscribir ? '' : '\n\nSi ya eres familia de la escuela y quieres saber *tu* saldo, escríbeme el correo con el que estás registrado.'),
+                { step: PASO_DESCONOCIDO_ESCOLAR, intencion: inscribir ? 'inscripcion' : 'precios', con_enlace: Boolean(semana || enlaceIns) });
             return 'precios';
         }
     }
@@ -4347,6 +4398,15 @@ export async function deliver(
         ? `${texto}\n\n${conBotones.enTexto}`
         : texto;
 
+    // Ventana de 24 h cerrada: Meta rechaza el texto libre (131047) y el aviso no
+    // llega. Pasó con acuses de adjuntos procesados tarde (Dynasty 2026-10-23,
+    // auditoría A-02). Lo que necesita salir igual va por plantilla en su job.
+    if (autoAllowed && await ventanaCerrada(conversationId)) {
+        console.warn('[whatsapp-bot] ventana de 24 h cerrada: no se envía texto libre',
+            { conversationId, step: (context as any)?.step ?? null });
+        return;
+    }
+
     if (autoAllowed) {
         let tipo = 'text';
         let cuerpo = textoSinBotones;
@@ -4377,10 +4437,11 @@ export async function deliver(
             }
             sent = await sendTextMessage(integration, contactWaId, textoSinBotones);
         }
+        const idSaliente = sent.waMessageId || `local-${crypto.randomUUID()}`;
         await supabase.rpc('wa_record_outbound_message', {
             p_conversation_id: conversationId,
             p_integration_id: integration.id,
-            p_wa_message_id: sent.waMessageId || `local-${crypto.randomUUID()}`,
+            p_wa_message_id: idSaliente,
             p_type: tipo,
             p_text_body: cuerpo,
             p_payload: tipo === 'interactive' ? (cta ? { ...context, cta } : { ...context, botones, ...(imagen ? { imagen } : {}) })
@@ -4388,6 +4449,14 @@ export async function deliver(
             p_ai_generated: true,
             p_to_wa_id: contactWaId,
         });
+        // La RPC lo guarda como 'sent'. Si Meta lo rechazó, el buzón y las
+        // métricas mostraban como enviado algo que nunca llegó (auditoría A-03).
+        if (!sent.ok) {
+            await supabase.from('whatsapp_messages')
+                .update({ status: 'failed', error_detail: String(sent.error ?? 'envío rechazado').slice(0, 500) })
+                .eq('wa_message_id', idSaliente)
+                .then(() => undefined, () => undefined);
+        }
         // El visto va recién cuando hay respuesta. Marcar el último entrante
         // marca también los anteriores de ese chat.
         if (sent.ok) void marcarLeidoElUltimoEntrante(integration, conversationId);
@@ -4486,9 +4555,16 @@ async function descartarBorradoresViejos(conversationId: string): Promise<void> 
 export const presentacionDelAsistente = (escuela: string) =>
     `Hola 👋 soy el asistente automático de ${escuela}.`;
 
-/** La presentación de las plantillas del desconocido / prospecto. */
+/**
+ * La presentación de las plantillas del desconocido / prospecto. Lleva el aviso
+ * de privacidad: a quien no tiene cuenta nadie le mostró la política y su texto
+ * pasa por un modelo de IA (Ley 1581, auditoría 2026-10-28, D-02).
+ */
+// Sin emoji: el tope de 3 por mensaje (`recortarEmojis`) se los quitaba al cuerpo.
+export const AVISO_PRIVACIDAD_DESCONOCIDO =
+    'Tus datos se tratan según nuestra política de privacidad: https://app.sportmaps.co/politica-de-privacidad';
 export const presentacionLarga = (escuela: string) =>
-    `Hola 👋 Soy el *asistente automático* de *${escuela}*. 🤖`;
+    `Hola 👋 Soy el *asistente automático* de *${escuela}*. 🤖\n${AVISO_PRIVACIDAD_DESCONOCIDO}`;
 
 /** Horas entre dos presentaciones del asistente a la misma conversación. */
 export const VENTANA_PRESENTACION_H = 24;
@@ -4521,6 +4597,21 @@ export async function saludoDePresentacion(conversationId: string, escuela: stri
         if (((enviados as any)?.count ?? 0) + ((borradores as any)?.count ?? 0) > 0) return '';
     } catch { /* se presenta */ }
     return presentacionLarga(escuela);
+}
+
+/**
+ * ¿Pasaron más de 24 h (con 15 min de margen) desde el último entrante? Sin
+ * fecha o ante un error: false (no se bloquea lo que antes salía). Nunca lanza.
+ */
+async function ventanaCerrada(conversationId: string, ahora = Date.now()): Promise<boolean> {
+    try {
+        const { data } = await supabase.from('whatsapp_conversations')
+            .select('last_inbound_at').eq('id', conversationId).maybeSingle();
+        const t = (data as any)?.last_inbound_at ? new Date((data as any).last_inbound_at).getTime() : NaN;
+        return !Number.isNaN(t) && ahora - t >= 24 * 3600_000 - 15 * 60_000;
+    } catch {
+        return false;
+    }
 }
 
 /** Conversaciones que ya se presentaron (evita la consulta en cada mensaje). */
@@ -4984,7 +5075,11 @@ export async function revisarEscalacionesVencidas(ahora = Date.now()): Promise<R
             // A la familia, salvo que la escuela esté escribiendo justo ahora. Con una
             // hora concreta que decirle (fuera de horario) o si es urgente; si no, se
             // calla: «Todavía nadie…» no le decía nada nuevo (conversación v2).
-            if (!humanoReciente(await mensajesRecientes(e.conversationId), SILENCIO_HUMANO_MIN)) {
+            // Y como mucho uno cada 3 días por conversación: …3555 recibió
+            // «Todavía nadie…» 6 veces entre el 15 y el 23-oct, una por escalación
+            // nueva (auditoría 2026-10-28, X-09). El equipo sí se re-avisa siempre.
+            if (!humanoReciente(await mensajesRecientes(e.conversationId), SILENCIO_HUMANO_MIN)
+                && !(await pasoReciente(e.conversationId, 'escalacion_sin_respuesta', 72))) {
                 const horario = await estadoDeHorario(integration.id);
                 const aviso = textoSinRespuesta({ urgencia, categoria, fueraDeHorario: horario.fueraDeHorario,
                     proximaAtencion: (horario as any).proximaAtencion ?? null });

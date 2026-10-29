@@ -209,6 +209,8 @@ export interface DepsSeguimiento {
     botEncendido: (integrationId: string) => Promise<boolean>;
     tomada: (conversationId: string) => Promise<boolean>;
     dadoDeBaja: (integrationId: string, waId: string) => Promise<boolean>;
+    /** Lo que escribió el contacto en las últimas 24 h (para no preguntarle «¿cómo te fue?» a quien canceló). */
+    entrantesDelDia: (conversationId: string) => Promise<string[]>;
     enlace: (schoolId: string) => Promise<string | null>;
     /** true = este BFF lo tomó (nadie lo había mandado). */
     reclamar: (r: ReservaParaSeguimiento, iso: string) => Promise<boolean>;
@@ -266,6 +268,14 @@ const DEPS_SEGUIMIENTO: DepsSeguimiento = {
     async dadoDeBaja(integrationId, waId) {
         const { estaDadoDeBaja } = await import('./whatsapp-optin.service');
         return estaDadoDeBaja(integrationId, waId);
+    },
+    async entrantesDelDia(conversationId) {
+        const { data } = await supabase.from('whatsapp_messages')
+            .select('text_body')
+            .eq('conversation_id', conversationId).eq('direction', 'inbound')
+            .gte('created_at', new Date(Date.now() - 24 * 3600_000).toISOString())
+            .limit(40);
+        return ((data as any[]) ?? []).map((m) => String(m.text_body ?? '')).filter(Boolean);
     },
     async enlace(schoolId) {
         const { enlaceDeInscripcion } = await import('./whatsapp-bot.service');
@@ -326,6 +336,11 @@ export async function runSeguimientoNocheCortesia(
             if (!(await d.botEncendido(integ.id)) || await d.tomada(conv.id) || await d.dadoDeBaja(integ.id, waId)) {
                 resumen.omitidos++; continue;
             }
+            // …0683 (2026-10-22): «voy a cancelar la clase» / «No me da tiempo de ir»
+            // y esa noche le llegó «¿Cómo le fue en la clase?».
+            if ((await d.entrantesDelDia(conv.id).catch(() => [] as string[])).some(avisaQueNoVa)) {
+                resumen.omitidos++; continue;
+            }
             if (!(await d.reclamar(r, ahora.toISOString()))) { resumen.omitidos++; continue; }
 
             const { saludo, atleta } = nombresDelLead({ full_name: r.nombre, guardian_name: r.acudiente });
@@ -344,6 +359,12 @@ export async function runSeguimientoNocheCortesia(
         }
     }
     return resumen;
+}
+
+/** ¿El texto dice que no va a ir a la clase? Pura. */
+export function avisaQueNoVa(texto: string): boolean {
+    const n = texto.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+    return /\bcancel\w*|\bno (me|nos) da (el )?tiempo\b|\bno (voy|vamos|puedo|podemos|alcanzo|alcanzamos) (a )?(ir|asistir|llegar)\b|\bno (vamos|voy) a poder\b|\bno podre(mos)?\b/.test(n);
 }
 
 // ─── 3. Inscripción con el mismo teléfono o correo ───────────────────────────

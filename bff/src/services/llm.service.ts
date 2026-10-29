@@ -446,6 +446,16 @@ export async function chatWithTools(params: {
             } catch (err: any) {
                 lastErr = err;
                 const msg = String(err?.message ?? '');
+                // Claude se negó: es la respuesta, no una caída. Reintentar con
+                // Gemini o Groq era darle al jailbreak un modelo menos estricto
+                // (auditoría 2026-10-28, P-05). Quien llama ya tiene su respaldo
+                // determinista para el error total.
+                if (msg === 'claude_refusal') {
+                    fallas.push({ proveedor: p, error: msg, ms: Date.now() - inicio });
+                    const rechazo = new Error('el modelo se negó a responder (claude_refusal)') as LlmErrorTotal;
+                    rechazo.fallas = fallas;
+                    throw rechazo;
+                }
                 const saturado = /\b429\b|rate.?limit|too many requests|quota|resource_exhausted/i.test(msg);
 
                 if (!saturado || intento === 2) {

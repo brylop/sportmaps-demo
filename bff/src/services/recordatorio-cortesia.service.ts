@@ -261,7 +261,10 @@ const DEPS: DepsRecordatorio = {
             p_wa_message_id: a.waMessageId || `local-${crypto.randomUUID()}`,
             p_type: 'interactive',
             p_text_body: a.texto,
-            p_payload: a.payload,
+            // `automatico`: lo mandó un job, no una persona. Sin la marca, el bot
+            // lo leía como «Milena escribió» y callaba la conversación hasta 30
+            // días (auditoría 2026-10-28, X-01: …0683 canceló y nadie le contestó).
+            p_payload: { ...a.payload, automatico: true },
             p_ai_generated: false,
             p_to_wa_id: a.waId,
         });
