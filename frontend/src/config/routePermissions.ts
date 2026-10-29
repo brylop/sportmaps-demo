@@ -120,6 +120,7 @@ export const ROLE_ROUTES: Record<string, RoutePermission> = {
     '/attendance-supervision': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], description: 'Supervisión de asistencias' },
     '/attendance-history': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], description: 'Histórico de asistencias' },
     '/seguimiento-deportivo': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], description: 'Seguimiento deportivo (actividad de entrenadores)' },
+    '/mis-evaluaciones': { allowedRoles: ['coach'], description: 'Evaluaciones publicadas del entrenador' },
     '/results-overview': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], description: 'Resumen de resultados' },
     '/finances': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:view', description: 'Finanzas' },
     '/accounting': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin', 'accountant'], requiredPermission: 'finances:view', description: 'Contabilidad' },

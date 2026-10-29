@@ -3008,11 +3008,19 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
   // Ancho real de la cancha (px), medido. Las fichas, etiquetas y el aviso de
   // «Empieza aquí» escalan con él: con tamaño fijo en px, en una cancha chica
   // (celular horizontal) las fichas se montaban unas sobre otras.
+  // Tope alto (antes 580 px): en escritorio la cancha usa todo el alto
+  // disponible en vez de quedar chica en el centro con márgenes vacíos.
   const pitchW = pitchArea
-    ? Math.max(120, Math.floor(Math.min(zoomedView ? 760 : 580, pitchArea.w, pitchArea.h * 300 / ((view.y1 - view.y0) * 3.4))))
+    ? Math.max(120, Math.floor(Math.min(zoomedView ? 1400 : 1100, pitchArea.w, pitchArea.h * 300 / ((view.y1 - view.y0) * 3.4))))
     : null;
-  // 1 = tamaño de siempre (cancha >= 400 px); mínimo 0.62 para que el texto siga leyéndose.
-  const pinK = pitchW === null ? 1 : Math.min(1, Math.max(0.62, pitchW / 400));
+  // 1 = tamaño de siempre (cancha de 400 a 580 px); mínimo 0.62 para que el
+  // texto siga leyéndose; en canchas más grandes las fichas crecen con ella,
+  // topadas en 1.4 para no taparse entre sí.
+  const pinK = pitchW === null
+    ? 1
+    : pitchW <= 580
+      ? Math.min(1, Math.max(0.62, pitchW / 400))
+      : Math.min(1.4, pitchW / 580);
   const smallPitch = pitchW !== null && pitchW < 300;
 
   return (
@@ -3468,7 +3476,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
               <div ref={pitchAreaRef} className={`relative flex-1 min-h-0 flex items-center justify-center px-3 sm:px-6 ${landscapePhone ? 'py-1.5' : 'py-3'} overflow-hidden`}>
                 {/* Ancho = alto de pantalla menos el toolbar (~90px) convertido
                     a ancho según la proporción de la cancha (300/340), topado
-                    en 580px. El 100% final del min() ya cubre el caso de que
+                    en 1100px. El 100% final del min() ya cubre el caso de que
                     el panel de plantilla angoste el espacio disponible.
 
                     100vh, no 100dvh -- el mismo cambio que en LineupModal.tsx:
@@ -3496,7 +3504,7 @@ export function TacticalBoard({ open, onClose, teamId, teamName, sourceType, sou
                     ['--pin-k' as string]: pinK,
                     width: pitchW !== null
                       ? `${pitchW}px`
-                      : `min(${zoomedView ? 760 : 580}px, calc((100vh - 90px) * 300 / ${(view.y1 - view.y0) * 3.4}), 100%)`,
+                      : `min(${zoomedView ? 1400 : 1100}px, calc((100vh - 90px) * 300 / ${(view.y1 - view.y0) * 3.4}), 100%)`,
                   }}
                 >
                   {/* T4: fondo del deporte del equipo. Fútbol 11 = FootballPitchBackground tal cual. */}
