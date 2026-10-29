@@ -334,6 +334,56 @@ export function ageEligibility(p: { birth_date?: string | null; birth_year?: num
   return null;
 }
 
+export type EligibilityCode = 'equipo_rechazado' | 'suspendido' | 'edad';
+export interface EligibilityIssue { code: EligibilityCode; reason: string }
+
+/**
+ * LA regla de habilitación de una jugadora (sin la versión del carné, que es propia del QR).
+ * La usan la validación en cancha (QR), el etiquetador de puntos, las candidatas a MVP y la planilla:
+ * no se duplica en ningún otro lado. Vacío = habilitada.
+ */
+export function playerEligibility(
+  m: { suspended?: boolean | null; suspended_reason?: string | null; birth_date?: string | null; birth_year?: number | null },
+  cat: CategoryLimits | null, on: string, teamStatus?: string | null,
+): EligibilityIssue[] {
+  const out: EligibilityIssue[] = [];
+  if (teamStatus === 'rejected') out.push({ code: 'equipo_rechazado', reason: 'El equipo no está en el torneo' });
+  if (m.suspended) out.push({ code: 'suspendido', reason: m.suspended_reason ? `Suspendido: ${m.suspended_reason}` : 'Suspendido' });
+  const ageReason = ageEligibility(m, cat, on);
+  if (ageReason) out.push({ code: 'edad', reason: ageReason });
+  return out;
+}
+
+const CAT_COLS = 'id, division, level, category, rama, age_min, age_max, birth_year_min, birth_year_max';
+export const categoryLabel = (c: any): string | null => (c ? [c.division, c.level, c.category, c.rama].filter(Boolean).join(' · ') || null : null);
+
+export interface TeamEligibilityCtx { status: string | null; cat: CategoryLimits | null; category_name: string | null }
+
+/**
+ * Lo que hace falta para aplicar `playerEligibility` a varios equipos del MISMO torneo:
+ * estado del equipo, límites de su categoría y la fecha del torneo. Tres consultas en lote (sin N+1).
+ */
+export async function eligibilityContext(teamIds: string[]): Promise<{ on: string; teams: Map<string, TeamEligibilityCtx> }> {
+  const teams = new Map<string, TeamEligibilityCtx>();
+  const today = new Date().toISOString().slice(0, 10);
+  if (teamIds.length === 0) return { on: today, teams };
+  const { data: tRaw } = await supabase.from('event_teams').select('id, event_id, category_id, status').in('id', teamIds);
+  const tRows = (tRaw ?? []) as Array<{ id: string; event_id: string; category_id: string | null; status: string | null }>;
+  const catIds = [...new Set(tRows.map((t) => t.category_id).filter(Boolean))] as string[];
+  const eventId = tRows[0]?.event_id;
+  const [{ data: cats }, { data: ev }] = await Promise.all([
+    catIds.length ? supabase.from('event_categories_config').select(CAT_COLS).in('id', catIds) : Promise.resolve({ data: [] as any[] }),
+    eventId ? supabase.from('events').select('event_date').eq('id', eventId).maybeSingle() : Promise.resolve({ data: null }),
+  ]);
+  const catById = new Map(((cats ?? []) as any[]).map((c) => [c.id, c]));
+  for (const t of tRows) {
+    const c = t.category_id ? catById.get(t.category_id) ?? null : null;
+    teams.set(t.id, { status: t.status, cat: c as CategoryLimits | null, category_name: categoryLabel(c) });
+  }
+  const d = (ev as any)?.event_date;
+  return { on: d ? String(d).slice(0, 10) : today, teams };
+}
+
 /** Vista pública mínima del QR: nada de documento, teléfono ni fecha de nacimiento. */
 export async function validateCardPublic(slug: string, token: string) {
   const parsed = parseCardToken(token);
@@ -354,10 +404,8 @@ export async function validateCardPublic(slug: string, token: string) {
 
   const reasons: string[] = [];
   if ((m.card_version ?? 1) !== parsed.version) reasons.push('Este carné fue reemplazado por uno nuevo');
-  if (t.status === 'rejected') reasons.push('El equipo no está en el torneo');
-  if (m.suspended) reasons.push(m.suspended_reason ? `Suspendido: ${m.suspended_reason}` : 'Suspendido');
-  const ageReason = ageEligibility(m, cat as CategoryLimits | null, String((ev as any).event_date ?? new Date().toISOString().slice(0, 10)));
-  if (ageReason) reasons.push(ageReason);
+  const on = String((ev as any).event_date ?? new Date().toISOString()).slice(0, 10);
+  reasons.push(...playerEligibility(m, cat as CategoryLimits | null, on, t.status).map((i) => i.reason));
   const c = cat as any;
   return {
     tournament: { title: (ev as any).title, logo_url: (ev as any).logo_url ?? null },
@@ -374,19 +422,26 @@ export async function validateCardPublic(slug: string, token: string) {
   };
 }
 
-// ── Foto de la planilla en papel (OCR existente de planillas de asistencia) ──
+// ── Foto de la nómina en papel (OCR propio de nóminas: roster-sheet-ocr.service) ──
+
+export interface SheetPlayer { full_name: string; shirt_number?: string; document_number?: string; birth_date?: string; position?: string }
 
 /** Filas leídas → jugadores para REVISAR (no se guarda nada). Quita tachados, vacíos y repetidos. */
-export function rosterFromSheet(rows: Array<{ n?: number | null; name?: string | null; struck?: boolean }>): Array<{ full_name: string }> {
+export function rosterFromSheet(rows: Array<{ name?: string | null; struck?: boolean; shirt_number?: string | null; document_number?: string | null; birth_date?: string | null; position?: string | null }>): SheetPlayer[] {
   const seen = new Set<string>();
-  const out: Array<{ full_name: string }> = [];
+  const out: SheetPlayer[] = [];
   for (const r of rows) {
     const name = String(r?.name ?? '').replace(/\s+/g, ' ').trim();
     if (!name || r?.struck || name.length > 120) continue;
     const k = name.toLowerCase();
     if (seen.has(k)) continue;
     seen.add(k);
-    out.push({ full_name: name });
+    const p: SheetPlayer = { full_name: name };
+    if (r.shirt_number) p.shirt_number = r.shirt_number;
+    if (r.document_number) p.document_number = r.document_number;
+    if (r.birth_date) p.birth_date = r.birth_date;
+    if (r.position) p.position = r.position;
+    out.push(p);
   }
   return out;
 }
@@ -398,11 +453,44 @@ export async function rosterFromPhoto(imageBase64: unknown, mime: unknown) {
   if (!OCR_MIMES.includes(m)) throw new LiveError(400, 'formato_invalido', 'Sube una foto JPG, PNG o WEBP de la planilla');
   if (typeof imageBase64 !== 'string' || imageBase64.length < 100) throw new LiveError(400, 'sin_foto', 'Falta la foto de la planilla');
   if (imageBase64.length > 4_500_000) throw new LiveError(413, 'foto_grande', 'La foto es muy pesada: tómala de nuevo o recórtala');
-  const { extractAttendanceSheet } = await import('../attendance-sheet-ocr.service');
+  const { extractRosterSheet } = await import('./roster-sheet-ocr.service');
   let result;
-  try { result = await extractAttendanceSheet(imageBase64.replace(/^data:[^,]+,/, ''), m); }
+  try { result = await extractRosterSheet(imageBase64.replace(/^data:[^,]+,/, ''), m); }
   catch { throw new LiveError(502, 'ocr_no_disponible', 'No pudimos leer la foto ahora. Pega la lista o intenta en un rato.'); }
   const players = rosterFromSheet(result.rows ?? []);
   if (players.length === 0) throw new LiveError(422, 'sin_nombres', 'No encontramos nombres en la foto. Prueba con más luz o pega la lista.');
   return { players, title: result.title ?? null };
+}
+
+// ── Nómina para la planilla de juego (PDF) ───────────────────────────────────
+
+const SHEET_FLAG: Record<EligibilityCode, string> = { equipo_rechazado: 'No habilitado', suspendido: 'Suspensión', edad: 'Fuera de edad' };
+
+/** Marca corta para la planilla (no se esconde a nadie: el árbitro ve quién no puede jugar). */
+export function sheetFlag(issues: EligibilityIssue[]): string | null {
+  if (issues.length === 0) return null;
+  const i = issues.find((x) => x.code === 'suspendido') ?? issues.find((x) => x.code === 'edad') ?? issues[0];
+  if (i.code === 'edad' && /Sin fecha/.test(i.reason)) return 'Sin fecha de nacimiento';
+  return SHEET_FLAG[i.code];
+}
+
+/** Nómina de los dos equipos de un partido con dorsal, categoría y la misma regla de habilitación del QR. */
+export async function matchSheetRoster(ev: LiveEvent, matchId: string) {
+  const { data: mRaw } = await supabase.from('tournament_matches').select('id, home_team_id, away_team_id').eq('id', matchId).eq('event_id', ev.id).maybeSingle();
+  const match = mRaw as { home_team_id: string | null; away_team_id: string | null } | null;
+  if (!match) throw new LiveError(404, 'partido_no_encontrado', 'Partido no encontrado');
+  const teamIds = [match.home_team_id, match.away_team_id].filter(Boolean) as string[];
+  const [{ data: members }, ctx] = await Promise.all([
+    teamIds.length ? supabase.from('event_team_members').select(MEMBER_COLS).in('team_id', teamIds).order('full_name') : Promise.resolve({ data: [] as MemberRow[] }),
+    eligibilityContext(teamIds),
+  ]);
+  const side = (tid: string | null) => ((members ?? []) as MemberRow[])
+    .filter((m) => tid && m.team_id === tid)
+    .map((m) => {
+      const t = ctx.teams.get(m.team_id);
+      return { id: m.id, name: m.full_name, shirt_number: m.shirt_number ?? null, flag: sheetFlag(playerEligibility(m, t?.cat ?? null, ctx.on, t?.status)) };
+    })
+    .sort((a, b) => (a.shirt_number ?? 999) - (b.shirt_number ?? 999) || a.name.localeCompare(b.name));
+  const category = (match.home_team_id && ctx.teams.get(match.home_team_id)?.category_name) || (match.away_team_id && ctx.teams.get(match.away_team_id)?.category_name) || null;
+  return { category, home: side(match.home_team_id), away: side(match.away_team_id) };
 }

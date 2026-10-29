@@ -15,13 +15,20 @@ export interface PlanillaInfo {
   when?: string | null;
   home?: string | null;
   away?: string | null;
-  homeRoster?: string[];
-  awayRoster?: string[];
+  homeRoster?: RosterLine[];
+  awayRoster?: RosterLine[];
   /** Sets máximos (vóley, raqueta). */
   bestOf?: number;
   /** Cómo llamar a cada lado (ajedrez: Blancas / Negras). */
   sides?: { home: string; away: string };
 }
+
+/** Jugador en la nómina: solo el nombre, o con dorsal y marca («Suspensión», «Fuera de edad»). */
+export type RosterLine = string | { name: string; number?: string | number | null; flag?: string | null };
+
+/** Nombre con su marca, para que el árbitro vea quién no puede jugar (no se esconde a nadie). */
+export const lineName = (l: RosterLine): string => (typeof l === 'string' ? l : l.flag ? `${l.name} (${l.flag.toUpperCase()})` : l.name);
+export const lineNumber = (l: RosterLine): string => (typeof l === 'string' || l.number == null ? '' : String(l.number));
 
 export interface PlanillaBlock {
   title: string;
@@ -44,9 +51,9 @@ export interface PlanillaModel {
 
 const blank = (v: string | null | undefined) => (v && v.trim() ? v : '');
 
-function rosterBlock(title: string, columns: string[], widths: number[], rows: number, roster: string[] | undefined): PlanillaBlock {
-  const names = (roster ?? []).slice(0, rows);
-  return { title, columns, widths, rows: Math.max(rows, names.length), prefill: names.map((n) => ['', n]), half: true };
+function rosterBlock(title: string, columns: string[], widths: number[], rows: number, roster: RosterLine[] | undefined): PlanillaBlock {
+  const lines = (roster ?? []).slice(0, rows);
+  return { title, columns, widths, rows: Math.max(rows, lines.length), prefill: lines.map((l) => [lineNumber(l), lineName(l)]), half: true };
 }
 
 export function buildPlanilla(kind: SheetKind, info: PlanillaInfo): PlanillaModel {
@@ -98,7 +105,7 @@ export function buildPlanilla(kind: SheetKind, info: PlanillaInfo): PlanillaMode
       break;
     }
     case 'racket': {
-      blocks.push({ title: 'Jugadores', columns: ['Lado', 'Jugador(es)'], widths: [2, 6], rows: 2, prefill: [[homeSide, [home, ...(info.homeRoster ?? [])].filter(Boolean).join(' · ')], [awaySide, [away, ...(info.awayRoster ?? [])].filter(Boolean).join(' · ')]] });
+      blocks.push({ title: 'Jugadores', columns: ['Lado', 'Jugador(es)'], widths: [2, 6], rows: 2, prefill: [[homeSide, [home, ...(info.homeRoster ?? []).map(lineName)].filter(Boolean).join(' · ')], [awaySide, [away, ...(info.awayRoster ?? []).map(lineName)].filter(Boolean).join(' · ')]] });
       blocks.push({ title: 'Sets (games o puntos)', columns: ['Set', tHome, tAway, 'Tie-break', 'Saca primero'], widths: [0.8, 1.6, 1.6, 1.6, 1.8], rows: bestOf,
         prefill: Array.from({ length: bestOf }, (_, i) => [String(i + 1)]) });
       blocks.push({ title: 'Observaciones (amonestaciones, retiros, lesiones)', columns: [''], widths: [1], rows: 4 });
@@ -115,7 +122,7 @@ export function buildPlanilla(kind: SheetKind, info: PlanillaInfo): PlanillaMode
     }
     case 'cricket': {
       for (const [team, roster] of [[tHome, info.homeRoster], [tAway, info.awayRoster]] as const) {
-        const names = (roster ?? []).slice(0, 11);
+        const names = (roster ?? []).slice(0, 11).map(lineName);
         blocks.push({ title: `Bateo ${team}`, columns: ['Bateador', 'Runs', 'Bolas', '4s', '6s', 'Cómo salió'], widths: [3, 0.8, 0.8, 0.6, 0.6, 2.4], rows: 11, prefill: names.map((n) => [n]), half: true });
       }
       blocks.push({ title: 'Resumen por innings', columns: ['Equipo', 'Runs', 'Wickets', 'Overs', 'Extras', 'Total'], widths: [3, 1, 1, 1, 1, 1], rows: 2, prefill: [[tHome], [tAway]] });

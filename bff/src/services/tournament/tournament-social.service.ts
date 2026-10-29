@@ -11,6 +11,7 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { supabase } from '../../config/supabase';
 import { publicPlayerName, validateComment, validVideoUrl } from './tournament-follow.notices';
 import type { PublicEventRow } from './tournament-follow.service';
+import { eligibilityContext, playerEligibility } from './tournament-players.service';
 
 export class SocialError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
@@ -51,16 +52,25 @@ export async function loadSocialMatch(eventId: string, matchId: string): Promise
 
 export interface RosterEntry { id: string; team_id: string; side: 'home' | 'away'; name: string }
 
-/** Jugadoras de los dos equipos con su nombre público. Vacío = sin planilla (no hay MVP por jugadora ni estadísticas). */
+/**
+ * Jugadoras HABILITADAS de los dos equipos con su nombre público. Vacío = sin planilla (no hay MVP
+ * por jugadora ni estadísticas). Suspendidas y fuera de edad no salen (ni en el etiquetador ni como
+ * candidatas a MVP): misma regla que la validación del carné, `playerEligibility`.
+ */
 export async function matchRoster(m: Pick<SocialMatch, 'home_team_id' | 'away_team_id'>): Promise<RosterEntry[]> {
   const teams = [m.home_team_id, m.away_team_id].filter(Boolean) as string[];
   if (teams.length === 0) return [];
-  const { data } = await supabase.from('event_team_members').select('id, team_id, full_name, birth_year').in('team_id', teams).limit(80);
+  const [{ data }, ctx] = await Promise.all([
+    supabase.from('event_team_members').select('id, team_id, full_name, birth_year, birth_date, suspended, suspended_reason').in('team_id', teams).limit(80),
+    eligibilityContext(teams),
+  ]);
   const year = new Date().getFullYear();
-  return ((data ?? []) as any[]).map((r) => ({
-    id: r.id, team_id: r.team_id, side: r.team_id === m.home_team_id ? 'home' as const : 'away' as const,
-    name: publicPlayerName(r.full_name, r.birth_year, { year }),
-  })).sort((a, b) => a.side.localeCompare(b.side) || a.name.localeCompare(b.name));
+  return ((data ?? []) as any[])
+    .filter((r) => { const t = ctx.teams.get(r.team_id); return playerEligibility(r, t?.cat ?? null, ctx.on, t?.status).length === 0; })
+    .map((r) => ({
+      id: r.id, team_id: r.team_id, side: r.team_id === m.home_team_id ? 'home' as const : 'away' as const,
+      name: publicPlayerName(r.full_name, r.birth_year, { year }),
+    })).sort((a, b) => a.side.localeCompare(b.side) || a.name.localeCompare(b.name));
 }
 
 // ── Estadísticas por jugadora ────────────────────────────────────────────────
@@ -222,17 +232,29 @@ export function issueChallenge(now = Date.now(), rnd: () => number = Math.random
   return { question: `¿Cuánto es ${a} + ${b}?`, token: `${Buffer.from(String(now)).toString('base64url')}.${sig}` };
 }
 
-/** Válido si la respuesta cuadra, pasaron ≥ 3 s (un bot responde al instante) y < 30 min. */
-export function checkChallenge(token: unknown, answer: unknown, now = Date.now(), key = secret()): boolean {
-  if (typeof token !== 'string' || !token.includes('.')) return false;
+export type ChallengeVerdict = 'ok' | 'muy_rapido' | 'vencido' | 'incorrecto';
+
+/**
+ * Válido si la respuesta cuadra, pasaron ≥ 3 s (un bot responde al instante) y < 30 min.
+ * Distingue «muy rápido» de «suma mal» para no decirle a una persona que respondió mal cuando no.
+ */
+export function challengeVerdict(token: unknown, answer: unknown, now = Date.now(), key = secret()): ChallengeVerdict {
+  if (typeof token !== 'string' || !token.includes('.')) return 'incorrecto';
   const [tsB64, sig] = token.split('.');
   const ts = Number(Buffer.from(tsB64, 'base64url').toString());
-  if (!Number.isFinite(ts) || now - ts < 3000 || now - ts > 30 * 60_000) return false;
+  if (!Number.isFinite(ts)) return 'incorrecto';
   const n = Number(answer);
-  if (!Number.isInteger(n)) return false;
+  if (!Number.isInteger(n)) return 'incorrecto';
   const expected = createHmac('sha256', key).update(`${n}.${ts}`).digest('base64url').slice(0, 22);
   const a = Buffer.from(expected); const b = Buffer.from(String(sig));
-  return a.length === b.length && timingSafeEqual(a, b);
+  if (!(a.length === b.length && timingSafeEqual(a, b))) return 'incorrecto';
+  if (now - ts < 3000) return 'muy_rapido';
+  if (now - ts > 30 * 60_000) return 'vencido';
+  return 'ok';
+}
+
+export function checkChallenge(token: unknown, answer: unknown, now = Date.now(), key = secret()): boolean {
+  return challengeVerdict(token, answer, now, key) === 'ok';
 }
 
 export interface CommentInput {
@@ -245,8 +267,11 @@ export async function postComment(ev: PublicEventRow, matchId: string | null, in
   const name = ctx.userId && ctx.userName ? ctx.userName : String(input.author_name ?? '').trim();
   const bad = validateComment(name, input.body);
   if (bad) throw new SocialError(400, 'comentario_invalido', bad);
-  if (!ctx.userId && !checkChallenge(input.challenge_token, input.challenge_answer)) {
-    throw new SocialError(400, 'reto_invalido', 'Responde bien la suma para comprobar que no eres un robot.');
+  if (!ctx.userId) {
+    const v = challengeVerdict(input.challenge_token, input.challenge_answer);
+    if (v === 'muy_rapido') throw new SocialError(400, 'reto_muy_rapido', 'Espera un momento y vuelve a enviar.');
+    if (v === 'vencido') throw new SocialError(400, 'reto_vencido', 'La comprobación venció. Responde la nueva suma y envía otra vez.');
+    if (v !== 'ok') throw new SocialError(400, 'reto_invalido', 'Responde bien la suma para comprobar que no eres un robot.');
   }
   const voter = typeof input.device_id === 'string' && input.device_id.length >= 16 ? sha(`c:${input.device_id}`) : null;
   const ipHash = sha(`ip:${ctx.ip}`).slice(0, 32);

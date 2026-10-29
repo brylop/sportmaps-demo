@@ -12,7 +12,7 @@ import {
 import { computeStandings, StandingRow } from './standings.shared';
 import { FormatConfig, Format, generateFixtures, validateFormat } from './fixtures.shared';
 import { onMatchActionApplied } from './tournament-follow.service';
-import { eventPlayerStats } from './tournament-social.service';
+import { eventPlayerStats, type PlayerStatLine } from './tournament-social.service';
 
 // ── Utilidades ───────────────────────────────────────────────────────────────
 
@@ -48,6 +48,8 @@ const MATCH_COLS = 'id, event_id, category_id, stage, group_label, cup_label, ro
 export interface LiveEvent {
   id: string; title: string; sport: string | null; slug: string | null; city: string | null; event_date: string | null;
   school_id: string | null; visibility: string | null; competition_format: string | null;
+  /** Quién creó el torneo: el organizador es la escuela dueña con creator_role = 'school' (tournament-access.ts). */
+  creator_role?: string | null;
   live_enabled: boolean; scoring_config: any; format_config: any; stream_url: string | null;
   school?: { name: string | null } | null;
   /** Identidad pública (payload v2). Opcionales: eventos viejos o tests sin estas columnas. */
@@ -56,12 +58,12 @@ export interface LiveEvent {
   address?: string | null; lat?: number | null; lng?: number | null;
 }
 
-const EVENT_COLS = 'id, title, sport, slug, city, event_date, school_id, visibility, competition_format, live_enabled, scoring_config, format_config, stream_url, '
+const EVENT_COLS = 'id, title, sport, slug, city, event_date, school_id, creator_role, visibility, competition_format, live_enabled, scoring_config, format_config, stream_url, '
   + 'status, end_date, banner_url, logo_url, rules_url, venue_name, venue_maps_url, organizer_name, address, lat, lng, school:school_id(name)';
 
 // Columnas previas a la migración 20261027180825. Si el BFF se despliega antes de aplicarla, las lecturas
 // caen a estas en vez de romper (PostgREST responde 42703 / PGRST204 por columna inexistente).
-const EVENT_COLS_V1 = 'id, title, sport, slug, city, event_date, school_id, visibility, competition_format, live_enabled, scoring_config, format_config, stream_url, school:school_id(name)';
+const EVENT_COLS_V1 = 'id, title, sport, slug, city, event_date, school_id, creator_role, visibility, competition_format, live_enabled, scoring_config, format_config, stream_url, school:school_id(name)';
 const MATCH_COLS_V1 = 'id, event_id, category_id, stage, group_label, round, slot, home_team_id, away_team_id, home_ref, away_ref, '
   + 'home_score, away_score, status, scheduled_at, court, version, live_state, scorer_ref, scorer_label, started_at, finished_at, updated_at, '
   + 'home:home_team_id(team_name), away:away_team_id(team_name)';
@@ -177,8 +179,12 @@ async function planAdvance(m: MatchRow, winnerTeam: string | null, loserTeam: st
 }
 
 async function applyPlan(plan: AdvancePlan) {
-  for (const u of plan.updates) {
-    await supabase.from('tournament_matches').update({ ...u.patch, updated_at: new Date().toISOString() }).eq('id', u.id);
+  if (plan.updates.length === 0) return;
+  // Filas distintas: en paralelo (un round-trip en vez de uno por partido).
+  const now = new Date().toISOString();
+  const res = await Promise.all(plan.updates.map((u) => supabase.from('tournament_matches').update({ ...u.patch, updated_at: now }).eq('id', u.id)));
+  for (const r of res as Array<{ error?: { message?: string } | null }>) {
+    if (r?.error) console.error('[tournament-live] avance de llave:', r.error.message);
   }
 }
 
@@ -286,6 +292,7 @@ export async function resolveGroupKnockout(ev: LiveEvent, categoryId: string): P
 
   // Se limpia todo lo que dependía de los cruces anteriores y se vuelve a llenar.
   const r1ids = koMatches.filter((m) => m.stage === 'knockout' && m.round === 1).map((m) => m.id);
+  const writes: PromiseLike<unknown>[] = [];
   for (const m of koMatches) {
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (m.home_ref?.startsWith('G')) patch.home_team_id = refMap.get(m.home_ref) ?? null;
@@ -293,8 +300,10 @@ export async function resolveGroupKnockout(ev: LiveEvent, categoryId: string): P
     if (m.stage === 'knockout' && m.round > 1) { patch.home_team_id = null; patch.away_team_id = null; }
     if (m.stage === 'third_place') { patch.home_team_id = null; patch.away_team_id = null; }
     if (m.status === 'walkover' && isByeRow(m)) { patch.status = 'scheduled'; patch.home_score = null; patch.away_score = null; }
-    await supabase.from('tournament_matches').update(patch).eq('id', m.id);
+    writes.push(supabase.from('tournament_matches').update(patch).eq('id', m.id));
   }
+  // Una fila por partido de la fase final, todas distintas: en paralelo en vez de N round-trips seguidos.
+  await Promise.all(writes);
   if (allDone && r1ids.length) await advanceByes(ev.id, categoryId);
   return { resolved: allDone };
 }
@@ -312,9 +321,38 @@ export function validateAction(a: any): Action {
   return a as Action;
 }
 
-export async function performMatchAction(ev: LiveEvent, matchId: string, actor: Actor, input: ActionInput) {
+/** Lo que se lee antes de aplicar una acción: el partido y si ese client_action_id ya se aplicó. */
+export interface ActionPreload { match: MatchRow | null; duplicate: boolean }
+
+/**
+ * Lecturas previas a una acción, las dos en paralelo (un round-trip). Las rutas la lanzan a la vez que
+ * la autorización: desde Render cada round-trip a la base cuesta ~250 ms y el anotador lo siente en
+ * cada punto (B9). Con `eventId` null (anotador sin cuenta: el torneo sale del token) se lee por id y
+ * `performMatchAction` descarta el partido si no es del torneo.
+ */
+export async function preloadMatchAction(eventId: string | null, matchId: string, clientActionId?: string | null): Promise<ActionPreload> {
+  const [match, duplicate] = await Promise.all([
+    selectCompat<MatchRow>((c) => {
+      let q = supabase.from('tournament_matches').select(c).eq('id', matchId);
+      if (eventId) q = q.eq('event_id', eventId);
+      return q.maybeSingle();
+    }, MATCH_COLS, MATCH_COLS_V1),
+    clientActionId
+      ? Promise.resolve(supabase.from('tournament_match_log').select('id').eq('match_id', matchId).eq('client_action_id', clientActionId).maybeSingle())
+        .then((r) => !!r.data)
+      : Promise.resolve(false),
+  ]);
+  return { match, duplicate };
+}
+
+/**
+ * Camino crítico (lo que espera el anotador): [lecturas previas] → RPC → respuesta. El Broadcast sale
+ * apenas la RPC confirma; avance de llaves, fase final y avisos van después y nunca lo retrasan.
+ */
+export async function performMatchAction(ev: LiveEvent, matchId: string, actor: Actor, input: ActionInput, pre?: ActionPreload) {
   const action = validateAction(input.action);
-  const match = await loadMatch(ev.id, matchId);
+  const loaded = pre ?? await preloadMatchAction(ev.id, matchId, input.client_action_id);
+  const match = loaded.match && loaded.match.event_id === ev.id ? loaded.match : null;
   if (!match) throw new LiveError(404, 'partido_no_encontrado', 'Partido no encontrado');
 
   const cfg = resolveConfig(ev.scoring_config, match.category_id);
@@ -330,11 +368,8 @@ export async function performMatchAction(ev: LiveEvent, matchId: string, actor: 
     throw new LiveError(422, 'equipos_sin_definir', 'Este partido aún no tiene los dos equipos definidos.');
   }
 
-  // Idempotencia: un reintento con el mismo client_action_id no se aplica dos veces.
-  if (input.client_action_id) {
-    const { data: dup } = await supabase.from('tournament_match_log').select('id').eq('match_id', matchId).eq('client_action_id', input.client_action_id).maybeSingle();
-    if (dup) return { duplicate: true, match: dto() };
-  }
+  // Idempotencia: un reintento con el mismo client_action_id no se aplica dos veces (la RPC lo vuelve a comprobar).
+  if (input.client_action_id && loaded.duplicate) return { duplicate: true, match: dto() };
 
   // Un anotador activo por partido.
   const actorRef = `${actor.type === 'user' ? 'u' : 's'}:${actor.id}`;
@@ -364,9 +399,10 @@ export async function performMatchAction(ev: LiveEvent, matchId: string, actor: 
   }
 
   const expected = input.expected_version ?? match.version;
+  const liveState = { status: next.status, points: next.points, walkover: next.walkover ?? null, ...(next.detail ? { detail: next.detail } : {}) };
   const { data: rpc, error } = await supabase.rpc('apply_tournament_match_action', {
     p_match_id: matchId, p_expected_version: expected, p_status: next.status,
-    p_live_state: { status: next.status, points: next.points, walkover: next.walkover ?? null, ...(next.detail ? { detail: next.detail } : {}) },
+    p_live_state: liveState,
     p_home_score: d.homeScore, p_away_score: d.awayScore,
     p_started_at: startedAt, p_finished_at: finishedAt,
     p_scorer_ref: actorRef, p_scorer_label: actor.label,
@@ -382,24 +418,46 @@ export async function performMatchAction(ev: LiveEvent, matchId: string, actor: 
   }
   if (out?.error === 'not_found') throw new LiveError(404, 'partido_no_encontrado', 'Partido no encontrado');
 
-  const fresh = await loadMatch(ev.id, matchId);
+  if (out?.duplicate) {
+    const again = await loadMatch(ev.id, matchId);
+    return { duplicate: true, match: again ? toMatchDto(again, cfg) : dto() };
+  }
+
+  // Lo guardado es exactamente lo que se mandó a la RPC + la versión que devolvió: se arma aquí en vez
+  // de releer el partido (un round-trip menos por punto). Sin versión en la respuesta, se relee.
+  const fresh: MatchRow | null = typeof out?.version === 'number'
+    ? {
+      ...match, status: next.status, live_state: liveState, home_score: d.homeScore, away_score: d.awayScore,
+      started_at: startedAt, finished_at: finishedAt, scorer_ref: actorRef, scorer_label: actor.label, version: out.version, updated_at: nowIso,
+    }
+    : await loadMatch(ev.id, matchId);
   const freshDto = fresh ? toMatchDto(fresh, cfg) : dto();
-  if (out?.duplicate) return { duplicate: true, match: freshDto };
+
+  // Terminar, reabrir o corregir un partido terminado cambia la tabla y la llave: la caché pública de ese
+  // torneo se descarta YA (y otra vez tras el avance), así el refresco que dispara el Broadcast la ve al día.
+  const affectsStandings = isFinished(next.status) || isFinished(match.status);
+  if (affectsStandings) invalidatePublicLive(ev.slug);
+
+  // Tiempo real (Broadcast `tlive:<slug>`) + avisos a quien sigue el torneo, apenas la acción quedó
+  // guardada y ANTES de los efectos secundarios. No espera la red y nunca lanza. (agente «vivo»)
+  if (fresh) onMatchActionApplied({ id: ev.id, title: ev.title, slug: ev.slug, live: liveEffective(ev) }, match.status, freshDto as any, action.type);
 
   await applyPlan(plan);
 
   let warning: string | undefined;
-  if (match.stage === 'group' && match.category_id && (isFinished(next.status) || isFinished(match.status))) {
+  if (match.stage === 'group' && match.category_id && affectsStandings) {
     try { await resolveGroupKnockout(ev, match.category_id); }
     catch (e: any) {
       if (e instanceof LiveError) warning = e.message; // el marcador ya quedó guardado; los cruces no se tocan
       else console.error('[tournament-live] resolviendo fase final:', e?.message);
     }
   }
+  if (affectsStandings && (plan.updates.length > 0 || match.stage === 'group')) invalidatePublicLive(ev.slug);
 
-  if (becameFinished) notifyMatchFinished(ev, match, d.homeScore, d.awayScore, cfg).catch(() => { /* aviso best-effort */ });
-  // Tiempo real (Broadcast `tlive:<slug>`) + avisos a quien sigue el torneo. Nunca lanza. (agente «vivo»)
-  if (fresh) onMatchActionApplied({ id: ev.id, title: ev.title, slug: ev.slug, live: liveEffective(ev) }, match.status, freshDto as any, action.type);
+  if (becameFinished) {
+    notifyMatchFinished(ev, match, d.homeScore, d.awayScore, cfg)
+      .catch((e: any) => console.error('[tournament-live] aviso de resultado:', e?.message));
+  }
   return { duplicate: false, match: freshDto, ...(warning ? { warning } : {}) };
 }
 
@@ -575,19 +633,27 @@ export interface ScorekeeperAuth { id: string; label: string; court: string | nu
 
 export async function authScorekeeper(token: string): Promise<ScorekeeperAuth> {
   if (!token || token.length < 20 || token.length > 100) throw new LiveError(401, 'token_invalido', 'Enlace inválido');
-  const { data } = await supabase.from('tournament_scorekeepers')
-    .select('id, event_id, label, court, expires_at, revoked_at').eq('token_hash', hashToken(token)).maybeSingle();
-  const sk = data as any;
+  // Enlace + torneo en UNA lectura (embed por la FK event_id): el anotador la paga en cada punto.
+  const sk = await selectCompat<any>((c) => supabase.from('tournament_scorekeepers')
+    .select(`id, event_id, label, court, expires_at, revoked_at, event:event_id(${c})`).eq('token_hash', hashToken(token)).maybeSingle(), EVENT_COLS, EVENT_COLS_V1);
   if (!sk) throw new LiveError(401, 'token_invalido', 'Enlace inválido');
   if (sk.revoked_at) throw new LiveError(403, 'token_revocado', 'Este enlace fue revocado');
   if (Date.parse(sk.expires_at) < Date.now()) throw new LiveError(403, 'token_vencido', 'Este enlace venció');
-  const ev = await loadEvent(sk.event_id);
+  const embedded = sk.event && typeof sk.event === 'object' && sk.event.id === sk.event_id ? (sk.event as LiveEvent) : null;
+  const ev = embedded ?? await loadEvent(sk.event_id);
   if (!ev) throw new LiveError(404, 'torneo_no_encontrado', 'Torneo no encontrado');
   return { id: sk.id, label: sk.label, court: sk.court, event: ev };
 }
 
-export async function touchScorekeeper(id: string) {
-  await supabase.from('tournament_scorekeepers').update({ last_used_at: new Date().toISOString() }).eq('id', id);
+const lastTouch = new Map<string, number>();
+const TOUCH_EVERY_MS = 60_000;
+
+/** «Último uso» del enlace: como mucho una escritura por minuto por enlace (no una por punto: Disk IO). */
+export async function touchScorekeeper(id: string, now = Date.now()) {
+  if (now - (lastTouch.get(id) ?? -Infinity) < TOUCH_EVERY_MS) return;
+  lastTouch.set(id, now);
+  if (lastTouch.size > 2000) lastTouch.clear();
+  await supabase.from('tournament_scorekeepers').update({ last_used_at: new Date(now).toISOString() }).eq('id', id);
 }
 
 export async function scorerMatches(sk: ScorekeeperAuth) {
@@ -841,9 +907,20 @@ export async function rescheduleMatch(ev: LiveEvent, matchId: string, actor: Act
 
 const publicCache = new Map<string, { at: number; payload: any; etag: string }>();
 const PUBLIC_TTL_MS = 5000;
+/** Lecturas en curso por torneo: los espectadores que piden a la vez comparten UNA ronda de consultas. */
+const publicInflight = new Map<string, Promise<{ payload: any; etag: string } | null>>();
+/** Sube con cada invalidación: una lectura que empezó antes no deja en caché datos viejos. */
+let publicGen = 0;
 
-/** Las pantallas de administración cambian datos públicos: la próxima lectura vuelve a la base. */
-export const invalidatePublicLive = () => publicCache.clear();
+/**
+ * Las pantallas de administración cambian datos públicos: la próxima lectura vuelve a la base.
+ * Con `slug` solo se descarta ese torneo (p. ej. al terminar un partido).
+ */
+export const invalidatePublicLive = (slug?: string | null) => {
+  publicGen++;
+  if (slug) { publicCache.delete(slug); publicInflight.delete(slug); return; }
+  publicCache.clear(); publicInflight.clear();
+};
 
 export type PublicStatus = 'draft' | 'published' | 'in_progress' | 'finished' | 'cancelled';
 
@@ -876,10 +953,39 @@ export async function loadAttachments(eventId: string): Promise<Array<{ name: st
   return Array.isArray(raw) ? raw.filter((a) => a && typeof a.name === 'string' && typeof a.url === 'string').map((a) => ({ name: a.name, url: a.url })) : [];
 }
 
+/** Fila del ranking público (contrato `PlayerStat` de la página pública). */
+export interface PublicPlayerStat {
+  id: string; player_label: string; team_id: string; team_name: string | null; category_id: string | null;
+  aces: number; attack_points: number; blocks: number; points: number;
+}
+
+/**
+ * Líneas de «vivo» (`aggregateStats`: member_id/name/ace/attack/block) → contrato público del ranking.
+ * La categoría sale del equipo: sin ella el filtro por categoría de la página mezclaría todas.
+ */
+export function toPublicPlayerStats(lines: PlayerStatLine[], teamById: Map<string, { name: string; category_id: string | null }>): PublicPlayerStat[] {
+  return lines.map((l) => {
+    const t = teamById.get(l.team_id);
+    return {
+      id: l.member_id, player_label: l.name ?? '', team_id: l.team_id, team_name: t?.name ?? null, category_id: t?.category_id ?? null,
+      aces: l.ace ?? 0, attack_points: l.attack ?? 0, blocks: l.block ?? 0, points: l.points ?? 0,
+    };
+  });
+}
+
 export async function publicLive(slug: string): Promise<{ payload: any; etag: string } | null> {
   const hit = publicCache.get(slug);
   if (hit && Date.now() - hit.at < PUBLIC_TTL_MS) return { payload: hit.payload, etag: hit.etag };
+  // Al terminar un partido todos los celulares refrescan la tabla casi a la vez: una sola lectura.
+  const pending = publicInflight.get(slug);
+  if (pending) return pending;
+  const gen = publicGen;
+  const p = buildPublicLive(slug, gen).finally(() => { if (publicInflight.get(slug) === p) publicInflight.delete(slug); });
+  publicInflight.set(slug, p);
+  return p;
+}
 
+async function buildPublicLive(slug: string, gen: number): Promise<{ payload: any; etag: string } | null> {
   const ev = await selectCompat<LiveEvent>((c) => supabase.from('events').select(c).eq('slug', slug).maybeSingle(), EVENT_COLS, EVENT_COLS_V1);
   if (!ev) return null;
   if (ev.visibility === 'school_only' && !ev.live_enabled) return null;
@@ -949,16 +1055,18 @@ export async function publicLive(slug: string): Promise<{ payload: any; etag: st
     teams: teamDtos,
     matches: outMatches,
     standings,
-    /** Ranking por jugadora (ace/ataque/bloqueo), nombres públicos. Mismo dato que /public/:slug/player-stats. */
-    player_stats: playerStats,
+    /** Ranking por jugadora con el contrato de la página pública ({id, player_label, team_id, team_name, category_id, aces, attack_points, blocks, points}). */
+    player_stats: toPublicPlayerStats(playerStats, teamById),
     server_time: new Date().toISOString(),
   };
   const etag = `"${createHash('sha1').update(JSON.stringify({ ...payload, tournament: undefined, server_time: undefined })).digest('hex').slice(0, 20)}"`;
-  publicCache.set(slug, { at: Date.now(), payload, etag });
-  if (publicCache.size > 200) publicCache.delete(publicCache.keys().next().value as string);
+  if (gen === publicGen) {
+    publicCache.set(slug, { at: Date.now(), payload, etag });
+    if (publicCache.size > 200) publicCache.delete(publicCache.keys().next().value as string);
+  }
   return { payload, etag };
 }
 
-export const _clearPublicCache = () => publicCache.clear();
+export const _clearPublicCache = () => invalidatePublicLive();
 
 export { matchOutcome, FINISHED };

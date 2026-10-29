@@ -172,15 +172,15 @@ describe('<TournamentLivePage /> v2', () => {
 });
 
 describe('<TournamentMatchPage />', () => {
-  it('marcador, sets en cuadrícula y el panel social de «vivo» aunque falle', async () => {
+  it('marcador, sets en cuadrícula y el panel social de «vivo» aunque falle (una sola barra de pestañas)', async () => {
     get.mockImplementation(serve(clone()));
     routeLive('/torneo/copa/partido/m11');
     await waitFor(() => expect(screen.getByTestId('match-detail')).toBeTruthy());
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Campestre Cóndores vs EDF La Calera');
     expect(screen.getByLabelText('Marcador 1 a 0')).toBeTruthy();
     expect(screen.getByText('14').className).toMatch(/border-red-500/);
-    fireEvent.click(screen.getByRole('tab', { name: 'Comentarios' }));
     await waitFor(() => expect(screen.getByText(/No pudimos cargar/)).toBeTruthy());
+    expect(screen.queryByRole('tablist', { name: 'Secciones del partido' })).toBeNull();
   });
   it('comentarios llegan del endpoint social', async () => {
     get.mockImplementation(serve(clone(), { '/social': {

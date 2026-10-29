@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { validateStreamUrl } from '@/lib/tournamentDisplay';
 import { PublicMatchCard, TeamBadge } from './PublicMatchCard';
 import {
-  lastKoRoundByCup, phaseShort, safeUrl, sponsorsByTier, teamSheet, TIER_LABEL,
+  lastKoRoundByCup, phaseShort, safeUrl, sponsorsByTier, teamSheet, TIER_LABEL, venueDirections,
   type PublicMatchV2, type PublicSponsor, type StandingsV2, type TeamInfo, type TournamentView,
 } from './publicModel';
 
@@ -83,7 +83,7 @@ export function SponsorsStrip({ sponsors }: { sponsors: PublicSponsor[] }) {
 /** Pie: sede con mapa, reglamento, transmisión y «Powered by SportMaps» (siempre). */
 export function PublicFooter({ t, slug }: { t: TournamentView; slug: string }) {
   const v = t.venue;
-  const mapsUrl = safeUrl(v?.maps_url) ?? (v?.address || v?.name ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([v?.name, v?.address, t.city].filter(Boolean).join(', '))}` : null);
+  const dirs = venueDirections(v, t.city);
   const embedQ = [v?.name, v?.address, t.city].filter(Boolean).join(', ');
   const rules = safeUrl(t.rules_url);
   const stream = t.stream_url && !validateStreamUrl(t.stream_url) ? t.stream_url : null;
@@ -121,12 +121,17 @@ export function PublicFooter({ t, slug }: { t: TournamentView; slug: string }) {
               {v?.name && <p className="font-semibold">{v.name}</p>}
               {v?.address && <p className="text-muted-foreground">{v.address}</p>}
             </div>
-            {mapsUrl && (
-              <Button asChild size="sm" variant="outline">
-                <a href={mapsUrl} target="_blank" rel="noopener noreferrer">Cómo llegar <ExternalLink className="ml-1 h-3.5 w-3.5" aria-hidden /></a>
-              </Button>
-            )}
           </div>
+          {dirs && (
+            <div className="grid grid-cols-2 gap-2 px-3 pb-3" role="group" aria-label="Cómo llegar">
+              <Button asChild size="sm" variant="outline">
+                <a href={dirs.google} target="_blank" rel="noopener noreferrer" aria-label="Cómo llegar con Google Maps">Google Maps <ExternalLink className="ml-1 h-3.5 w-3.5" aria-hidden /></a>
+              </Button>
+              <Button asChild size="sm" variant="outline">
+                <a href={dirs.waze} target="_blank" rel="noopener noreferrer" aria-label="Cómo llegar con Waze">Waze <ExternalLink className="ml-1 h-3.5 w-3.5" aria-hidden /></a>
+              </Button>
+            </div>
+          )}
         </section>
       )}
       <div className="flex flex-col items-center gap-2 border-t py-5 text-center text-sm text-muted-foreground">

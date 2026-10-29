@@ -15,12 +15,18 @@ export async function schoolOrganizesTournament(eventId: string, schoolId: strin
   return !!data;
 }
 
-/** Carga el torneo si el usuario lo organiza; si no, 403 (sin escuela) o 404 (no es suyo). */
+/**
+ * Carga el torneo si el usuario lo organiza; si no, 403 (sin escuela) o 404 (no es suyo).
+ * Una sola lectura: `loadEvent` ya trae school_id y creator_role (antes eran dos consultas seguidas en
+ * CADA acción del anotador). La regla es la misma de `schoolOrganizesTournament`.
+ */
 export async function assertTournamentOrganizer(req: AuthenticatedRequest, eventId: string): Promise<LiveEvent> {
   const schoolId = req.schoolId;
   if (!schoolId) throw new LiveError(403, 'sin_escuela', 'No se pudo resolver la escuela del usuario.');
   const ev = await loadEvent(eventId);
   if (!ev || ev.school_id !== schoolId) throw new LiveError(404, 'torneo_no_encontrado', 'Torneo no encontrado');
-  if (!(await schoolOrganizesTournament(eventId, schoolId))) throw new LiveError(404, 'torneo_no_encontrado', 'Torneo no encontrado');
+  // Sin la columna en la respuesta (no debería pasar) se pregunta como antes, nunca se asume.
+  const organizes = ev.creator_role !== undefined ? ev.creator_role === 'school' : await schoolOrganizesTournament(eventId, schoolId);
+  if (!organizes) throw new LiveError(404, 'torneo_no_encontrado', 'Torneo no encontrado');
   return ev;
 }

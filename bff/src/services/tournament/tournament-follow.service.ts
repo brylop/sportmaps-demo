@@ -155,16 +155,18 @@ export function onMatchActionApplied(
   actionType?: string,
 ): void {
   try {
-    if (ev.live) pushMatchUpdate(ev.slug, after);
+    const finished = (s: string) => s === 'played' || s === 'walkover';
+    // Terminar / reabrir / corregir uno terminado mueve la tabla: el mensaje lo avisa para que la página
+    // pública la pida ya (tournament-live.service descartó la caché de ese torneo antes de llamar aquí).
+    if (ev.live) pushMatchUpdate(ev.slug, after, undefined, { standings: finished(beforeStatus) || finished(after.status) });
     // Deshacer / corregir acorta la secuencia de puntos: las estadísticas de los puntos que ya no
     // existen se borran (si no, un punto nuevo en la misma posición heredaría la etiqueta vieja).
     // Solo en esas acciones: un punto normal no escribe nada extra.
     if (actionType && ['undo', 'correct', 'reopen', 'walkover', 'cancel'].includes(actionType)) {
       const len = typeof (after as any).live_state?.points === 'string' ? (after as any).live_state.points.length : 0;
       Promise.resolve(supabase.from('tournament_player_stats').delete().eq('match_id', after.id).gte('point_index', len))
-        .catch(() => { /* best-effort */ });
+        .catch((e: any) => console.warn('[tournament-follow] limpiando estadísticas:', e?.message));
     }
-    const finished = (s: string) => s === 'played' || s === 'walkover';
     let kind: NoticeKind | null = null;
     if (ev.live && beforeStatus === 'scheduled' && after.status === 'live') kind = 'started';
     else if (!finished(beforeStatus) && finished(after.status)) kind = 'final';

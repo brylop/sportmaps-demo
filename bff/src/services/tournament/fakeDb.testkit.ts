@@ -27,6 +27,10 @@ const DEFAULTS: Record<string, () => Row> = {
 };
 
 function join(table: string, row: Row, select: string): Row {
+  // Enlace del anotador con su torneo embebido (`event:event_id(...)`), como lo pide authScorekeeper.
+  if (table === 'tournament_scorekeepers' && /event:event_id\(/.test(select)) {
+    return { ...row, event: db.tables.events.find((e) => e.id === row.event_id) ?? null };
+  }
   if (table !== 'tournament_matches') return row;
   const out = { ...row };
   if (/home:home_team_id/.test(select)) {
@@ -92,6 +96,7 @@ function builder(table: string) {
     delete: () => { op = 'delete'; return api; },
     eq: (c: string, v: any) => { filters.push((r) => (r[c] ?? null) === v); return api; },
     neq: (c: string, v: any) => { filters.push((r) => (r[c] ?? null) !== v); return api; },
+    gte: (c: string, v: any) => { filters.push((r) => r[c] != null && r[c] >= v); return api; },
     in: (c: string, vs: any[]) => { filters.push((r) => vs.includes(r[c])); return api; },
     ilike: (c: string, pat: string) => {
       const needle = String(pat).replace(/%/g, '').toLowerCase(); // solo el caso «%texto%»

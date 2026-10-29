@@ -4,9 +4,10 @@ import { nowAndNextByCourt } from '@/lib/tournamentDisplay';
 import { PublicMatchCard, TeamBadge } from './PublicMatchCard';
 import {
   allMatchesFeed, buildCups, cupEmoji, PLAYER_METRIC_LABEL, playerRanking, type PlayerMetric, type PlayerStat, filterCounts, filterMatches, hourOnly, lastKoRoundByCup, MATCH_FILTER_LABEL, phaseShort,
-  publicStandingColumns, qualificationLegend, qualificationMap, roundMatchName, rowCup, scheduleByDayAndCourt, standingGroups,
+  publicScore, publicStandingColumns, qualificationLegend, qualificationMap, roundMatchName, rowCup, scheduleByDayAndCourt, standingGroups,
   type MatchFilter, type PublicMatchV2, type StandingsV2, type TeamInfo,
 } from './publicModel';
+import { usePublicSport } from './sportContext';
 
 export function EmptyState({ icon, title, children }: { icon: string; title: string; children?: ReactNode }) {
   return (
@@ -58,10 +59,11 @@ export function StandingsTab({ standings, matches, teams, onTeam }: TabProps & {
   const q = useMemo(() => qualificationMap(matches), [matches]);
   const legend = qualificationLegend(q);
   const cupOrder = useMemo(() => buildCups(matches).map((c) => c.label), [matches]);
+  const { kind } = usePublicSport();
   if (!standings || groups.every((g) => g.rows.length === 0)) {
     return <EmptyState icon="📋" title="Todavía no hay posiciones">La tabla aparece cuando se arme el calendario de esta categoría.</EmptyState>;
   }
-  const cols = publicStandingColumns(standings.model);
+  const cols = publicStandingColumns(standings.model, kind);
   const tone = (cup: string | null, arr: string[]) => (cup ? arr[Math.max(0, cupOrder.indexOf(cup)) % arr.length] : '');
   const anyCup = legend.length > 0 || q.byTeam.size > 0;
   return (
@@ -148,6 +150,7 @@ export function ScheduleTab({ matches, teams, onTeam, hrefFor }: TabProps) {
   const days = scheduleByDayAndCourt(matches);
   const courts = nowAndNextByCourt(matches.filter((m) => !m.is_bye)).filter((c) => c.live || c.next);
   const phase = usePhase(matches);
+  const { kind } = usePublicSport();
   if (days.length === 0) return <EmptyState icon="🗓️" title="La programación aún no está publicada">Cuando el organizador asigne horas y canchas las verás aquí.</EmptyState>;
   return (
     <div className="space-y-4">
@@ -177,7 +180,7 @@ export function ScheduleTab({ matches, teams, onTeam, hrefFor }: TabProps) {
                     <span className="w-[4.75rem] shrink-0 whitespace-nowrap font-mono text-xs tabular-nums text-muted-foreground">{hourOnly(m.scheduled_at)}</span>
                     <span className="min-w-0 flex-1">
                       <TeamLink m={m} side="home" onTeam={onTeam} /> <span className="text-muted-foreground">vs</span> <TeamLink m={m} side="away" onTeam={onTeam} />
-                      {m.status !== 'scheduled' && m.home_score != null && <span className="ml-1 font-bold tabular-nums">({m.home_score}-{m.away_score})</span>}
+                      {(() => { const sc = publicScore(m, kind); return sc && <span className="ml-1 font-bold tabular-nums">({sc.home}-{sc.away})</span>; })()}
                     </span>
                     <span className={cn('shrink-0 text-right text-[11px] uppercase', m.status === 'live' ? 'font-bold text-red-600' : 'text-muted-foreground')}>
                       {m.status === 'live' ? 'En vivo' : phase(m)}
@@ -274,11 +277,11 @@ export function RankingTab({ stats, categoryId, teams }: { stats: PlayerStat[]; 
       {rows.length === 0 ? <EmptyState icon="📊" title="Aún no hay datos de esta métrica" /> : (
         <ol className="divide-y rounded-xl border bg-card" aria-label={`Ranking de ${PLAYER_METRIC_LABEL[metric]}`}>
           {rows.map((r, i) => (
-            <li key={r.id ?? `${r.player_label}-${i}`} className="flex items-center gap-3 px-3 py-2.5 text-sm" data-testid="ranking-row">
+            <li key={r.id ?? `${r.player_label ?? ''}-${i}`} className="flex items-center gap-3 px-3 py-2.5 text-sm" data-testid="ranking-row">
               <span className={cn('w-6 text-center font-bold tabular-nums', r.rank <= 3 ? 'text-[var(--brand-ink)]' : 'text-muted-foreground')}>{r.rank}</span>
-              <TeamBadge team={r.team_id ? teams.get(r.team_id) : null} name={r.team_name ?? r.player_label} size="sm" />
+              <TeamBadge team={r.team_id ? teams.get(r.team_id) : null} name={r.team_name ?? r.player_label ?? ''} size="sm" />
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium">{r.player_label}</span>
+                <span className="block truncate font-medium">{r.player_label || 'Sin nombre'}</span>
                 {r.team_name && <span className="block truncate text-xs text-muted-foreground">{r.team_name}</span>}
               </span>
               <span className="text-lg font-extrabold tabular-nums">{r.value}</span>

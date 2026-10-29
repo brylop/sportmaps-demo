@@ -4,9 +4,11 @@
  * Crea el torneo en BORRADOR y lleva al detalle; fechas, sede, cobro y equipos (de la escuela o
  * invitados) se completan después.
  */
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { bffClient } from '@/lib/api/bffClient';
+import { supabase } from '@/integrations/supabase/client';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,7 +17,7 @@ import { ArrowLeft, Check, ChevronRight, Layers, Loader2, Lock, Plus, Trophy, X 
 import { TOURNAMENT_SPORTS, WIZARD_FORMATS, presetLabel, type TournamentSport, type WizardFormat } from '@/lib/tournamentSports';
 import { useTournamentAccess, type TournamentAccess } from '@/lib/tournaments/tournamentAccess';
 import {
-  CATEGORY_SUGGESTIONS, createFromWizard, validateStep, type WizardAnswers, type WizardKind,
+  CATEGORY_SUGGESTIONS, createFromWizard, sportsForSchool, validateStep, type WizardAnswers, type WizardKind,
 } from './tournamentWizard.logic';
 
 const STEPS = ['Nombre', 'Tipo', 'Deporte', 'Formato'];
@@ -24,13 +26,38 @@ interface Props {
   /** Para pruebas / montajes especiales; por defecto se lee con useTournamentAccess(). */
   access?: TournamentAccess;
   onCancel?: () => void;
+  /** Deportes de la escuela (texto libre). Por defecto: schools.sports ∪ deporte de sus equipos. */
+  schoolSports?: string[];
 }
 
-export function TournamentWizard({ access: accessProp, onCancel }: Props) {
+/** schools.sports ∪ teams.sport de la escuela activa (el organizador no tiene escuela: todos los deportes). */
+function useSchoolSportTexts(enabled: boolean, override?: string[]): string[] {
+  const { schoolId, teams } = useSchoolContext();
+  const [schoolSports, setSchoolSports] = useState<string[]>([]);
+  useEffect(() => {
+    if (!enabled || override || !schoolId) return;
+    let alive = true;
+    void (async () => {
+      try {
+        const { data } = await supabase.from('schools').select('sports').eq('id', schoolId).maybeSingle();
+        if (alive) setSchoolSports(((data as { sports?: string[] | null } | null)?.sports ?? []).filter(Boolean));
+      } catch { /* sin deportes conocidos = se muestran todos */ }
+    })();
+    return () => { alive = false; };
+  }, [enabled, override, schoolId]);
+  if (override) return override;
+  if (!enabled) return [];
+  return [...schoolSports, ...(teams ?? []).map((t) => t.sport_type ?? '').filter(Boolean)];
+}
+
+export function TournamentWizard({ access: accessProp, onCancel, schoolSports: sportsProp }: Props) {
   const hookAccess = useTournamentAccess();
   const access = accessProp ?? hookAccess;
   const navigate = useNavigate();
   const { toast } = useToast();
+  const sportTexts = useSchoolSportTexts(access.actor !== 'organizer', sportsProp);
+  const sportGroups = useMemo(() => sportsForSchool(TOURNAMENT_SPORTS, sportTexts), [sportTexts.join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [showOthers, setShowOthers] = useState(false);
 
   const [step, setStep] = useState(0);
   const [name, setName] = useState('');
@@ -42,6 +69,13 @@ export function TournamentWizard({ access: accessProp, onCancel }: Props) {
   const [format, setFormat] = useState<WizardFormat | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Escuela de un solo deporte: queda preseleccionado (se puede cambiar en «Ver otros deportes»).
+  useEffect(() => {
+    if (sport || sportGroups.others.length === 0 || sportGroups.main.length !== 1) return;
+    setSport(sportGroups.main[0]);
+    setPreset(sportGroups.main[0].defaultPreset);
+  }, [sportGroups, sport]);
 
   const cancel = () => (onCancel ? onCancel() : navigate(-1));
 
@@ -102,7 +136,7 @@ export function TournamentWizard({ access: accessProp, onCancel }: Props) {
     `flex w-full items-center gap-3 rounded-2xl border-2 p-4 text-left transition-colors touch-manipulation ${selected ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'}`;
 
   return (
-    <div className="mx-auto flex min-h-[100dvh] max-w-md flex-col px-4 pb-4 pt-3" data-testid="tournament-wizard">
+    <div className="mx-auto flex min-h-[calc(100dvh-8rem)] max-w-md flex-col px-4 pt-3" data-testid="tournament-wizard">
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="icon" onClick={back} aria-label={step === 0 ? 'Cancelar' : 'Paso anterior'}><ArrowLeft className="h-5 w-5" /></Button>
         <div className="flex-1">
@@ -172,8 +206,8 @@ export function TournamentWizard({ access: accessProp, onCancel }: Props) {
         {step === 2 && (
           <>
             <h1 className="text-2xl font-bold">¿Qué deporte?</h1>
-            <div className="grid grid-cols-3 gap-2" role="list">
-              {TOURNAMENT_SPORTS.map((s) => (
+            {(() => {
+              const tile = (s: TournamentSport) => (
                 <button
                   key={s.key} type="button" role="listitem" aria-pressed={sport?.key === s.key}
                   onClick={() => { setSport(s); setPreset(s.defaultPreset); setError(null); }}
@@ -182,8 +216,24 @@ export function TournamentWizard({ access: accessProp, onCancel }: Props) {
                   <span className="text-3xl leading-none" aria-hidden>{s.emoji}</span>
                   <span className="line-clamp-2">{s.name}</span>
                 </button>
-              ))}
-            </div>
+              );
+              const { main, others } = sportGroups;
+              // Si eligió uno de los plegados, se muestran para que se vea marcado.
+              const open = showOthers || others.some((s) => s.key === sport?.key);
+              return (
+                <>
+                  <div className="grid grid-cols-3 gap-2" role="list" data-testid="wz-sports-main">{main.map(tile)}</div>
+                  {others.length > 0 && (
+                    <>
+                      <Button type="button" variant="ghost" className="w-full" onClick={() => setShowOthers((v) => !v)} aria-expanded={open} data-testid="wz-sports-others-toggle">
+                        {open ? 'Ocultar otros deportes' : `Ver otros deportes (${others.length})`}
+                      </Button>
+                      {open && <div className="grid grid-cols-3 gap-2" role="list" data-testid="wz-sports-others">{others.map(tile)}</div>}
+                    </>
+                  )}
+                </>
+              );
+            })()}
             {sport && sport.mode === 'versus' && sport.presets.length > 1 && (
               <div className="space-y-2" data-testid="wz-presets">
                 <div className="text-sm font-medium">Reglas del marcador</div>
@@ -224,10 +274,15 @@ export function TournamentWizard({ access: accessProp, onCancel }: Props) {
         {error && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
       </div>
 
-      <Button className="sticky bottom-3 mt-4 h-14 text-base" onClick={() => void next()} disabled={saving} data-testid="wz-next">
-        {saving ? <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Creando…</>
-          : step < STEPS.length - 1 ? <>Continuar <ChevronRight className="ml-1 h-5 w-5" /></> : <>Crear torneo</>}
-      </Button>
+      {/* Pie fijo OPACO: antes el botón flotaba sobre las tarjetas y tapaba la última fila. Con fondo,
+          el contenido pasa por debajo y, al final del scroll, la última fila queda por encima del pie
+          (el <main> ya reserva la barra inferior y el safe-area). */}
+      <div className="sticky bottom-0 z-10 -mx-4 mt-4 border-t bg-background px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3" data-testid="wz-footer">
+        <Button className="h-14 w-full text-base" onClick={() => void next()} disabled={saving} data-testid="wz-next">
+          {saving ? <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Creando…</>
+            : step < STEPS.length - 1 ? <>Continuar <ChevronRight className="ml-1 h-5 w-5" /></> : <>Crear torneo</>}
+        </Button>
+      </div>
     </div>
   );
 }

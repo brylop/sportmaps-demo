@@ -26,8 +26,28 @@ export function currentPresetKey(cfg: LiveConfigDto): string {
   const { by_category: _byCat, ...saved } = cfg.event.scoring_config ?? {};
   void _byCat;
   if (Object.keys(saved).length === 0) return cfg.suggested_preset;
-  const s = JSON.stringify(saved);
-  return cfg.presets.find((p) => JSON.stringify(p.config) === s)?.key ?? '';
+  // jsonb devuelve las claves en otro orden: se compara con las claves ordenadas, no con JSON.stringify crudo.
+  const s = stableStringify(saved);
+  const match = cfg.presets.find((p) => stableStringify(p.config) === s);
+  if (match) return match.key;
+  // Respaldo: la plantilla guardada dice cuál es y su contenido coincide salvo claves nulas/ausentes.
+  const named = typeof (saved as { preset?: unknown }).preset === 'string' ? cfg.presets.find((p) => p.key === (saved as { preset: string }).preset) : undefined;
+  if (named && stableStringify(dropNulls(named.config)) === stableStringify(dropNulls(saved))) return named.key;
+  return '';
+}
+
+const dropNulls = (o: unknown): unknown => (o && typeof o === 'object' && !Array.isArray(o)
+  ? Object.fromEntries(Object.entries(o as Record<string, unknown>).filter(([, v]) => v !== null && v !== undefined))
+  : o);
+
+/** JSON con las claves de los objetos ordenadas (los arreglos conservan su orden). */
+export function stableStringify(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(stableStringify).join(',')}]`;
+  if (v && typeof v === 'object') {
+    return `{${Object.keys(v as Record<string, unknown>).sort().filter((k) => (v as Record<string, unknown>)[k] !== undefined)
+      .map((k) => `${JSON.stringify(k)}:${stableStringify((v as Record<string, unknown>)[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(v);
 }
 
 export interface SettingsCategory { id: string; name: string }

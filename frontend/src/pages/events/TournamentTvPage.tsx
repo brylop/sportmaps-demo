@@ -5,8 +5,9 @@ import { nowAndNextByCourt } from '@/lib/tournamentDisplay';
 import { brandStyle } from '@/components/tournaments/public/brand';
 import { LiveBadge } from '@/components/tournaments/public/PublicHeader';
 import { PublicMatchCard, TeamBadge } from '@/components/tournaments/public/PublicMatchCard';
+import { PublicSportProvider, usePublicSport } from '@/components/tournaments/public/sportContext';
 import {
-  filterMatches, initials, lastKoRoundByCup, phaseShort, publicStandingColumns, sponsorsByTier, standingGroups, teamIndex, tournamentView, tvPlan,
+  filterMatches, initials, shortCategoryName, lastKoRoundByCup, phaseShort, publicStandingColumns, sponsorsByTier, standingGroups, teamIndex, tournamentView, tvPlan,
   type PublicMatchV2, type TvSlide,
 } from '@/components/tournaments/public/publicModel';
 
@@ -38,11 +39,12 @@ export default function TournamentTvPage() {
   const teams = teamIndex(data);
   const matches = data.matches as PublicMatchV2[];
   const last = lastKoRoundByCup(matches);
-  const ph = (m: PublicMatchV2) => [data.categories.length > 1 ? data.categories.find((c) => c.id === m.category_id)?.name : null, phaseShort(m, last.get(m.cup_label ?? '') ?? m.round)].filter(Boolean).join(' · ');
+  const ph = (m: PublicMatchV2) => [data.categories.length > 1 ? shortCategoryName(data.categories.find((c) => c.id === m.category_id)?.name ?? '') : null, phaseShort(m, last.get(m.cup_label ?? '') ?? m.round)].filter(Boolean).join(' · ');
   const nextByCourt = nowAndNextByCourt(matches.filter((m) => !m.is_bye)).filter((c) => c.next).slice(0, 6);
   const liveCount = data.event.live_enabled ? filterMatches(matches, 'live').length : 0;
 
   return (
+    <PublicSportProvider sport={t.sport}>
     <div className="flex min-h-screen cursor-none select-none flex-col bg-background text-foreground" style={style} data-testid="tv">
       <header className="flex items-center gap-5 bg-[var(--brand)] px-10 py-5 text-[var(--brand-fg)]">
         {t.logo_url
@@ -99,12 +101,14 @@ export default function TournamentTvPage() {
       </main>
       <footer className="px-10 pb-6 text-xl text-muted-foreground">Powered by SportMaps · sportmaps.co</footer>
     </div>
+    </PublicSportProvider>
   );
 }
 
 function TvStandings({ data, teams }: { data: Parameters<typeof standingGroups>[0]; teams: ReturnType<typeof teamIndex> }) {
+  const { kind } = usePublicSport();
   if (!data) return null;
-  const cols = publicStandingColumns(data.model);
+  const cols = publicStandingColumns(data.model, kind);
   const groups = standingGroups(data);
   return (
     <div className={`grid gap-8 ${groups.length > 1 ? 'xl:grid-cols-2' : ''}`}>

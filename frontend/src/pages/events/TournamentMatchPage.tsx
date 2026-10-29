@@ -8,23 +8,22 @@ import { brandStyle } from '@/components/tournaments/public/brand';
 import { StatusPill, TeamBadge } from '@/components/tournaments/public/PublicMatchCard';
 import { EmptyState } from '@/components/tournaments/public/PublicTabs';
 import { ShareSheet } from '@/components/tournaments/public/ShareSheet';
+import { PublicSportProvider, usePublicSport } from '@/components/tournaments/public/sportContext';
 import { MatchSocialPanel } from '@/components/tournaments/live/MatchSocialPanel';
 import { ShareResultButton } from '@/components/tournaments/live/ShareResultButton';
 import {
-  lastKoRoundByCup, phaseShort, setsGrid, shareLink, teamIndex, tournamentView, winnerSide, type PublicMatchV2, type TeamInfo,
+  lastKoRoundByCup, phaseShort, publicScore, shortCategoryName, setsGrid, shareLink, teamIndex, tournamentView, winnerSide, type PublicMatchV2, type TeamInfo,
 } from '@/components/tournaments/public/publicModel';
 
-type MTab = 'partido' | 'comentarios' | 'fotos';
-const MTAB_LABEL: Record<MTab, string> = { partido: 'Partido', comentarios: 'Comentarios', fotos: 'Fotos' };
-/** Comentarios y Fotos los pinta el panel de «vivo» (que además trae MVP); se abre en su pestaña. */
-const SOCIAL_TAB = { comentarios: 'comentarios', fotos: 'medios' } as const;
-
-/** Página PÚBLICA de un partido: /torneo/:slug/partido/:matchId — Partido · Comentarios · Fotos. */
+/**
+ * Página PÚBLICA de un partido: /torneo/:slug/partido/:matchId — el partido arriba y, debajo, el panel de «vivo»
+ * (Comentarios · Medios · MVP). Una sola barra de pestañas: antes había una propia (Partido · Comentarios · Fotos)
+ * encima de la del panel y se veían dos.
+ */
 export default function TournamentMatchPage() {
   const { slug = '', matchId = '' } = useParams<{ slug: string; matchId: string }>();
   useNoIndex();
   const { data, notFound, loading } = usePublicLive(slug);
-  const [tab, setTab] = useState<MTab>('partido');
   const [share, setShare] = useState(false);
   const teams = useMemo(() => (data ? teamIndex(data) : new Map()), [data]);
   const match = data?.matches.find((m) => m.id === matchId) as PublicMatchV2 | undefined;
@@ -41,12 +40,14 @@ export default function TournamentMatchPage() {
 
   const t = tournamentView(data);
   const { style } = brandStyle(t.brand_color);
-  const cat = data.categories.find((c) => c.id === match.category_id)?.name ?? '';
+  const catFull = data.categories.find((c) => c.id === match.category_id)?.name ?? '';
+  const cat = catFull ? shortCategoryName(catFull) : '';
   const home = teamName(match, 'home'); const away = teamName(match, 'away');
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const phase = phaseShort(match, lastKoRoundByCup(data.matches).get(match.cup_label ?? '') ?? match.round);
 
   return (
+    <PublicSportProvider sport={t.sport}>
     <div className="min-h-screen bg-background text-foreground" style={style}>
       <header className="bg-[var(--brand)] text-[var(--brand-fg)]">
         <div className="mx-auto flex max-w-3xl items-center gap-2 px-2 py-3">
@@ -57,28 +58,20 @@ export default function TournamentMatchPage() {
           </div>
           <button type="button" className="rounded-full p-2 hover:bg-white/10" aria-label="Compartir partido" onClick={() => setShare(true)}><Share2 className="h-5 w-5" /></button>
         </div>
-        <div className="mx-auto flex max-w-3xl gap-2 px-3 pb-3" role="tablist" aria-label="Secciones del partido">
-          {(Object.keys(MTAB_LABEL) as MTab[]).map((k) => (
-            <button key={k} type="button" role="tab" aria-selected={k === tab} onClick={() => setTab(k)}
-              className={cn('flex-1 rounded-lg py-2 text-sm font-semibold', k === tab ? 'bg-background text-foreground' : 'bg-white/15')}>
-              {MTAB_LABEL[k]}
-            </button>
-          ))}
-        </div>
       </header>
 
-      <main className="mx-auto max-w-3xl px-4 py-5" role="tabpanel">
-        {tab === 'partido' && (
-          <div className="space-y-4">
+      <main className="mx-auto max-w-3xl space-y-6 px-4 pt-5 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-5">
+        <div className="space-y-4">
             <MatchDetail match={match} teams={teams} phase={phase} venue={t.venue?.name ?? null} />
             {(match.status === 'played' || match.status === 'walkover') && (
               <div className="flex justify-center">
                 <ShareResultButton match={match} tournament={t.title} category={cat} url={shareLink(origin, slug, 'match', { matchId })} label="Compartir resultado" size="default" />
               </div>
             )}
-          </div>
-        )}
-        {tab !== 'partido' && <MatchSocialPanel key={tab} slug={slug} matchId={matchId} defaultTab={SOCIAL_TAB[tab]} />}
+        </div>
+        <section aria-label="Comentarios, medios y MVP">
+          <MatchSocialPanel slug={slug} matchId={matchId} />
+        </section>
       </main>
 
       {share && (
@@ -89,15 +82,17 @@ export default function TournamentMatchPage() {
         ]} />
       )}
     </div>
+    </PublicSportProvider>
   );
 }
 
 /** Pestaña «Partido»: estado, marcador grande, sets en cuadrícula por equipo, cancha, hora y sede. */
 function MatchDetail({ match: m, teams, phase, venue }: { match: PublicMatchV2; teams: Map<string, TeamInfo>; phase: string; venue: string | null }) {
   const win = winnerSide(m);
+  const { kind, sides } = usePublicSport();
+  const sc = publicScore(m, kind);
   const isSets = m.model === 'sets';
   const grid = isSets ? setsGrid(m.sets, (m.sets?.length ?? 0) > 3 ? 5 : 3) : null;
-  const hasScore = m.home_score != null && m.away_score != null && m.status !== 'scheduled';
   const row = (side: 'home' | 'away') => {
     const id = side === 'home' ? m.home_team_id : m.away_team_id;
     const name = teamName(m, side);
@@ -107,6 +102,7 @@ function MatchDetail({ match: m, teams, phase, venue }: { match: PublicMatchV2; 
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <TeamBadge team={id ? teams.get(id) : null} name={name} />
           <span className={cn('min-w-0 break-words text-sm uppercase', win === side ? 'font-extrabold' : 'font-semibold')}>{name}</span>
+          {sides && <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">· {side === 'home' ? sides.home : sides.away}</span>}
         </div>
         {grid && vals.map((v, i) => (
           <span key={i} className={cn('flex h-10 w-12 items-center justify-center rounded-md border text-lg tabular-nums sm:w-14',
@@ -121,10 +117,10 @@ function MatchDetail({ match: m, teams, phase, venue }: { match: PublicMatchV2; 
     <div className="space-y-4" data-testid="match-detail">
       <div className="flex flex-col items-center gap-2 text-center">
         <StatusPill status={m.status} large />
-        <p className="text-5xl font-black tabular-nums" aria-label={hasScore ? `Marcador ${m.home_score} a ${m.away_score}` : 'Aún sin marcador'}>
-          {hasScore ? <>{m.home_score}<span className="mx-2 text-muted-foreground">:</span>{m.away_score}</> : <span className="text-2xl text-muted-foreground">vs</span>}
+        <p className="text-5xl font-black tabular-nums" aria-label={sc ? `Marcador ${sc.home} a ${sc.away}` : 'Aún sin marcador'}>
+          {sc ? <>{sc.home}<span className="mx-2 text-muted-foreground">{kind === 'chess' ? '–' : ':'}</span>{sc.away}</> : <span className="text-2xl text-muted-foreground">vs</span>}
         </p>
-        {isSets && hasScore && <p className="text-xs uppercase text-muted-foreground">sets</p>}
+        {isSets && sc && <p className="text-xs uppercase text-muted-foreground">sets</p>}
       </div>
       <div className="space-y-2 rounded-xl border bg-card p-3" aria-label="Detalle por equipo">
         {row('home')}
