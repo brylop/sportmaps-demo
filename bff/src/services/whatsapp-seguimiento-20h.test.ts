@@ -56,6 +56,14 @@ describe('tocaSeguimiento', () => {
         expect(r.motivo).toBe('escuela_atendiendo');
     });
 
+    it('la escuela escribió ANTES del último mensaje del interesado: tampoco (…5543, 2026-10-29)', () => {
+        const r = tocaSeguimiento(CONV, [
+            { direction: 'outbound', ai_generated: false, text_body: 'Entonces no sé si mejor vienes el sábado a las 11 am', created_at: hace(20.1) },
+            { direction: 'inbound', text_body: 'Ahh listo', created_at: hace(20) },
+        ], AHORA);
+        expect(r.motivo).toBe('escuela_atendiendo');
+    });
+
     it('un recordatorio automático NO cuenta como persona', () => {
         const r = tocaSeguimiento(CONV, [
             { direction: 'outbound', ai_generated: false, payload: { automatico: true }, text_body: 'Recordatorio', created_at: hace(19) },

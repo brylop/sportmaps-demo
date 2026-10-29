@@ -69,10 +69,14 @@ export function tocaSeguimiento(
     if (Number.isNaN(ultimo)) return { toca: false, motivo: 'sin_entrante' };
     const edadH = (ahora.getTime() - ultimo) / 3600_000;
     if (edadH < DESDE_H || edadH > HASTA_H) return { toca: false, motivo: 'fuera_de_rango' };
-    // Una persona de la escuela le escribió después de su último mensaje: está atendiendo.
-    const humanoDespues = recientes.some((f) => f.direction === 'outbound' && f.ai_generated === false
-        && !(f.payload?.automatico === true || f.payload?.automatico === 'true') && hora(f) >= ultimo);
-    if (humanoDespues) return { toca: false, motivo: 'escuela_atendiendo' };
+    // Una persona de la escuela escribió en la conversación (en las 24 h que se
+    // leen): ese interesado lo está atendiendo ella. Antes solo contaba si
+    // escribió DESPUÉS del último mensaje del interesado, y …5543 (2026-10-29)
+    // recibió «¿Te funciona el sábado a las 11?» cuando Milena ya se lo había
+    // propuesto y ella había dicho «Ahh listo».
+    const escuelaEscribio = recientes.some((f) => f.direction === 'outbound' && f.ai_generated === false
+        && !(f.payload?.automatico === true || f.payload?.automatico === 'true'));
+    if (escuelaEscribio) return { toca: false, motivo: 'escuela_atendiendo' };
     if (recientes.some((f) => f.direction === 'outbound' && f.payload?.step === PASO_SEGUIMIENTO_20H)) {
         return { toca: false, motivo: 'ya_enviado' };
     }
