@@ -9,13 +9,17 @@
 //
 // Escribe en el tenant demo (todo queda anotado en docs/manuales/v2/pruebas-acudiente-v2.md):
 //   - un documento «Otro documento» de prueba en la ficha de Sofía (bucket identity-documents);
-//   - un comprobante de transferencia de prueba para el primer cobro marcado de Mauricio.
+//   - un comprobante de transferencia de prueba para el primer cobro marcado de Mauricio;
+//   - (desde 2026-10-28) la respuesta «Va» de Tomás a la convocatoria vs Halcones FC
+//     (lineup 537b7aaa…), tocada en el detalle del partido del Calendario.
 // NUNCA paga: el botón de la pasarela se captura y se cierra el diálogo.
 // Es reanudable: si ya existe shots/<captura>.png de un paso que escribe, ese paso no se repite.
 //
 // El flujo del código de escuela (registro de la cuenta sin escuela, /unirse,
 // asignación en «Por asignar») se corrió una sola vez con codigo-escuela/*.mjs:
 // no se puede repetir con la misma cuenta. Sus capturas ya están en shots/.
+// Los dos partidos del demo (vs Halcones FC y vs Deportivo Arrayanes, con convocatoria,
+// resultado, evaluación y reporte) se crearon como owner con partidos-demo/*.mjs.
 import fs from 'node:fs';
 import path from 'node:path';
 import * as lib from './lib.mjs';
@@ -82,7 +86,19 @@ async function run() {
       await snap('01-inicio.png');
       await full('01-inicio-completo.png');
       const t = await text();
-      return /p\. m\.\./.test(t) ? 'Frase del entreno termina en «p. m..» (doble punto)' : '';
+      const conv = page.locator('[data-testid="convocatoria-hijo"]').first();
+      if (await conv.count()) {
+        // La tarjeta del hijo convocado entera (la convocatoria vive dentro de ella).
+        const tarjeta = conv.locator('xpath=ancestor::*[contains(@class,"rounded")][1]');
+        if (!has('01c-inicio-convocatoria.png')) await el(tarjeta, '01c-inicio-convocatoria.png', 8);
+      }
+      const torneos = page.getByText(/Torneos\/ligas abiertos/).first().locator('xpath=ancestor::section[1]');
+      if (await torneos.count()) await el(torneos, '01e-inicio-torneos.png', 8).catch(() => {});
+      const obs = [];
+      if (/p\. m\.\./.test(t)) obs.push('Frase del entreno termina en «p. m..» (doble punto)');
+      if (!/El más antiguo/.test(t) && /cobros pendientes/.test(t)) obs.push('Sin la frase del cobro más antiguo (#26)');
+      if (!(await conv.count())) obs.push('Sin tarjeta de convocatoria en Inicio');
+      return obs.join('; ');
     });
     await test('inicio-ver-como-va', 'Inicio → «Ver cómo va» abre la ficha del hijo', async () => {
       await lib.go(page, '/dashboard', 3500);
@@ -109,14 +125,32 @@ async function run() {
       const card = page.getByText('Partido vs Halcones FC').first().locator('xpath=ancestor::*[contains(@class,"rounded")][1]');
       await el(card, '02b-cal-partido.png', 12);
     });
-    await test('cal-detalle', 'Calendario: tocar un evento abre su detalle', async () => {
+    await test('cal-detalle', 'Calendario: tocar un evento abre su detalle (lugar con mapa, nota, convocatoria)', async () => {
       await lib.go(page, '/calendar', 3500);
-      const before = page.url();
       await page.getByText('Partido vs Halcones FC').first().click();
-      await lib.settle(page, 1500);
-      const opened = (await page.getByRole('dialog').count()) > 0 || page.url() !== before;
-      await snap('02c-cal-tocar-evento.png');
-      if (!opened) throw new Error('Tocar la tarjeta del partido en «Próximos» no abre ningún detalle (la tarjeta ya muestra hora, lugar y nota)');
+      await lib.settle(page, 2500);
+      const dlg = page.getByRole('dialog');
+      if (!(await dlg.count())) throw new Error('Tocar la tarjeta del partido en «Próximos» no abre ningún detalle');
+      const t = await dlg.innerText();
+      if (!/Ver mapa/.test(t)) throw new Error('El detalle no trae «Ver mapa»');
+      const href = await dlg.getByRole('link', { name: /Ver mapa/ }).getAttribute('href');
+      await snap('02c-cal-detalle.png');
+      return `mapa: ${href?.slice(0, 60)}`;
+    });
+    await test('convocatoria-responder', 'Convocatoria: el acudiente responde «Va» desde el detalle del partido', async () => {
+      if (has('02d-cal-detalle-va.png')) return 'Ya respondida en una corrida anterior';
+      await lib.go(page, '/calendar', 3500);
+      await page.getByText('Partido vs Halcones FC').first().click();
+      await lib.settle(page, 2500);
+      const dlg = page.getByRole('dialog');
+      const va = dlg.getByRole('button', { name: /^Va$/ });
+      if (!(await va.count())) throw new Error('El detalle del partido no muestra «Va / No va»');
+      await va.click();
+      await lib.settle(page, 1200);
+      const toast = await page.evaluate(() => [...document.querySelectorAll('[data-sonner-toast]')].map((e) => e.innerText).join(' | '));
+      await snap('02d-cal-detalle-va.png');
+      if (!/va al partido/.test(await dlg.innerText())) throw new Error('Tras tocar «Va» no aparece «… va al partido»');
+      return `toast: ${toast.replace(/\n+/g, ' ')}`;
     });
     await test('cal-torneos', 'Calendario › Torneos: inscritos y abiertos', async () => {
       await lib.go(page, '/calendar', 3000);
@@ -205,10 +239,18 @@ async function run() {
       await lib.go(page, `/children/${TOMAS}/progress`, 3500);
       await expectText(/Actitud|Técnica/);
       await full('13-progreso-con-partido.png');
+      const tGraf = await text();
+      if (/Comentario\s*\n?\s*0/.test(tGraf)) throw new Error('Gráficas: el «Comentario del coach» sale como «Comentario 0»');
+      // B6: «Lo que dijo el profe» vive en la pestaña Progreso de Hijos.
+      await hijo(TOMAS, 'progreso');
+      await full('13c-hijos-progreso-completo.png');
+      const dijo = page.getByText('Lo que dijo el profe').first().locator('xpath=ancestor::*[self::section or contains(@class,"rounded")][1]');
+      if (await dijo.count()) await el(dijo, '13b-lo-que-dijo-el-profe.png', 8).catch(() => {});
       const t = await text();
-      if (/Comentario\s*\n?\s*0/.test(t)) return 'Aparece pero el «Comentario del coach» (texto) se muestra como «Comentario 0»';
+      if (/Comentario\s*\n?\s*0/.test(t)) throw new Error('El «Comentario del coach» (texto) se muestra como «Comentario 0»');
+      if (!/Lo que dijo el profe/.test(t)) throw new Error('No aparece «Lo que dijo el profe»');
     });
-    await test('convocatoria-va-no-va', 'Convocatoria: responder «Va / No va» como acudiente', async () => {
+    await test('convocatoria-va-no-va', 'Convocatoria: el aviso lleva a responder y la respuesta queda en Inicio', async () => {
       await lib.go(page, '/notifications', 3500);
       await expectText(/Convocatoria: vs Halcones FC/);
       await snap('15-notif-convocatoria.png');
@@ -216,12 +258,13 @@ async function run() {
       await lib.settle(page, 3500);
       const u = page.url().replace(lib.BASE_URL, '');
       await snap('15b-convocatoria-destino.png');
-      const va = page.getByRole('button', { name: /^Va$|Sí va/ });
-      if (!(await va.count())) {
-        await lib.go(page, `/children?hijo=${TOMAS}&tab=informes`, 3000);
-        if (!(await page.getByRole('button', { name: /^Va$|Sí va/ }).count()))
-          throw new Error(`El aviso lleva a ${u} y no hay ningún botón «Va / No va» en Inicio, Calendario ni Hijos (my_callups sí devuelve la convocatoria)`);
-      }
+      await lib.go(page, '/dashboard', 4000);
+      const conv = page.locator('[data-testid="convocatoria-hijo"]').first();
+      if (!(await conv.count())) throw new Error('Inicio no muestra la convocatoria de Tomás');
+      const t = await conv.innerText();
+      await el(conv.locator('xpath=ancestor::*[contains(@class,"rounded")][1]'), '01d-inicio-va.png', 8);
+      if (!/va al partido|no puede ir/.test(t)) throw new Error('Inicio no refleja la respuesta: ' + t.replace(/\n+/g, ' | '));
+      return `aviso → ${u}; Inicio: ${t.replace(/\n+/g, ' | ').slice(0, 120)}`;
     });
     await test('ficha-salud', 'Hijos › Ficha y salud: datos, 10 documentos, carnet, corregir', async () => {
       await hijo(SOFIA, 'ficha');
@@ -282,7 +325,7 @@ async function run() {
       await snap('16-pagos-por-pagar.png');
       await full('16-pagos-completo.png');
       const t = await text();
-      return /Tenis[^\n]*Tú \(como atleta\)/.test(t) ? 'Cobros de Tenis de Tomás salen como «Tú (como atleta)»' : '';
+      if (/Tú \(como atleta\)/.test(t)) throw new Error('Cobros de Tomás salen como «Tú (como atleta)» (B8)');
     });
     await test('pagos-desmarcar', 'Pagos: desmarcar un cobro recalcula el total', async () => {
       await lib.go(page, '/my-payments', 3500);
@@ -308,8 +351,7 @@ async function run() {
       await page.getByRole('button', { name: /Ya transferí/ }).click();
       await lib.settle(page, 2500);
       const dlg = page.getByRole('dialog');
-      const preOnline = /Pagar online \$/.test(await dlg.innerText());
-      await dlg.getByText(/Transferencia \/ Nequi/).click();
+      const preOnline = !/Información de Transferencia/.test(await dlg.innerText());
       await lib.settle(page, 1500);
       await snap('18-transferencia.png');
       await full('18-transferencia-completo.png');
@@ -324,7 +366,9 @@ async function run() {
         await lib.settle(page, 5000);
         await snap('19-comprobante-enviado.png');
       }
-      return preOnline ? '«Ya transferí» abre el pago con «Pagar online» preseleccionado: hay que cambiar a Transferencia a mano' : '';
+      if (preOnline) throw new Error('«Ya transferí» abre el pago sin Transferencia marcada (B7)');
+      const titulo = (await dlg.innerText()).split('\n').slice(0, 3).join(' | ');
+      return `Abre con Transferencia marcada. Encabezado: ${titulo}`;
     });
     await test('pagos-en-revision', 'Pagos: el cobro con comprobante queda «En revisión»', async () => {
       await lib.go(page, '/my-payments', 3500);
@@ -381,6 +425,7 @@ async function run() {
     await masLink('Mi cuenta', 'mas-mi-cuenta', 'Más › Mi cuenta (perfil + configuración)', '23-mi-cuenta.png', /Mi cuenta/);
     await test('mi-cuenta-secciones', 'Mi cuenta: Perfil, Notificaciones, Privacidad, Seguridad abren', async () => {
       const malas = [];
+      errors.length = 0;
       for (const s of ['Perfil', 'Notificaciones', 'Privacidad', 'Seguridad']) {
         await lib.go(page, '/settings', 2500);
         await page.getByText(s, { exact: true }).first().click();
@@ -390,6 +435,8 @@ async function run() {
         if (t.length < 80) malas.push(s);
       }
       if (malas.length) throw new Error('Sin contenido: ' + malas.join(', '));
+      const e500 = errors.filter((e) => /http 5\d\d/.test(e));
+      if (e500.length) throw new Error('Errores 5xx: ' + e500.join(' ; '));
     });
     await test('mas-whatsapp', 'Más › Escribirle al club (WhatsApp)', async () => {
       await lib.go(page, '/mas', 2500);
