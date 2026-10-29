@@ -366,8 +366,13 @@ export function quiereSalirDelFlujo(texto: string | null | undefined): boolean {
  * «donde queda»): no es elegir franja. Solo se usa en `elegir_franja`.
  */
 function esPreguntaDeOtroTema(texto: string): boolean {
-    return /^(cuanto|cuanta|cuantos|donde|como|quien|cuando|por que|porque|precio|valor|mensualidad|tienen|hay|me pueden|me puede|necesito|quiero saber|informacion|info)\b/
-        .test(normalizar(texto));
+    // «Y cuáles son los valores», «En dónde se encuentran», «pero cuánto vale»
+    // (auditoría 2026-10-28, X-03): el conector de adelante no cambia la pregunta.
+    const n = normalizar(texto)
+        .replace(/^(y|e|en|pero|ok|okay|hola|buenas|buenos dias|buenas tardes|disculpa|perdon)\b[\s,]*/, '');
+    return /^(cuanto|cuanta|cuantos|cuantas|donde|como|quien|cuando|por que|porque|cual|cuales|precio|precios|valor|valores|costo|costos|cuesta|mensualidad|tienen|hay|me pueden|me puede|necesito|quiero saber|informacion|info|direccion|ubicacion|requisitos|uniforme|parqueadero)\b/
+        .test(n)
+        || /\b(valores|precios|cuanto (vale|cuesta)|direccion|donde (queda|quedan|estan|se encuentran)|requisitos|parqueadero)\b/.test(n);
 }
 
 /** «¿Qué horarios tiene?», «a qué hora entrenan», «qué días son». */
@@ -803,12 +808,22 @@ const SI = new Set(['si', 's', 'dale', 'ok', 'listo', 'claro', 'confirmar', 'con
     'si confirmo', 'esta bien', 'de una', 'si dejar mis datos', 'si cancelar', 'si por favor']);
 const NO = new Set(['no', 'n', 'no gracias', 'cambiar', 'corregir', 'no la mantengo', 'mantener', 'no cancelar']);
 
+/**
+ * «Si señora», «sí, gracias», «dale profe», «perfecto»: un sí con cortesía
+ * detrás (auditoría 2026-10-28, X-03: a «Si señora» el bot contestó «Responde
+ * Confirmar» y el prospecto tuvo que escribir «Asesor»). Corto (≤ 4 palabras) y
+ * sin nada que lo contradiga.
+ */
+const SI_CON_CORTESIA = /^(si|dale|ok|okay|okey|listo|claro|perfecto|correcto|vale|bueno|de una|confirm\w*)\b/;
+const CONTRADICE = /\b(no|cambiar|cambio|corregir|otro|otra|pero|mejor)\b/;
+
 function siNo(texto: string, botonId: string | null, si: string, no: string): 'si' | 'no' | null {
     if (botonId === si) return 'si';
     if (botonId === no) return 'no';
-    const n = normalizar(texto);
+    const n = normalizar(texto).replace(/[.,!¡]+/g, ' ').replace(/\s+/g, ' ').trim();
     if (SI.has(n)) return 'si';
     if (NO.has(n)) return 'no';
+    if (n.split(' ').length <= 4 && SI_CON_CORTESIA.test(n) && !CONTRADICE.test(n)) return 'si';
     return null;
 }
 

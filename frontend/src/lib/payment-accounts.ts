@@ -189,6 +189,28 @@ export function chargeLabel(p: {
 }
 
 /**
+ * Categoría de una fila para FILTRAR la lista de pagos. A diferencia de
+ * `chargeCategoryOf` nunca devuelve null: sin categoría ni concepto reconocible
+ * es la mensualidad (las del cron nacen con NULL), y una categoría que el front
+ * no conoce (p. ej. 'reserva', que está en el CHECK vivo) se respeta tal cual en
+ * vez de esconderse dentro de «Mensualidad».
+ */
+export function chargeFilterKey(
+    paymentCategory: string | null | undefined,
+    concept: string | null | undefined,
+): string {
+    if (paymentCategory && !isChargeCategory(paymentCategory)) return paymentCategory;
+    return chargeCategoryOf(paymentCategory, concept) ?? 'mensualidad';
+}
+
+/** Etiqueta de una clave de `chargeFilterKey`. */
+export function chargeFilterLabel(key: string): string {
+    if (isChargeCategory(key)) return CHARGE_CATEGORY_LABEL[key];
+    if (key === 'reserva') return 'Reserva';
+    return key;
+}
+
+/**
  * SOLO PARA MOSTRAR (qué fila de la lista es «el cobro del mes»). Con categoría
  * explícita manda la regla única `isOneTimeCategory` (F0, migración
  * 20261010143132): un torneo, un viaje o cualquier categoría futura es único,

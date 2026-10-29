@@ -111,7 +111,7 @@ export default function CoachActivityPage() {
         </div>
       ) : (
         <>
-          <WhoWorkedChart coaches={data.coaches} />
+          <WhoWorkedChart coaches={data.coaches} onOpen={setOpenStaffId} />
 
           {/* Leyenda del semáforo, en palabras */}
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">

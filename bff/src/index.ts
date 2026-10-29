@@ -584,6 +584,25 @@ const httpServer = app.listen(PORT, () => {
     }
 });
 
+// Apagado ordenado (auditoría 2026-10-28, A-01). Render manda SIGTERM al viejo
+// proceso en cada despliegue y espera ~30 s antes de matarlo. Sin esto, los
+// turnos del bot en curso (ráfaga de 10 s + modelo) morían con él y la familia
+// quedaba sin respuesta. Se deja de recibir y se esperan hasta 25 s; lo que no
+// alcance a terminar queda anotado y lo relanza el barrido del BFF nuevo.
+let apagando = false;
+async function apagar(senal: string): Promise<void> {
+    if (apagando) return;
+    apagando = true;
+    const { esperarTareasEnCurso, tareasEnCurso } = await import('./services/whatsapp-turnos-pendientes.service');
+    console.log(`[apagado] ${senal}: dejo de recibir y espero ${tareasEnCurso()} turno(s) de WhatsApp en curso`);
+    httpServer.close();
+    const todas = await esperarTareasEnCurso(25_000);
+    console.log(todas ? '[apagado] turnos terminados; salgo' : `[apagado] quedan ${tareasEnCurso()} turno(s); los relanza el barrido`);
+    process.exit(0);
+}
+process.once('SIGTERM', () => { void apagar('SIGTERM'); });
+process.once('SIGINT', () => { void apagar('SIGINT'); });
+
 // Bridges locales (ej. scripts/gymrm-door-bridge/) mantienen UNA conexión
 // WS abierta en vez de long-polling HTTP repetido (2026-09-21, ver
 // bridgeWsHub.ts) -- se cuelga del mismo servidor HTTP, en /bridge/ws.

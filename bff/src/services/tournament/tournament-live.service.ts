@@ -545,7 +545,8 @@ export async function getConfig(ev: LiveEvent) {
   };
 }
 
-const STREAM_HOSTS = ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be', 'facebook.com', 'www.facebook.com', 'fb.watch', 'vimeo.com', 'player.vimeo.com'];
+// Veo: el en vivo se comparte como enlace de app.veo.co / live.veo.co (no se incrusta).
+const STREAM_HOSTS = ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be', 'facebook.com', 'www.facebook.com', 'fb.watch', 'vimeo.com', 'player.vimeo.com', 'veo.co', 'app.veo.co', 'live.veo.co'];
 
 export function validateStreamUrl(url: unknown): string | null {
   if (url == null || url === '') return null;
@@ -553,7 +554,7 @@ export function validateStreamUrl(url: unknown): string | null {
   let u: URL;
   try { u = new URL(url); } catch { throw new LiveError(400, 'stream_invalido', 'El enlace de transmisión no es válido'); }
   if (u.protocol !== 'https:' || !STREAM_HOSTS.includes(u.hostname.toLowerCase())) {
-    throw new LiveError(400, 'stream_invalido', 'Solo se admiten enlaces https de YouTube, Facebook o Vimeo');
+    throw new LiveError(400, 'stream_invalido', 'Solo se admiten enlaces https de YouTube, Facebook, Vimeo o Veo');
   }
   return u.toString();
 }

@@ -161,7 +161,7 @@ export function LiveSettingsPanel({ eventId, config, onChanged, categories = [] 
               onClick={() => patch({ stream_url: stream.trim() === '' ? null : stream.trim() }, 'Enlace guardado')}>Guardar</Button>
           </div>
           {streamError ? <p role="alert" className="text-xs text-destructive">{streamError}</p>
-            : <p className="text-xs text-muted-foreground">YouTube, Facebook o Vimeo. En la página pública aparece como «Ver transmisión».</p>}
+            : <p className="text-xs text-muted-foreground">YouTube, Facebook, Vimeo o Veo (en Veo: Compartir → copiar el enlace del partido en vivo). En la página pública aparece como «Ver transmisión».</p>}
         </div>
 
         {/* Anotadores sin cuenta */}

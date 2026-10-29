@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "note": "Registro versionado de migraciones. Lo genera scripts/migrations.mjs — no editar a mano. Toda migración nueva agrega una línea al final; si dos ramas chocan aquí, pónganse de acuerdo en la versión ANTES de mergear.",
-  "count": 843,
-  "head": "20261029095042",
+  "count": 846,
+  "head": "20261029110305",
   "migrations": [
     {"v":"20260217000001","file":"20260217000001_schema_refactored.sql","sha256":"efc763aeafd8e73e55d3800e7211e9a89f32c7bfc29ffaa4eae56e2147e1455c","added":"","by":""},
     {"v":"20260218000002","file":"20260218000002_rls_policies_and_indexes.sql","sha256":"592345d79c471f8282e501f07c92b9eb378974ccf50fd2bbd8c3ed7bd1449981","added":"","by":""},
@@ -846,6 +846,9 @@
     {"v":"20261028111725","file":"20261028111725_gates_definer_authenticated.sql","sha256":"d434bd4103b4e1944db79de4070ce836be3b3626c031c8f1776f020bf5e6e0c9","added":"2026-10-28","by":"Brayan Steven Lopez"},
     {"v":"20261028113918","file":"20261028113918_wa_ficha_prospectos_y_estilo.sql","sha256":"2e51d5a73cf656442a1a39d9cd2aa8663f3e42c34d8dcf87e8c1dc342c4fbd65","added":"2026-10-28","by":"Brayan Steven Lopez"},
     {"v":"20261028201746","file":"20261028201746_evaluacion_entrenadores.sql","sha256":"d5d544e8190ccf235aa3e978dd6620faa8366efae01027200f0889fa976c0da8","added":"2026-10-29","by":"Brayan Steven Lopez"},
-    {"v":"20261029095042","file":"20261029095042_evaluacion_entrenadores_gate_inline.sql","sha256":"5c3679c65d9d1bdf7aa4df98edb1b2a62001c161d0388edb1f5fab5d8ebbdc64","added":"2026-10-29","by":"Brayan Steven Lopez"}
+    {"v":"20261029095042","file":"20261029095042_evaluacion_entrenadores_gate_inline.sql","sha256":"5c3679c65d9d1bdf7aa4df98edb1b2a62001c161d0388edb1f5fab5d8ebbdc64","added":"2026-10-29","by":"Brayan Steven Lopez"},
+    {"v":"20261029101109","file":"20261029101109_notify_user_solo_destinatarios_con_relacion.sql","sha256":"d18c9c02279df8c79069107388392faebadca798cea904f0c751120ef79f1fef","added":"2026-10-29","by":"Brayan Steven Lopez"},
+    {"v":"20261029101115","file":"20261029101115_funciones_nuevas_sin_execute_por_defecto.sql","sha256":"bf235b435de789f7fd62a592dbe18fafdd8f80c489c0c019fd85eef93f3a2107","added":"2026-10-29","by":"Brayan Steven Lopez"},
+    {"v":"20261029110305","file":"20261029110305_whatsapp_turnos_pendientes.sql","sha256":"fe69554dbcf48641668de24ac847bc091556fbe953334c75a60d9c3e43cffdd9","added":"2026-10-29","by":"Brayan Steven Lopez"}
   ]
 }

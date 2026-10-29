@@ -34,11 +34,12 @@ import {
 import {
     runBotTurn, deliver, atenderDesconocido, mensajesRecientes, SILENCIO_HUMANO_MIN,
     TEXTO_MIME_RECHAZADO, vocativosDeEscuela, revisarEscalacionesVencidas, revisarRetomas,
-    reservarPasoUnaVez, enviarRespuestaStaff,
+    reservarPasoUnaVez, enviarRespuestaStaff, abrirEnBuzon,
 } from '../services/whatsapp-bot.service';
 import { debeAtender } from '../services/whatsapp-atencion.service';
 import { encolarAdjunto } from '../services/whatsapp-queue.service';
 import { correrTurnoAgrupado, ESPERA_RAFAGA_MS } from '../services/whatsapp-turno-agrupado.service';
+import { anotarTurno, soltarTurno, seguirTarea } from '../services/whatsapp-turnos-pendientes.service';
 import {
     humanoReciente, esCierreSuelto, respuestaATipoNoSoportado, PASO_TIPO_NO_SOPORTADO,
 } from '../services/whatsapp-reglas-turno';
@@ -59,9 +60,10 @@ import {
  * resultado.
  */
 function enSegundoPlano(espera: number, tarea: () => Promise<unknown>, log: Request['log'], que: string): Promise<void> {
-    const p = tarea().then(() => undefined).catch((err: any) => {
+    // `seguirTarea`: el apagado ordenado (index.ts) la espera antes de salir.
+    const p = seguirTarea(tarea().then(() => undefined).catch((err: any) => {
         log?.error({ err: err?.message || err }, `WhatsApp: ${que} falló`);
-    });
+    }));
     return espera > 0 ? Promise.resolve() : p;
 }
 import { procesarEchos, procesarHistorial, registrarAppState, esContactoPersonal, payloadSinContenido }
@@ -492,6 +494,25 @@ async function handleBotTurn(
         return;
     }
 
+    // Lo que WhatsApp no deja leer (error 131051: encuestas, «ver una vez»,
+    // mensajes de una versión vieja). Antes se ignoraba igual que un sticker y
+    // 15 conversaciones quedaron sin respuesta ni buzón (auditoría 2026-10-28,
+    // X-05). A quien el asistente atiende se le pide escribirlo, UNA vez al día,
+    // y la conversación queda abierta en el buzón para que alguien la mire.
+    if (msg.type === 'unsupported') {
+        const d = await debeAtender(integration, conversationId, msg.contactWaId).catch(() => null);
+        if (!d?.atender || optedOut) return;
+        await abrirEnBuzon(integration, conversationId, msg.contactWaId)
+            .catch((err) => req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: no se pudo abrir en el buzón'));
+        if (!(await reservarPasoUnaVez(conversationId, `${PASO_TIPO_NO_SOPORTADO}_unsupported`, 24))) return;
+        await deliver(integration, conversationId, msg.contactWaId,
+            'No pude abrir tu último mensaje: WhatsApp no me deja verlo. 🙏 ¿Me lo escribes, por favor? ' +
+            'Si era un comprobante, mándame la *foto* o el *PDF*.',
+            { step: `${PASO_TIPO_NO_SOPORTADO}_unsupported` })
+            .catch((err) => req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: no se pudo responder al mensaje ilegible'));
+        return;
+    }
+
     // Los stickers, las reacciones y demás tipos no conversacionales se ignoran
     // como siempre (ya quedaron guardados por la ingesta).
     const esConversacional = msg.type === 'text' || msg.type === 'interactive'
@@ -729,15 +750,25 @@ function lanzarTurno(
     origen: 'texto' | 'audio',
 ): Promise<void> {
     return enSegundoPlano(ESPERA_RAFAGA_MS, async () => {
-        const r = await correrTurnoAgrupado({
-            conversationId,
-            waMessageId: msg.waMessageId,
-            inmediato: optedOut || Boolean(msg.botonId),
-            log: req.log as any,
-            correr: () => runBotTurn(integration, conversationId, msg.contactWaId, texto, msg.waMessageId,
-                optedOut, msg.botonId ?? null, { origen }),
+        // Anotado en la base mientras corre: si el proceso muere a mitad
+        // (despliegue, reinicio), el barrido lo relanza (whatsapp-turnos-pendientes).
+        await anotarTurno({
+            waMessageId: msg.waMessageId, conversationId, integrationId: integration.id,
+            contactWaId: msg.contactWaId, texto, optedOut, botonId: msg.botonId ?? null, origen,
         });
-        if (r !== 'corrido') req.log?.info({ conversationId, turno: r }, 'WhatsApp: turno agrupado');
+        try {
+            const r = await correrTurnoAgrupado({
+                conversationId,
+                waMessageId: msg.waMessageId,
+                inmediato: optedOut || Boolean(msg.botonId),
+                log: req.log as any,
+                correr: () => runBotTurn(integration, conversationId, msg.contactWaId, texto, msg.waMessageId,
+                    optedOut, msg.botonId ?? null, { origen }),
+            });
+            if (r !== 'corrido') req.log?.info({ conversationId, turno: r }, 'WhatsApp: turno agrupado');
+        } finally {
+            await soltarTurno(msg.waMessageId);
+        }
     }, req.log, 'runBotTurn');
 }
 

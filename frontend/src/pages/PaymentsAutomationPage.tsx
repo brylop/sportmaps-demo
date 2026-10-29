@@ -15,7 +15,7 @@ import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, EyeOff, Loa
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { formatCurrency, maskSensitive } from '@/lib/utils';
-import { chargeLabel, isOneOffCharge } from '@/lib/payment-accounts';
+import { chargeFilterKey, chargeFilterLabel, chargeLabel, isOneOffCharge } from '@/lib/payment-accounts';
 import { normalizeReceiptUrl } from '@/lib/normalizeReceiptUrl';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -398,6 +398,7 @@ interface PaymentTransaction {
   /** Cuándo entró el comprobante (receipt_submitted_at; si falta, receipt_verdict_at). */
   submitted_at?: string | null;
   requires_review?: boolean | null;
+  payment_category?: string | null;
   last_failure_reason?: string | null;
   period_already_settled?: boolean | null;
   // Señales para distinguir un pago gestionado por pasarela de uno manual.
@@ -577,6 +578,9 @@ export default function PaymentsAutomationPage() {
   const [historySearch, setHistorySearch] = useState('');
   const [historyStatusFilter, setHistoryStatusFilter] = useState('all');
   const [historyTeamFilter, setHistoryTeamFilter] = useState('all');
+  // Tipo de cobro (mensualidad, inscripción, torneo…). Sin esto todo salía
+  // mezclado y la escuela no podía revisar solo lo que entró por torneos.
+  const [historyCategoryFilter, setHistoryCategoryFilter] = useState('all');
   // Rango por fecha del pago. Arranca en el último año para no cambiar de golpe
   // lo que la escuela ya veía al entrar; los atajos de abajo lo acotan a un día.
   const [historyFrom, setHistoryFrom] = useState(() => addDaysToDay(todayColombia(), -HISTORY_DEFAULT_RANGE_DAYS));
@@ -606,7 +610,7 @@ export default function PaymentsAutomationPage() {
   const [activeTeams, setActiveTeams] = useState<{ id: string; name: string }[]>([]);
 
   // Reset de la paginación del historial cuando cambian los filtros
-  useEffect(() => { setHistoryPage(1); }, [historySearch, historyStatusFilter, historyTeamFilter, historyFrom, historyTo]);
+  useEffect(() => { setHistoryPage(1); }, [historySearch, historyStatusFilter, historyTeamFilter, historyCategoryFilter, historyFrom, historyTo]);
   useEffect(() => { setSubsPage(1); }, [subsSearch, subsTeamFilter, subsSort, activeBranchId]);
 
   useEffect(() => {
@@ -930,6 +934,7 @@ export default function PaymentsAutomationPage() {
         payment_date: p.payment_date ?? null,
         payment_method: p.payment_method, payment_type: p.payment_type,
         receipt_url: p.receipt_url, concept: p.concept,
+        payment_category: p.payment_category ?? null,
         child_id: p.child_id, parent_id: p.parent_id, user_id: p.user_id,
         team_id: p.team_id,
         branch_id: p.branch_id ?? null,
@@ -1368,7 +1373,17 @@ export default function PaymentsAutomationPage() {
     return true;
   };
 
-  const historyBase = rawHistoryPayments.filter(inHistoryRange).filter(p => {
+  // Opciones del filtro de tipo: solo las que aparecen en el rango, contadas
+  // antes de filtrar por tipo para que elegir una no esconda las demás.
+  const historyInRange = rawHistoryPayments.filter(inHistoryRange);
+  const historyCategoryCounts = historyInRange.reduce<Record<string, number>>((acc, p) => {
+    const k = chargeFilterKey(p.payment_category, p.concept);
+    acc[k] = (acc[k] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  const historyBase = historyInRange.filter(p => {
+    if (historyCategoryFilter !== 'all' && chargeFilterKey(p.payment_category, p.concept) !== historyCategoryFilter) return false;
     const searchMatch = !historySearch ||
       p.child?.full_name?.toLowerCase().includes(historySearch.toLowerCase()) ||
       p.parent?.full_name?.toLowerCase().includes(historySearch.toLowerCase()) ||
@@ -2212,6 +2227,22 @@ export default function PaymentsAutomationPage() {
                   {activeTeams.map(team => (
                     <option key={team.id} value={team.name}>{team.name}</option>
                   ))}
+                </select>
+                <select
+                  aria-label="Tipo de cobro"
+                  className="flex h-9 w-full sm:w-44 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={historyCategoryFilter}
+                  onChange={(e) => setHistoryCategoryFilter(e.target.value)}
+                >
+                  <option value="all">Todos los tipos</option>
+                  {Object.entries(historyCategoryCounts)
+                    .sort(([a], [b]) => chargeFilterLabel(a).localeCompare(chargeFilterLabel(b), 'es'))
+                    .map(([k, n]) => (
+                      <option key={k} value={k}>{chargeFilterLabel(k)} ({n})</option>
+                    ))}
+                  {historyCategoryFilter !== 'all' && !historyCategoryCounts[historyCategoryFilter] && (
+                    <option value={historyCategoryFilter}>{chargeFilterLabel(historyCategoryFilter)} (0)</option>
+                  )}
                 </select>
               </div>
             </CardHeader>

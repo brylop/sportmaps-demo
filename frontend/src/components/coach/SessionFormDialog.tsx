@@ -22,6 +22,7 @@ import { useTeamTacticalSport } from '@/hooks/useTeamTacticalSport';
 import { useToast } from '@/hooks/use-toast';
 import type { TacticalSport } from '@/lib/school/tacticalSports';
 import { sessionFormLayout } from '@/lib/school/sessionFormLayout';
+import { supabase } from '@/integrations/supabase/client';
 
 const sessionSchema = z.object({
   session_date: z.string().min(1, 'Fecha es requerida'),
@@ -94,6 +95,32 @@ const GENERIC_BLOCK_TEMPLATE: SessionBlock[] = [
   { name: 'Vuelta a la calma', minutes: '', activity: '', objective: '', description: '', component: '' },
 ];
 
+/** Copia de los bloques: la plantilla es una constante del módulo y los de una
+ *  sesión vienen del caché de react-query; editarlos en el lugar ensuciaba la
+ *  plantilla de la próxima sesión nueva y el caché. */
+const copyBlocks = (list: SessionBlock[]): SessionBlock[] => list.map((b) => ({ ...b }));
+
+/** Escribe en la base el id recién generado de un bloque de una sesión YA
+ *  guardada. Sin esto el id vivía solo en el formulario: la jugada se guardaba
+ *  en la pizarra colgada de ese id, pero si el coach salía o recargaba sin
+ *  «Actualizar sesión», el bloque volvía sin id, recibía otro nuevo y la
+ *  pizarra abría vacía (12 jugadas huérfanas medidas el 2026-10-29).
+ *  Ubica el bloque por posición + nombre (el local o el guardado); si no lo
+ *  encuentra (bloque recién agregado y sin guardar) devuelve false. */
+async function persistBlockId(sessionId: string, index: number, names: string[], id: string): Promise<boolean> {
+  const { data, error } = await supabase.from('training_sessions').select('session_blocks').eq('id', sessionId).single();
+  if (error) throw error;
+  const saved = (Array.isArray(data?.session_blocks) ? [...data.session_blocks] : []) as unknown as SessionBlock[];
+  const free = (b: SessionBlock | undefined, name: string) => !!b && !b.id && (b.name ?? '') === name;
+  let at = names.some((n) => free(saved[index], n)) ? index : -1;
+  if (at < 0) at = saved.findIndex((b) => names.some((n) => free(b, n)));
+  if (at < 0) return false;
+  saved[at] = { ...saved[at], id };
+  const { error: upErr } = await supabase.from('training_sessions').update({ session_blocks: saved as any }).eq('id', sessionId);
+  if (upErr) throw upErr;
+  return true;
+}
+
 type ObjectivesMet = 'si' | 'parcial' | 'no';
 
 interface Evaluation {
@@ -156,7 +183,10 @@ export function SessionFormDialog({
   const layout = sessionFormLayout({ isFootball, hasTacticalBoard, teamSport, session });
   const blockTemplate = layout.blockTemplate === 'futbol' ? FOOTBALL_BLOCK_TEMPLATE : GENERIC_BLOCK_TEMPLATE;
   const [drills, setDrills] = useState<Drill[]>([{ name: '', focus: '', duration: '' }]);
-  const [blocks, setBlocks] = useState<SessionBlock[]>(blockTemplate);
+  const [blocks, setBlocks] = useState<SessionBlock[]>(() => copyBlocks(blockTemplate));
+  // En una sesión NUEVA, ¿ya se abrió la pizarra o la biblioteca de algún
+  // bloque? Cerrar sin «Crear sesión» deja esas jugadas sin sesión: se avisa.
+  const [boardUsedUnsaved, setBoardUsedUnsaved] = useState(false);
   const [evaluation, setEvaluation] = useState<Evaluation>({});
   // Bloque desplegado (uno a la vez, el resto queda como fila resumen) y
   // evaluación plegada: así el formulario no es un scroll interminable.
@@ -200,7 +230,7 @@ export function SessionFormDialog({
         game_principles: session.game_principles || '',
       });
       setDrills(session.drills && session.drills.length > 0 ? session.drills : [{ name: '', focus: '', duration: '' }]);
-      setBlocks(session.session_blocks && session.session_blocks.length > 0 ? session.session_blocks : blockTemplate);
+      setBlocks(copyBlocks(session.session_blocks && session.session_blocks.length > 0 ? session.session_blocks : blockTemplate));
       setEvaluation(session.evaluation || {});
       setEvaluationOpen(Object.values(session.evaluation || {}).some((v) => v !== undefined && v !== ''));
     } else {
@@ -213,11 +243,12 @@ export function SessionFormDialog({
         game_principles: '',
       });
       setDrills([{ name: '', focus: '', duration: '' }]);
-      setBlocks(blockTemplate);
+      setBlocks(copyBlocks(blockTemplate));
       setEvaluation({});
       setEvaluationOpen(false);
     }
     setOpenBlock(0);
+    setBoardUsedUnsaved(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, session]);
 
@@ -239,9 +270,33 @@ export function SessionFormDialog({
   };
   const totalMinutes = blocks.reduce((sum, b) => sum + (parseInt(b.minutes, 10) || 0), 0);
   const updateBlock = (index: number, field: keyof SessionBlock, value: any) => {
-    const updated = [...blocks];
-    (updated[index] as any)[field] = value;
-    setBlocks(updated);
+    setBlocks((prev) => prev.map((b, i) => (i === index ? { ...b, [field]: value } : b)));
+  };
+
+  /** Id del bloque para colgarle la jugada: el que ya tiene o uno nuevo. Si la
+   *  sesión ya existe, el nuevo se escribe en la base AL MOMENTO (ver
+   *  persistBlockId); si es una sesión nueva, viaja con «Crear sesión». */
+  const ensureBlockId = (index: number) => {
+    const block = blocks[index];
+    if (!block || block.id) return;
+    const id = crypto.randomUUID();
+    setBlocks((prev) => prev.map((b, i) => (i === index ? { ...b, id } : b)));
+    if (!session?.id) {
+      setBoardUsedUnsaved(true);
+      return;
+    }
+    const original = (session.session_blocks as SessionBlock[] | undefined)?.[index]?.name ?? '';
+    persistBlockId(session.id, index, [block.name ?? '', original], id)
+      .then((ok) => {
+        if (!ok) toast({ title: 'Toca «Actualizar sesión» al terminar', description: 'Así la jugada queda guardada en este bloque.' });
+      })
+      .catch(() => toast({ title: 'No se pudo enlazar la jugada al bloque', description: 'Toca «Actualizar sesión» al terminar para no perderla.', variant: 'destructive' }));
+  };
+
+  /** Cerrar el formulario: en una sesión nueva con jugadas hechas, confirmar. */
+  const requestClose = () => {
+    if (boardUsedUnsaved && !window.confirm('Todavía no creas la sesión. Si sales ahora, las jugadas de la pizarra quedan sin sesión. ¿Salir igual?')) return;
+    onOpenChange(false);
   };
 
   /** Abre el tablero táctico de un bloque, generándole un id propio primero
@@ -250,7 +305,7 @@ export function SessionFormDialog({
    *  formulario -- se persiste como parte del bloque al guardar la sesión
    *  (handleSubmit ya manda session_blocks completo, id incluido). */
   const openBlockTacticalBoard = (index: number) => {
-    setBlocks((prev) => (prev[index]?.id ? prev : prev.map((b, i) => (i === index ? { ...b, id: crypto.randomUUID() } : b))));
+    ensureBlockId(index);
     // setTimeout, no directo: TacticalBoard es OTRO <Dialog> de Radix, montado
     // desde un botón que vive DENTRO del <Dialog> de esta sesión. Si se abre
     // en el mismo tick del click, el detector de "click afuera" del diálogo
@@ -265,7 +320,7 @@ export function SessionFormDialog({
    *  ANTES (la jugada del ejercicio se cuelga de él) y el panel se abre
    *  diferido un tick para que el click no lo cierre en el mismo gesto. */
   const openBlockLibrary = (index: number) => {
-    setBlocks((prev) => (prev[index]?.id ? prev : prev.map((b, i) => (i === index ? { ...b, id: crypto.randomUUID() } : b))));
+    ensureBlockId(index);
     setTimeout(() => setLibraryBlockIndex(index), 0);
   };
 
@@ -323,8 +378,9 @@ export function SessionFormDialog({
 
   const resetLocalState = () => {
     setDrills([{ name: '', focus: '', duration: '' }]);
-    setBlocks(blockTemplate);
+    setBlocks(copyBlocks(blockTemplate));
     setEvaluation({});
+    setBoardUsedUnsaved(false);
   };
 
   const handleSubmit = (data: SessionFormData) => {
@@ -356,7 +412,7 @@ export function SessionFormDialog({
 
   return (
     <>
-    <Dialog open={open && !childDialogOpen} onOpenChange={onOpenChange}>
+    <Dialog open={open && !childDialogOpen} onOpenChange={(o) => { if (o) onOpenChange(true); else requestClose(); }}>
       {/* Mientras el tablero táctico está abierto, este Dialog se oculta (open=false)
        *  en vez de quedar montado y abierto AL MISMO TIEMPO que el Dialog del tablero.
        *  Dos Dialogs de Radix abiertos a la vez compiten por el mismo FocusScope/
@@ -629,6 +685,11 @@ export function SessionFormDialog({
                             </Button>
                           )}
                         </div>
+                        {block.id && !session?.id && layout.showBoardButtons && (
+                          <p className="text-xs text-amber-700 dark:text-amber-400">
+                            La jugada de la pizarra queda en esta sesión cuando tocas «Crear sesión».
+                          </p>
+                        )}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                           <Textarea
                             placeholder="Objetivo específico"
@@ -821,7 +882,7 @@ export function SessionFormDialog({
           </div>
 
           <DialogFooter className="px-6 py-4 border-t shrink-0 bg-background">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={requestClose}>
               Cancelar
             </Button>
             <Button type="submit" disabled={isLoading}>
