@@ -181,7 +181,7 @@ describe('atenderDesconocido: bienvenida al saludo suelto', () => {
         expect(borradores()).toHaveLength(1);
         const [b] = borradores();
         expect(b.tool_context).toMatchObject({ step: PASO_BIENVENIDA_DESCONOCIDO });
-        expect(b.proposed_text).toContain('asistente automático');
+        expect(b.proposed_text).toContain('asistente virtual');
         expect(b.proposed_text).toContain('¿En qué te puedo ayudar?');
         expect(b.proposed_text.length).toBeLessThanOrEqual(500);
     });

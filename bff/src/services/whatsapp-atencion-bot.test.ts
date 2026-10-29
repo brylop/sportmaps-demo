@@ -388,7 +388,7 @@ describe('desconocido: correo, código vigente o tema escolar', () => {
         expect(borradores()).toHaveLength(1);
         const { proposed_text, tool_context } = borradores()[0].row;
         expect(tool_context).toMatchObject({ step: 'desconocido_tema_escolar', intencion: 'pagos' });
-        expect(proposed_text).toContain('asistente automático');
+        expect(proposed_text).toContain('asistente virtual');
         expect(proposed_text).toContain('correo electrónico');
         expect(proposed_text).toContain('celular distinto');
         expect(proposed_text).not.toContain('/join/');

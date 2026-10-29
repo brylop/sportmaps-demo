@@ -209,7 +209,7 @@ describe('…4445 / …5281: UNA presentación cada 24 h', () => {
     it('primera vez: se presenta', async () => {
         base({ yaPresentado: false });
         await atenderDesconocido(INTEGRATION, CONV, TEL, 'Quiero inscribir a mi hija en voleibol');
-        expect(borradores()[0].proposed_text).toContain('Soy el *asistente automático*');
+        expect(borradores()[0].proposed_text).toContain('Soy *Mapi*, el asistente virtual');
     });
 });
 

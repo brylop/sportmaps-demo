@@ -2165,7 +2165,7 @@ async function verificarCodigo(
         // sigue es preguntarle qué. El consentimiento se ofrece al final del
         // primer turno resuelto (`ofrecerConsentimientoSiFalta`).
         await deliver(integration, conversationId, contactWaId,
-            '✅ ¡Listo! Tu identidad quedó verificada. Te atiende el *asistente automático* de la escuela. 🤖\n\n' +
+            '✅ ¡Listo! Tu identidad quedó verificada. Te atiende *Mapi*, el asistente virtual de la escuela. 🤖\n\n' +
             '¿En qué te ayudo? Puedes preguntarme por tus pagos o mandarme la foto de un comprobante.',
             { step: 'otp_verificado', otp_verified: true });
     } else {
@@ -3825,8 +3825,8 @@ CONVERSACION PREVIA:
   cualquier pregunta de pagos usa SIEMPRE get_payment_status de nuevo.
 
 QUIEN ERES:
-- Eres un asistente AUTOMATICO, y si te preguntan lo dices sin rodeos: «soy el
-  asistente automatico de la escuela». No te hagas pasar por una persona ni dejes
+- Eres un asistente AUTOMATICO, y si te preguntan lo dices sin rodeos: «soy Mapi,
+  el asistente virtual de la escuela». No te hagas pasar por una persona ni dejes
   que lo crean — este numero es el MISMO que atendia un humano hasta ayer, y las
   familias estan acostumbradas a que les responda ella.
 - Nunca firmes con el nombre de nadie de la escuela.
@@ -4640,8 +4640,13 @@ async function descartarBorradoresViejos(conversationId: string): Promise<void> 
 // lleva). Si el texto ya se presenta solo («Soy el *asistente automático*…»),
 // no se repite.
 
+// Mapi, igual para todas las escuelas (decisión del usuario 2026-10-29): el
+// mismo asistente que en la app, con el nombre de la escuela al lado. Tiene que
+// decir que es un asistente (política de privacidad v2.3 y Meta): «asistente
+// virtual» lo dice sin sonar a «sistema automático 🤖».
+export const MARCA_ASISTENTE = 'asistente virtual';
 export const presentacionDelAsistente = (escuela: string) =>
-    `Hola 👋 soy el asistente automático de ${escuela}.`;
+    `Hola 👋 soy Mapi, el ${MARCA_ASISTENTE} de ${escuela}.`;
 
 /**
  * La presentación de las plantillas del desconocido / prospecto. Lleva el aviso
@@ -4650,9 +4655,23 @@ export const presentacionDelAsistente = (escuela: string) =>
  */
 // Sin emoji: el tope de 3 por mensaje (`recortarEmojis`) se los quitaba al cuerpo.
 export const AVISO_PRIVACIDAD_DESCONOCIDO =
-    'Tus datos se tratan según nuestra política de privacidad: https://app.sportmaps.co/politica-de-privacidad';
+    'Política de datos: https://app.sportmaps.co/politica-de-privacidad';
 export const presentacionLarga = (escuela: string) =>
-    `Hola 👋 Soy el *asistente automático* de *${escuela}*. 🤖\n${AVISO_PRIVACIDAD_DESCONOCIDO}`;
+    `¡Hola! 👋 Soy *Mapi*, el ${MARCA_ASISTENTE} de *${escuela}*. Te ayudo con horarios, valores, pagos y tu clase de cortesía.\n${AVISO_PRIVACIDAD_DESCONOCIDO}`;
+
+/**
+ * ¿El texto ya es una presentación del asistente? Cuenta la de antes del
+ * 2026-10-29 («asistente automático») para no volver a presentarse en una
+ * conversación que ya la recibió. Pura.
+ */
+export function esPresentacion(texto: string | null | undefined): boolean {
+    const n = normalizarFrase(texto ?? '');
+    return n.includes(MARCA_ASISTENTE) || n.includes('asistente automatico');
+}
+
+/** El mismo criterio para la consulta a la base (filtro `or` de PostgREST). */
+const filtroPresentacion = (col: string) =>
+    `${col}.ilike.%${MARCA_ASISTENTE}%,${col}.ilike.%asistente automático%`;
 
 /** Horas entre dos presentaciones del asistente a la misma conversación. */
 export const VENTANA_PRESENTACION_H = 24;
@@ -4674,12 +4693,12 @@ export async function saludoDePresentacion(conversationId: string, escuela: stri
                 .select('id', { count: 'exact', head: true })
                 .eq('conversation_id', conversationId)
                 .eq('direction', 'outbound')
-                .ilike('text_body', '%asistente automático%')
+                .or(filtroPresentacion('text_body'))
                 .gte('created_at', desde),
             supabase.from('whatsapp_message_drafts')
                 .select('id', { count: 'exact', head: true })
                 .eq('conversation_id', conversationId)
-                .ilike('proposed_text', '%asistente automático%')
+                .or(filtroPresentacion('proposed_text'))
                 .gte('created_at', desde),
         ]);
         if (((enviados as any)?.count ?? 0) + ((borradores as any)?.count ?? 0) > 0) return '';
@@ -4751,7 +4770,7 @@ async function presentacionPendienteBase(
     texto: string,
 ): Promise<{ presentacion: string | null; primera: boolean } | null> {
     if (yaPresentadas.has(conversationId)) return null;
-    const sePresentaSolo = normalizarFrase(texto).includes('asistente automatico');
+    const sePresentaSolo = esPresentacion(texto);
     // El texto ya se presenta: solo importa saber si es la primera respuesta
     // cuando hay que agregar la nota de privacidad de los audios.
     if (sePresentaSolo && !(await transcribeSinConsentimiento(integration.school_id))) {
