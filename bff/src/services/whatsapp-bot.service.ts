@@ -2719,7 +2719,16 @@ export async function atenderDesconocido(
         // («Mi hija tiene 14 años») no se queda sin nada: va al buzón con
         // aviso a la escuela y, si no acaba de recibir la respuesta (ráfaga),
         // un acuse corto una vez cada 24 h.
-        if (prospecto && tema !== 'pagos') {
+        // «Costos» + «Mensualidad» (Dynasty 2026-10-29, …1177): «mensualidad» es
+        // tema `pagos`, pero en un prospecto con la ráfaga pidiendo precio es la
+        // pregunta del valor, no un trámite de familia. Antes quedaba 'frenado'.
+        // Hay caminos que llaman sin la ráfaga: se arma acá.
+        const rafagaPrecio = tema === 'pagos' && prospecto
+            ? (rafaga ?? textoDeRafaga(await mensajesRecientes(conversationId), text, null))
+            : '';
+        const precioDeProspecto = Boolean(rafagaPrecio)
+            && (pidePrecio(rafagaPrecio) || preguntaPrecioComoProspecto(rafagaPrecio));
+        if (prospecto && (tema !== 'pagos' || precioDeProspecto)) {
             await abrirEnBuzon(integration, conversationId, contactWaId, { motivo: 'prospecto' });
             // Lo que llegó ANTES de la respuesta (la ráfaga que ella ya cubrió)
             // no se vuelve a contestar. Lo que llega DESPUÉS es una respuesta

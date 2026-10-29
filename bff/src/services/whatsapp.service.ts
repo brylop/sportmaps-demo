@@ -581,7 +581,9 @@ export function parseStatuses(body: any): ParsedStatus[] {
                 out.push({
                     phoneNumberId,
                     waMessageId: st?.id || '',
-                    status: st?.status || 'unknown',
+                    // `played` (escucharon la nota de voz) no está en el CHECK de
+                    // whatsapp_messages.status: para el medidor es una lectura.
+                    status: st?.status === 'played' ? 'read' : (st?.status || 'unknown'),
                     recipientWaId: st?.recipient_id ?? null,
                     timestamp: epoch ? new Date(epoch * 1000).toISOString() : new Date().toISOString(),
                     // `billable` puede venir ausente; no se asume false, que

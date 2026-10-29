@@ -278,6 +278,20 @@ describe('precio en el seguimiento', () => {
         expect(borradores()[0].tool_context).toMatchObject({ step: 'prospecto_seguimiento_precios' });
     });
 
+    it('«Costos» + «Mensualidad» en ráfaga → los valores, no silencio (…1177, 2026-10-29)', async () => {
+        // «Mensualidad» sola es tema `pagos`; el turno lo corre el último mensaje.
+        const filas: Fila[] = [
+            ...conRespuesta('Costos').slice(0, 2),
+            { wa_message_id: 'wamid.1', direction: 'inbound', text_body: 'Costos', ai_generated: false, created_at: hace(9) },
+            { wa_message_id: 'wamid.2', direction: 'inbound', text_body: 'Mensualidad', ai_generated: false, created_at: hace(1) },
+        ];
+        base({ filas, pasos: ['desconocido_tema_escolar'] });
+        await handleBotTurn(req, INTEGRATION, CONV, mensaje('Mensualidad', 'wamid.2'));
+        expect(borradores()).toHaveLength(1);
+        expect(borradores()[0].proposed_text).toContain('💰');
+        expect(borradores()[0].tool_context).toMatchObject({ step: 'prospecto_seguimiento_precios' });
+    });
+
     it('horarios ya mostrados + pregunta de costos → igual responde el precio (no se frena)', async () => {
         const t = 'qué costos tienen y qué días entrenan';
         base({ filas: conRespuesta(t), pasos: ['desconocido_tema_escolar', 'prospecto_seguimiento_horarios'] });
