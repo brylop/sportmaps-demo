@@ -441,6 +441,18 @@ const YA_LE_PAGA: RegExp[] = [
  * «el valor pendiente» son de familia, y mandarles el enlace de inscripción es
  * ruido. Pura y determinista, como `temaEscolar`.
  */
+/**
+ * «Quiero inscribir a mi hija»: intención de inscribirse, no de pagar algo que
+ * ya debe. A esa persona no se le pide el correo de familia (auditoría
+ * 2026-10-28, X-07). Pura.
+ */
+export function quiereInscribirse(texto: string | null | undefined): boolean {
+    if (!texto) return false;
+    const t = normalizarTexto(texto);
+    if (!t || YA_LE_PAGA.some((re) => re.test(t))) return false;
+    return INSCRIPCION_FUERTES.slice(0, 3).some((re) => re.test(t));
+}
+
 export function preguntaPrecioComoProspecto(texto: string | null | undefined): boolean {
     if (!texto) return false;
     const t = normalizarTexto(texto);

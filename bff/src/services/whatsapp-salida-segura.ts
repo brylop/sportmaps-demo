@@ -98,6 +98,23 @@ function escapar(s: string): string {
     return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/**
+ * Enlaces del texto que NO están en la lista permitida (comparando sin
+ * protocolo, `www.` ni barra final; un permitido también cubre sus subrutas).
+ * Un enlace que el modelo copió de un mensaje del usuario o armó él mismo es
+ * la vía más directa a un pago falso (auditoría 2026-10-28, P-01). Pura.
+ */
+export function enlacesNoPermitidos(texto: string, permitidos: readonly string[]): string[] {
+    const base = (u: string) => u.toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '')
+        .replace(/[).,;:!?»"'*_]+$/, '').replace(/\/+$/, '');
+    const ok = permitidos.map(base).filter(Boolean);
+    const enlaces = texto.match(/(https?:\/\/\S+|www\.\S+)/gi) ?? [];
+    return enlaces.filter((e) => {
+        const b = base(e);
+        return !ok.some((p) => b === p || b.startsWith(p + '/') || b.startsWith(p + '?'));
+    });
+}
+
 export function filtrarSalidaDelModelo(
     texto: string | null | undefined,
     herramientas: readonly string[] = [],

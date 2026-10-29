@@ -775,6 +775,12 @@ export interface ParsedInboundMessage {
     raw: any;
 }
 
+/** Los tipos que admite el CHECK `whatsapp_messages_type_check`. */
+const TIPOS_GUARDABLES = new Set([
+    'text', 'image', 'audio', 'video', 'document', 'sticker', 'location',
+    'interactive', 'button', 'template', 'system', 'unsupported',
+]);
+
 /**
  * Extrae los mensajes entrantes de un payload de webhook de WhatsApp.
  * Un payload puede traer varias entries/changes/messages.
@@ -795,7 +801,13 @@ export function parseInboundMessages(body: any): ParsedInboundMessage[] {
             }
             const messages = Array.isArray(value?.messages) ? value.messages : [];
             for (const m of messages) {
-                const type: string = m?.type || 'unsupported';
+                // Una reacción (👍 a un mensaje) no es un mensaje nuevo: no se guarda ni se contesta.
+                if (m?.type === 'reaction') continue;
+                // Lo que no está en el CHECK de whatsapp_messages.type (contacts, order…)
+                // entra como 'unsupported': antes reventaba la ingesta y el mensaje
+                // no existía para nadie (17 en 24 h, auditoría 2026-10-28, C-01).
+                // El tipo original queda en `raw.type`.
+                const type: string = TIPOS_GUARDABLES.has(m?.type) ? m.type : 'unsupported';
                 let textBody: string | null = null;
                 let botonId: string | null = null;
                 if (type === 'text') textBody = m?.text?.body ?? null;

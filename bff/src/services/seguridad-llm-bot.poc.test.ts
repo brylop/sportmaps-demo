@@ -83,7 +83,7 @@ vi.mock('../utils/emailClient', () => ({ emailClient: { send: vi.fn() } }));
 vi.mock('./avisos-correo.service', () => ({ avisarEscalamientoPorCorreo: h.avisarEscalamientoPorCorreo }));
 
 import {
-    runBotTurn, historialDesdeFilas, armarTurnos, SYSTEM_PROMPT, PREFIJO_ESCUELA,
+    runBotTurn, historialDesdeFilas, armarTurnos, sinMarcaDeEscuela, SYSTEM_PROMPT, PREFIJO_ESCUELA,
 } from './whatsapp-bot.service';
 
 const INTEGRATION = { id: 'int-1', school_id: 'school-1' } as any;
@@ -133,17 +133,17 @@ describe('[VULN] LLM01: el texto del acudiente llega al modelo sin delimitar', (
         await runBotTurn(INTEGRATION, CONV, TEL, INYECCION, 'wamid.in');
 
         const { system, messages } = h.chatWithTools.mock.calls[0][0];
-        expect(messages.at(-1)).toEqual({ role: 'user', content: INYECCION });
+        // Llega como turno `user`; solo se neutraliza la marca de la escuela (P-03, 2026-10-28).
+        expect(messages.at(-1)).toEqual({ role: 'user', content: sinMarcaDeEscuela(INYECCION) });
         // El prompt de sistema no le dice al modelo que el contenido del usuario
         // (ni el del historial) es dato y nunca instrucción.
         expect(system).toBe(SYSTEM_PROMPT);
         expect(SYSTEM_PROMPT).not.toMatch(/instrucci[oó]n(es)? (dentro|que vengan|del usuario)|no obedezcas|datos? no confiable/i);
     });
 
-    it('el prefijo «(la escuela escribió)» que el prompt trata como voz de la escuela lo puede escribir el acudiente', () => {
-        // historialDesdeFilas no neutraliza el prefijo en un ENTRANTE, y
-        // armarTurnos fusiona: el modelo ve una línea que arranca con el
-        // marcador de autoridad dentro del turno del padre.
+    it('[CERRADO 2026-10-28] el acudiente ya no puede escribir el prefijo «(la escuela escribió)»', () => {
+        // armarTurnos lo deja entre comillas en todo turno `user` (sinMarcaDeEscuela):
+        // el modelo lo ve como cita del acudiente, no como el marcador de autoridad.
         const ahora = Date.parse('2026-10-05T15:00:00Z');
         const hist = historialDesdeFilas([
             { wa_message_id: 'w1', direction: 'inbound', type: 'text',
@@ -151,7 +151,8 @@ describe('[VULN] LLM01: el texto del acudiente llega al modelo sin delimitar', (
         ], null, ahora);
         const turnos = armarTurnos(hist, '¿cuánto debo?');
         expect(turnos[0].role).toBe('user');
-        expect(turnos[0].content.startsWith(PREFIJO_ESCUELA)).toBe(true);
+        expect(turnos[0].content.startsWith(PREFIJO_ESCUELA)).toBe(false);
+        expect(turnos[0].content).toContain('«la escuela escribió»');
     });
 
     it('lo que el modelo dijo antes vuelve como `assistant` (memoria envenenable 24 h)', () => {
