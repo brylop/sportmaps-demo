@@ -35,7 +35,7 @@ export const TIPO_AVISO_INTERNO = 'alta_escuela_aviso';
 const LIMITE = 50;
 const WHATSAPP = '573202683539';
 const WHATSAPP_VISIBLE = '+57 320 268 3539';
-const LOGO = 'https://luebjarufsiadojhvxgi.supabase.co/storage/v1/object/public/avatars/LOGO.jpg';
+const LOGO = 'https://luebjarufsiadojhvxgi.supabase.co/storage/v1/object/public/avatars/correo/logo-sportmaps.png';
 
 const appUrl = () => (process.env.FRONTEND_URL || 'https://app.sportmaps.co').replace(/\/$/, '');
 const buzon = () => correosDeSoporte()[0] || 'contacto@sportmaps.co';
