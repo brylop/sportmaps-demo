@@ -196,11 +196,17 @@ export async function redactarRespuestaDeProspecto(p: {
     grupos: string | null;
     precios: string | null;
     enlace: string | null;
+    /**
+     * Seguimiento de ~20 h: no hay mensaje nuevo, el interesado dejó de escribir.
+     * El modelo escribe UN recordatorio corto que retoma lo último que preguntó.
+     */
+    seguimiento?: boolean;
 }): Promise<string | null> {
     try {
         const ficha = await fichaDeProspectos(p.schoolId);
         if (!ficha) return null;
         if (topeDeRespuestasIa(p.recientes)) return null;
+        if (p.seguimiento) return await redactarSeguimiento(p, ficha);
         const [estilo, atencion] = await Promise.all([
             estiloDeRespuesta(p.schoolId),
             textoDeEscuela(p.schoolId, 'wa_atencion_presencial'),
@@ -229,4 +235,32 @@ export async function redactarRespuestaDeProspecto(p: {
         console.error('[whatsapp-prospecto-ia] falló', err?.message || err);
         return null;
     }
+}
+
+/** Instrucción del seguimiento de ~20 h (va como mensaje del sistema de la escuela, no del interesado). */
+export const INSTRUCCION_SEGUIMIENTO =
+    'El interesado dejó de escribir hace casi un día. Escríbele UN mensaje corto (máximo 2 frases, 300 caracteres) ' +
+    'que retome lo último que preguntó o lo último que se le ofreció, y lo invite con calma al siguiente paso ' +
+    '(decirte el día para su clase de cortesía, o inscribirse). Sin repetir listas ni precios ya enviados, sin presionar, ' +
+    'sin volver a presentarte. Si en la conversación dijo que no le interesa o que ya lo resolvió, responde solo: NADA';
+
+async function redactarSeguimiento(p: Parameters<typeof redactarRespuestaDeProspecto>[0], ficha: string): Promise<string | null> {
+    const [estilo, atencion] = await Promise.all([
+        estiloDeRespuesta(p.schoolId),
+        textoDeEscuela(p.schoolId, 'wa_atencion_presencial'),
+    ]);
+    const system = promptDeProspecto({
+        escuela: p.escuela, ficha, estilo, grupos: p.grupos, precios: p.precios, enlace: p.enlace, atencion,
+    });
+    const historial = transcripcion(p.recientes, 20);
+    if (!historial) return null;
+    const r = await chatWithTools({
+        system,
+        messages: [{ role: 'user', content: `<conversacion>\n${historial}\n</conversacion>\n\n<instruccion_de_la_escuela>${INSTRUCCION_SEGUIMIENTO}</instruccion_de_la_escuela>` }],
+        modeloClaude: process.env.WHATSAPP_PROSPECTO_MODEL || MODELO_PROSPECTO_DEFAULT,
+        uso: { schoolId: p.schoolId, conversationId: p.conversationId, feature: 'bot' },
+    });
+    if (/^\s*NADA\s*\.?\s*$/i.test(r.text ?? '')) return null;
+    const permitidos = [p.enlace, ...enlacesDe(ficha), ...enlacesDe(atencion)].filter((u): u is string => !!u);
+    return limpiarRespuesta(r.text, permitidos);
 }

@@ -39,6 +39,7 @@ import {
 import { debeAtender } from '../services/whatsapp-atencion.service';
 import { encolarAdjunto } from '../services/whatsapp-queue.service';
 import { correrTurnoAgrupado, ESPERA_RAFAGA_MS } from '../services/whatsapp-turno-agrupado.service';
+import { anotarTurno, soltarTurno, seguirTarea } from '../services/whatsapp-turnos-pendientes.service';
 import {
     humanoReciente, esCierreSuelto, respuestaATipoNoSoportado, PASO_TIPO_NO_SOPORTADO,
 } from '../services/whatsapp-reglas-turno';
@@ -59,9 +60,10 @@ import {
  * resultado.
  */
 function enSegundoPlano(espera: number, tarea: () => Promise<unknown>, log: Request['log'], que: string): Promise<void> {
-    const p = tarea().then(() => undefined).catch((err: any) => {
+    // `seguirTarea`: el apagado ordenado (index.ts) la espera antes de salir.
+    const p = seguirTarea(tarea().then(() => undefined).catch((err: any) => {
         log?.error({ err: err?.message || err }, `WhatsApp: ${que} falló`);
-    });
+    }));
     return espera > 0 ? Promise.resolve() : p;
 }
 import { procesarEchos, procesarHistorial, registrarAppState, esContactoPersonal, payloadSinContenido }
@@ -748,15 +750,25 @@ function lanzarTurno(
     origen: 'texto' | 'audio',
 ): Promise<void> {
     return enSegundoPlano(ESPERA_RAFAGA_MS, async () => {
-        const r = await correrTurnoAgrupado({
-            conversationId,
-            waMessageId: msg.waMessageId,
-            inmediato: optedOut || Boolean(msg.botonId),
-            log: req.log as any,
-            correr: () => runBotTurn(integration, conversationId, msg.contactWaId, texto, msg.waMessageId,
-                optedOut, msg.botonId ?? null, { origen }),
+        // Anotado en la base mientras corre: si el proceso muere a mitad
+        // (despliegue, reinicio), el barrido lo relanza (whatsapp-turnos-pendientes).
+        await anotarTurno({
+            waMessageId: msg.waMessageId, conversationId, integrationId: integration.id,
+            contactWaId: msg.contactWaId, texto, optedOut, botonId: msg.botonId ?? null, origen,
         });
-        if (r !== 'corrido') req.log?.info({ conversationId, turno: r }, 'WhatsApp: turno agrupado');
+        try {
+            const r = await correrTurnoAgrupado({
+                conversationId,
+                waMessageId: msg.waMessageId,
+                inmediato: optedOut || Boolean(msg.botonId),
+                log: req.log as any,
+                correr: () => runBotTurn(integration, conversationId, msg.contactWaId, texto, msg.waMessageId,
+                    optedOut, msg.botonId ?? null, { origen }),
+            });
+            if (r !== 'corrido') req.log?.info({ conversationId, turno: r }, 'WhatsApp: turno agrupado');
+        } finally {
+            await soltarTurno(msg.waMessageId);
+        }
     }, req.log, 'runBotTurn');
 }
 

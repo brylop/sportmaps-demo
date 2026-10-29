@@ -542,6 +542,38 @@ export function initMaintenanceJobs() {
 
     console.log('[CRON] Cola de comprobantes de WhatsApp registrada (cada minuto).');
 
+    // Turnos del bot que se perdieron en un reinicio (A-01): los relanza. Mismo
+    // interruptor que la cola: solo el BFF que recibe el webhook (prod).
+    cron.schedule('* * * * *', async () => {
+        if (process.env.DISABLE_WHATSAPP_QUEUE_CRON === 'true') return;
+        try {
+            const { barrerTurnosPendientes } = await import('../services/whatsapp-turnos-pendientes.service');
+            const r = await barrerTurnosPendientes();
+            if (r.relanzados || r.descartados) {
+                console.log(`[CRON] WhatsApp: ${r.relanzados} turno(s) relanzado(s), ${r.descartados} descartado(s) por viejos.`);
+            }
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error relanzando turnos de WhatsApp:', err?.message || err);
+        }
+    });
+
+    // Seguimiento de ~20 h al interesado que dejó de escribir (ventana abierta,
+    // sin plantilla). Mismo interruptor: solo prod. De 8 a 20 h lo filtra el job.
+    cron.schedule('7,22,37,52 * * * *', async () => {
+        if (process.env.DISABLE_WHATSAPP_QUEUE_CRON === 'true') return;
+        try {
+            const { runSeguimientoProspectos20h } = await import('../services/whatsapp-prospecto-seguimiento.service');
+            const r = await runSeguimientoProspectos20h();
+            if (r.enviados || r.fallidos) {
+                console.log(`[CRON] WhatsApp: seguimiento 20 h — ${r.enviados} enviado(s), ${r.fallidos} con error.`);
+            }
+        } catch (err: any) {
+            Sentry.captureException(err);
+            console.error('[CRON] Error en el seguimiento de 20 h de prospectos:', err?.message || err);
+        }
+    });
+
     // ────────────────────────────────────────────────────────────────────────
     // El desenlace del comprobante vuelve al chat donde entró.
     //
