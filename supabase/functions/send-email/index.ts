@@ -92,12 +92,19 @@ interface EmailPayload extends Partial<EmailItem> {
 
 const RESEND_BATCH_LIMIT = 100;
 
+// ─── Imágenes de los correos (bucket público avatars/correo/) ───
+// Antes el encabezado usaba avatars/LOGO.jpg: el ícono cuadrado en JPG, que en
+// el correo salía con las esquinas negras. LOGO.jpg sigue en el bucket por si
+// algo que vive solo en Supabase lo usa todavía.
+const LOGO_URL = "https://luebjarufsiadojhvxgi.supabase.co/storage/v1/object/public/avatars/correo/logo-sportmaps.png";
+const MAPI_URL = "https://luebjarufsiadojhvxgi.supabase.co/storage/v1/object/public/avatars/correo/mapi.png";
+
 // ─── Shared Layout (matches Supabase Auth templates) ───
 const wrapTemplate = (body: string): string => `
 <div style="font-family: 'Poppins', Arial, sans-serif; background-color: #f9f9f9; padding: 40px; text-align: center;">
   <div style="max-width: 500px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #e0e0e0;">
     <div style="padding: 20px; background-color: #ffffff;">
-      <img src="https://luebjarufsiadojhvxgi.supabase.co/storage/v1/object/public/avatars/LOGO.jpg" alt="SportMaps Logo" style="width: 150px; height: auto;">
+      <img src="${LOGO_URL}" alt="SportMaps" width="150" style="width: 150px; height: auto;">
     </div>
     <div style="padding: 30px; border-top: 3px solid #248223;">
       ${body}
@@ -110,6 +117,21 @@ const wrapTemplate = (body: string): string => `
 
 const orangeButton = (href: string, text: string): string =>
     `<a href="${href}" style="display: inline-block; padding: 14px 30px; background-color: #FB9F1E; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 20px; box-shadow: 0 4px 10px rgba(251, 159, 30, 0.3);">${text}</a>`;
+
+/** Presenta a Mapi en las invitaciones de familias y deportistas: es a quien
+ *  pueden preguntarle apenas entren. Tabla y no flex: Outlook no soporta flex. */
+const mapiBlock = (schoolName: string, ejemplos: string): string => `
+          <table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; margin-top: 26px; background-color: #eef7ee; border-radius: 10px; border-collapse: separate; text-align: left;">
+            <tr>
+              <td style="padding: 16px 0 16px 16px; vertical-align: middle; width: 80px;">
+                <img src="${MAPI_URL}" alt="Mapi" width="80" height="80" style="display: block; width: 80px; height: 80px; border-radius: 50%;">
+              </td>
+              <td style="padding: 16px; vertical-align: middle; color: #4a4a4a; font-size: 14px; line-height: 1.5;">
+                <strong style="color: #248223;">Te presentamos a Mapi</strong><br>
+                Es el asistente virtual de <strong>${schoolName}</strong>. Cuando entres, toca su botón abajo a la derecha de la app y pregúntale ${ejemplos}.
+              </td>
+            </tr>
+          </table>`;
 
 // ─── Helpers de las plantillas del bot ───
 // Estas plantillas muestran texto que escribió una familia por WhatsApp o un
@@ -249,6 +271,7 @@ function getSubjectAndHtml(type: EmailType, d: Record<string, string>): { subjec
             Si el botón no funciona, copia y pega este enlace:<br>
             <span style="color: #248223; word-break: break-all;">${d.registrationUrl || "https://app.sportmaps.co/register"}</span>
           </p>
+          ${mapiBlock(d.schoolName, "cómo pagar la mensualidad, dónde subir el comprobante o cómo ver los horarios de tu hijo(a)")}
         `),
             };
 
@@ -289,6 +312,7 @@ function getSubjectAndHtml(type: EmailType, d: Record<string, string>): { subjec
             Si el botón no funciona, copia y pega este enlace:<br>
             <span style="color: #248223; word-break: break-all;">${d.registrationUrl || "https://app.sportmaps.co/register?role=athlete"}</span>
           </p>
+          ${mapiBlock(d.schoolName, "cómo ver tus horarios, pagar tu mensualidad o subir un comprobante")}
         `),
             };
 

@@ -64,6 +64,8 @@ import {
 } from '@/hooks/useSchoolContext';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import PauseAthleteDialog from '@/components/students/PauseAthleteDialog';
+import ResolverCobrosAbiertosDialog from '@/components/students/ResolverCobrosAbiertosDialog';
+import { fetchCobrosAbiertos, hayAlgoQueResolver, type OrigenVentana } from '@/lib/cobrosAbiertos';
 import PauseRequestsInbox from '@/components/students/PauseRequestsInbox';
 import {
   useActivePauses,
@@ -370,6 +372,12 @@ export default function SchoolStudentsManagementPage() {
   // patrón de flag por escuela.
   const teamSchedulingEnabled = schoolSettings?.team_scheduling_enabled === true;
   const [assigningTeamStudent, setAssigningTeamStudent] = useState<any>(null);
+
+  // «Cobros abiertos»: anular meses que no vino / llevar al valor nuevo tras un
+  // cambio de plan. Va por RPC con is_school_admin, así que solo owner/admin.
+  const [cobrosAbiertosDe, setCobrosAbiertosDe] = useState<
+    { enrollmentId: string; nombre: string; origen: OrigenVentana } | null
+  >(null);
   const { byEnrollment: pauseByEnrollment } = useActivePauses(pauseEnabled ? schoolId : null);
   const { data: pauseRequests } = usePendingPauseRequests(
     pauseEnabled && canManageStudents ? schoolId : null
@@ -892,7 +900,25 @@ export default function SchoolStudentsManagementPage() {
       }
       return saved?.warnings ?? [];
     },
-    onSuccess: (warnings) => {
+    onSuccess: (warnings, variables) => {
+      // ¿Cambió el plan, el equipo o la cuota? Entonces puede haber cobros abiertos
+      // con el valor anterior (o meses atrasados): se le ofrece resolverlos ya.
+      // Mismos valores con que handleEditStudent llenó el formulario.
+      const antes: any = editingStudent;
+      const teamFeeAntes = antes?.offering_plan_id ? 0 : Number(antes?.team_monthly_fee || 0);
+      const cambioCobro = !!antes && (
+        (variables.offering_plan_id || '') !== (antes.offering_plan_id || '')
+        || (variables.team_id || '') !== (antes.enrolled_team_id || antes.team_id || '')
+        || Number(variables.plan_monthly_fee || 0) !== Number(antes.plan_monthly_fee || 0)
+        || Number(variables.team_monthly_fee || 0) !== teamFeeAntes
+      );
+      if (cambioCobro && canManageStudents && antes?.enrollment_id) {
+        const enrollmentId: string = antes.enrollment_id;
+        const nombre: string = variables.full_name || antes.full_name || '';
+        fetchCobrosAbiertos(enrollmentId)
+          .then((r) => { if (hayAlgoQueResolver(r)) setCobrosAbiertosDe({ enrollmentId, nombre, origen: 'cambio_plan' }); })
+          .catch(() => { /* sin la ventana el guardado igual quedó bien */ });
+      }
       queryClient.invalidateQueries({ queryKey: ['school-students'] });
       setFeesMarked(NO_FEES_MARKED);
       setPlanChangePrompt(null);
@@ -1461,6 +1487,15 @@ export default function SchoolStudentsManagementPage() {
                 🏖️ Vacaciones / pausa
               </DropdownMenuItem>
             )
+        )}
+        {/* Meses que no vino / cobros con el valor del plan anterior. No depende
+            del opt-in de la Pausa: anular un mes pasado no es una pausa. */}
+        {canManageStudents && student.enrollment_id && student.status !== 'inactive' && (
+          <DropdownMenuItem onClick={() => setCobrosAbiertosDe({
+            enrollmentId: student.enrollment_id, nombre: student.full_name, origen: 'no_asistio',
+          })}>
+            No asistió / cobros abiertos
+          </DropdownMenuItem>
         )}
         {/* PATCH: label y params según tipo de atleta */}
         <DropdownMenuItem onClick={() => navigate(`/invitations?${buildInviteParams(student)}`)}>
@@ -2816,6 +2851,14 @@ export default function SchoolStudentsManagementPage() {
         onPreview={previewPause}
         isSubmitting={pausar.isPending}
         onConfirm={(args) => pausar.mutate(args, { onSuccess: () => setPausingStudent(null) })}
+      />
+
+      <ResolverCobrosAbiertosDialog
+        open={!!cobrosAbiertosDe}
+        onOpenChange={(o) => { if (!o) setCobrosAbiertosDe(null); }}
+        enrollmentId={cobrosAbiertosDe?.enrollmentId ?? null}
+        athleteName={cobrosAbiertosDe?.nombre ?? ''}
+        origen={cobrosAbiertosDe?.origen ?? 'no_asistio'}
       />
 
       <CSVImportModal open={showImportModal} onClose={() => setShowImportModal(false)}

@@ -29,6 +29,7 @@ import { MiFacturaElectronicaCard } from '@/components/billing/MiFacturaElectron
 import { DebitoAutomaticoCard, DebitoSugerenciaBanner } from '@/components/autopay/DebitoAutomaticoCard';
 import { useMiDebito } from '@/components/autopay/useMiDebito';
 import { AcuPagosV2 } from '@/components/parent/v2/AcuPagosV2';
+import { fetchAjustesDeCobros } from '@/lib/cobrosAbiertos';
 import { PAYABLE_STATES, rotuloCobroSinHijo, rowTitle, type Transaction } from '@/components/parent/v2/pagosModel';
 
 interface Enrollment {
@@ -217,6 +218,9 @@ export default function MyPaymentsPage() {
       // pero no rompe nada (devuelve los mismos valores).
       const paymentIds = (payments || []).map((p: any) => p.id).filter(Boolean);
       let periodMap: Record<string, { period_year: number | null; period_month: number | null; late_fee_amount?: number | null; created_at: string; early_payment_discount_applied?: number | null; sibling_discount_applied?: number | null; child_id?: string | null; parent_id?: string | null; school_id: string; last_failure_reason?: string | null; last_failure_at?: string | null; requires_review?: boolean | null; payment_category?: string | null; payment_method?: string | null; payment_provider?: string | null }> = {};
+      // Ajustes de la escuela (mes anulado por «no asistió», valor por cambio de
+      // plan): se piden en paralelo y, si fallan, el cobro se ve igual sin la nota.
+      const ajustesPromise = fetchAjustesDeCobros(paymentIds);
       if (paymentIds.length > 0) {
         const { data: periodRows } = await supabase
           .from('payments')
@@ -281,7 +285,9 @@ export default function MyPaymentsPage() {
         return (unpaidGroups.get(key) || []).some(d => d < createdAt);
       };
 
+      const ajustes = await ajustesPromise;
       const txns: Transaction[] = (payments || []).map((p: any) => {
+        const ajuste = ajustes.get(p.id);
         const created_at = periodMap[p.id]?.created_at ?? p.created_at;
         const paymentCategory = periodMap[p.id]?.payment_category ?? null;
         // Pronto pago = solo mensualidad: a un cobro único (inscripción, seguro…)
@@ -336,6 +342,10 @@ export default function MyPaymentsPage() {
           last_failure_at: periodMap[p.id]?.last_failure_at ?? null,
           requires_review: periodMap[p.id]?.requires_review ?? null,
           payment_category: paymentCategory,
+          ajuste_kind: ajuste?.kind ?? null,
+          ajuste_antes: ajuste ? Number(ajuste.amount_before) : null,
+          ajuste_motivo: ajuste?.motivo ?? null,
+          ajuste_at: ajuste?.created_at ?? null,
         };
       });
       setTransactions(txns);
