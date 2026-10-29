@@ -6,6 +6,7 @@ import {
   PieChart,
   Users,
   Trophy,
+  Award,
   BarChart3,
   Settings,
   Bell,
@@ -487,7 +488,8 @@ export function getNavigationByRole(
           { title: 'Resultados', href: '/results', icon: Trophy },
           { title: 'Reportes', href: '/coach-reports', icon: FileText },
           { title: 'Planillas por revisar', href: '/school/attendance-sheets', icon: ClipboardList },
-          { title: 'Informe Mensual', href: '/informe-mensual', icon: FileText }
+          { title: 'Informe Mensual', href: '/informe-mensual', icon: FileText },
+          { title: 'Mis Evaluaciones', href: '/mis-evaluaciones', icon: Award }
         ]
       },
       {

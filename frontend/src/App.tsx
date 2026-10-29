@@ -140,6 +140,7 @@ const ProgramsManagementPage = lazy(() => import("./pages/ProgramsManagementPage
 const AttendanceSupervisionPage = lazy(() => import("./pages/AttendanceSupervisionPage"));
 const AttendanceHistoryPage = lazy(() => import("./pages/AttendanceHistoryPage"));
 const CoachActivityPage = lazy(() => import("./pages/CoachActivityPage"));
+const CoachMyEvaluationsPage = lazy(() => import("./pages/CoachMyEvaluationsPage"));
 const ResultsOverviewPage = lazy(() => import("./pages/ResultsOverviewPage"));
 const FinancesPage = lazy(() => import("./pages/FinancesPage"));
 const AccountingPage = lazy(() => import("./pages/AccountingPage"));
@@ -812,6 +813,12 @@ const App = () => (
                       <Route path="seguimiento-deportivo" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <CoachActivityPage />
+                        </ProtectedRoute>
+                      } />
+                      {/* Evaluación de entrenadores (D5): el coach ve solo las publicadas */}
+                      <Route path="mis-evaluaciones" element={
+                        <ProtectedRoute allowedRoles={['coach']}>
+                          <CoachMyEvaluationsPage />
                         </ProtectedRoute>
                       } />
                       <Route path="results-overview" element={
