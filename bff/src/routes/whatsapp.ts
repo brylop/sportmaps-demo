@@ -34,7 +34,7 @@ import {
 import {
     runBotTurn, deliver, atenderDesconocido, mensajesRecientes, SILENCIO_HUMANO_MIN,
     TEXTO_MIME_RECHAZADO, vocativosDeEscuela, revisarEscalacionesVencidas, revisarRetomas,
-    reservarPasoUnaVez, enviarRespuestaStaff,
+    reservarPasoUnaVez, enviarRespuestaStaff, abrirEnBuzon,
 } from '../services/whatsapp-bot.service';
 import { debeAtender } from '../services/whatsapp-atencion.service';
 import { encolarAdjunto } from '../services/whatsapp-queue.service';
@@ -489,6 +489,25 @@ async function handleBotTurn(
                     .catch((err) => req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: no se pudo avisar el formato'));
             }
         }
+        return;
+    }
+
+    // Lo que WhatsApp no deja leer (error 131051: encuestas, «ver una vez»,
+    // mensajes de una versión vieja). Antes se ignoraba igual que un sticker y
+    // 15 conversaciones quedaron sin respuesta ni buzón (auditoría 2026-10-28,
+    // X-05). A quien el asistente atiende se le pide escribirlo, UNA vez al día,
+    // y la conversación queda abierta en el buzón para que alguien la mire.
+    if (msg.type === 'unsupported') {
+        const d = await debeAtender(integration, conversationId, msg.contactWaId).catch(() => null);
+        if (!d?.atender || optedOut) return;
+        await abrirEnBuzon(integration, conversationId, msg.contactWaId)
+            .catch((err) => req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: no se pudo abrir en el buzón'));
+        if (!(await reservarPasoUnaVez(conversationId, `${PASO_TIPO_NO_SOPORTADO}_unsupported`, 24))) return;
+        await deliver(integration, conversationId, msg.contactWaId,
+            'No pude abrir tu último mensaje: WhatsApp no me deja verlo. 🙏 ¿Me lo escribes, por favor? ' +
+            'Si era un comprobante, mándame la *foto* o el *PDF*.',
+            { step: `${PASO_TIPO_NO_SOPORTADO}_unsupported` })
+            .catch((err) => req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: no se pudo responder al mensaje ilegible'));
         return;
     }
 
