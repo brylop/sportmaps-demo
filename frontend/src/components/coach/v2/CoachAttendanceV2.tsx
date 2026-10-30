@@ -32,7 +32,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AvisoFichaStaff } from '@/components/common/AvisoFichaStaff';
 import { AvailabilityBadge } from '@/components/clinical/AvailabilityBadge';
 import {
@@ -44,7 +44,7 @@ import {
 import { DESHACER_MS, claveLista } from './colaAsistencia';
 import { useColaAsistencia, useWakeLock } from './useCoachV2Senal';
 import {
-  claveContexto, esAdministracion, useClasesHoy, useEquiposCoach, useHistorial, useOrigenClase, usePlanesCoach,
+  cerrarListaSesion, claveContexto, esAdministracion, useClasesHoy, useEquiposCoach, useHistorial, useOrigenClase, usePlanesCoach,
   usePlanillasPorRevisar, usePtDeHoy, useRoster, useSesionDelDia, useSoloEquipos,
   type ContextoLista, type RosterV2,
 } from './useAsistenciaV2Data';
@@ -343,7 +343,6 @@ function ListaDelEntreno({ ctx, fecha, retroDias, hoy, onFecha, onElegirClase }:
   const [isSecondary, setIsSecondary] = useState(false);
   const [masOpciones, setMasOpciones] = useState(false);
   const [ahora, setAhora] = useState(Date.now());
-  const [confirmarCierre, setConfirmarCierre] = useState(false);
   const iniciado = useRef(false);
 
   // Estado inicial UNA vez por lista: lo guardado en el teléfono manda, luego la base, luego «todos Vino».
@@ -420,10 +419,14 @@ function ListaDelEntreno({ ctx, fecha, retroDias, hoy, onFecha, onElegirClase }:
     if (cola?.reintentar(k)) void flush(true);
   };
 
+  // «Cerrar y evaluar»: un toque cierra la lista (sale la encuesta a las
+  // familias) y abre la evaluación, que exige la lista cerrada. Antes el botón
+  // grande era «Evaluar al equipo» sin cerrar y caía en «Primero cierra la
+  // lista»: en Besser no salió encuesta ni evaluación del 24 al 29 de octubre.
   const finalizar = useMutation({
     mutationFn: async () => {
       if (!sesion?.id) throw new Error('Guarda la lista antes de cerrarla.');
-      return bffClient.patch<any>(`/api/v1/attendance/session/${sesion.id}/finalize`, {});
+      return cerrarListaSesion(sesion.id);
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['v2-asis-sesion', claveContexto(ctx), fecha] });
@@ -662,13 +665,22 @@ function ListaDelEntreno({ ctx, fecha, retroDias, hoy, onFecha, onElegirClase }:
               <div role="status" className="space-y-2" data-testid="aviso-guardada">
                 <p className="flex items-center gap-2 text-sm font-medium"><Check className="h-4 w-4 text-emerald-600" /> Lista guardada</p>
                 <div className="flex flex-wrap gap-2">
-                  <Button asChild className="min-h-touch flex-1"><Link to={sesion?.id ? `/coach/evaluar/${sesion.id}` : '/teams'}>Evaluar al equipo</Link></Button>
+                  <Button
+                    className="min-h-touch flex-1" disabled={!online || !sesion?.id || finalizar.isPending}
+                    onClick={() => finalizar.mutate()} data-testid="cerrar-y-evaluar"
+                  >
+                    {finalizar.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Cerrando…</> : 'Cerrar y evaluar'}
+                  </Button>
                   <Button variant="outline" className="min-h-touch" onClick={() => setEditando(true)}>Corregir</Button>
-                  {sesion?.id && fecha === hoy && (
-                    <Button variant="ghost" className="min-h-touch" disabled={!online} onClick={() => setConfirmarCierre(true)}>Cerrar la lista</Button>
-                  )}
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  {online
+                    ? 'Al cerrarla, a las familias de los que vinieron les llega la encuesta del entreno.'
+                    : 'Sin señal: ciérrala cuando vuelva. Si no, se cierra sola a las 11:55 p. m.'}
+                </p>
               </div>
+            ) : cerrada && sesion?.id ? (
+              <Button asChild className="min-h-touch w-full"><Link to={`/coach/evaluar/${sesion.id}`}>Evaluar al equipo</Link></Button>
             ) : puedeEditar ? (
               <Button className="h-auto min-h-touch w-full whitespace-normal py-2 text-base leading-tight" size="lg" onClick={guardar} disabled={!sePuedeGuardar} data-testid="guardar-lista">
                 {online ? 'Guardar lista' : 'Guardar en el teléfono'}
@@ -678,18 +690,6 @@ function ListaDelEntreno({ ctx, fecha, retroDias, hoy, onFecha, onElegirClase }:
         </>
       )}
 
-      <Dialog open={confirmarCierre} onOpenChange={setConfirmarCierre}>
-        <DialogContent className="max-w-modal-sm">
-          <DialogHeader>
-            <DialogTitle>¿Cerrar la lista?</DialogTitle>
-            <DialogDescription>Ya no se podrá cambiar sin reabrirla. Después evalúas al equipo.</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" className="min-h-touch" onClick={() => setConfirmarCierre(false)}>Seguir</Button>
-            <Button className="min-h-touch" onClick={() => { setConfirmarCierre(false); finalizar.mutate(); }}>Sí, cerrar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </section>
   );
 }

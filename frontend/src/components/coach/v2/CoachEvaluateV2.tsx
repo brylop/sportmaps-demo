@@ -2,7 +2,8 @@
  * Evaluar al equipo — V2 (lienzo «Entrenador · Evaluar»).
  *
  * Una pantalla: solo los que vinieron (presente o tarde) a una sesión con la
- * lista ya cerrada; todos arrancan en «Normal»; «A todos: Bien»; Felicitar por
+ * lista ya cerrada (si sigue abierta, «Cerrar la lista y evaluar» la cierra
+ * aquí mismo); todos arrancan en «Normal»; «A todos: Bien»; Felicitar por
  * deportista (si la RPC `give_kudos` existe); nota opcional para las familias;
  * guardar con Deshacer.
  *
@@ -37,6 +38,7 @@ import {
   type RutasCoachV2,
 } from './coachV2Logic';
 import { useFelicitarDisponible, usePresentesSesion, useSesionDetalle, type PresenteSesion } from './useCoachV2Data';
+import { cerrarListaSesion } from './useAsistenciaV2Data';
 import { useAccionConDeshacer } from './useAccionConDeshacer';
 import { FelicitarSheet } from './FelicitarSheet';
 import { enviarFelicitacion, avisarResultadoFelicitacion, sujetoFelicitar, type ObjetivoFelicitar } from './felicitar';
@@ -81,6 +83,24 @@ export function CoachEvaluateV2({ sessionId, rutas: rutasProp, volverHref = '/da
   const [errorGuardar, setErrorGuardar] = useState<string | null>(null);
   const [felicitados, setFelicitados] = useState<Set<string>>(new Set());
   const [hoja, setHoja] = useState<ObjetivoFelicitar | null>(null);
+  const [cerrando, setCerrando] = useState(false);
+
+  // Se llega con la lista abierta desde el pendiente «Falta evaluar» del Hoy:
+  // se cierra aquí mismo en vez de mandar de vuelta a la lista.
+  const cerrarYEvaluar = async () => {
+    setCerrando(true);
+    try {
+      await cerrarListaSesion(sessionId);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['coach-v2', 'sesion', sessionId] }),
+        qc.invalidateQueries({ queryKey: ['v2-asis-sesion'] }),
+      ]);
+    } catch (e) {
+      toast.error(`No se pudo cerrar la lista: ${(e as Error)?.message || 'inténtalo de nuevo.'}`);
+    } finally {
+      setCerrando(false);
+    }
+  };
 
   // Lo ya guardado manda sobre «Normal» (re-evaluar no borra lo anterior).
   useEffect(() => {
@@ -200,9 +220,14 @@ export function CoachEvaluateV2({ sessionId, rutas: rutasProp, volverHref = '/da
           <InlineError message="No pudimos abrir este entreno. Revisa tu conexión." onRetry={() => sesion.refetch()} />
         ) : !sesion.data.cerrada ? (
           <EmptyNote>
-            <p className="font-semibold text-foreground">Primero cierra la lista de este entreno.</p>
-            <p className="mt-1">Solo se evalúa a los que vinieron.</p>
-            <Button asChild className="mt-3 min-h-touch rounded-xl"><Link to={rutas.tomarLista}>Ir a la lista</Link></Button>
+            <p className="font-semibold text-foreground">La lista de este entreno sigue abierta.</p>
+            <p className="mt-1">Ciérrala para evaluar: solo se evalúa a los que vinieron, y a sus familias les llega la encuesta del entreno.</p>
+            <div className="mt-3 flex flex-wrap justify-center gap-2">
+              <Button className="min-h-touch rounded-xl" disabled={cerrando} onClick={() => void cerrarYEvaluar()}>
+                {cerrando ? 'Cerrando…' : 'Cerrar la lista y evaluar'}
+              </Button>
+              <Button asChild variant="outline" className="min-h-touch rounded-xl"><Link to={rutas.tomarLista}>Revisar la lista</Link></Button>
+            </div>
           </EmptyNote>
         ) : presentes.isLoading ? (
           <SectionSkeleton rows={5} label="Cargando a los que vinieron" />

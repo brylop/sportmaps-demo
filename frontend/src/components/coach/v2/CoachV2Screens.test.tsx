@@ -30,6 +30,7 @@ const st = vi.hoisted(() => ({
   ultimaJugada: { data: null } as unknown,
   rpc: vi.fn(),
   post: vi.fn(),
+  patch: vi.fn(),
 }));
 
 vi.mock('./useCoachV2Data', () => ({
@@ -58,7 +59,7 @@ vi.mock('@/hooks/useSchoolAthleteAvailability', () => ({
   useSchoolAthleteAvailability: () => ({ byChildId: new Map(), byProfileId: new Map(), list: [] }),
 }));
 vi.mock('@/integrations/supabase/client', () => ({ supabase: { rpc: st.rpc } }));
-vi.mock('@/lib/api/bffClient', () => ({ bffClient: { get: vi.fn(), post: st.post } }));
+vi.mock('@/lib/api/bffClient', () => ({ bffClient: { get: vi.fn(), post: st.post, patch: st.patch } }));
 vi.mock('@/components/school/LineupModal', () => ({ LineupModal: () => null }));
 vi.mock('sonner', () => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn(), info: vi.fn() }) }));
 
@@ -93,6 +94,7 @@ beforeEach(() => {
   st.escuela = { schoolId: 'school-1', loading: false };
   st.ultimaJugada = { data: null };
   st.post.mockReset();
+  st.patch.mockReset();
   vi.mocked(toast.success).mockClear();
   vi.mocked(toast.error).mockClear();
   st.rpc.mockReset();
@@ -223,10 +225,36 @@ describe('Evaluar al equipo', () => {
     expect(screen.queryByRole('button', { name: /Felicitar/ })).not.toBeInTheDocument();
   });
 
-  it('si la lista no está cerrada, manda a cerrarla', () => {
-    st.sesion = q({ id: 's1', teamId: 't11', schoolId: 'school-1', fecha: '2026-10-06', cerrada: false, nota: null, equipo: 'Sub 11', previas: {} });
-    pintar(<CoachEvaluateV2 sessionId="s1" />);
-    expect(screen.getByText('Primero cierra la lista de este entreno.')).toBeInTheDocument();
+  describe('con la lista abierta (Besser 10-24→29: «Evaluar» sin cerrar no tenía salida)', () => {
+    const abierta = () => q({ id: 's1', teamId: 't11', schoolId: 'school-1', fecha: '2026-10-06', cerrada: false, nota: null, equipo: 'Sub 11', previas: {} });
+
+    it('la cierra aquí mismo con «Cerrar la lista y evaluar»', async () => {
+      st.sesion = abierta();
+      st.patch.mockResolvedValue({ success: true });
+      pintar(<CoachEvaluateV2 sessionId="s1" />);
+      expect(screen.getByText('La lista de este entreno sigue abierta.')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Revisar la lista' })).toBeInTheDocument();
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cerrar la lista y evaluar' })); });
+      expect(st.patch).toHaveBeenCalledWith('/api/v1/attendance/session/s1/finalize', {});
+      expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
+    });
+
+    it('si ya la había cerrado la escuela (409), no es un error', async () => {
+      st.sesion = abierta();
+      st.patch.mockRejectedValue(Object.assign(new Error('La sesión ya estaba finalizada.'), { status: 409 }));
+      pintar(<CoachEvaluateV2 sessionId="s1" />);
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cerrar la lista y evaluar' })); });
+      expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
+    });
+
+    it('si el cierre falla de verdad, dice por qué y deja reintentar', async () => {
+      st.sesion = abierta();
+      st.patch.mockRejectedValue(Object.assign(new Error('No tienes acceso a este equipo.'), { status: 403 }));
+      pintar(<CoachEvaluateV2 sessionId="s1" />);
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cerrar la lista y evaluar' })); });
+      expect(vi.mocked(toast.error)).toHaveBeenCalledWith('No se pudo cerrar la lista: No tienes acceso a este equipo.');
+      expect(screen.getByRole('button', { name: 'Cerrar la lista y evaluar' })).toBeEnabled();
+    });
   });
 });
 
