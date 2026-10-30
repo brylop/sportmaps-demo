@@ -5,7 +5,7 @@ import {
   buildPorAsignarInbox, buildEnrollPayload,
   savePendingJoinCode, readPendingJoinCode, clearPendingJoinCode, PENDING_JOIN_CODE_KEY,
   joinErrorMessage,
-  type JoinRequestRow, type SignupLeadRow,
+  type JoinRequestRow,
 } from './schoolJoinCode';
 
 describe('normalizeJoinCode / formato', () => {
@@ -95,36 +95,29 @@ const req = (over: Partial<JoinRequestRow>): JoinRequestRow => ({
   requester_email: null, requester_phone: null, needs_enrollment: false, has_enrollment: false, candidates: [],
   ...over,
 });
-const lead = (over: Partial<SignupLeadRow>): SignupLeadRow => ({
-  id: 'l1', full_name: 'Juan Gómez', guardian_name: null, phone: '3000000000', email: null, birth_date: null,
-  suggested_category: null, status: 'new', created_at: '2026-10-21T10:00:00Z', ...over,
-});
-
 describe('buildPorAsignarInbox (D1)', () => {
-  it('junta solicitudes y prospectos abiertos, el más antiguo primero', () => {
-    const items = buildPorAsignarInbox(
-      [req({ id: 'r1', created_at: '2026-10-22T00:00:00Z' }), req({ id: 'r2', created_at: '2026-10-19T00:00:00Z' })],
-      [lead({ id: 'l1', created_at: '2026-10-20T00:00:00Z' })],
-    );
-    expect(items.map((i) => `${i.kind}:${i.id}`)).toEqual(['request:r2', 'lead:l1', 'request:r1']);
+  it('ordena las solicitudes abiertas, la más antigua primero', () => {
+    const items = buildPorAsignarInbox([
+      req({ id: 'r1', created_at: '2026-10-22T00:00:00Z' }),
+      req({ id: 'r2', created_at: '2026-10-19T00:00:00Z' }),
+      req({ id: 'r3', created_at: '2026-10-20T00:00:00Z' }),
+    ]);
+    expect(items.map((i) => i.id)).toEqual(['r2', 'r3', 'r1']);
   });
 
   it('deja afuera lo resuelto, salvo lo asignado que aún no tiene inscripción', () => {
-    const items = buildPorAsignarInbox(
-      [
-        req({ id: 'hecha', status: 'assigned', needs_enrollment: false }),
-        req({ id: 'falta', status: 'assigned', needs_enrollment: true }),
-        req({ id: 'rech', status: 'rejected' }),
-        req({ id: 'canc', status: 'cancelled' }),
-      ],
-      [lead({ id: 'conv', status: 'converted' }), lead({ id: 'desc', status: 'discarded' }), lead({ id: 'cont', status: 'contacted' })],
-    );
-    expect(items.map((i) => i.id).sort()).toEqual(['cont', 'falta']);
+    const items = buildPorAsignarInbox([
+      req({ id: 'hecha', status: 'assigned', needs_enrollment: false }),
+      req({ id: 'falta', status: 'assigned', needs_enrollment: true }),
+      req({ id: 'rech', status: 'rejected' }),
+      req({ id: 'canc', status: 'cancelled' }),
+    ]);
+    expect(items.map((i) => i.id)).toEqual(['falta']);
   });
 
-  it('tolera listas vacías o nulas (la RPC de prospectos puede fallar sola)', () => {
-    expect(buildPorAsignarInbox(null, undefined)).toEqual([]);
-    expect(buildPorAsignarInbox([req({})], null)).toHaveLength(1);
+  it('tolera una lista vacía o nula', () => {
+    expect(buildPorAsignarInbox(null)).toEqual([]);
+    expect(buildPorAsignarInbox(undefined)).toEqual([]);
   });
 });
 

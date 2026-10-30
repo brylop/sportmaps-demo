@@ -5,7 +5,7 @@
  */
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
-import type { ForWhom, JoinRequestRow, SignupLeadRow } from '@/lib/schoolJoinCode';
+import type { ForWhom, JoinRequestRow } from '@/lib/schoolJoinCode';
 
 const rpc = (fn: string, args?: Record<string, unknown>) => (supabase.rpc as any)(fn, args);
 
@@ -115,13 +115,6 @@ export const schoolJoinApi = {
   getCode: (schoolId: string) => call<SchoolJoinCodeInfo>('get_school_join_code', { p_school_id: schoolId }),
 
   rotateCode: (schoolId: string) => call<SchoolJoinCodeInfo>('rotate_school_join_code', { p_school_id: schoolId }),
-
-  // Prospectos del formulario público (RPCs que ya existían, sin UI hasta ahora).
-  listLeads: (schoolId: string) =>
-    call<SignupLeadRow[]>('list_school_leads', { p_school_id: schoolId, p_status: null }),
-
-  updateLeadStatus: (leadId: string, status: SignupLeadRow['status']) =>
-    call<unknown>('update_school_lead_status', { p_lead_id: leadId, p_status: status }),
 
   /** El MISMO alta de «Agregar atleta» (BFF → create_enrollment_with_payments). */
   enrollViaCreateOne: (schoolId: string, payload: Record<string, unknown>) =>

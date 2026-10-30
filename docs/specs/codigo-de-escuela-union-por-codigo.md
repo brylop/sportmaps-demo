@@ -56,7 +56,7 @@ Todas las tablas son nuevas, con estados `text + CHECK` y FKs a `profiles(id)`.
 - Índice único parcial: una sola `pending` por `(school_id, requester_profile_id, normalize_athlete_name(athlete_name))` (la misma normalización inmutable que usan los guardas de duplicados; `unaccent` no es inmutable).
 - Al construir se agregó `assigned_branch_id` (D2) y `updated_at`, más la tabla `school_join_code_attempts` para el límite de intentos.
 
-**¿Por qué no reusar `school_signup_leads`?** Un prospecto es anónimo y sin cuenta, y una solicitud ya trae cuenta y debe terminar ligada a ella. Se ven en la misma bandeja de la escuela, pero el dato es distinto (ver D1).
+**¿Por qué no reusar `school_signup_leads`?** Un prospecto es anónimo y sin cuenta, y una solicitud ya trae cuenta y debe terminar ligada a ella. El dato es distinto y, desde el 2026-10-29, tampoco se ven en la misma bandeja (ver D1).
 
 ## 5. RPCs (todas `SECURITY DEFINER`, `SET search_path = pg_catalog, public, pg_temp`)
 
@@ -108,6 +108,7 @@ Si el paso 2 falla (periodo ocupado, plan ajeno, BFF caído), la solicitud queda
 ## 8. Decisiones (resueltas 2026-10-26)
 
 - **D1. RESUELTA — una sola bandeja en pantalla, datos separados.** «Por asignar (N)» muestra las solicitudes por código (`school_join_requests`) y los prospectos abiertos (`new`/`contacted`) del formulario público (`school_signup_leads`, con las RPCs `list_school_leads` / `update_school_lead_status` que ya existían sin UI). Un prospecto no tiene cuenta: desde la bandeja se contacta y se marca (contactado / inscrito / descartado); para inscribirlo se usa «Agregar atleta» o se le comparte el código.
+  - **Revisada 2026-10-29 — los prospectos salen de «Por asignar».** Ahora la bandeja muestra solo las solicitudes por código. Al bot de WhatsApp nadie lo había tenido en cuenta: desde el 2026-10-06 registra en `school_signup_leads` a todo desconocido que escribe. En Dynasty, 80 de los 84 prospectos abiertos eran de WhatsApp y la tarjeta decía «Formulario público» a todos. Su «Contactado» significaba que respondió el bot, no la escuela. Además eran los mismos de la pestaña «Clase de prueba» (mig. `20261026155701`), que sí muestra el canal y el cupo reservado. Los prospectos quedan solo en esa pestaña, que ganó el botón de WhatsApp. La bandeja deja un enlace con el número. `list_school_leads` / `update_school_lead_status` siguen en la base, pero ya no los usa ninguna pantalla.
 - **D2. RESUELTA — un código por escuela; la sede se elige al asignar** (`p_branch_id`, por defecto la sede del equipo). `school_join_codes.branch_id` queda en la tabla, siempre `NULL`.
 - **D3. RESUELTA — solo administración asigna** (`user_admin_school_ids()`: owner/admin/school_admin). El staff (coach incluido) puede leer la bandeja por RLS, pero no resolver; la UI solo la muestra a administración.
 - **D4. RESUELTA — se sigue la regla de cobro actual de la escuela.** El primer cobro lo calcula el mismo alta de «Agregar atleta» (ver «Camino de inscripción»); no hay regla nueva.

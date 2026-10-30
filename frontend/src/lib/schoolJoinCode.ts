@@ -101,7 +101,7 @@ export function adultChildWarning(form: JoinRequestForm, today: string): string 
   return null;
 }
 
-// ─── Bandeja «Por asignar» (D1: solicitudes por código + prospectos) ─────────
+// ─── Bandeja «Por asignar» (D1: solo solicitudes por código) ─────────────────
 
 export interface JoinRequestRow {
   id: string;
@@ -131,45 +131,16 @@ export interface JoinRequestRow {
   }>;
 }
 
-export interface SignupLeadRow {
-  id: string;
-  full_name: string;
-  guardian_name: string | null;
-  phone: string;
-  email: string | null;
-  birth_date: string | null;
-  suggested_category: string | null;
-  status: 'new' | 'contacted' | 'converted' | 'discarded';
-  created_at: string;
-}
-
-export type InboxItem =
-  | { kind: 'request'; id: string; createdAt: string; row: JoinRequestRow }
-  | { kind: 'lead'; id: string; createdAt: string; row: SignupLeadRow };
-
-const OPEN_LEAD_STATUSES: SignupLeadRow['status'][] = ['new', 'contacted'];
-
 /**
  * Arma la bandeja: solicitudes abiertas (pendientes o con la inscripción por
- * hacer) + prospectos abiertos, del más antiguo al más nuevo (el que más lleva
- * esperando, arriba). Los datos siguen separados; solo se juntan en pantalla.
+ * hacer), de la más antigua a la más nueva (la que más lleva esperando, arriba).
+ * Los prospectos (WhatsApp, formulario) NO entran: viven en Deportistas →
+ * «Clase de prueba» (D1 revisada el 2026-10-29).
  */
-export function buildPorAsignarInbox(
-  requests: JoinRequestRow[] | null | undefined,
-  leads: SignupLeadRow[] | null | undefined,
-): InboxItem[] {
-  const items: InboxItem[] = [];
-  for (const r of requests ?? []) {
-    if (r.status === 'pending' || r.needs_enrollment) {
-      items.push({ kind: 'request', id: r.id, createdAt: r.created_at, row: r });
-    }
-  }
-  for (const l of leads ?? []) {
-    if (OPEN_LEAD_STATUSES.includes(l.status)) {
-      items.push({ kind: 'lead', id: l.id, createdAt: l.created_at, row: l });
-    }
-  }
-  return items.sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
+export function buildPorAsignarInbox(requests: JoinRequestRow[] | null | undefined): JoinRequestRow[] {
+  return (requests ?? [])
+    .filter((r) => r.status === 'pending' || r.needs_enrollment)
+    .sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
 }
 
 // ─── Inscripción por el camino de «Agregar atleta» ───────────────────────────

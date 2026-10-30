@@ -1590,11 +1590,17 @@ export default function SchoolStudentsManagementPage() {
         />
       )}
 
-      {/* Código de la escuela + bandeja «Por asignar» (solicitudes por código y
-          prospectos del formulario público). Solo administración: asignar crea
-          inscripción y cobro (D3, spec codigo-de-escuela-union-por-codigo). */}
+      {/* Código de la escuela + bandeja «Por asignar» (solo solicitudes por
+          código; los prospectos van en «Clase de prueba»). Solo administración:
+          asignar crea inscripción y cobro (D3, spec codigo-de-escuela-union-por-codigo). */}
       {schoolId && canManageCharges(schoolRole) && (
-        <PorAsignarSection schoolId={schoolId} schoolName={schoolName} branches={branches ?? []} />
+        <PorAsignarSection
+          schoolId={schoolId}
+          schoolName={schoolName}
+          branches={branches ?? []}
+          prospectos={prospectosPrueba.length}
+          onVerProspectos={() => setActiveTab('prueba')}
+        />
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
