@@ -25,7 +25,8 @@ import {
 } from './whatsapp-prospecto-ia.service';
 import { enlacesNoPermitidos } from './whatsapp-salida-segura';
 import { avisaQueNoVa } from './prospecto-ciclo-clase.service';
-import { diaPedidoEn } from './whatsapp-bot.service';
+import { diaPedidoEn, seguimientoQueContesta, diaAceptadoDelSeguimiento } from './whatsapp-bot.service';
+import { PASO_SEGUIMIENTO_20H } from './whatsapp-prospecto-seguimiento.service';
 
 const hace = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
 
@@ -43,6 +44,37 @@ describe('diaPedidoEn', () => {
 
     it.each(['Es únicamente ir y ya ?', 'Cuál es la diferencia entre plan séniors a plan pro', 'Buenos días'])(
         '%s → null', (texto) => expect(diaPedidoEn(texto, martes)).toBeNull());
+});
+
+describe('respuesta al seguimiento de 20 h (Dynasty 2026-10-30, …5543)', () => {
+    // El seguimiento salió el jueves 29 a las 2:07 p. m.; el «Si» llegó el viernes 30 a las 10:36 a. m.
+    const enviado = '2026-10-29T19:07:00Z';
+    const viernes = new Date('2026-10-30T15:36:00Z');
+    const texto = 'Hola 👋 ¿Te funciona el sábado a las 11 a. m. para tu clase de cortesía? Si me confirmas, te paso los detalles';
+    const saliente = { payload: { step: PASO_SEGUIMIENTO_20H }, text_body: texto, created_at: enviado };
+
+    it('lo último que salió es el seguimiento: el entrante lo contesta', () => {
+        expect(seguimientoQueContesta(saliente, viernes.getTime())).toEqual({ texto, enviadoEn: new Date(enviado) });
+    });
+
+    it('la escuela escribió después del seguimiento, o pasaron 3 días: no', () => {
+        expect(seguimientoQueContesta({ payload: {}, text_body: 'Te espero', created_at: enviado }, viernes.getTime())).toBeNull();
+        expect(seguimientoQueContesta(saliente, new Date('2026-11-01T19:08:00Z').getTime())).toBeNull();
+        expect(seguimientoQueContesta(null)).toBeNull();
+    });
+
+    it('«Si» acepta el día que proponía; otro día manda; sin sí ni día, nada', () => {
+        const s = { texto, enviadoEn: new Date(enviado) };
+        expect(diaAceptadoDelSeguimiento('Si', s, viernes)).toBe('sábado');
+        expect(diaAceptadoDelSeguimiento('Dale', s, viernes)).toBe('sábado');
+        expect(diaAceptadoDelSeguimiento('mejor el domingo', s, viernes)).toBe('domingo');
+        expect(diaAceptadoDelSeguimiento('No puedo esta semana', s, viernes)).toBeNull();
+    });
+
+    it('el «mañana» del seguimiento se cuenta desde el día en que salió', () => {
+        const s = { texto: '¿Te queda bien para mañana tu clase de cortesía?', enviadoEn: new Date(enviado) };
+        expect(diaAceptadoDelSeguimiento('Si', s, viernes)).toBe('viernes');
+    });
 });
 
 describe('piezas puras', () => {
