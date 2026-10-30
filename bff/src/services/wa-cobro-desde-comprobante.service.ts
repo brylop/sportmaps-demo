@@ -26,6 +26,7 @@ import { normalizeDestination, classifyDestinationMatch } from './receipt-verdic
 import type { PagoPendiente } from './whatsapp-receipt-matching.service';
 import type { ConceptoEsperado } from './wa-concepto-esperado.service';
 import type { OpcionGuiada } from './whatsapp-comprobante-guiado.service';
+import { esAfiliado } from './wa-afiliado.service';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -346,6 +347,14 @@ async function precioDeClasePrueba(schoolId: string): Promise<PrecioDeMotivo[]> 
     }
 }
 
+/** Una opción de un servicio (p. ej. 1, 2, 3 o 4 semanas del vacacional), con su precio de afiliado. */
+export interface OpcionDeServicio {
+    clave: string;
+    etiqueta: string;
+    precio: number | null;
+    precio_afiliado?: number | null;
+}
+
 /** Una fila de `school_tournament_items` (servicio: torneo, viaje, clínica, vacacional…). */
 export interface ItemDeServicio {
     id: string;
@@ -356,34 +365,131 @@ export interface ItemDeServicio {
     event_id?: string | null;
     starts_at?: string | null;
     ends_at?: string | null;
+    /** Migración M2 (plan maestro §2): pueden no existir todavía. */
+    precio_afiliado?: number | null;
+    /** `[{desde: 'YYYY-MM-DD', precio}]`: desde esa fecha (Bogotá) el precio de lista es otro. */
+    precios_por_fecha?: unknown;
+    /** 1–100: con este % del precio se separa el cupo (abono; el resto queda pendiente). Exige `allow_installments`. */
+    abono_minimo_pct?: number | null;
+    allow_installments?: boolean | null;
+    /** `[{clave, etiqueta, precio, precio_afiliado}]`. */
+    opciones?: unknown;
 }
 
-/** Los precios de los servicios vigentes. Pura. */
-export function preciosDeServicios(items: ItemDeServicio[], o: { ahora?: number } = {}): PrecioDeMotivo[] {
+/** Las opciones válidas del ítem (jsonb sin esquema garantizado). Pura. */
+export function opcionesDelItem(item: Pick<ItemDeServicio, 'opciones'>): OpcionDeServicio[] {
+    if (!Array.isArray(item.opciones)) return [];
+    const out: OpcionDeServicio[] = [];
+    for (const o of item.opciones as any[]) {
+        if (!o || typeof o !== 'object' || typeof o.clave !== 'string' || !o.clave.trim()) continue;
+        out.push({
+            clave: o.clave,
+            etiqueta: typeof o.etiqueta === 'string' && o.etiqueta.trim() ? o.etiqueta.trim() : o.clave,
+            precio: num(o.precio),
+            precio_afiliado: num(o.precio_afiliado),
+        });
+    }
+    return out;
+}
+
+/** Los tramos de precio por fecha, ordenados (jsonb sin esquema garantizado). Pura. */
+function tramosPorFecha(raw: unknown): { desde: string; precio: number }[] {
+    if (!Array.isArray(raw)) return [];
+    return (raw as any[])
+        .filter((t) => t && typeof t.desde === 'string' && /^\d{4}-\d{2}-\d{2}/.test(t.desde) && (num(t.precio) ?? 0) > 0)
+        .map((t) => ({ desde: String(t.desde).slice(0, 10), precio: Number(t.precio) }))
+        .sort((a, b) => a.desde.localeCompare(b.desde));
+}
+
+/**
+ * El precio que hoy le corresponde a esta persona. Pura.
+ *  · Con opción: el de la opción (el de afiliado si es afiliado y lo tiene).
+ *  · Afiliado con `precio_afiliado`: ese, sin importar la fecha (Monster: la
+ *    clínica es $250.000 para afiliados antes y después de la preventa).
+ *  · Si no: el último tramo de `precios_por_fecha` cuya fecha ya llegó (Bogotá);
+ *    sin tramos vigentes, `price` (la preventa: $300.000; desde el 10-nov $350.000).
+ */
+export function precioVigente(
+    item: Pick<ItemDeServicio, 'price' | 'precio_afiliado' | 'precios_por_fecha'>,
+    o: { afiliado: boolean; hoy: string; opcion?: OpcionDeServicio | null },
+): number | null {
+    const positivo = (v: unknown) => { const n = num(v); return n !== null && n > 0 ? n : null; };
+    if (o.opcion) return (o.afiliado ? positivo(o.opcion.precio_afiliado) : null) ?? positivo(o.opcion.precio);
+    if (o.afiliado) {
+        const pa = positivo(item.precio_afiliado);
+        if (pa !== null) return pa;
+    }
+    let precio = positivo(item.price);
+    for (const t of tramosPorFecha(item.precios_por_fecha)) if (t.desde <= o.hoy) precio = t.precio;
+    return precio;
+}
+
+/** El abono mínimo para separar el cupo, si el ítem lo admite (redondeo hacia arriba, igual que la RPC). Pura. */
+export function abonoMinimo(precio: number | null, pct: unknown): number | null {
+    const p = num(pct);
+    if (precio === null || p === null || !(p >= 1 && p < 100)) return null;
+    return Math.ceil((precio * p) / 100);
+}
+
+/** ¿Algún servicio tiene precio de afiliado? (Solo entonces se pregunta a la base.) Pura. */
+export function hayPrecioDeAfiliado(items: ItemDeServicio[]): boolean {
+    return items.some((it) => (num(it.precio_afiliado) ?? 0) > 0
+        || opcionesDelItem(it).some((o) => (num(o.precio_afiliado) ?? 0) > 0));
+}
+
+/**
+ * Los precios de los servicios vigentes para esta persona: uno por opción (o el
+ * del ítem), con el de afiliado y el de la fecha, más el abono mínimo si el ítem
+ * lo admite. Pura.
+ */
+export function preciosDeServicios(
+    items: ItemDeServicio[],
+    o: { ahora?: number; afiliado?: boolean } = {},
+): PrecioDeMotivo[] {
     const ahora = o.ahora ?? Date.now();
+    const hoy = hoyBogota(ahora);
+    const afiliado = o.afiliado === true;
     const out: PrecioDeMotivo[] = [];
     for (const it of items) {
         if (it.active === false || it.event_id) continue;
         const fin = it.ends_at ?? it.starts_at;
         if (fin && new Date(fin).getTime() <= ahora) continue;
         const motivo = (['torneo', 'viaje', 'clase_extra', 'vacacional', 'otro'] as const).find((k) => k === it.kind) ?? 'otro';
-        const precio = num(it.price);
-        if (precio && precio > 0) {
-            out.push({ motivo, monto: precio, fuente: 'tournament_item', fuenteId: it.id, etiqueta: String(it.name ?? MOTIVO[motivo].etiqueta) });
+        const nombre = String(it.name ?? MOTIVO[motivo].etiqueta);
+        const base = { motivo, fuente: 'tournament_item' as const, fuenteId: it.id };
+        const opciones = opcionesDelItem(it);
+        if (opciones.length) {
+            for (const op of opciones) {
+                const precio = precioVigente(it, { afiliado, hoy, opcion: op });
+                if (precio !== null) out.push({ ...base, monto: precio, etiqueta: `${nombre} — ${op.etiqueta}`, opcion: op.clave });
+            }
+            continue;
         }
+        const precio = precioVigente(it, { afiliado, hoy });
+        if (precio === null) continue;
+        out.push({ ...base, monto: precio, etiqueta: nombre });
+        // La base solo acepta el abono si el ítem admite cuotas (`allow_installments`).
+        const abono = it.allow_installments === true ? abonoMinimo(precio, it.abono_minimo_pct) : null;
+        if (abono !== null && abono < precio) out.push({ ...base, monto: abono, etiqueta: nombre, esAbono: true });
     }
     return out;
 }
 
 const COLUMNAS_SERVICIO = 'id, name, kind, price, active, event_id, starts_at, ends_at';
+const COLUMNAS_SERVICIO_M2 = `${COLUMNAS_SERVICIO}, allow_installments, precio_afiliado, precios_por_fecha, abono_minimo_pct, opciones`;
 
-/** Servicios activos de la escuela. Nunca lanza. */
+/**
+ * Servicios activos de la escuela. Con las columnas de precio de la migración
+ * M2; si todavía no existen, las de siempre (precio de lista). Nunca lanza.
+ */
 export async function itemsDeServicio(schoolId: string): Promise<ItemDeServicio[]> {
+    const leer = (cols: string) => supabase.from('school_tournament_items')
+        .select(cols).eq('school_id', schoolId).eq('active', true).is('event_id', null).limit(50);
     try {
-        const { data, error } = await supabase.from('school_tournament_items')
-            .select(COLUMNAS_SERVICIO).eq('school_id', schoolId).eq('active', true).is('event_id', null).limit(50);
+        let { data, error } = await leer(COLUMNAS_SERVICIO_M2);
+        if (error && esMigracionPendiente(error)) ({ data, error } = await leer(COLUMNAS_SERVICIO));
         if (error || !Array.isArray(data)) return [];
-        return data as ItemDeServicio[];
+        return data as unknown as ItemDeServicio[];
     } catch {
         return [];
     }
@@ -401,13 +507,21 @@ export async function preciosDeMotivos(
 ): Promise<PrecioDeMotivo[]> {
     const quiere = (m: Motivo) => !o.motivos || o.motivos.includes(m);
     const serviciosPedidos = (['torneo', 'viaje', 'clase_extra', 'vacacional', 'otro'] as const).some(quiere);
-    const [prueba, inscripcion, articulos, servicios] = await Promise.all([
+    /** El precio de afiliado solo si algún servicio lo tiene (una lectura más, la RPC wa_es_afiliado). */
+    const servicios = async () => {
+        const items = await itemsDeServicio(schoolId);
+        const afiliado = hayPrecioDeAfiliado(items) && o.telefono
+            ? (await esAfiliado(schoolId, o.telefono)).afiliado
+            : false;
+        return preciosDeServicios(items, { ahora: o.ahora, afiliado });
+    };
+    const [prueba, inscripcion, articulos, deServicio] = await Promise.all([
         dueno.leadId && quiere('clase_prueba') ? precioDeClasePrueba(schoolId) : Promise.resolve([]),
         quiere('inscripcion') ? preciosDeInscripcion(schoolId, dueno) : Promise.resolve([]),
         quiere('articulos') ? preciosDeArticulos(schoolId) : Promise.resolve([]),
-        serviciosPedidos ? itemsDeServicio(schoolId).then((items) => preciosDeServicios(items, { ahora: o.ahora })) : Promise.resolve([]),
+        serviciosPedidos ? servicios() : Promise.resolve([]),
     ]);
-    return sinRepetir([...prueba, ...inscripcion, ...articulos, ...servicios].filter((p) => quiere(p.motivo)));
+    return sinRepetir([...prueba, ...inscripcion, ...articulos, ...deServicio].filter((p) => quiere(p.motivo)));
 }
 
 // ─── Crear y anular ──────────────────────────────────────────────────────────
