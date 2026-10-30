@@ -698,7 +698,8 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "ul",
         items: [
-          "«Cerrar la lista» la deja fija: no se puede cambiar sin reabrirla. Después puedes calificar el entreno.",
+          "Después de guardar toca «Cerrar y evaluar»: la lista queda fija, a las familias de los que vinieron les llega la encuesta «¿Cómo estuvo el entreno?» y se abre la evaluación. Si no la cierras, se cierra sola a las 11:55 p. m. y la encuesta llega a esa hora.",
+          "Para cambiar una lista cerrada, «Reabrir para corregir». Al volver a cerrarla no se manda otra encuesta.",
           "«Corregir» está disponible para la lista de hoy y la de ayer. Más atrás, la corrige la escuela.",
         ],
       },
@@ -706,7 +707,7 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "p",
         content:
-          "«Evaluar al equipo» muestra solo a los que vinieron, todos en «Normal». Toca al que le fue «Bien» o al que «Le costó» (o «A todos: Bien»), escribe una nota para las familias si quieres y «Guardar evaluación»: las familias reciben «Así le fue hoy».",
+          "La evaluación muestra solo a los que vinieron, todos en «Normal». Toca al que le fue «Bien» o al que «Le costó» (o «A todos: Bien»), escribe una nota para las familias si quieres y «Guardar evaluación»: las familias reciben «Así le fue hoy». Si llegas con la lista abierta, «Cerrar la lista y evaluar» la cierra ahí mismo.",
       },
       { type: "h2", content: "Historial" },
       { type: "p", content: "El % de asistencia del mes, cuántos entrenos tienen lista, quién falta mucho y cada entreno con «vinieron N de M». Si llegaron planillas en papel por foto, el aviso sale aquí arriba." },
@@ -908,8 +909,8 @@ export const helpArticles: HelpArticle[] = [
       {
         type: "ol",
         items: [
-          "Toma la lista y ciérrala (Asistencia → Guardar lista → Cerrar la lista), o toca el pendiente «Falta evaluar el entreno» en Hoy.",
-          "«Evaluar al equipo»: todos arrancan en «Normal». Toca solo al que le fue «Bien» o al que «Le costó».",
+          "Toma la lista y toca «Cerrar y evaluar» (Asistencia → Guardar lista → Cerrar y evaluar), o toca el pendiente «Falta evaluar el entreno» en Hoy.",
+          "En la evaluación todos arrancan en «Normal». Toca solo al que le fue «Bien» o al que «Le costó».",
           "Si quieres, «Felicitar» a alguien y una nota para las familias.",
           "«Guardar evaluación»: las familias de los que vinieron reciben «Así le fue hoy».",
         ],

@@ -340,7 +340,7 @@ export const APP_MAP: Record<string, AppMapRole> = {
         tareas: [
             {
                 tarea: 'Tomar asistencia',
-                pasos: 'Pestaña Asistencia > "Tomar lista" > el equipo sale solo (para otro: "Cambiar") > todos arrancan en "Vino": toca al que no vino para pasarlo a Faltó → Excusa → Tarde > "Guardar lista" > opcional "Cerrar la lista". Para ayer: selector "Hoy" / "Ayer" (solo si la escuela lo permite; más atrás no se puede). Sin señal, "Guardar en el teléfono": sube sola cuando vuelva.',
+                pasos: 'Pestaña Asistencia > "Tomar lista" > el equipo sale solo (para otro: "Cambiar") > todos arrancan en "Vino": toca al que no vino para pasarlo a Faltó → Excusa → Tarde > "Guardar lista" > "Cerrar y evaluar" (cierra la lista, a las familias de los que vinieron les llega la encuesta del entreno, y abre la evaluación; si no se cierra, se cierra sola a las 11:55 p. m.). Para ayer: selector "Hoy" / "Ayer" (solo si la escuela lo permite; más atrás no se puede). Sin señal, "Guardar en el teléfono": sube sola cuando vuelva.',
                 palabrasClave: ['asistencia', 'lista', 'pasar lista', 'faltas', 'tomar lista', 'supervisión'],
                 articulo: 'tomar-asistencia-coach',
             },
@@ -363,7 +363,7 @@ export const APP_MAP: Record<string, AppMapRole> = {
             },
             {
                 tarea: 'Evaluar el entreno (cómo le fue a cada uno)',
-                pasos: 'Primero cierra la lista. Luego "Evaluar al equipo" (en Asistencia después de guardar, en el pendiente "Evaluar" de Hoy, o Equipos > el equipo > "Evaluar" > "Evaluar") > todos arrancan en "Normal": toca "Bien" o "Le costó" (o "A todos: Bien") > opcional "Nota para las familias (opcional)" > "Guardar evaluación". Las familias reciben «Así le fue hoy».',
+                pasos: '"Cerrar y evaluar" en Asistencia después de guardar (o el pendiente "Evaluar" de Hoy, o Equipos > el equipo > "Evaluar" > "Evaluar"; si la lista sigue abierta, "Cerrar la lista y evaluar") > todos arrancan en "Normal": toca "Bien" o "Le costó" (o "A todos: Bien") > opcional "Nota para las familias (opcional)" > "Guardar evaluación". Las familias reciben «Así le fue hoy».',
                 palabrasClave: ['evaluar', 'evaluación', 'métricas', 'rendimiento', 'calificar', 'notas', 'evaluar lote'],
                 articulo: 'evaluaciones-jugadores',
             },
