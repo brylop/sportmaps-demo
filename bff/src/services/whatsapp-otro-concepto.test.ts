@@ -8,7 +8,7 @@ vi.mock('../config/supabase', () => ({ supabase: {} }));
 
 import {
     conceptoNombrado, conceptoDelCobro, detectarOtroConcepto, decidirOtroConcepto,
-    mensajeOtroConcepto, motivoOtroConcepto,
+    mensajeOtroConcepto, motivoOtroConcepto, conceptoDePago,
 } from './whatsapp-otro-concepto.service';
 
 const P = (id: string, amount: number, concept: string) =>
@@ -112,5 +112,46 @@ describe('mensajes', () => {
     it('a la escuela: el motivo empieza por otro_concepto y lleva la evidencia', () => {
         const s = detectarOtroConcepto({ pie: 'Clase perfeccionamiento Luis' })!;
         expect(motivoOtroConcepto(s)).toMatch(/^otro_concepto: clase de perfeccionamiento \(pie: «Clase perfeccionamiento Luis»\)/);
+    });
+});
+
+// ─── Caracterización (plan B4 §5, 2026-10-30) ───────────────────────────────
+// Los patrones pasan a vivir en el catálogo único (motivos-de-cobro.ts): lo
+// que hoy se detecta se sigue detectando igual, con el mismo nombre.
+describe('caracterización: lo que se detecta hoy', () => {
+    it.each([
+        ['Clase perfeccionamiento Luis', 'clase_extra'],
+        ['clases particulares de la semana', 'clase_extra'],
+        ['mira aquí lo de los uniformes', 'uniforme'],
+        ['la sudadera de Sofía', 'uniforme'],
+        ['pago torneo interclubes', 'torneo'],
+        ['inscripción al torneo', 'torneo'],
+        ['tiquetes del viaje', 'viaje'],
+        ['boletas de la rifa', 'rifa'],
+        ['seguro', 'seguro'],
+        ['póliza de accidentes', 'seguro'],
+        ['matrícula de Sofía', 'inscripcion'],
+        ['plan vacaciones diciembre', 'vacacional'],
+        ['mensualidad octubre', null],
+        ['hola buenos días', null],
+    ])('«%s» → %s', (texto, concepto) => {
+        expect(conceptoNombrado(texto)).toBe(concepto);
+    });
+
+    it('nombres y mapa categoría → concepto como hoy', () => {
+        const s = (concepto: any) => ({ concepto, fuente: 'pie' as const, evidencia: 'x' });
+        expect(mensajeOtroConcepto(s('clase_extra'))).toContain('*clase de perfeccionamiento*');
+        expect(mensajeOtroConcepto(s('uniforme'))).toContain('*uniforme*');
+        expect(mensajeOtroConcepto(s('seguro'))).toContain('*seguro de accidentes*');
+        expect(mensajeOtroConcepto(s('vacacional'))).toContain('*vacacionales*');
+        expect(mensajeOtroConcepto(s('inscripcion'))).toContain('*inscripción*');
+        const p = (categoria: string | null, concept = 'Cobro') => conceptoDePago({ concept, categoria });
+        expect(p('inscripcion')).toBe('inscripcion');
+        expect(p('articulos')).toBe('uniforme');
+        expect(p('torneo')).toBe('torneo');
+        expect(p('clase_extra')).toBe('clase_extra');
+        expect(p('mensualidad', 'Uniforme')).toBeNull();
+        expect(p('otro', 'Rifa navideña')).toBe('rifa');
+        expect(p(null, 'Mensualidad 10/2026')).toBeNull();
     });
 });

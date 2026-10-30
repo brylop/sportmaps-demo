@@ -176,3 +176,42 @@ describe('regla única de mensualidad (F0)', () => {
         expect(codigo).toMatch(/COALESCE\(NEW\.payment_category, 'mensualidad'\) <> 'mensualidad'/);
     });
 });
+
+// ─── Caracterización (plan B4 §5, 2026-10-30) ───────────────────────────────
+// Las listas de acá pasan a derivar del catálogo único (motivos-de-cobro.ts):
+// las 10 categorías viejas no cambian de orden, nombre ni plural.
+describe('caracterización: las 10 categorías viejas como hoy', () => {
+    const VIEJAS = ['mensualidad', 'inscripcion', 'articulos', 'torneo', 'otro', 'seguro', 'excedente', 'clase_extra', 'vacacional', 'viaje'];
+
+    it('mismo orden al principio de CATEGORIAS_COBRO', () => {
+        expect(CATEGORIAS_COBRO.slice(0, 10)).toEqual(VIEJAS);
+    });
+
+    it.each([
+        ['mensualidad', 'Mensualidad', 'mensualidades'],
+        ['inscripcion', 'Inscripción', 'inscripciones'],
+        ['articulos', 'Artículos', 'artículos'],
+        ['torneo', 'Torneo', 'torneos'],
+        ['otro', 'Otro cobro', 'otros cobros'],
+        ['seguro', 'Seguro de accidentes', 'seguros'],
+        ['excedente', 'Horas adicionales', 'horas adicionales'],
+        ['clase_extra', 'Clase extra', 'clases extra'],
+        ['vacacional', 'Vacacional', 'vacacionales'],
+        ['viaje', 'Viaje', 'viajes'],
+    ])('%s → «%s» / «%s»', (cat, singular, plural) => {
+        expect((ETIQUETA_COBRO as Record<string, string>)[cat]).toBe(singular);
+        expect(describirCategorias([cat])).toBe(plural);
+        expect(categoriaDeCobro(cat, null)).toBe(cat);
+    });
+
+    it('por concepto, como hoy', () => {
+        expect(categoriaDeCobro(null, 'Matrícula 2026 — Atleta')).toBe('inscripcion');
+        expect(categoriaDeCobro(null, 'Seguro estudiantil')).toBe('seguro');
+        expect(categoriaDeCobro(null, 'Mensualidad 10/2026')).toBe('mensualidad');
+        expect(categoriaDeCobro('otro', 'Torneo Interclubes')).toBe('torneo');
+        expect(categoriaDeCobro(null, 'Kit de entrenamiento')).toBe('articulos');
+        expect(categoriaDeCobro(null, 'Rifa navideña')).toBeNull();
+        expect(categoriaDeCobro('otro', 'Rifa navideña')).toBe('otro');
+        expect(describirCategorias(['inscripcion', 'torneo', 'viaje'])).toBe('inscripciones, torneos y viajes');
+    });
+});

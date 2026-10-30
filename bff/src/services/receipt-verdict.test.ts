@@ -203,3 +203,17 @@ describe('normalizeDestination: lecturas del OCR (Dynasty 10-14 y 10-18)', () =>
         expect(normalizeDestination('LOLA2024')).toBe('LOLA2024');
     });
 });
+
+// ─── Caracterización (plan B4 §5, 2026-10-30) ───────────────────────────────
+describe('caracterización: destinos que hoy ya se normalizan', () => {
+    it.each([
+        ['OO89455111', '0089455111'],
+        ['@3204298969', '3204298969'],
+        ['**** 6942', '****6942'],
+        ['319 450 5150', '3194505150'],
+        ['478-170-006942', '478170006942'],
+        ['XJI669', 'XJI669'],
+    ])('«%s» → %s', (entrada, salida) => {
+        expect(normalizeDestination(entrada)).toBe(salida);
+    });
+});
