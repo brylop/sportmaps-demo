@@ -105,7 +105,8 @@ import { atenderAusenciaEnBot } from './whatsapp-ausencias.service';
 import { modoDiscreto, escuelaActiva, escuelaActivaEn, revisarPendientesSinRespuesta } from './whatsapp-modo-discreto';
 import { ajustesWhatsAppDeEscuela, atencionPresencialDeEscuela, type AjustesWhatsAppEscuela } from './whatsapp-ajustes-escuela.service';
 import { mensajeSemanaDeCortesia } from './whatsapp-cortesia-semana.service';
-import { atenderTurnoVenta } from './whatsapp-venta-servicios.service';
+import { atenderTurnoVenta, esSi } from './whatsapp-venta-servicios.service';
+import { PASO_SEGUIMIENTO_20H } from './whatsapp-prospecto-seguimiento.service';
 import { textoDePreciosDeEscuela } from './whatsapp-precios.service';
 import { pidePrecio, preciosParaProspecto, responderClasesDePlan, preguntaPorClasesDePlan } from './whatsapp-precios.service';
 import { leerEstadoDeSupabase, leerDia as leerDiaCortesia } from './whatsapp-clase-cortesia.service';
@@ -2013,6 +2014,8 @@ async function handleIdentification(
     // en 30 días): la conversación es humana. Ni plantilla de prospecto ni
     // «escríbeme tu correo»; queda en el buzón. Dynasty 2026-10-07: «mile voy
     // tenemos entreno?», «No puedo pasar!», «De comida» de conocidas de la dueña.
+    // Salvo la respuesta al seguimiento de 20 h: esa pregunta la hizo el bot.
+    if (await responderAlSeguimiento(integration, conversationId, contactWaId, text, botonId, rafaga)) return 'resuelto';
     if (!botonId && await escuelaLeEscribioEnDias(conversationId, 30)) return 'resuelto';
 
     const comoDesconocido = await atenderDesconocido(integration, conversationId, contactWaId, text, botonId, rafaga);
@@ -2652,6 +2655,10 @@ export async function atenderDesconocido(
     //     filtro de abajo lo callaría. Solo CONTINÚA lo que el propio bot abrió;
     //     empezarla pasa por `handleIdentification`.
     if (await atenderPuertaEnBot(integration, conversationId, contactWaId, text, botonId)) return 'puerta';
+
+    // 0''. Contesta el seguimiento de 20 h («¿Te funciona el sábado…?» → «Si»).
+    const alSeguimiento = await responderAlSeguimiento(integration, conversationId, contactWaId, text, botonId, rafaga);
+    if (alSeguimiento) return alSeguimiento;
 
     // 1a. Un código SOLO cuenta si hay un OTP vigente para este contacto. Seis
     //     dígitos seguidos también son un monto («son 170000») o un pedazo de
@@ -3309,6 +3316,99 @@ async function responderProspectoConIa(
     } catch (err: any) {
         console.error('[whatsapp-bot] respuesta del modelo al prospecto falló', err?.message || err);
         return false;
+    }
+}
+
+/** Hasta cuándo lo que escribe el prospecto se lee como respuesta al seguimiento de 20 h. */
+const VENTANA_RESPUESTA_SEGUIMIENTO_H = 72;
+
+/**
+ * ¿El entrante contesta el seguimiento de 20 h? Sí cuando lo último que salió de
+ * la conversación es ese seguimiento (nadie de la escuela escribió después) y
+ * salió hace menos de VENTANA_RESPUESTA_SEGUIMIENTO_H. Pura.
+ */
+export function seguimientoQueContesta(
+    ultimoSaliente: { payload?: any; text_body?: string | null; created_at: string } | null,
+    ahora = Date.now(),
+): { texto: string; enviadoEn: Date } | null {
+    if (!ultimoSaliente || ultimoSaliente.payload?.step !== PASO_SEGUIMIENTO_20H) return null;
+    const enviadoEn = new Date(ultimoSaliente.created_at);
+    if (!(ahora - enviadoEn.getTime() < VENTANA_RESPUESTA_SEGUIMIENTO_H * 3600_000)) return null;
+    return { texto: ultimoSaliente.text_body ?? '', enviadoEn };
+}
+
+/**
+ * El día que acepta: el que nombra la respuesta («mejor el domingo») o, si dice
+ * que sí, el que proponía el seguimiento («¿Te funciona el sábado…?»). El
+ * «mañana» del seguimiento se cuenta desde el día en que salió. Pura.
+ */
+export function diaAceptadoDelSeguimiento(
+    respuesta: string,
+    seguimiento: { texto: string; enviadoEn: Date },
+    ahora = new Date(),
+): string | null {
+    return diaPedidoEn(respuesta, ahora)
+        ?? (esSi(respuesta) ? diaPedidoEn(seguimiento.texto, seguimiento.enviadoEn) : null);
+}
+
+/**
+ * El prospecto contesta el seguimiento de 20 h. La pregunta la hizo el bot, así
+ * que la respuesta la atiende el bot aunque una persona de la escuela haya
+ * escrito ANTES en el chat: el freno de 30 días la callaba (Dynasty 2026-10-30,
+ * …5543: «Si» a «¿Te funciona el sábado a las 11 a. m.?» y nadie le confirmó la
+ * clase del día siguiente). Si la escuela escribió DESPUÉS del seguimiento, la
+ * conversación es suya y esto no corre. null si no es una respuesta al
+ * seguimiento (o no hay nada que contestar). Nunca lanza.
+ */
+async function responderAlSeguimiento(
+    integration: WhatsAppIntegration,
+    conversationId: string,
+    contactWaId: string,
+    text: string,
+    botonId: string | null,
+    rafaga: string | null,
+): Promise<ResultadoDesconocido | null> {
+    const nuevo = (rafaga || text).trim();
+    if (botonId || !nuevo) return null;
+    try {
+        const { data } = await supabase.from('whatsapp_messages')
+            .select('payload, text_body, created_at')
+            .eq('conversation_id', conversationId).eq('direction', 'outbound')
+            .order('created_at', { ascending: false }).limit(1).maybeSingle();
+        const seguimiento = seguimientoQueContesta(data as any);
+        if (!seguimiento) return null;
+        // «Gracias», «👍»: no hay nada que contestar. «Ok», «listo» sí: aceptan.
+        const equipo = await vocativosDeEscuela(integration.school_id);
+        if (!esSi(text) && nuevo.split('\n').every((l) => esCierreSuelto(l, equipo))) return null;
+        console.info('[whatsapp-bot] respuesta al seguimiento de 20 h', { conversationId });
+
+        if (pideALaPersona(nuevo)?.tipo === 'escalar' || quiereSalirDelFlujo(nuevo)) {
+            await escalate(integration, conversationId, contactWaId, PASO_PROSPECTO_PERSONA, { texto: nuevo });
+            return 'prospecto_persona';
+        }
+        // «Sí» al día propuesto, u otro día: los horarios de ESE día, filtrados por
+        // la edad que dijo (30 días: el prospecto suele decirla al primer mensaje).
+        const dia = diaAceptadoDelSeguimiento(text, seguimiento);
+        if (dia) {
+            const todo = [...await entrantesDeTexto(conversationId, 30), text].join('\n');
+            const ofrecidas = await ofrecerHorariosDeCortesia(ctxCortesia(integration, conversationId, contactWaId, null), {
+                texto: todo,
+                textoDelDia: dia,
+                intro: `¡Perfecto! 🙌 Estos son los horarios del *${dia}* para tu clase de cortesía; elige el tuyo y te la reservo:`,
+                step: PASO_PROSPECTO_HORARIOS,
+            });
+            if (ofrecidas) return 'prospecto_horarios';
+        }
+        const ajustes = await ajustesWhatsAppDeEscuela(integration.school_id);
+        if (await responderProspectoConIa(integration, conversationId, contactWaId, nuevo,
+            await mensajesRecientes(conversationId), ajustes)) {
+            return 'prospecto_ia';
+        }
+        await abrirEnBuzon(integration, conversationId, contactWaId, { motivo: 'prospecto' });
+        return 'frenado';
+    } catch (err: any) {
+        console.error('[whatsapp-bot] respuesta al seguimiento falló', err?.message || err);
+        return null;
     }
 }
 
