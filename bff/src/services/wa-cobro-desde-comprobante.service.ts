@@ -613,6 +613,33 @@ export async function anularCobroCreado(paymentId: string): Promise<boolean> {
     }
 }
 
+/** Días hacia atrás en los que una inscripción ya cobrada bloquea crear otra (la renovación anual sí pasa). */
+const DIAS_COBRO_PREVIO = 330;
+
+/**
+ * ¿El deportista (o el prospecto) ya tiene un cobro vivo o pagado de ese
+ * motivo en los últimos 330 días? Antes de crear otra inscripción: la
+ * matrícula pagada como prospecto pasa al deportista al inscribirse y no se
+ * vuelve a cobrar. Nunca lanza; ante la duda, sí (no se crea).
+ */
+export async function yaTieneCobroDelMotivo(schoolId: string, dueno: DuenoDelCobro, motivo: Motivo): Promise<boolean> {
+    try {
+        let q = supabase.from('payments').select('id')
+            .eq('school_id', schoolId).eq('payment_category', motivo)
+            .in('status', ['pending', 'overdue', 'awaiting_approval', 'partial', 'paid'])
+            .gte('created_at', new Date(Date.now() - DIAS_COBRO_PREVIO * 86_400_000).toISOString());
+        if (dueno.childId) q = q.eq('child_id', dueno.childId);
+        else if (dueno.unregisteredId) q = q.eq('unregistered_athlete_id', dueno.unregisteredId);
+        else if (dueno.leadId) q = q.eq('signup_lead_id', dueno.leadId);
+        else return true;
+        const { data, error } = await q.limit(1);
+        if (error) return true;
+        return Array.isArray(data) && data.length > 0;
+    } catch {
+        return true;
+    }
+}
+
 // ─── Prospecto ───────────────────────────────────────────────────────────────
 
 /** Los cobros pendientes de un prospecto (`payments.signup_lead_id`). Nunca lanza. */
