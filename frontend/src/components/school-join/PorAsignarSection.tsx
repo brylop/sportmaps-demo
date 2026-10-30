@@ -1,8 +1,8 @@
 /**
  * «Código de la escuela» + bandeja «Por asignar (N)» en Atletas.
- * Spec docs/specs/codigo-de-escuela-union-por-codigo.md — D1 (una bandeja con
- * solicitudes por código y prospectos, datos separados), D2 (la sede se elige
- * al asignar), D3 (solo administración), D4 (regla de cobro de la escuela).
+ * Spec docs/specs/codigo-de-escuela-union-por-codigo.md — D1 (solo solicitudes
+ * por código; los prospectos van en la pestaña «Clase de prueba»), D2 (la sede
+ * se elige al asignar), D3 (solo administración), D4 (regla de cobro de la escuela).
  *
  * Asignar NO crea la inscripción en la base por su cuenta: la RPC
  * resolve_school_join_request crea/vincula la ficha y, si falta, la inscripción
@@ -27,14 +27,14 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
-  ChevronDown, ChevronUp, Inbox, Loader2, UserCheck, Link2, XCircle, Phone, MessageCircle, AlertTriangle,
+  ChevronDown, ChevronUp, Inbox, Loader2, UserCheck, Link2, XCircle, MessageCircle, AlertTriangle, ArrowRight,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { todayColombia } from '@/lib/dateUtils';
 import { schoolJoinApi } from '@/lib/api/schoolJoin';
 import {
   ageOn, buildEnrollPayload, buildPorAsignarInbox, joinErrorMessage,
-  type JoinRequestRow, type SignupLeadRow,
+  type JoinRequestRow,
 } from '@/lib/schoolJoinCode';
 import { SchoolJoinCodeCard } from './SchoolJoinCodeCard';
 
@@ -60,32 +60,27 @@ const waLink = (phone: string | null) => {
 };
 
 export function PorAsignarSection({
-  schoolId, schoolName, branches,
+  schoolId, schoolName, branches, prospectos, onVerProspectos,
 }: {
   schoolId: string;
   schoolName: string;
   branches: BranchOpt[];
+  /** Prospectos abiertos de la pestaña «Clase de prueba» (solo para el enlace). */
+  prospectos: number;
+  onVerProspectos: () => void;
 }) {
-  const { toast } = useToast();
   const qc = useQueryClient();
   const [searchParams] = useSearchParams();
   const fromNotification = searchParams.get('bandeja') === 'por-asignar';
   const [open, setOpen] = useState(fromNotification);
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [rejecting, setRejecting] = useState<JoinRequestRow | null>(null);
-  const [busyLead, setBusyLead] = useState<string | null>(null);
   const sectionRef = useRef<HTMLDivElement>(null);
   const autoOpened = useRef(false);
 
   const requestsQ = useQuery({
     queryKey: ['school-join-requests', schoolId],
     queryFn: () => schoolJoinApi.list(schoolId),
-    enabled: !!schoolId,
-    retry: false,
-  });
-  const leadsQ = useQuery({
-    queryKey: ['school-leads', schoolId],
-    queryFn: () => schoolJoinApi.listLeads(schoolId),
     enabled: !!schoolId,
     retry: false,
   });
@@ -122,10 +117,7 @@ export function PorAsignarSection({
     enabled: !!schoolId && !!dialog,
   });
 
-  const items = useMemo(
-    () => buildPorAsignarInbox(requestsQ.data ?? [], leadsQ.data ?? []),
-    [requestsQ.data, leadsQ.data],
-  );
+  const items = useMemo(() => buildPorAsignarInbox(requestsQ.data), [requestsQ.data]);
   const count = items.length;
 
   // Se abre sola la primera vez que hay algo por asignar.
@@ -142,20 +134,7 @@ export function PorAsignarSection({
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['school-join-requests', schoolId] });
-    qc.invalidateQueries({ queryKey: ['school-leads', schoolId] });
     qc.invalidateQueries({ queryKey: ['school-students'] });
-  };
-
-  const setLeadStatus = async (lead: SignupLeadRow, status: SignupLeadRow['status']) => {
-    setBusyLead(lead.id);
-    try {
-      await schoolJoinApi.updateLeadStatus(lead.id, status);
-      refresh();
-    } catch (e) {
-      toast({ title: 'No se pudo actualizar el prospecto', description: joinErrorMessage(e), variant: 'destructive' });
-    } finally {
-      setBusyLead(null);
-    }
   };
 
   // Sin la migración aplicada (o sin permiso) la sección no aparece: no rompe Atletas.
@@ -178,7 +157,7 @@ export function PorAsignarSection({
               <span className="font-semibold">Por asignar</span>
               <Badge variant={count > 0 ? 'default' : 'secondary'}>{requestsQ.isLoading ? '…' : count}</Badge>
               <span className="hidden sm:inline text-sm text-muted-foreground truncate">
-                · Código de la escuela y solicitudes nuevas
+                · Familias que ingresaron el código de la escuela
               </span>
             </div>
             {open ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
@@ -195,31 +174,36 @@ export function PorAsignarSection({
               </div>
             ) : count === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No hay nadie esperando. Cuando una familia ingrese el código, o llene el formulario de inscripción,
-                aparecerá aquí.
+                No hay nadie esperando. Cuando una familia ingrese el código de la escuela, aparecerá aquí.
               </p>
             ) : (
               <ul className="space-y-3">
-                {items.map((it) => it.kind === 'request' ? (
+                {items.map((row) => (
                   <RequestRow
-                    key={`r-${it.id}`}
-                    row={it.row}
+                    key={row.id}
+                    row={row}
                     today={today}
-                    onAssign={() => setDialog({ mode: 'assign', row: it.row })}
-                    onLink={() => setDialog({ mode: 'link', row: it.row })}
-                    onEnroll={() => setDialog({ mode: 'enroll', row: it.row })}
-                    onReject={() => setRejecting(it.row)}
-                  />
-                ) : (
-                  <LeadRow
-                    key={`l-${it.id}`}
-                    lead={it.row}
-                    today={today}
-                    busy={busyLead === it.id}
-                    onStatus={(s) => setLeadStatus(it.row, s)}
+                    onAssign={() => setDialog({ mode: 'assign', row })}
+                    onLink={() => setDialog({ mode: 'link', row })}
+                    onEnroll={() => setDialog({ mode: 'enroll', row })}
+                    onReject={() => setRejecting(row)}
                   />
                 ))}
               </ul>
+            )}
+
+            {prospectos > 0 && (
+              <button
+                type="button"
+                onClick={onVerProspectos}
+                className="flex w-full items-center justify-between gap-2 rounded-lg border border-dashed px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted/50"
+              >
+                <span>
+                  {prospectos === 1 ? 'Hay 1 prospecto' : `Hay ${prospectos} prospectos`} de WhatsApp y del formulario
+                  en «Clase de prueba».
+                </span>
+                <ArrowRight className="h-4 w-4 shrink-0" />
+              </button>
             )}
           </CardContent>
         )}
@@ -323,61 +307,6 @@ function RequestRow({
             <a href={wa} target="_blank" rel="noreferrer"><MessageCircle className="h-4 w-4 text-emerald-600" /> WhatsApp</a>
           </Button>
         )}
-      </div>
-    </li>
-  );
-}
-
-function LeadRow({
-  lead, today, busy, onStatus,
-}: {
-  lead: SignupLeadRow;
-  today: string;
-  busy: boolean;
-  onStatus: (s: SignupLeadRow['status']) => void;
-}) {
-  const age = ageOn(lead.birth_date, today);
-  const wa = waLink(lead.phone);
-  return (
-    <li className="rounded-lg border border-dashed p-3 space-y-2">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="font-medium leading-tight">
-            {lead.full_name}
-            {age !== null && <span className="text-muted-foreground font-normal"> · {age} años</span>}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {lead.guardian_name ? <>Acudiente: {lead.guardian_name} · </> : null}
-            llegó el {fmtDate(lead.created_at)}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-1">
-          <Badge variant="secondary">Formulario público</Badge>
-          {lead.status === 'contacted' && <Badge variant="outline">Contactado</Badge>}
-        </div>
-      </div>
-      {lead.suggested_category && (
-        <p className="text-sm">Categoría que sugiere: <strong>{lead.suggested_category}</strong></p>
-      )}
-      <p className="text-xs text-muted-foreground">
-        Todavía no tiene cuenta. Escríbele y, para inscribirlo, usa «Agregar atleta» o compártele el código de la escuela.
-      </p>
-      <div className="flex flex-wrap gap-2">
-        {wa && (
-          <Button asChild size="sm" variant="outline" className="gap-1.5">
-            <a href={wa} target="_blank" rel="noreferrer"><MessageCircle className="h-4 w-4 text-emerald-600" /> WhatsApp</a>
-          </Button>
-        )}
-        <Button asChild size="sm" variant="ghost" className="gap-1.5">
-          <a href={`tel:${lead.phone}`}><Phone className="h-4 w-4" /> Llamar</a>
-        </Button>
-        {lead.status === 'new' && (
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => onStatus('contacted')}>Ya lo contacté</Button>
-        )}
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => onStatus('converted')}>Ya quedó inscrito</Button>
-        <Button size="sm" variant="ghost" disabled={busy} className="text-destructive" onClick={() => onStatus('discarded')}>
-          Descartar
-        </Button>
       </div>
     </li>
   );

@@ -8,6 +8,7 @@ import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Loader2, MessageCircle, Plus, Search, Settings, Store, Trash2, UserCheck, X, FileText } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { whatsappLink } from '@/lib/clinical/family-extra';
 import {
   useConfigClasePrueba, useProspectosClasePrueba, type ProspectoClasePrueba,
 } from '@/hooks/useClasePrueba';
@@ -107,6 +108,7 @@ export function ClasePruebaPanel({ schoolId, onCompletar, onConfigurar }: Props)
               const canal = CANAL[p.canal] ?? CANAL.formulario;
               const Icono = canal.icon;
               const falta = faltantes(p);
+              const wa = p.phone ? whatsappLink(p.phone) : null;
               return (
                 <li key={p.id} className="py-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
                   <div className="flex-1 min-w-0">
@@ -131,6 +133,13 @@ export function ClasePruebaPanel({ schoolId, onCompletar, onConfigurar }: Props)
                     </div>
                   </div>
                   <div className="flex gap-2 shrink-0">
+                    {wa && (
+                      <Button asChild size="sm" variant="outline" aria-label="Escribir por WhatsApp">
+                        <a href={wa} target="_blank" rel="noreferrer">
+                          <MessageCircle className="h-4 w-4 text-emerald-600" />
+                        </a>
+                      </Button>
+                    )}
                     <Button size="sm" onClick={() => onCompletar(p)}>
                       <UserCheck className="h-4 w-4 mr-1.5" /> Completar datos
                     </Button>

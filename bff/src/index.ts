@@ -94,6 +94,7 @@ import { probeAiProviders, logAiProvidersAtStartup } from './services/ai-provide
 import admsRouter from './routes/access-adms';
 import accessApiRouter from './routes/access-api';
 import accessAdminRouter from './routes/access-admin.routes';
+import adminWhatsappPlataformaRouter from './routes/admin-whatsapp-plataforma.routes';
 import bridgeRouter from './routes/bridge.routes';
 import { attachBridgeWsServer } from './services/bridgeWsServer';
 
@@ -494,6 +495,8 @@ app.use('/api/v1/access', generalLimiter, accessApiRouter);
 // X-Bridge-Api-Key dentro del router (ver bridge.routes.ts).
 app.use('/bridge', generalLimiter, bridgeRouter);
 app.use('/api/v1/admin/access-logs', generalLimiter, accessAdminRouter);
+// Canal de WhatsApp de SportMaps (super admin): conectar, plantillas, escuelas, interruptor.
+app.use('/api/v1/admin/whatsapp-plataforma', generalLimiter, adminWhatsappPlataformaRouter);
 // Consola de soporte (super_admin) — F0 solo lectura.
 app.use('/api/v1/admin/support', generalLimiter, adminSupportRouter);
 // Uso de IA de la pizarra (super_admin): consumo por escuela/coach y «Dar más cupo».

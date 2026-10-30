@@ -748,6 +748,7 @@ export function getNavigationByRole(
         title: 'Sistema',
         items: [
           { title: 'Configuración', href: '/admin/config', icon: Settings },
+          { title: 'Canal WhatsApp', href: '/admin/whatsapp', icon: MessageSquare },
           { title: 'Parámetros de Nómina', href: '/admin/payroll-config', icon: Landmark },
           { title: 'Notificaciones', href: '/notifications', icon: Bell }
         ]

@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { NumberStepper } from '@/components/ui/number-stepper';
-import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, EyeOff, Loader2, XCircle, Save, Bell, DollarSign, Shield, AlertTriangle, Trophy, Zap, Banknote } from 'lucide-react';
+import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, EyeOff, Loader2, XCircle, Save, Bell, DollarSign, Shield, AlertTriangle, Trophy, Zap, Banknote, UserPlus } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { formatCurrency, maskSensitive } from '@/lib/utils';
@@ -30,6 +30,7 @@ import { todayColombia, formatDayCO, daysDiffFromToday } from '@/lib/dateUtils';
 import { SportMapsPaySettings } from '@/components/settings/SportMapsPaySettings';
 import { PaymentProvidersAdmin } from '@/components/admin/PaymentProvidersAdmin';
 import { CobrosYPagosModal } from '@/components/payment/CobrosYPagosModal';
+import { ClasesDePruebaDialog } from '@/components/payment/ClasesDePruebaDialog';
 import { OperacionesTab } from '@/components/payment/OperacionesTab';
 import { isCobrosYPagosEnabled } from '@/lib/cobrosYPagosFlag';
 import { canManageCharges, canReadChargeBatches, isMensualidad } from '@/lib/cobrosYPagos';
@@ -604,6 +605,8 @@ export default function PaymentsAutomationPage() {
 
   // Estados para Cash Payments
   const [showCashModal, setShowCashModal] = useState(false);
+  // «Clases de prueba»: cobro del prospecto en sede (mig. 20261029215003).
+  const [showClasesPrueba, setShowClasesPrueba] = useState(false);
   const [paymentToApprove, setPaymentToApprove] = useState<PaymentTransaction | null>(null);
 
   // Equipos activos para filtros
@@ -972,6 +975,9 @@ export default function PaymentsAutomationPage() {
           p.child?.full_name ||
           ((p.user_id || p.parent_id) && !p.child_id ? (p.user?.full_name || p.parent?.full_name) : null) ||
           (p.unregistered_athlete_id ? unregisteredMap.get(p.unregistered_athlete_id) : null) ||
+          // Clase de prueba aún sin alta: el prospecto no es deportista y su
+          // tabla no se lee desde el navegador; el nombre va en el concepto.
+          (p.payment_category === 'clase_prueba' ? String(p.concept ?? '').replace(/^Clase de prueba — /, '') || null : null) ||
           null,
         // Padre/responsable solo si es diferente al atleta (menores)
         parent_responsible: p.child_id ? (p.parent?.full_name || null) : null,
@@ -1560,6 +1566,19 @@ export default function PaymentsAutomationPage() {
             <Banknote className="h-4 w-4" />
             <span className="hidden sm:inline">{cobrosYPagosOn ? 'Cobros y pagos' : 'Registrar pago'}</span>
             <span className="sm:hidden">{cobrosYPagosOn ? 'Cobros' : 'Pago'}</span>
+          </Button>
+          )}
+          {canManageCharges(currentUserRole) && (
+          <Button
+            onClick={() => setShowClasesPrueba(true)}
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            data-testid="open-clases-prueba"
+          >
+            <UserPlus className="h-4 w-4" />
+            <span className="hidden sm:inline">Clases de prueba</span>
+            <span className="sm:hidden">Prueba</span>
           </Button>
           )}
           <Button variant="outline" size="sm" onClick={fetchPayments} disabled={loading}>
@@ -3107,6 +3126,12 @@ export default function PaymentsAutomationPage() {
           next.set('tab', 'operaciones');
           return next;
         }, { replace: true })}
+      />
+      <ClasesDePruebaDialog
+        open={showClasesPrueba}
+        onOpenChange={setShowClasesPrueba}
+        schoolId={schoolId}
+        onPagado={fetchPayments}
       />
       <ApprovePaymentMethodSheet
         open={!!paymentToApprove}

@@ -69,6 +69,7 @@ export const ETIQUETA_CATEGORIA: Record<string, string> = {
     excedente: 'Horas adicionales',
     vacacional: 'Vacacional',
     viaje: 'Viaje',
+    clase_prueba: 'Clase de prueba',
     otro: 'Otro cobro',
 };
 

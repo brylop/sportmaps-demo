@@ -205,6 +205,7 @@ const SaasInvoiceReceiptPage = lazy(() => import("./pages/SaasInvoiceReceiptPage
 const AdminActivityLogsPage = lazy(() => import("./pages/AdminActivityLogsPage"));
 const PayrollConfigPage = lazy(() => import("./pages/admin/PayrollConfigPage"));
 const AdminAccessLogsPage = lazy(() => import("./pages/AdminAccessLogsPage"));
+const AdminWhatsAppPlataformaPage = lazy(() => import("./pages/admin/AdminWhatsAppPlataformaPage"));
 const AthleteCardPublicPage = lazy(() => import("./pages/AthleteCardPublicPage"));
 const CobroPublicoPage = lazy(() => import("./pages/CobroPublicoPage"));
 // Pizarra: jugada compartida por enlace (pública) y pizarra libre sin sesión.
@@ -1261,6 +1262,11 @@ const App = () => (
                       <Route path="admin/access-logs" element={
                         <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
                           <AdminAccessLogsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/whatsapp" element={
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                          <AdminWhatsAppPlataformaPage />
                         </ProtectedRoute>
                       } />
                       <Route path="admin/marketplace/moderation" element={
