@@ -516,4 +516,34 @@ describe('aprobar', () => {
         expect(await aprobarCampana({ schoolId: 'otra-escuela', campanaId: CAMP, por: 'x', declaracionAceptada: true }))
             .toMatchObject({ ok: false, status: 404 });
     });
+
+    // Integración (2026-10-30): el conteo previsto usa el MISMO filtro que wa_campana_aprobar (M3).
+    it('el conteo previsto deja fuera lo mismo que la RPC: baja, número bloqueado y contacto personal', async () => {
+        const reciente = iso(MARTES_10AM, -864e5);
+        db.t.whatsapp_audiencia.push(
+            { integration_id: INTEG, contact_wa_id: 'baja', intereses: ['clinica'], branch_id: null, excluido: null, ultimo_entrante_at: reciente },
+            { integration_id: INTEG, contact_wa_id: 'bloq', intereses: ['clinica'], branch_id: null, excluido: null, ultimo_entrante_at: reciente },
+            { integration_id: INTEG, contact_wa_id: 'tia', intereses: ['clinica'], branch_id: null, excluido: null, ultimo_entrante_at: reciente },
+        );
+        db.t.whatsapp_optins.push({ integration_id: INTEG, contact_wa_id: 'baja', opted_in_at: null, opted_out_at: reciente });
+        db.t.whatsapp_blocked_numbers = [{ integration_id: null, contact_wa_id: 'bloq' }];
+        db.t.whatsapp_conversations.push({ id: 'conv-tia', integration_id: INTEG, contact_wa_id: 'tia', contact_kind: 'personal' });
+        expect(await simularCampana(ESC, CAMP)).toMatchObject({ ok: true, conteo: { total: 2 } });
+    });
+
+    it('con base opt-in no se aplica la antigüedad (igual que la RPC): cuenta quien tiene opt-in vigente', async () => {
+        db.t.whatsapp_campanas_ajustes[0].base_consentimiento = 'optin';
+        db.t.whatsapp_audiencia[0].ultimo_entrante_at = iso(MARTES_10AM, -400 * 864e5);   // escribió hace 400 días
+        db.t.whatsapp_optins.push(
+            { integration_id: INTEG, contact_wa_id: 'a', opted_in_at: iso(MARTES_10AM, -500 * 864e5), opted_out_at: null },
+            { integration_id: INTEG, contact_wa_id: 'b', opted_in_at: iso(MARTES_10AM, -10 * 864e5), opted_out_at: iso(MARTES_10AM, -864e5) },
+        );
+        expect(await simularCampana(ESC, CAMP)).toMatchObject({ ok: true, conteo: { total: 1 } });
+    });
+
+    it('nadie cumple el filtro: la RPC devuelve 0 y la aprobación no es un éxito', async () => {
+        for (const f of db.t.whatsapp_audiencia) f.excluido = 'familia';
+        expect(await aprobarCampana({ schoolId: ESC, campanaId: CAMP, por: 'admin-1', declaracionAceptada: true }))
+            .toMatchObject({ ok: false, status: 409, error: 'sin_destinatarios' });
+    });
 });

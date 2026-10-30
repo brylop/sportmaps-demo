@@ -730,16 +730,17 @@ async function tickDeCampana(
         return saltar(r, 'error_lote');
     }
     const lote = ((tomados as EnvioFila[] | null) ?? []).filter((e) => e && e.id && e.contact_wa_id);
-    if (c.estado === 'aprobada') {
-        await supabase.from('whatsapp_campanas').update({ estado: 'enviando', updated_at: ahoraIso }).eq('id', c.id);
-    }
+    // aprobada → enviando lo hace la RPC bajo su candado (M3): repetirlo aquí con el
+    // estado leído al inicio del tick despausaba una campaña pausada a mitad del tick.
     if (lote.length) await enviarLote(c, integ, ajustes, plantilla, lote, ahoraMs, r);
 
     // 10. ¿Terminó? Sin pendientes ni tomados.
     const quedan = await contar(supabase.from('whatsapp_campana_envios').select('id', { count: 'exact', head: true })
         .eq('campana_id', c.id).in('estado', ['pendiente', 'enviando']));
     if (quedan === 0) {
-        await supabase.from('whatsapp_campanas').update({ estado: 'terminada', updated_at: ahoraIso }).eq('id', c.id);
+        // Solo desde aprobada/enviando: nunca encima de una pausa o una cancelación.
+        await supabase.from('whatsapp_campanas').update({ estado: 'terminada', updated_at: ahoraIso })
+            .eq('id', c.id).in('estado', ['aprobada', 'enviando']);
         r.terminadas++;
     }
 }
@@ -939,36 +940,61 @@ export function filtroCoincide(f: Pick<FilaAudiencia, 'intereses' | 'branch_id'>
     return true;
 }
 
+/** Tipos de contacto que nunca reciben una campaña (los mismos que excluye `wa_campana_aprobar`). */
+const TIPOS_SIN_CAMPANA = ['personal', 'negocio', 'otro_club', 'plataforma', 'staff', 'familia', 'familia_sin_cuenta'];
+
 /**
- * Las filas vigentes de la audiencia (sin exclusión, dentro de la antigüedad;
- * con base 'optin', solo quien tiene opt-in vigente). Lectura paginada de una
- * tabla propia: no toca `whatsapp_messages`.
+ * Las filas vigentes de la audiencia, con el MISMO filtro que `wa_campana_aprobar`
+ * (M3), para que el conteo previsto sea lo que se aprueba: sin exclusión; la
+ * antigüedad solo con base 'contacto_previo_declarado'; con base 'optin', solo
+ * opt-in vigente (`opted_in_at` y sin `opted_out_at`); en las dos bases, fuera
+ * quien se dio de baja, los números bloqueados y los contactos marcados como
+ * personales, negocio, otro club, plataforma, staff o familia. Lectura paginada
+ * de tablas propias: no toca `whatsapp_messages`.
  */
 export async function audienciaVigente(integrationId: string, ajustes: AjustesCampanas, ahora = Date.now()): Promise<FilaAudiencia[]> {
     const desde = new Date(ahora - ajustes.antiguedadMaxDias * 24 * 3600_000).toISOString();
+    const declarada = ajustes.baseConsentimiento === 'contacto_previo_declarado';
     const filas: FilaAudiencia[] = [];
     for (let desdeFila = 0; desdeFila < 50_000; desdeFila += 1000) {
-        const { data, error } = await supabase.from('whatsapp_audiencia')
+        let q = supabase.from('whatsapp_audiencia')
             .select('contact_wa_id, intereses, branch_id, ultimo_entrante_at')
-            .eq('integration_id', integrationId).is('excluido', null).gte('ultimo_entrante_at', desde)
+            .eq('integration_id', integrationId).is('excluido', null);
+        if (declarada) q = q.gte('ultimo_entrante_at', desde);
+        const { data, error } = await q
             .order('contact_wa_id', { ascending: true })
             .range(desdeFila, desdeFila + 999);
         if (error || !Array.isArray(data)) break;
         filas.push(...(data as FilaAudiencia[]));
         if (data.length < 1000) break;
     }
-    if (ajustes.baseConsentimiento !== 'optin' || filas.length === 0) return filas;
+    if (filas.length === 0) return filas;
 
     const conOptin = new Set<string>();
+    const fuera = new Set<string>();
     for (let i = 0; i < filas.length; i += 500) {
         const lote = filas.slice(i, i + 500).map((f) => f.contact_wa_id);
-        const { data } = await supabase.from('whatsapp_optins').select('contact_wa_id, opted_in_at, opted_out_at')
-            .eq('integration_id', integrationId).in('contact_wa_id', lote);
-        for (const o of (data as any[]) ?? []) {
-            if (o.opted_in_at && (!o.opted_out_at || new Date(o.opted_out_at) < new Date(o.opted_in_at))) conOptin.add(String(o.contact_wa_id));
+        const [optins, conversaciones, bloqueados] = await Promise.all([
+            supabase.from('whatsapp_optins').select('contact_wa_id, opted_in_at, opted_out_at')
+                .eq('integration_id', integrationId).in('contact_wa_id', lote),
+            supabase.from('whatsapp_conversations').select('contact_wa_id, contact_kind')
+                .eq('integration_id', integrationId).in('contact_wa_id', lote),
+            supabase.from('whatsapp_blocked_numbers').select('contact_wa_id, integration_id')
+                .in('contact_wa_id', lote),
+        ]);
+        for (const o of ((optins as any)?.data as any[]) ?? []) {
+            if (o.opted_out_at) fuera.add(String(o.contact_wa_id));
+            else if (o.opted_in_at) conOptin.add(String(o.contact_wa_id));
+        }
+        for (const c of ((conversaciones as any)?.data as any[]) ?? []) {
+            if (TIPOS_SIN_CAMPANA.includes(String(c.contact_kind ?? ''))) fuera.add(String(c.contact_wa_id));
+        }
+        for (const b of ((bloqueados as any)?.data as any[]) ?? []) {
+            if (b.integration_id == null || b.integration_id === integrationId) fuera.add(String(b.contact_wa_id));
         }
     }
-    return filas.filter((f) => conOptin.has(f.contact_wa_id));
+    return filas.filter((f) => !fuera.has(f.contact_wa_id)
+        && (ajustes.baseConsentimiento !== 'optin' || conOptin.has(f.contact_wa_id)));
 }
 
 export interface Conteo { total: number; porInteres: Record<string, number>; porSede: Record<string, number> }
@@ -1099,7 +1125,9 @@ export async function aprobarCampana(p: {
         p_campana_id: campana.id, p_por: p.por, p_declaracion: declarada ? DECLARACION.version : VERSION_OPTIN,
     });
     if (error) return falla(409, 'no_se_pudo_aprobar', error.message);
-    return { ok: true, destinatarios: Number(data ?? 0) };
+    // 0 = nadie cumple el filtro: la RPC deja la campaña en borrador (no es un éxito).
+    if (!Number(data)) return falla(409, 'sin_destinatarios');
+    return { ok: true, destinatarios: Number(data) };
 }
 
 export async function pausarCampana(schoolId: string, campanaId: string): Promise<ResultadoOperacion> {

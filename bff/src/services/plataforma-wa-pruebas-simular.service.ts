@@ -488,6 +488,9 @@ const CUANDO_SALE: Record<ConceptoCobro, string> = {
     pago_recibido_otro_concepto: 'evento: pago aprobado de algo que no es mensualidad',
     comprobante_en_revision: 'evento: el comprobante quedó en revisión con la ventana de 24 h cerrada',
     recordatorio_clase_cortesia: 'víspera de la clase de prueba, con la ventana de 24 h cerrada',
+    recordatorio_clase_prueba: 'víspera de la clase de prueba del embudo (escuela con nombre «clase de prueba»), con la ventana cerrada',
+    clase_prueba_cupo_por_vencer: 'el cupo separado de la clase de prueba vence en ~2 h y la ventana ya cerró',
+    clase_prueba_reprogramada: 'la sesión de la clase de prueba se canceló (lluvia o el profe): elegir otro horario',
 };
 
 const normalizarNombre = (s: string) => s.trim().toLowerCase().normalize('NFD').replace(/\p{M}/gu, '')
@@ -529,7 +532,7 @@ function datosDeEjemplo(escuela: string, ahora: number): DatosCobro {
         periodo: `${mes} ${d.getUTCFullYear()}`, fechaVencimiento: `5 de ${mes}`, monto: '$150.000', diasVencido: 7,
         montoAbono: '$50.000', saldoPendiente: '$100.000', motivo: 'el valor no coincide con el cobro',
         conceptoPago: 'Uniforme de competencia', dia: 'sábado 7 de noviembre', hora: '9:00 a. m.',
-        sede: 'la sede de la escuela',
+        sede: 'la sede de la escuela', vence: 'hoy a las 4:45 p. m.',
     };
 }
 

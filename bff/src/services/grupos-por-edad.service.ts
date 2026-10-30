@@ -79,9 +79,9 @@ export interface RangoGrupo {
     /** Años de nacimiento que recibe (`school_categories.birth_year_min/max`). null = sin límite de ese lado. */
     anioMin?: number | null;
     anioMax?: number | null;
-    /** Entrenadores: `team_coaches.coach_id` ∪ `teams.coach_id`. */
+    /** Entrenadores: `team_coaches.coach_id` ∪ `teams.coach_id` (ids de `school_staff`, NO de profiles). */
     coachIds?: string[];
-    /** Sus nombres (`profiles.full_name`), solo los que lo tienen. */
+    /** Sus nombres (`school_staff.full_name`, solo staff activo y con nombre). */
     coachNombres?: string[];
     /** `teams.recibe_clase_prueba` (mig. M1). Sin la columna = true. */
     recibeClasePrueba?: boolean;
@@ -617,7 +617,9 @@ function faltaColumna(error: any, columna: string): boolean {
 
 /**
  * Entrenadores de cada equipo (team_coaches ∪ teams.coach_id) con su nombre.
- * Dos lecturas por lote, sin N+1. Nunca lanza: si falla, solo coach_id.
+ * Esos coach_id son ids de `school_staff` (no de profiles): el nombre sale de la
+ * ficha del staff activo, igual que `profesDeStaff` de la agenda. Dos lecturas
+ * por lote, sin N+1. Nunca lanza: si falla, solo coach_id.
  */
 async function entrenadoresDeEquipos(equipos: any[]): Promise<Map<string, { ids: string[]; nombres: string[] }>> {
     const porEquipo = new Map<string, Set<string>>();
@@ -633,11 +635,15 @@ async function entrenadoresDeEquipos(equipos: any[]): Promise<Map<string, { ids:
     const todos = [...new Set([...porEquipo.values()].flatMap((s) => [...s]))];
     const nombres = new Map<string, string>();
     try {
-        const perfiles = await porLotes(todos, async (lote) => {
-            const { data } = await supabase.from('profiles').select('id, full_name').in('id', lote);
+        const staff = await porLotes(todos, async (lote) => {
+            const { data } = await supabase.from('school_staff').select('id, full_name, status').in('id', lote);
             return (data ?? []) as any[];
         });
-        for (const p of perfiles) if (p?.id && String(p.full_name ?? '').trim()) nombres.set(String(p.id), String(p.full_name).trim());
+        for (const p of staff) {
+            if (p?.id && (p.status == null || p.status === 'active') && String(p.full_name ?? '').trim()) {
+                nombres.set(String(p.id), String(p.full_name).trim());
+            }
+        }
     } catch { /* sin nombres */ }
     return new Map([...porEquipo.entries()].map(([teamId, s]) => {
         const ids = [...s];

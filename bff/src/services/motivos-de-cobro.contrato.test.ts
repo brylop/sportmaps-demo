@@ -50,6 +50,28 @@ describe('contrato: catálogo único = base = frontend', () => {
         const ts = readFileSync(espejo, 'utf8');
         for (const c of CLAVES_MOTIVO) expect(ts).toContain(`'${c}'`);
     });
+
+    // Integración (2026-10-30): BFF = frontend = CHECK, clave por clave y en el
+    // mismo orden, con la misma etiqueta, rótulo corto y plural, y los mismos
+    // tipos de servicio. El frontend no se importa (otro paquete): se lee su fuente.
+    it('el espejo del frontend = el catálogo del BFF = el último CHECK (orden, etiqueta, corta, plural, servicio)', () => {
+        const ts = readFileSync(espejo, 'utf8');
+        const lista = ts.match(/export const CLAVES_MOTIVO = \[([\s\S]*?)\] as const;/);
+        expect(lista).not.toBeNull();
+        const clavesFront = [...lista![1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+        expect(clavesFront).toEqual([...CLAVES_MOTIVO]);
+        expect([...clavesFront].sort()).toEqual([...new Set(valoresDelUltimoCheck('payments_payment_category_check'))].sort());
+        const deFront = new Map<string, { etiqueta: string; corta: string; plural: string; servicio: boolean }>();
+        for (const m of ts.matchAll(/\{ clave: '([a-z_]+)', etiqueta: '([^']*)', corta: '([^']*)', plural: '([^']*)'[^\n]*?servicio: (null|\{)/g)) {
+            deFront.set(m[1], { etiqueta: m[2], corta: m[3], plural: m[4], servicio: m[5] !== 'null' });
+        }
+        expect([...deFront.keys()]).toEqual([...CLAVES_MOTIVO]);
+        for (const m of MOTIVOS) {
+            expect({ clave: m.clave, ...deFront.get(m.clave) }).toEqual({
+                clave: m.clave, etiqueta: m.etiqueta, corta: m.corta, plural: m.plural, servicio: m.seCobraPorItem,
+            });
+        }
+    });
 });
 
 describe('cada motivo', () => {

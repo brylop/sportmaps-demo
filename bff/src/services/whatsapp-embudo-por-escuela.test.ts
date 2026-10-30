@@ -93,7 +93,8 @@ import { handleBotTurn } from '../routes/whatsapp';
 import { ajustesWhatsAppDeEscuela, embudoActivo } from './whatsapp-ajustes-escuela.service';
 import { iniciarEmbudo, atenderTurnoEmbudo, depsEmbudoDeSupabase, type CtxEmbudo } from './whatsapp-embudo-prospecto';
 import { BOTON_PUERTA } from './whatsapp-puerta-desconocido';
-import { BOTON, _olvidarReservasDePaso } from './whatsapp-bot.service';
+import { BOTON, _olvidarReservasDePaso, seguimientoQueContesta, claseConValor, lineaPrimeraClase } from './whatsapp-bot.service';
+import { textosDeClase } from './textos-clase-prueba';
 
 const INTEGRATION = { id: 'int-1', school_id: 'school-1' } as any;
 const CONV = 'conv-1';
@@ -295,5 +296,81 @@ describe('el motor con las lecturas reales (depsEmbudoDeSupabase)', () => {
             '🟡 Sede Norte · Calle 201 #67-12\n⚫ Sede Suba · Calle 152 #94A-67');
         expect(enviados[0].botones.map((b: any) => b.title)).toEqual(['🟡 Sede Norte', '⚫ Sede Suba', 'Ya soy del club']);
         expect(enviados[0].estado).toEqual({ paso: 'sede', datos: {} });
+    });
+});
+
+// ─── Integración (2026-10-30): el embudo cableado en el bot ──────────────────
+describe('Monster con el bot cableado: el embudo reemplaza la cortesía, la puerta y el saludo', () => {
+    const IDS_BIENVENIDA = [`sm_em_sede:${NORTE}`, `sm_em_sede:${SUBA}`, BOTON_PUERTA.CLUB];
+
+    it('«quiero información»: SU bienvenida con sedes (emojis de la escuela intactos), step del freno de 30 días', async () => {
+        const r = await respuesta('monster', 'Hola, quiero información de las clases para mi hija');
+        expect(r).toHaveLength(1);
+        expect(r[0]).toMatchObject({ step: 'desconocido_tema_escolar', flujo: 'embudo' });
+        expect(r[0].botones.map((b: any) => b.id)).toEqual(IDS_BIENVENIDA);
+        // La bienvenida trae 5 emojis y el del voleibol: deliver no se los recorta.
+        expect(r[0].texto).toContain('Bienvenid@ a Club Monsters Volley 🏐⚡');
+        expect(r[0].texto).toContain('🟡 Sede Norte · Calle 201 #67-12');
+        expect(r[0].texto).toContain('⚫ Sede Suba · Calle 152 #94A-67');
+        expect(r[0].texto).not.toMatch(/gratis|cortes[ií]a/i);
+    });
+
+    it('el «Hola» suelto de un número nuevo recibe la bienvenida del embudo (sin la variable de entorno)', async () => {
+        const r = await respuesta('monster', 'Hola');
+        expect(r).toHaveLength(1);
+        expect(r[0]).toMatchObject({ step: 'desconocido_tema_escolar', flujo: 'embudo' });
+        expect(r[0].botones.map((b: any) => b.id)).toEqual(IDS_BIENVENIDA);
+    });
+
+    it('una consulta sin tema (camino de identificación) recibe el embudo en vez de la puerta de 3 botones', async () => {
+        const r = await respuesta('monster', 'Buenas, una consulta sobre lo del fin de semana', { atender: true });
+        expect(r).toHaveLength(1);
+        expect(r[0]).toMatchObject({ step: 'desconocido_tema_escolar', flujo: 'embudo' });
+        expect(JSON.stringify(r)).not.toContain('puerta_desconocido');
+    });
+
+    it('tocar «Sede Norte» sigue el flujo: la primera pregunta de la escuela', async () => {
+        const bienvenida: Fila = {
+            wa_message_id: 'wamid.b', direction: 'outbound', text_body: '¡Hola! ¿cuál sede?', ai_generated: true, created_at: hace(60),
+            payload: { step: 'desconocido_tema_escolar', flujo: 'embudo', paso_embudo: 'sede', datos_embudo: {} },
+        };
+        const r = await respuesta('monster', '🟡 Sede Norte', { botonId: `sm_em_sede:${NORTE}`, previos: [bienvenida] });
+        expect(r).toHaveLength(1);
+        expect(r[0]).toMatchObject({ step: 'embudo_pregunta', flujo: 'embudo' });
+        expect(r[0].texto).toContain('¿Cuál es el nombre completo del deportista?');
+    });
+
+    it('B6: con el modo discreto global prendido, Monster («no») recibe el embudo y Dynasty («global») sigue callada', async () => {
+        const antes = process.env.WHATSAPP_MODO_DISCRETO;
+        process.env.WHATSAPP_MODO_DISCRETO = 'true';
+        try {
+            const monster = await respuesta('monster', 'Buenas, una consulta sobre lo del fin de semana', { atender: true });
+            expect(monster).toHaveLength(1);
+            expect(monster[0]).toMatchObject({ flujo: 'embudo' });
+            const dynasty = await respuesta('columnas_null', 'Buenas, una consulta sobre lo del fin de semana', { atender: true });
+            expect(dynasty).toEqual([]);
+        } finally {
+            process.env.WHATSAPP_MODO_DISCRETO = antes;
+        }
+    });
+});
+
+describe('textos de la clase en el bot (B3) y respuesta a la campaña (B5 T7)', () => {
+    it('por defecto, los literales de siempre; con valor, nunca «gratis»', () => {
+        expect(claseConValor()).toBe('*clase de cortesía* gratis');
+        expect(lineaPrimeraClase()).toBe('\n\nLa primera clase es de *cortesía* (gratis): escríbeme el día que quieres venir y te muestro los horarios.');
+        const monster = textosDeClase({ nombre_clase: 'prueba', trial_price: 15000 });
+        expect(claseConValor(monster)).toBe('*clase de prueba* (*$15.000*)');
+        expect(lineaPrimeraClase(monster)).not.toMatch(/gratis|cortes[ií]a/i);
+        expect(lineaPrimeraClase(monster)).toContain('*$15.000*');
+    });
+
+    it('lo que escriben después de la plantilla de campaña o del «Sí» lo contesta el bot; el «Más adelante» no', () => {
+        const ahora = Date.now();
+        const saliente = (step: string) => ({ payload: { step }, text_body: 'Hola María 🏐', created_at: new Date(ahora - 3600_000).toISOString() });
+        expect(seguimientoQueContesta(saliente('campana'), ahora)).not.toBeNull();
+        expect(seguimientoQueContesta(saliente('campana_respuesta_si'), ahora)).not.toBeNull();
+        expect(seguimientoQueContesta(saliente('campana_respuesta_luego'), ahora)).toBeNull();
+        expect(seguimientoQueContesta(saliente('desconocido_tema_escolar'), ahora)).toBeNull();
     });
 });

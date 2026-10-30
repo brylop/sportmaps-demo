@@ -249,7 +249,8 @@ describe('franjasDeSupabase con la migración M1', () => {
         school_categories: [{ id: 'cat-u9', birth_year_min: 2013, birth_year_max: 2020, rama: 'Mixto', branch_id: 'suba' }],
         enrollments: [],
         team_coaches: [{ team_id: 'u9', coach_id: 'c2' }],
-        profiles: [{ id: 'c1', full_name: 'Iván Rojas' }, { id: 'c2', full_name: 'Laura Díaz' }],
+        // teams.coach_id y team_coaches.coach_id son ids de school_staff (Integración, 2026-10-30).
+        school_staff: [{ id: 'c1', full_name: 'Iván Rojas', status: 'active' }, { id: 'c2', full_name: 'Laura Díaz', status: 'active' }],
         school_branches: [{ name: 'Sede Suba', address: 'Cl. 145' }],
         facilities: [
             { id: 'p2', name: 'Parque Pinar de Suba 2', branch_id: 'suba', address: 'Cl. 145 #91-19', maps_url: 'https://maps.app.goo.gl/p2', indicaciones: 'Si llueve, te avisamos.' },

@@ -113,11 +113,8 @@ router.post('/:schoolId/cortesias/sincronizar-franjas', requireAuth, async (req:
             return res.json({ ok: true, reprogramadas, franjas: null, motivo: 'franjas_desde_entrenamientos_apagadas' });
         }
         const { sincronizarFranjasDeEscuela } = await import('../services/franjas-cortesia.service');
-        // `soloEquipo` llega con la versión de B3 del generador; la de hoy la ignora y sincroniza toda la escuela.
-        const opciones: Parameters<typeof sincronizarFranjasDeEscuela>[1] & { soloEquipo?: string } = {
-            aplicar: true, ...(teamId ? { soloEquipo: teamId } : {}),
-        };
-        const r = await sincronizarFranjasDeEscuela(schoolId, opciones);
+        // Con `teamId` solo se rehacen las franjas de ese equipo (B3: `soloEquipo`).
+        const r = await sincronizarFranjasDeEscuela(schoolId, { aplicar: true, soloEquipo: teamId });
         return res.json({
             ok: true, reprogramadas,
             franjas: { creadas: r.creadas, cerradas: r.cerradas, conservadasConReserva: r.conservadasConReserva.length, errores: r.errores.length },
