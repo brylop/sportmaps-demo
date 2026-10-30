@@ -189,6 +189,18 @@ describe('«¿Qué tan duro fue?» de la ficha vinculada', () => {
     expect(ops('performance_entries')).toContainEqual(['eq', ['subject_type', 'profile']]);
   });
 
+  it('la sesión que cerró el automático de las 23:55 sigue en plazo al día siguiente', async () => {
+    // finalized_at = hora del entreno (hace 2 días); updated_at = cierre real anoche.
+    s.filas.attendance_records = [{ session_id: 's-auto', attendance_date: '2026-10-24', user_id: YO, unregistered_athlete_id: null }];
+    s.filas.attendance_sessions = [{
+      ...sesion('s-auto'), session_date: '2026-10-24',
+      finalized_at: '2026-10-25T04:59:00Z', updated_at: '2026-10-26T04:55:00Z',
+    }];
+    expect(await cargarAutoevalPendiente(YO, AHORA, [])).toMatchObject({ sessionId: 's-auto' });
+    // Pasado el día siguiente, ya no.
+    expect(await cargarAutoevalPendiente(YO, new Date('2026-10-27T05:00:00Z'), [])).toBeNull();
+  });
+
   it('una ficha que no es suya no genera tarjeta', async () => {
     s.filas.attendance_records = [{ session_id: 's2', attendance_date: '2026-10-26', user_id: null, unregistered_athlete_id: FICHA2 }];
     s.filas.attendance_sessions = [sesion('s2')];

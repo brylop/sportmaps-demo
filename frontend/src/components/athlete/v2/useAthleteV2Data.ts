@@ -12,7 +12,7 @@
  *  · Felicitación→ list_kudos (B1) vía lib/api/v2Contratos.
  *  · Informes    → misInformesDeportista (B4) vía lib/api/v2Contratos.
  *    En las tres, `noDisponible` (RPC aún sin aplicar) → `oculto`: la sección no se pinta.
- *  · Autoevaluación pendiente → sesión cerrada hace < 24 h a la que vino (él o su ficha), sin
+ *  · Autoevaluación pendiente → sesión cerrada y en plazo (fin del día siguiente) a la que vino (él o su ficha), sin
  *                  `rpe_borg` guardado (mismas reglas que submit_post_training_self_eval).
  *  · Plan del mes→ `training_mesocycles` (hoy su RLS es solo de staff: vacío → se oculta).
  *
@@ -20,6 +20,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { calcEarlyPaymentDiscount } from '@/lib/earlyPaymentDiscount';
+import { plazoAutoeval } from '@/lib/postEntrenoAutoeval';
 import { isOneTimeCategory } from '@/lib/payment-accounts';
 import { getMyOpenTournaments, type OpenTournament } from '@/lib/api/tournaments';
 import { leerFranjas, type Franja } from '@/components/parent/v2/parentHomeLogic';
@@ -327,7 +328,7 @@ export interface AutoevalPendiente {
 export const autoevalKey = (userId: string | undefined) => ['athlete-v2-autoeval', userId];
 
 /**
- * La sesión más reciente que (a) cerró hace menos de 24 h, (b) él vino
+ * La sesión más reciente que (a) sigue en plazo (hasta el fin del día siguiente al cierre, plazoAutoeval), (b) él vino
  * (present/late) y (c) todavía no tiene su «¿Qué tan duro fue?». Son las mismas
  * condiciones que exige la RPC: si no se cumplen, la tarjeta no sale.
  *
@@ -360,14 +361,18 @@ export async function cargarAutoevalPendiente(userId: string, ahora = new Date()
 
   const { data: ses, error: sErr } = await db
     .from('attendance_sessions')
-    .select('id, session_date, finalized, finalized_at, teams(name), schools(category_id)')
+    .select('id, session_date, finalized, finalized_at, updated_at, teams(name), schools(category_id)')
     .in('id', ids);
   if (sErr) throw sErr;
   const vigentes = ((ses ?? []) as {
-    id: string; session_date: string; finalized: boolean | null; finalized_at: string | null;
+    id: string; session_date: string; finalized: boolean | null; finalized_at: string | null; updated_at?: string | null;
     teams: { name: string | null } | null; schools: { category_id: string | null } | null;
   }[])
-    .filter((s) => s.finalized === true && (!s.finalized_at || ahora.getTime() - new Date(s.finalized_at).getTime() < 24 * 3_600_000))
+    .filter((s) => {
+      if (s.finalized !== true) return false;
+      const plazo = plazoAutoeval(s.finalized_at, s.updated_at);
+      return !plazo || ahora < plazo;
+    })
     .sort((a, b) => (a.session_date < b.session_date ? 1 : -1));
 
   for (const s of vigentes) {
