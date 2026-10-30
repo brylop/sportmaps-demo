@@ -184,7 +184,12 @@ export default function WhatsAppPage() {
         setConectando(true);
         try {
             const res = await bffClient.post<{ display_phone_number: string | null; coexistence: boolean }>(
-                `/api/v1/whatsapp/${schoolId}/conectar`, { code: r.code, sesion: r.sesion?.data ?? null });
+                `/api/v1/whatsapp/${schoolId}/conectar`, {
+                    code: r.code,
+                    // `event` dice si fue Coexistence (y con eso el BFF pide el
+                    // historial); antes solo iba `data` y el BFF nunca lo veía.
+                    sesion: r.sesion?.data ? { event: r.sesion.event, ...r.sesion.data } : null,
+                });
             toast({
                 title: 'WhatsApp conectado',
                 description: res.coexistence
