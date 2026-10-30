@@ -1,6 +1,6 @@
 # Cambio de plan y cobros abiertos («No asistió»)
 
-Estado: construido 2026-10-29 · Migración `20261029161649_cobros_abiertos_no_asistio_y_cambio_plan`
+Estado: construido 2026-10-29 · Migraciones `20261029161649_cobros_abiertos_no_asistio_y_cambio_plan` + `20261029190004_cobros_abiertos_tabla_propia_y_quitar_policy`
 
 ## Problema
 
@@ -27,9 +27,9 @@ Caso real (Besser, Isabella Alfonso, 2026-10-29): la deportista no fue en septie
 
 ### Base (migración `20261029161649`)
 
-- **`payment_adjustments`** — historial: `kind` ∈ `anulado_no_asistio` | `valor_cambio_plan`, monto antes/después, estado anterior, motivo, quién y cuándo. RLS: se ve si se ve el cobro (`EXISTS` sobre `payments`, que aplica su propia RLS). Solo escribe la RPC.
+- **`payment_corrections`** — historial: `kind` ∈ `anulado_no_asistio` | `valor_cambio_plan`, monto antes/después, estado anterior, motivo, quién y cuándo. RLS: finanzas de la escuela (`finance_read_school_ids()`) + la familia dueña del cobro. Solo escribe la RPC. **No confundir con `payment_adjustments`** (descuentos de cobros múltiples): la 161649 intentó crear esa tabla con `IF NOT EXISTS`, no hizo nada y le sumó una policy abierta; la 190004 la quitó y movió esto a tabla propia.
 - **`cobros_abiertos_de_inscripcion(p_enrollment_id)`** — lectura, solo `is_school_admin`. Mensualidades abiertas (`pending/overdue/partial/awaiting_approval`) del atleta con: asistencias del mes (`present/late`), días con lista del equipo, valor sugerido, `puede_anular`, y `escuela_toma_lista` (alguna lista en 90 días).
-- **`resolver_cobros_abiertos(p_enrollment_id, p_decisiones, p_motivo)`** — escritura, solo `is_school_admin`. `p_decisiones = [{payment_id, accion: 'anular'|'valor', monto}]`. Bloquea cada cobro con `FOR UPDATE` en orden fijo, revalida bajo el candado (si otro admin lo movió, aborta todo), escribe `payment_adjustments` y manda **un** aviso (`notifications`, categoría `payment`, link `/my-payments`).
+- **`resolver_cobros_abiertos(p_enrollment_id, p_decisiones, p_motivo)`** — escritura, solo `is_school_admin`. `p_decisiones = [{payment_id, accion: 'anular'|'valor', monto}]`. Bloquea cada cobro con `FOR UPDATE` en orden fijo, revalida bajo el candado (si otro admin lo movió, aborta todo), escribe `payment_corrections` y manda **un** aviso (`notifications`, categoría `payment`, link `/my-payments`).
 - **Que el mes anulado no se vuelva a cobrar:** un cobro `cancelled` no bloquea a `open_month`. Por eso se inserta una fila aprobada en `enrollment_pause_requests` con `reason = 'no_asistio'` y `resumed_at = inicio del mes`. Efecto:
   - `enrollment_pausada_en` / `open_month` → el mes queda exento (la lectura mensual acepta `resumed_at` dentro del mes).
   - `v_enrollment_pauses_effective` → ventana de días **vacía**: no saca del roster ni pinta «en pausa».

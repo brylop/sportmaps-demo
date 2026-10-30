@@ -46,7 +46,7 @@ export interface Transaction {
   last_failure_reason?: string | null;
   last_failure_at?: string | null;
   requires_review?: boolean | null;
-  /** Último ajuste de la escuela sobre el cobro (payment_adjustments). */
+  /** Último ajuste de la escuela sobre el cobro (payment_corrections). */
   ajuste_kind?: 'anulado_no_asistio' | 'valor_cambio_plan' | null;
   ajuste_antes?: number | null;
   ajuste_motivo?: string | null;
