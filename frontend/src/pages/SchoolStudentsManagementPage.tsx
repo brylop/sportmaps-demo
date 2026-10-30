@@ -15,6 +15,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { PlanChangeDialog, fetchPlanChangePreview, type PlanChangePreview, type PlanChangeChargeMode } from '@/components/students/PlanChangeDialog';
+import { PlanCombobox } from '@/components/students/PlanCombobox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -394,7 +395,8 @@ export default function SchoolStudentsManagementPage() {
         .select('id, name, price, offering_id, offerings!offering_plans_offering_id_fkey(name)')
         .eq('school_id', schoolId)
         .eq('is_active', true)
-        .order('name');
+        .order('sort_order')
+        .order('created_at');
       if (error) return [];
       return (data || []).map((p: any) => ({
         id: p.id,
@@ -2211,10 +2213,12 @@ export default function SchoolStudentsManagementPage() {
                 <div className="space-y-3">
                   <div className="space-y-2">
                     <Label>Plan</Label>
-                    <Select
+                    <PlanCombobox
+                      plans={offeringPlans}
+                      noneValue="__none__"
                       disabled={editingIsInactive}
                       value={form.watch('offering_plan_id') || '__none__'}
-                      onValueChange={(val) => {
+                      onChange={(val) => {
                         const v = val === '__none__' ? '' : val;
                         form.setValue('offering_plan_id', v);
                         const p = offeringPlans.find(p => p.id === v);
@@ -2229,17 +2233,7 @@ export default function SchoolStudentsManagementPage() {
                           form.setValue('team_monthly_fee' as any, t?.monthly_fee ?? 0);
                         }
                       }}
-                    >
-                      <SelectTrigger><SelectValue placeholder="Sin plan" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">Sin plan</SelectItem>
-                        {offeringPlans.map(p => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.offering_name ? `${p.offering_name} — ` : ''}{p.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    />
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">Fecha de inscripción</Label>
