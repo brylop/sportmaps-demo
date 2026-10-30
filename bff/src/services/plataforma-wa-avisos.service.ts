@@ -19,7 +19,7 @@
  */
 
 import {
-    avisarPorPlataforma, nombreDeEscuela, plataformaHabilitada, type AvisoPlataforma, type ResultadoAviso,
+    avisarPorPlataforma, nombreDeEscuela, canalHabilitado, type AvisoPlataforma, type ResultadoAviso,
 } from './plataforma-wa.service';
 
 export const PLANTILLAS_PLATAFORMA = {
@@ -44,7 +44,7 @@ export function espera(ms: number): string {
 
 /** Envuelve: nunca lanza y no hace nada con el flag apagado. */
 async function despachar(armar: () => Promise<AvisoPlataforma | null>): Promise<ResultadoAviso | null> {
-    if (!plataformaHabilitada()) return null;
+    if (!(await canalHabilitado())) return null;
     try {
         const a = await armar();
         return a ? await avisarPorPlataforma(a) : null;
@@ -55,7 +55,7 @@ async function despachar(armar: () => Promise<AvisoPlataforma | null>): Promise<
 }
 
 function enSegundoPlano(armar: () => Promise<AvisoPlataforma | null>): void {
-    if (!plataformaHabilitada()) return;
+    // `despachar` revisa el interruptor (variable o base).
     void despachar(armar);
 }
 

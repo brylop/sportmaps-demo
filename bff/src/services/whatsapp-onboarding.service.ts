@@ -33,7 +33,7 @@ export type ResultadoAlta =
     | { ok: false; error: string; detalle?: string };
 
 /** Canjea el código de un solo uso por el token del negocio. */
-async function canjearCodigo(code: string): Promise<{ token: string } | { error: string }> {
+export async function canjearCodigo(code: string): Promise<{ token: string } | { error: string }> {
     const url = `${GRAPH}/oauth/access_token`
         + `?client_id=${encodeURIComponent(APP_ID)}`
         + `&client_secret=${encodeURIComponent(APP_SECRET)}`
@@ -56,7 +56,7 @@ async function canjearCodigo(code: string): Promise<{ token: string } | { error:
  * SIEMPRE contra Graph con el token recién canjeado — lo que el token alcanza
  * de verdad es lo único que vale.
  */
-async function resolverActivos(
+export async function resolverActivos(
     token: string,
     sesion: DatosDeSesion | null,
 ): Promise<{ wabaId: string; phoneNumberId: string; display: string | null } | { error: string }> {
@@ -82,7 +82,7 @@ async function resolverActivos(
 }
 
 /** Suscribe la app a los webhooks de ese WABA. Sin esto no llega un solo mensaje. */
-async function suscribirWebhooks(token: string, wabaId: string): Promise<boolean> {
+export async function suscribirWebhooks(token: string, wabaId: string): Promise<boolean> {
     const r = await fetch(`${GRAPH}/${wabaId}/subscribed_apps`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
