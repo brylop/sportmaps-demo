@@ -45,6 +45,7 @@ import {
   FirstPaymentModeSection, FirstPaymentChoice, DEFAULT_FIRST_PAYMENT_CHOICE,
 } from '@/components/students/FirstPaymentModeSection';
 import { formatCOP } from '@/lib/prorationUtils';
+import { PlanCombobox } from '@/components/students/PlanCombobox';
 import {
   AltaFirstChargeCard, FeeWaivers, feeWaiversPayload, defaultFeeWaivers,
 } from '@/components/students/AltaFirstChargeCard';
@@ -201,7 +202,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, ca
 
     Promise.all([
       supabase.from('teams').select('id, name, sport, price_monthly').eq('school_id', schoolId).eq('status', 'active').order('name'),
-      supabase.from('offering_plans').select('id, name, price, duration_days, registration_fee, insurance_fee, offering_id, offerings(id, name)').eq('school_id', schoolId).eq('is_active', true).order('sort_order'),
+      supabase.from('offering_plans').select('id, name, price, duration_days, registration_fee, insurance_fee, offering_id, offerings(id, name)').eq('school_id', schoolId).eq('is_active', true).order('sort_order').order('created_at'),
       supabase.from('school_branches').select('id, name').eq('school_id', schoolId).order('name'),
       supabase.from('school_settings').select('payment_cutoff_day, billing_cycle_type, late_fee_skip_signup_month').eq('school_id', schoolId).maybeSingle(),
     ]).then(([teamsRes, plansRes, branchesRes, settingsRes]) => {
@@ -683,17 +684,13 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, ca
               <div>
                 <Label>Plan</Label>
                 <p className="text-[11px] text-muted-foreground mb-1">Independiente del equipo</p>
-                <Select value={selectedPlanId} onValueChange={handlePlanSelect}>
-                  <SelectTrigger><SelectValue placeholder="Sin plan" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Sin plan</SelectItem>
-                    {plans.map(p => (
-                      <SelectItem key={p.plan_id} value={p.plan_id}>
-                        {p.offering_name} — {p.plan_name} ({formatCOP(p.price)})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <PlanCombobox
+                  plans={plans.map(p => ({ id: p.plan_id, name: p.plan_name, offering_name: p.offering_name, price: p.price }))}
+                  value={selectedPlanId}
+                  onChange={handlePlanSelect}
+                  noneValue="none"
+                  showPrice
+                />
               </div>
             </div>
 
