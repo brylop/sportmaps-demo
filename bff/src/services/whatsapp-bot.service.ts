@@ -102,6 +102,7 @@ import {
     type FilaReciente, type ComprobanteAnunciado, type HorarioDeAtencion,
 } from './whatsapp-reglas-turno';
 import { atenderAusenciaEnBot } from './whatsapp-ausencias.service';
+import { modoDiscreto, escuelaActiva, escuelaActivaEn, revisarPendientesSinRespuesta } from './whatsapp-modo-discreto';
 import { ajustesWhatsAppDeEscuela, atencionPresencialDeEscuela, type AjustesWhatsAppEscuela } from './whatsapp-ajustes-escuela.service';
 import { mensajeSemanaDeCortesia } from './whatsapp-cortesia-semana.service';
 import { atenderTurnoVenta } from './whatsapp-venta-servicios.service';
@@ -254,7 +255,9 @@ async function cuerpoDelTurno(
     //     la escuela escribió en los últimos SILENCIO_HUMANO_MIN minutos, el bot
     //     no habla: solo deja la conversación abierta en el buzón, sin push (ella
     //     ya está ahí).
-    if (humanoReciente(recientes, SILENCIO_HUMANO_MIN)) {
+    //     Modo discreto (2026-10-29): la ventana es de 12 h y cuenta también sus
+    //     respuestas rápidas («Bienvenidos a Dynasty…»), ver `escritoPorLaEscuela`.
+    if (modoDiscreto() ? escuelaActivaEn(recientes) : humanoReciente(recientes, SILENCIO_HUMANO_MIN)) {
         console.info('[whatsapp-bot] la escuela está atendiendo; el bot se calla', { conversationId });
         await marcarAbiertaSinAviso(conversationId);
         return;
@@ -397,6 +400,21 @@ async function cuerpoDelTurno(
         return;
     }
 
+    // 2.34. Modo discreto: lo que va dirigido a una persona de la escuela («Mile…»,
+    //       «Hola Milena», «quiero hablar con alguien») lo contesta ella, que lo ve
+    //       en su celular: sin «Dejo tu mensaje para Milena» ni escalación (análisis
+    //       2026-10-29: 72 de 112 escalaciones del mes eran mensajes que ya le
+    //       hablaban por su nombre). Lo urgente sigue su camino.
+    if (modoDiscreto() && !botonId) {
+        const rafagaDiscreta = textoDeRafaga(recientes, text, waMessageId);
+        if (!incidenciaUrgente(rafagaDiscreta)
+            && pideALaPersona(rafagaDiscreta, await vocativosDeEscuela(integration.school_id))) {
+            console.info('[whatsapp-bot] modo discreto: le hablan a la escuela; lo contesta ella', { conversationId });
+            await marcarAbiertaSinAviso(conversationId);
+            return;
+        }
+    }
+
     // 2.35. «Clase de cortesía tienen», «¿puedo ir a probar?»: flujo
     //       determinista sin pasar por el modelo. El 2026-10-06 el modelo le
     //       contestó a una familia de Dynasty «no tengo esa información». La
@@ -461,6 +479,14 @@ async function cuerpoDelTurno(
     // última respuesta, hasta 3 min): el 64 % de los entrantes llega a menos de
     // 60 s del anterior, y lo típico es «Hola Milena» → «envío el pago de…».
     const rafaga = textoDeRafaga(recientes, text, waMessageId);
+
+    // Modo discreto: con la familia el bot hace lo suyo y nada más
+    // (`restoDelTurnoDiscreto`).
+    if (modoDiscreto()) {
+        await restoDelTurnoDiscreto({ integration, conversationId, contactWaId, parentId: conv.parent_id,
+            text, rafaga, recientes, waMessageId, botonId, ajustesEscuela });
+        return;
+    }
 
     // 2.6. P13 — «Gracias», «Ok», «👍» sueltos: no se contestan. Generaban
     //      «¡De nada! 😊 Si necesitas consultar algún pago…» a cada cierre.
@@ -577,6 +603,53 @@ async function cuerpoDelTurno(
 
     // 3. Identificado → intents con LLM.
     await handleIntent(integration, conversationId, contactWaId, conv.parent_id, text, waMessageId);
+}
+
+/**
+ * Modo discreto, familia identificada (análisis de las 604 conversaciones,
+ * 2026-10-29). Con la familia el bot hace TRES cosas: el comprobante (lo contesta
+ * la cola), la información pública (horario de hoy, cómo pagar) y lo que la
+ * escuela activó (ayuda de la app, ventas); además escala una incidencia urgente.
+ * Todo lo demás —retiros, ausencias, «quiero hablar con alguien», «ya pagué»,
+ * reclamos de valor, el modelo— lo contesta la escuela: lo ve en su celular, y
+ * si queda sin contestar lo recoge el aviso único de pendientes. Medido en el
+ * mes: el modelo con familias fue útil en la mitad de las conversaciones y dio
+ * cifras de cobros mal cargados ($180.000 donde la familia paga $150.000).
+ */
+async function restoDelTurnoDiscreto(t: {
+    integration: WhatsAppIntegration;
+    conversationId: string;
+    contactWaId: string;
+    parentId: string;
+    text: string;
+    rafaga: string;
+    recientes: FilaReciente[];
+    waMessageId: string;
+    botonId: string | null;
+    ajustesEscuela: AjustesWhatsAppEscuela;
+}): Promise<void> {
+    const { integration, conversationId, contactWaId, text, rafaga, botonId } = t;
+    if (!botonId && esCierreSuelto(text, await vocativosDeEscuela(integration.school_id))) return;
+
+    const urgencia = incidenciaUrgente(rafaga);
+    if (urgencia) {
+        await escalate(integration, conversationId, contactWaId, `incidencia_urgente:${urgencia}`,
+            { texto: rafaga, urgencia: 'urgente', categoria: urgencia });
+        return;
+    }
+    // El comprobante lo contesta la cola, y «te envío el comprobante» no necesita
+    // respuesta: la foto llega enseguida.
+    if (!botonId && (adjuntoEnLaRafaga(t.recientes, t.waMessageId) || await comprobanteEnColaDe(integration, contactWaId))) return;
+    if (anunciaComprobante(text) ?? anunciaComprobante(rafaga)) return;
+
+    if (await responderHorarioDeHoy(integration, conversationId, contactWaId, text, rafaga)) return;
+    if (!botonId && await responderComoPagarPublico(integration, conversationId, contactWaId, text, rafaga)) return;
+    if (await responderAyudaDeApp(integration, conversationId, contactWaId, rafaga, t.ajustesEscuela, true)) return;
+    if (t.ajustesEscuela.ventasHabilitadas && await atenderVentaEnBot(integration, conversationId, contactWaId,
+        t.parentId, text, botonId, true, t.ajustesEscuela)) return;
+
+    console.info('[whatsapp-bot] modo discreto: lo contesta la escuela', { conversationId });
+    await marcarAbiertaSinAviso(conversationId);
 }
 
 // ─── Estado reciente y reglas del turno (análisis 2026-10-06) ────────────────
@@ -1727,6 +1800,14 @@ async function identificarPorTelefono(
             return true;
         }
 
+        // Modo discreto: sin «Créala aquí» como respuesta a cualquier mensaje (una
+        // familia lo recibió 6 veces, a mensajes de cariño). El comprobante lo
+        // atiende la cola; lo demás lo ve la escuela.
+        if (modoDiscreto()) {
+            await marcarAbiertaSinAviso(conversationId);
+            return true;
+        }
+
         // UNA VEZ POR DIA, no en cada mensaje.
         //
         // Esto corre mientras la conversacion siga sin identificar, que para
@@ -1995,6 +2076,15 @@ async function handleIdentification(
         return 'resuelto';
     }
 
+    // Modo discreto: a un número sin ficha que no pidió nada de la escuela no se
+    // le manda el menú («¿Ya eres del club / Quiero información / Otro tema?»):
+    // en el celular de la dueña casi siempre es su vida personal (la hermana, un
+    // proveedor, otro club). Queda en el buzón sin push.
+    if (modoDiscreto()) {
+        await marcarAbiertaSinAviso(conversationId);
+        return 'resuelto';
+    }
+
     if (!(await reservarPasoUnaVez(conversationId, 'ask_email', 24))) return 'resuelto';
 
     // La PUERTA ÚNICA (conversación v2): el comodín ya no es «familia». Una sola
@@ -2120,6 +2210,13 @@ export async function abrirEnBuzon(
     const sim = simulacion.getStore();
     if (sim) {
         sim.push({ texto: '[se abre en el buzón y se avisa a la escuela]', step: null, botones: [] });
+        return;
+    }
+    // Modo discreto: sin un motivo explícito (interesado, puerta) no suena el
+    // celular: la escuela ya ve el mensaje en el suyo, y lo que quede sin
+    // contestar lo recoge el aviso único de pendientes.
+    if (modoDiscreto() && !aviso) {
+        await marcarAbiertaSinAviso(conversationId);
         return;
     }
     const { data: previa } = await supabase.from('whatsapp_conversations')
@@ -2646,7 +2743,8 @@ export async function atenderDesconocido(
                         ? '\n\nLa primera clase es de *cortesía* (gratis): escríbeme el día que quieres venir y te muestro los horarios.'
                         : '\n\nSi quieres inscribirte o tienes dudas, escríbelas por aquí y la escuela te responde.') +
                 (enlaceIns ? `\n\nPara inscribirte: ${enlaceIns}` : '') +
-                (inscribir ? '' : '\n\nSi ya eres familia de la escuela y quieres saber *tu* saldo, escríbeme el correo con el que estás registrado.'),
+                // Modo discreto: al interesado no se le pide el correo.
+                (inscribir || modoDiscreto() ? '' : '\n\nSi ya eres familia de la escuela y quieres saber *tu* saldo, escríbeme el correo con el que estás registrado.'),
                 { step: PASO_DESCONOCIDO_ESCOLAR, intencion: inscribir ? 'inscripcion' : 'precios', con_enlace: Boolean(semana || enlaceIns) });
             return 'precios';
         }
@@ -2783,23 +2881,27 @@ export async function atenderDesconocido(
     // desconocido ya parecen spam.
     if (tema === 'pagos' && preguntaPrecioComoProspecto(text)) {
         const enlaceCombinado = await enlaceDeInscripcion(integration.school_id);
-        const paraFamilias =
+        // Modo discreto: al interesado no se le pide el correo; va solo lo suyo.
+        const discreto = modoDiscreto();
+        const paraFamilias = discreto ? '' :
             'Si ya eres familia de la escuela, escríbeme el *correo electrónico* con el que estás ' +
-            'registrado y te envío un código para verificarte; así te digo el valor de tu mensualidad.';
+            'registrado y te envío un código para verificarte; así te digo el valor de tu mensualidad.\n\n';
+        const siNoInscrito = discreto ? '' : 'Si todavía no estás inscrito';
         const preciosCombinado = await preciosParaProspecto(integration.school_id, ajustesEscuela.responderPrecios);
         if (enlaceCombinado) {
             await deliver(integration, conversationId, contactWaId,
-                S + paraFamilias + '\n\n' +
-                (preciosCombinado ? `Si todavía no estás inscrito:\n\n${preciosCombinado}\n\n` : '') +
-                (preciosCombinado ? 'En este enlace puedes ' : 'Si todavía no estás inscrito, en este enlace ves los grupos y los valores, y puedes ') +
+                S + paraFamilias +
+                (preciosCombinado ? `${siNoInscrito ? `${siNoInscrito}:\n\n` : ''}${preciosCombinado}\n\n` : '') +
+                (preciosCombinado ? 'En este enlace puedes '
+                    : `${siNoInscrito ? `${siNoInscrito}, en` : 'En'} este enlace ves los grupos y los valores, y puedes `) +
                 `hacer la inscripción: ${enlaceCombinado}`,
                 { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'pagos_y_precio', con_enlace: true });
             return 'pagos_y_precio';
         }
         // Sin enlace: mismo criterio que el prospecto de abajo, al buzón y push.
         await deliver(integration, conversationId, contactWaId,
-            S + paraFamilias + '\n\n' +
-            'Si todavía no estás inscrito, ya le avisé a la escuela y alguien te responde por aquí ' +
+            S + paraFamilias +
+            `${siNoInscrito ? `${siNoInscrito}, ya` : 'Ya'} le avisé a la escuela y alguien te responde por aquí ` +
             'con la información de inscripción y valores.',
             { step: PASO_DESCONOCIDO_ESCOLAR, intencion: 'pagos_y_precio', con_enlace: false });
         await abrirEnBuzon(integration, conversationId, contactWaId, { motivo: 'prospecto' });
@@ -2814,6 +2916,16 @@ export async function atenderDesconocido(
             '¡Gracias! 🙌 Ya pasé tu mensaje a la escuela y alguien te responde por aquí.',
             { step: PASO_PROSPECTO_SEGUIMIENTO });
         return 'prospecto_seguimiento';
+    }
+
+    // Modo discreto: un número que la escuela no reconoce y habla de SUS cobros
+    // lo ubica la escuela; el bot no le pide el correo (análisis 2026-10-29: 132
+    // conversaciones con pedidos de correo o registro que sobraban, a la hermana
+    // de la dueña, a proveedores, a otros clubes).
+    if (tema === 'pagos' && modoDiscreto()) {
+        console.info('[whatsapp-bot] modo discreto: cobros de un número sin ficha; lo ve la escuela', { conversationId });
+        await marcarAbiertaSinAviso(conversationId);
+        return 'silencio';
     }
 
     if (tema === 'pagos') {
@@ -4366,6 +4478,9 @@ async function marcarLeidoElUltimoEntrante(integration: WhatsAppIntegration, con
     } catch { /* best-effort */ }
 }
 
+/** Lo único que sale aunque la escuela esté en la conversación (modo discreto): la baja. */
+const PASOS_CON_LA_ESCUELA_ACTIVA = new Set(['opt_out_confirmado', 'confirmar_baja', 'baja_mantenida']);
+
 export async function deliver(
     integration: WhatsAppIntegration,
     conversationId: string,
@@ -4418,6 +4533,18 @@ export async function deliver(
     if (await conversacionTomada(conversationId)) {
         console.info('[whatsapp-bot] conversación tomada por una persona: no se envía ni se deja borrador',
             { conversationId, step: (context as any)?.step ?? null });
+        return;
+    }
+    // Modo discreto (2026-10-29): si una persona de la escuela escribió en esta
+    // conversación en las últimas 12 h, no sale nada automático. Se vuelve a leer
+    // la base JUSTO antes de enviar: el turno revisa al empezar, pero el modelo
+    // tarda segundos y Milena puede escribir en el medio. La confirmación de una
+    // baja sí sale: es una instrucción al sistema, no una charla.
+    if (modoDiscreto() && !PASOS_CON_LA_ESCUELA_ACTIVA.has(String((context as any)?.step ?? ''))
+        && await escuelaActiva(conversationId)) {
+        console.info('[whatsapp-bot] modo discreto: la escuela escribió hace poco; no se envía',
+            { conversationId, step: (context as any)?.step ?? null });
+        await marcarAbiertaSinAviso(conversationId);
         return;
     }
 
@@ -5034,6 +5161,16 @@ async function escalate(
         ?? (esSolicitudDeRetiro(opciones.texto) || esSolicitudDeRetiro(motivoClasificable) ? 'retiro' : null);
     const retiro = tema === 'retiro' && !urgente;
 
+    // Modo discreto (2026-10-29): solo se escala lo urgente y a quien PIDIÓ una
+    // persona con el botón o como interesado. Lo demás lo ve la escuela en su
+    // celular: a la familia no se le promete nada y no suena ningún push; si
+    // queda sin contestar, avisa el aviso único de pendientes.
+    if (modoDiscreto() && !urgente && !ESCALA_EN_MODO_DISCRETO.has(reason)) {
+        console.info('[whatsapp-bot] modo discreto: no se escala; lo contesta la escuela', { conversationId, reason });
+        await marcarAbiertaSinAviso(conversationId);
+        return;
+    }
+
     // Solo se avisa en la TRANSICION a abierta. `escalate` puede correr varias
     // veces sobre la misma conversacion —el bot se atasca dos veces seguidas— y
     // sin esto la escuela recibiria un push por cada intento.
@@ -5114,6 +5251,9 @@ async function escalate(
     const aviso = opciones.mensaje ? opciones.mensaje
         : urgente ? mensajeDeEscalamientoUrgente(clasif.categoria)
         : retiro ? MENSAJE_ESCALACION_RETIRO
+        // Sin «fuera del horario… te responden hoy a las 16:00»: Milena contesta a
+        // cualquier hora y la promesa casi nunca era cierta.
+        : modoDiscreto() ? MENSAJE_PASO_A_PERSONA
         : mensajeDeEscalamiento(horario);
     await deliver(integration, conversationId, contactWaId,
         opciones.antes ? `${opciones.antes}\n\n${aviso}` : aviso,
@@ -5124,6 +5264,12 @@ async function escalate(
             plazo_min: PLAZO_ESCALACION_MIN[clasif.urgencia],
         });
 }
+
+/** Escalaciones que siguen saliendo en modo discreto (además de las urgentes): pidió una persona. */
+const ESCALA_EN_MODO_DISCRETO = new Set([PASO_PROSPECTO_PERSONA, 'cortesia_pide_una_persona', 'boton_hablar_con_la_escuela']);
+
+/** Lo que se le dice al escalar en modo discreto: sin prometer horas. */
+export const MENSAJE_PASO_A_PERSONA = 'Listo 🙌 Le aviso a la escuela para que te escriba por aquí.';
 
 /** Lo que se le dice a la familia al escalar algo urgente. */
 export function mensajeDeEscalamientoUrgente(categoria: CategoriaUrgente | null): string {
@@ -5156,6 +5302,12 @@ export async function revisarEscalacionesVencidas(ahora = Date.now()): Promise<R
         try {
             const plazo = Number(e.payload?.plazo_min) || PLAZO_ESCALACION_MIN.normal;
             if (!plazoVencido(e.createdAt, plazo, ahora)) continue;
+            // Modo discreto: el reaviso de los 30 min queda solo para lo urgente; lo
+            // demás lo recoge el aviso único de pendientes.
+            if (modoDiscreto() && e.payload?.urgencia !== 'urgente') {
+                await reservarRevision(e, 'discreto', ahora).catch(() => false);
+                continue;
+            }
             r.revisadas++;
 
             const { data: conv } = await supabase.from('whatsapp_conversations')
@@ -5192,7 +5344,9 @@ export async function revisarEscalacionesVencidas(ahora = Date.now()): Promise<R
             // Y como mucho uno cada 3 días por conversación: …3555 recibió
             // «Todavía nadie…» 6 veces entre el 15 y el 23-oct, una por escalación
             // nueva (auditoría 2026-10-28, X-09). El equipo sí se re-avisa siempre.
-            if (!humanoReciente(await mensajesRecientes(e.conversationId), SILENCIO_HUMANO_MIN)
+            // Modo discreto: a la familia nada («Todavía nadie de la escuela…» la
+            // dejaba esperando en público y presionaba a la escuela).
+            if (!modoDiscreto() && !humanoReciente(await mensajesRecientes(e.conversationId), SILENCIO_HUMANO_MIN)
                 && !(await pasoReciente(e.conversationId, 'escalacion_sin_respuesta', 72))) {
                 const horario = await estadoDeHorario(integration.id);
                 const aviso = textoSinRespuesta({ urgencia, categoria, fueraDeHorario: horario.fueraDeHorario,
@@ -5206,6 +5360,14 @@ export async function revisarEscalacionesVencidas(ahora = Date.now()): Promise<R
         } catch (err: any) {
             console.warn('[whatsapp-bot] no se pudo revisar una escalación', { id: e.id, err: err?.message });
         }
+    }
+    // Modo discreto: en vez del SLA por escalación (push + correo), UN aviso por
+    // conversación y por día cuando una familia o un interesado lleva 2 h hábiles
+    // sin respuesta de nadie (`revisarPendientesSinRespuesta`).
+    if (modoDiscreto()) {
+        await revisarPendientesSinRespuesta(ahora).catch((err) =>
+            console.warn('[whatsapp-bot] no se pudo revisar lo pendiente', { err: err?.message }));
+        return r;
     }
     // SLA de 2 h hábiles (conversación v2): el segundo escalón. Nunca tumba la revisión.
     await revisarSlaDeEscalaciones(ahora).catch((err) =>
@@ -5565,6 +5727,10 @@ async function escuelaLeEscribioEnDias(conversationId: string, dias: number): Pr
 
 export async function revisarRetomas(ahora = Date.now()): Promise<ResultadoRetomas> {
     const r: ResultadoRetomas = { revisadas: 0, respondidas: 0, reavisadas: 0 };
+    // Modo discreto: si la escuela entró a la conversación, el bot no retoma
+    // solo («si Milena entra a escribir, el bot no debe responder solo»). Lo que
+    // quede sin contestar lo recoge el aviso único de pendientes.
+    if (modoDiscreto()) return r;
     for (const cand of await conversacionesConEntrantesRecientes(ahora)) {
         try {
             const filas = await mensajesRecientes(cand.conversationId);

@@ -900,11 +900,12 @@ export function initMaintenanceJobs() {
     // Ciclo diario de facturación SaaS SportMaps → escuelas (Fase 1). Llama a
     // run_saas_billing_cycle() (flip a overdue + avanza período + genera la
     // próxima factura + calcula recordatorios de 3 etapas) y por cada fila
-    // manda el email/PDF vía sendSaasInvoice. 06:20 COT, después del cron SQL
-    // de mensualidades a familias (06:30 UTC) para no competir por conexiones
-    // en el mismo minuto. Kill-switch: DISABLE_SAAS_BILLING_CRON=true.
+    // manda el email/PDF vía sendSaasInvoice. 09:20 COT: a las 06:20 el push de
+    // «Factura SportMaps vencida» despertaba a la dueña todos los días
+    // (2026-10-29); sigue lejos del cron SQL de mensualidades (06:30 UTC).
+    // Kill-switch: DISABLE_SAAS_BILLING_CRON=true.
     // ────────────────────────────────────────────────────────────────────────
-    cron.schedule('20 6 * * *', async () => {
+    cron.schedule('20 9 * * *', async () => {
         if (process.env.DISABLE_SAAS_BILLING_CRON === 'true') return;
         try {
             await runSaasBillingCycle();
@@ -914,7 +915,7 @@ export function initMaintenanceJobs() {
         }
     }, { timezone: 'America/Bogota' });
 
-    console.log('[CRON] Ciclo de facturación SaaS registrado para las 06:20 COT.');
+    console.log('[CRON] Ciclo de facturación SaaS registrado para las 09:20 COT.');
 
     // ────────────────────────────────────────────────────────────────────────
     // Chequeo de latido de bridges locales (ej. scripts/gymrm-door-bridge/).

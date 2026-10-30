@@ -41,6 +41,7 @@ import {
 } from '../services/whatsapp.service';
 import { estaDadoDeBaja, AVISO_DADO_DE_BAJA } from '../services/whatsapp-optin.service';
 import { conversacionTomada } from '../services/whatsapp-tomada.service';
+import { modoDiscreto, escuelaActiva } from '../services/whatsapp-modo-discreto';
 import {
     enviarCobroPorPlantilla, ventanaAbierta, esErrorDeVentana, type ConceptoCobro,
 } from '../services/whatsapp-plantillas.service';
@@ -585,6 +586,16 @@ export async function runWhatsAppPaymentOutcome(log?: Logger): Promise<{ avisado
             .select('id');
         if (!reservadas?.length) continue;
         const idsReservados = (reservadas as any[]).map((r) => r.id);
+
+        // Modo discreto (2026-10-29): si una persona de la escuela escribió en este
+        // chat en las últimas 12 h, ella le confirma a su modo; el aviso queda
+        // reservado sin enviarse (y no se reintenta).
+        if ((conv as any)?.id && modoDiscreto() && await escuelaActiva((conv as any).id as string)) {
+            await guardarAviso(idsReservados, previo.base,
+                { tipo: 'no_entregado', motivo: 'la escuela estaba en la conversación (modo discreto)' });
+            log?.info?.({ queueId: fila.id, paymentId: pago.id }, '[wa-outcome] la escuela está en el chat: no se avisa');
+            continue;
+        }
 
         // Fuera de la ventana de 24 h el texto libre no llega (131047): directo
         // a la plantilla, sin gastar un intento que Meta va a rechazar.

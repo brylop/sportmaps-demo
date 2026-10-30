@@ -79,6 +79,7 @@ import {
     type GuiaGuardada,
 } from '../services/whatsapp-comprobante-guiado.service';
 import { categoriaDelCobro, etiquetaDelCobro } from '../services/tipo-de-cobro';
+import { modoDiscreto, escuelaActiva } from '../services/whatsapp-modo-discreto';
 
 const BUCKET = 'payment-receipts';
 const LOTE = 10;
@@ -1064,6 +1065,16 @@ async function continuarComoComprobante(
         // contacto reenviar una transferencia y el bot le dijo «cuenta ajena»). Se
         // deja a la escuela, sin respuesta, pero queda en la bandeja.
         if (await escuelaAtendiendoElChat(fila)) {
+            await cerrar(fila.id, 'ignored', {
+                result_type: 'escalated', matched_parent_id: parentId, error_message: 'destino no es de la escuela',
+            });
+            return;
+        }
+        // Modo discreto: «cuenta ajena» alarmaba a familias que le habían pagado al
+        // Nequi de la dueña o a la cuenta del entrenador para el torneo (3 de 3
+        // falsos en un lote del análisis 2026-10-29). Lo revisa la escuela.
+        if (modoDiscreto()) {
+            await responder(M.escaladoSinAcudiente.replace('para que lo aplique', 'para que lo revise contigo'), 'destino_ajeno');
             await cerrar(fila.id, 'ignored', {
                 result_type: 'escalated', matched_parent_id: parentId, error_message: 'destino no es de la escuela',
             });
@@ -2531,6 +2542,11 @@ async function procesarFilaInterna(
     // comprobantes se aplican igual que los de una conversación tomada, sin
     // escribirle — es el WhatsApp personal de quien dirige la escuela.
     tomada = atencion.tomada === true || atencion.tambienFamilia === true;
+    // Modo discreto (2026-10-29): si una persona de la escuela escribió en este
+    // chat en las últimas 12 h, el comprobante se procesa y se aplica igual, pero
+    // no se le escribe a la familia: ella está en la charla y confirma a su modo
+    // (Dynasty 10-06: «Quedo septiembre al día» y el bot, encima, «octubre al día» ×3).
+    if (!tomada && conversationId && modoDiscreto() && await escuelaActiva(conversationId)) tomada = true;
 
     // Solo se pregunta si administra la escuela cuando la respuesta puede
     // cambiar algo: familias que también son dueñas (ver `decidirAdjunto`).

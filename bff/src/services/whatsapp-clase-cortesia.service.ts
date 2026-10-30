@@ -507,6 +507,13 @@ export interface FiltroPerfil {
     franjas: FranjaCortesia[];
     /** Frase para el papá: qué NO se pudo filtrar. Vacía si nada que decir. */
     nota: string;
+    /**
+     * Ningún grupo recibe a un menor de esa edad (o de ese género). Antes se
+     * mostraban TODOS los horarios, los de adultos incluidos: a una niña de 4
+     * años le salieron los de Seniors (Dynasty 2026-10-28). Ahora no se ofrece
+     * nada y lo confirma la escuela.
+     */
+    sinGrupoParaEdad?: number;
 }
 
 /**
@@ -539,6 +546,7 @@ export function filtrarPorPerfil(franjas: FranjaCortesia[], perfil: PerfilAtleta
         else sinGrupoAdultos = true;
     }
     if (!r.length) {
+        if (menor && edad != null) return { franjas: [], nota: '', sinGrupoParaEdad: edad };
         return { franjas, nota: 'No encontré un grupo que coincida con lo que me contaste, así que te muestro *todos*; la escuela te confirma cuál le corresponde.' };
     }
     let nota = '';
@@ -752,6 +760,9 @@ function textoResumen(d: DatosCortesia): string {
 
 const NO_ES_NOMBRE = /^(hola+|holi|buenas|buenos dias|buen dia|buenas tardes|buenas noches|gracias|muchas gracias|ok|okey|listo|dale|vale|si|no|bueno|perfecto|claro|hello|alo)( (gracias|mile|milena|profe))?$/;
 
+/** Frases sobre la persona, no su nombre: «Soy la mamá de…», «Es para mi hija», «Mi nombre es…». */
+const FRASE_NO_NOMBRE = /^((yo )?soy|es para|son para|para mi|mi (hija|hijo|nombre|nina|nino)|(el|la) (mama|papa|abuela|abuelo|tia|tio|hermana|hermano) de)\b/;
+
 /** Nombre de persona: 3–80 caracteres, con letras, sin números ni @. */
 export function nombreValido(texto: string): string | null {
     const t = (texto || '').replace(/\s+/g, ' ').trim();
@@ -761,6 +772,9 @@ export function nombreValido(texto: string): string | null {
     // «Hola» 15 min después de «¿nombre completo?» no es un nombre: el bot
     // preguntó «¿Qué edad tiene Hola?» (Dynasty 2026-10-07).
     if (NO_ES_NOMBRE.test(normalizar(t))) return null;
+    // «Soy la mamá de Josue» tampoco: el bot preguntó «¿Qué edad tiene Soy?» y la
+    // dueña escribió «Esa IA me va a volver loca» (Dynasty 2026-10-29).
+    if (FRASE_NO_NOMBRE.test(normalizar(t))) return null;
     // «Juan pérez» → «Juan Pérez»: así llega a la escuela y al resumen.
     return t.split(' ').map((p) => p ? p[0].toLocaleUpperCase('es-CO') + p.slice(1) : p).join(' ');
 }
@@ -862,8 +876,11 @@ export function filtrarVigentes(franjas: FranjaCortesia[], ahora: Date): FranjaC
         .sort((a, b) => (a.fecha + a.horaInicio).localeCompare(b.fecha + b.horaInicio));
 }
 
+/** step del mensaje «no tengo un grupo para X años» (deja el caso para la escuela). */
+export const PASO_SIN_GRUPO_PARA_EDAD = 'cortesia_sin_grupo_para_edad';
+
 /** Franjas que se ofrecen según el perfil y el día pedidos (ya vigentes). */
-function candidatas(franjas: FranjaCortesia[], datos: DatosCortesia): { franjas: FranjaCortesia[]; nota: string } {
+function candidatas(franjas: FranjaCortesia[], datos: DatosCortesia): FiltroPerfil {
     const porPerfil = filtrarPorPerfil(franjas, datos.perfil);
     if (datos.dia == null) return porPerfil;
     const delDia = porPerfil.franjas.filter((f) => partesFecha(f.fecha).dow === datos.dia);
@@ -1141,7 +1158,17 @@ async function ofrecerFranjas(
     step: string,
     op: { yaFiltradas?: boolean; maximo?: number } = {},
 ): Promise<void> {
-    let { franjas, nota } = op.yaFiltradas ? { franjas: vigentes, nota: '' } : candidatas(vigentes, datosPrevios);
+    const filtro: FiltroPerfil = op.yaFiltradas ? { franjas: vigentes, nota: '' } : candidatas(vigentes, datosPrevios);
+    let { franjas, nota } = filtro;
+    // Ningún grupo recibe esa edad: no se ofrecen los horarios de otros (ni los
+    // de adultos). Mensaje terminal; queda para la escuela (aviso de pendientes).
+    if (filtro.sinGrupoParaEdad != null && !franjas.length) {
+        await ctx.enviar(
+            `Por ahora no tengo un grupo para *${filtro.sinGrupoParaEdad} años* 🙏 ` +
+            'Le paso tu mensaje a la escuela para que te confirme desde qué edad reciben.',
+            PASO_SIN_GRUPO_PARA_EDAD, null);
+        return;
+    }
     // Con la edad (o «soy adulto») se dice UNA vez qué grupo le corresponde y
     // se ofrecen solo sus horarios: «Para 12 años le corresponde *Infantil
     // Femenino* (…)». El rango sale de grupos-por-edad.service.
@@ -1303,7 +1330,11 @@ async function continuar(
                 BOTONES_DATOS);
         }
         case 'nombre': {
-            const nombre = nombreValido(texto);
+            // El turno corre con el ÚLTIMO mensaje de la ráfaga: «Karol Saenz» +
+            // «Soy la mamá de Josue» llegaba solo con el segundo. Si ese no es un
+            // nombre, sirve uno de los mensajes anteriores sin responder.
+            const nombre = nombreValido(texto)
+                ?? (ctx.rafaga ? ctx.rafaga.split('\n').map((l) => nombreValido(l)).find(Boolean) ?? null : null);
             if (!nombre) {
                 if (pareceOtraConversacion(texto)) return false;
                 return reintentar(ctx, estado,
