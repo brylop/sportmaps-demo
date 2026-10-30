@@ -4,7 +4,7 @@
  *
  *   GET   /api/v1/whatsapp/:schoolId/cortesias?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
  *   PATCH /api/v1/whatsapp/:schoolId/cortesias/:leadId/asistencia   { asistencia: 'asistio'|'no_vino'|null }
- *   POST  /api/v1/whatsapp/:schoolId/cortesias/sincronizar-franjas  { team_id? }   (staff: ver abajo)
+ *   POST  /api/v1/whatsapp/:schoolId/cortesias/sincronizar-franjas  { teamId? }   (staff: ver abajo)
  *
  * Autorización: administración REAL de esa escuela (owner, admin,
  * school_admin activos, o el dueño en schools.owner_id; platform_admins pasa).
@@ -74,7 +74,7 @@ router.patch('/:schoolId/cortesias/:leadId/asistencia', requireAuth, async (req:
 });
 
 /**
- * POST /api/v1/whatsapp/:schoolId/cortesias/sincronizar-franjas   { team_id?: uuid }
+ * POST /api/v1/whatsapp/:schoolId/cortesias/sincronizar-franjas   { teamId?: uuid }  (o team_id)
  *
  * Lo llama «Mi semana» del entrenador (fire-and-forget) después de cancelar,
  * mover o agregar un entreno (plan B2/B3 §3, T7). Dos cosas, en este orden:
@@ -90,7 +90,8 @@ router.patch('/:schoolId/cortesias/:leadId/asistencia', requireAuth, async (req:
 router.post('/:schoolId/cortesias/sincronizar-franjas', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     const { schoolId } = req.params as { schoolId: string };
     if (!UUID.test(schoolId)) return res.status(400).json({ error: 'school_id inválido' });
-    const teamId = (req.body ?? {}).team_id ?? null;
+    // «Mi semana» manda `{ teamId }`; también vale `{ team_id }`.
+    const teamId = (req.body ?? {}).teamId ?? (req.body ?? {}).team_id ?? null;
     if (teamId !== null && (typeof teamId !== 'string' || !UUID.test(teamId))) {
         return res.status(400).json({ error: 'team_id inválido' });
     }

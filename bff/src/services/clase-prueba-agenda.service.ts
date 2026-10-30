@@ -990,16 +990,38 @@ export interface DepsReprogramadas extends DepsEnvio {
 const esTablaFaltante = (e: any) => e?.code === '42P01' || e?.code === 'PGRST205'
     || /team_schedule_exceptions/.test(String(e?.message ?? '')) && /exist|find/i.test(String(e?.message ?? ''));
 
+/**
+ * El motivo que escribió el profe al cancelar («lluvia», «por lluvia») → lo que va
+ * después de «no se va a realizar por …». Recortado a 120; null si no hay. Pura.
+ */
+export function motivoDeReprogramacion(m: unknown): string | null {
+    if (typeof m !== 'string') return null;
+    const t = m.replace(/\s+/g, ' ').trim().replace(/^por\s+/i, '').replace(/[.!]+$/, '').trim();
+    return t ? Array.from(t).slice(0, 120).join('') : null;
+}
+
+const COLS_EXCEPCION = 'school_id, team_id, fecha, tipo, hora_original';
+
+/**
+ * Lee excepciones de «Mi semana». `motivo` llega con una migración aparte: sin la
+ * columna se lee sin ella (el aviso dice el motivo genérico). Nunca lanza por la base.
+ */
+async function leerExcepciones(consulta: (cols: string) => PromiseLike<{ data: any; error: any }>): Promise<ExcepcionSemana[] | 'sin_tabla'> {
+    let r = await consulta(`${COLS_EXCEPCION}, motivo`);
+    if (r.error && esColumnaInexistente(r.error)) r = await consulta(COLS_EXCEPCION);
+    if (r.error) return esTablaFaltante(r.error) ? 'sin_tabla' : [];
+    return ((r.data ?? []) as any[]).map((e) => ({ ...e, fecha: String(e.fecha).slice(0, 10), motivo: motivoDeReprogramacion(e.motivo) }));
+}
+
 const DEPS_REPROGRAMADAS: Omit<DepsReprogramadas, keyof DepsEnvio> = {
     async excepciones(schoolId, desde, hasta, teamId) {
-        let q = supabase.from('team_schedule_exceptions')
-            .select('school_id, team_id, fecha, tipo, hora_original')
-            .eq('school_id', schoolId).in('tipo', ['cancelada', 'movida'])
-            .gte('fecha', desde).lte('fecha', hasta);
-        if (teamId) q = q.eq('team_id', teamId);
-        const { data, error } = await q.limit(500);
-        if (error) return esTablaFaltante(error) ? 'sin_tabla' : [];
-        return ((data ?? []) as any[]).map((e) => ({ ...e, fecha: String(e.fecha).slice(0, 10) }));
+        return leerExcepciones((cols) => {
+            let q = supabase.from('team_schedule_exceptions').select(cols)
+                .eq('school_id', schoolId).in('tipo', ['cancelada', 'movida'])
+                .gte('fecha', desde).lte('fecha', hasta);
+            if (teamId) q = q.eq('team_id', teamId);
+            return q.limit(500) as any;
+        });
     },
     async slotsDeEquipos(schoolId, teamIds, fechas) {
         if (!teamIds.length || !fechas.length) return [];
@@ -1070,7 +1092,7 @@ export async function avisarClasesCanceladas(p: {
             }
             const fecha = String(slot.slot_date).slice(0, 10);
             const horaInicio = String(slot.start_time).slice(0, 5);
-            const motivo = (excepcion.motivo && String(excepcion.motivo).trim()) || MOTIVO_REPROGRAMADA_POR_DEFECTO;
+            const motivo = motivoDeReprogramacion(excepcion.motivo) ?? MOTIVO_REPROGRAMADA_POR_DEFECTO;
             const envio = await enviarAviso(d, {
                 schoolId: p.schoolId, telefono: l.phone,
                 texto: textoClaseReprogramada({ acudiente: l.guardian_name, deportista: l.full_name, nombreClase: aj.nombreClase, fecha, horaInicio, motivo }),
@@ -1109,11 +1131,8 @@ export async function runClasesReprogramadas(opciones: { deps?: Partial<DepsRepr
     const ahora = (opciones.deps?.ahora ?? (() => new Date()))();
     const hoy = fechaBogota(ahora);
     const recientes = opciones.deps?.recientes ?? (async (desde: string, desdeFecha: string) => {
-        const { data, error } = await supabase.from('team_schedule_exceptions')
-            .select('school_id, team_id, fecha, tipo, hora_original')
-            .in('tipo', ['cancelada', 'movida']).gte('updated_at', desde).gte('fecha', desdeFecha).limit(1000);
-        if (error) return esTablaFaltante(error) ? 'sin_tabla' as const : [];
-        return ((data ?? []) as any[]).map((e) => ({ ...e, fecha: String(e.fecha).slice(0, 10) }));
+        return leerExcepciones((cols) => supabase.from('team_schedule_exceptions').select(cols)
+            .in('tipo', ['cancelada', 'movida']).gte('updated_at', desde).gte('fecha', desdeFecha).limit(1000) as any);
     });
     try {
         const exc = await recientes(new Date(ahora.getTime() - 48 * 3600_000).toISOString(), hoy);

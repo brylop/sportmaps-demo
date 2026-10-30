@@ -11,16 +11,24 @@ const h = vi.hoisted(() => {
         tablas: {} as Record<string, any[]>,
         rpc: (_fn: string, _args: any): any => ({ data: null, error: null }),
         rpcs: [] as { fn: string; args: any }[],
+        /** Error al pedir esas columnas (columna que todavía no existe). */
+        errorDeSelect: (_tabla: string, _cols: string): any => null,
     };
     function builder(tabla: string) {
         const filtros: ((f: any) => boolean)[] = [];
+        let cols = '';
+        const filas = () => (st.tablas[tabla] ?? []).filter((f) => filtros.every((p) => p(f)));
+        const resultado = () => {
+            const error = st.errorDeSelect(tabla, cols);
+            return error ? { data: null, error } : { data: filas(), error: null };
+        };
         const api: any = {
-            select: () => api,
+            select: (c?: string) => { cols = c ?? ''; return api; },
             eq: (c: string, v: any) => { filtros.push((f) => f[c] === v); return api; },
             in: (c: string, vs: any[]) => { filtros.push((f) => vs.includes(f[c])); return api; },
             gte: () => api, lte: () => api, gt: () => api, order: () => api, limit: () => api, not: () => api, is: () => api,
-            maybeSingle: async () => ({ data: (st.tablas[tabla] ?? []).filter((f) => filtros.every((p) => p(f)))[0] ?? null, error: null }),
-            then: (ok: any, err: any) => Promise.resolve({ data: (st.tablas[tabla] ?? []).filter((f) => filtros.every((p) => p(f))), error: null }).then(ok, err),
+            maybeSingle: async () => { const r = resultado(); return r.error ? r : { data: r.data![0] ?? null, error: null }; },
+            then: (ok: any, err: any) => Promise.resolve(resultado()).then(ok, err),
         };
         return api;
     }
@@ -37,7 +45,7 @@ vi.mock('../config/supabase', () => ({ supabase: h.supabase }));
 import {
     tomarCupo, soltarCupo, confirmarClasePruebaPagada, confirmarClaseAgendada, avisarEntrenador, franjaDeAgenda,
     textoConfirmacion, lugarDeFranja, contenidoAvisoEntrenador, runCuposSeparados, avisarClasesCanceladas,
-    runClasesReprogramadas, franjasAfectadas, cuandoVence, textoCupoPorVencer, textoClaseReprogramada, rangoDeHoras,
+    runClasesReprogramadas, franjasAfectadas, motivoDeReprogramacion, cuandoVence, textoCupoPorVencer, textoClaseReprogramada, rangoDeHoras,
     BOTON_AGENDA, type FranjaAgenda, type LeadAgenda, type DepsAgenda, type DepsCupos, type DepsReprogramadas,
 } from './clase-prueba-agenda.service';
 import { ajustesClasePruebaDesdeFila } from './whatsapp-ajustes-escuela.service';
@@ -62,6 +70,7 @@ beforeEach(() => {
     h.st.tablas = {};
     h.st.rpcs = [];
     h.st.rpc = () => ({ data: null, error: null });
+    h.st.errorDeSelect = () => null;
 });
 
 describe('formato', () => {
@@ -437,6 +446,40 @@ describe('clases reprogramadas', () => {
         expect(d.reservar).not.toHaveBeenCalledWith('lead-c', expect.anything(), expect.anything());
         // La clase del domingo sigue: a lead-d no se le escribe.
         expect(d.reservar).not.toHaveBeenCalledWith('lead-d', expect.anything(), expect.anything());
+    });
+
+    it('con el motivo del profe («lluvia») el aviso lo dice, en el texto y en la plantilla', async () => {
+        const d = deps({ excepciones: [{ team_id: 't-1', fecha: '2026-10-31', tipo: 'cancelada', hora_original: null, motivo: 'Por lluvia.' }] });
+        await avisarClasesCanceladas({ schoolId: 'monster', deps: d });
+        expect((d.enviarTexto as any).mock.calls[0][2]).toContain('no se va a realizar por lluvia. 🙏');
+        expect(d.enviarPlantilla).toHaveBeenCalledWith(expect.objectContaining({ datos: expect.objectContaining({ motivo: 'lluvia' }) }));
+    });
+
+    it('motivoDeReprogramacion', () => {
+        expect(motivoDeReprogramacion('  por   lluvia ')).toBe('lluvia');
+        expect(motivoDeReprogramacion('Partido del equipo.')).toBe('Partido del equipo');
+        expect(motivoDeReprogramacion('   ')).toBeNull();
+        expect(motivoDeReprogramacion(null)).toBeNull();
+        expect(Array.from(motivoDeReprogramacion('x'.repeat(200))!).length).toBe(120);
+    });
+
+    it('la lectura de excepciones trae el motivo; sin la columna, lee sin ella', async () => {
+        h.st.tablas = { team_schedule_exceptions: [{ school_id: 'monster', team_id: 't-1', fecha: '2026-10-31', tipo: 'cancelada', hora_original: null, motivo: 'lluvia' }] };
+        const vistas: any[] = [];
+        const d = deps();
+        delete (d as any).excepciones; // la lectura real (Supabase moqueado)
+        (d.slotsDeEquipos as any).mockImplementation(async () => { vistas.push('slots'); return SLOTS; });
+        await avisarClasesCanceladas({ schoolId: 'monster', deps: d });
+        expect((d.enviarTexto as any).mock.calls[0][2]).toContain('por lluvia');
+        // Sin la migración del motivo: pedir la columna falla y se vuelve a leer sin ella.
+        h.st.tablas.team_schedule_exceptions = [{ school_id: 'monster', team_id: 't-1', fecha: '2026-10-31', tipo: 'cancelada', hora_original: null }];
+        h.st.errorDeSelect = (t, cols) => (t === 'team_schedule_exceptions' && cols.includes('motivo')
+            ? { code: '42703', message: 'column team_schedule_exceptions.motivo does not exist' } : null);
+        const d2 = deps();
+        delete (d2 as any).excepciones;
+        const r = await avisarClasesCanceladas({ schoolId: 'monster', deps: d2 });
+        expect(r.sinTabla).toBeUndefined();
+        expect((d2.enviarTexto as any).mock.calls[0][2]).toContain('por un cambio en la programación del entrenamiento');
     });
 
     it('sin la tabla de la semana del profe: no hace nada', async () => {

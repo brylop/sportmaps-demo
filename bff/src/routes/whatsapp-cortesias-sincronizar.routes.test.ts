@@ -104,6 +104,13 @@ describe('POST sincronizar-franjas', () => {
         expect(estado.sincronizadas).toEqual([{ schoolId: ESCUELA, op: { aplicar: true, soloEquipo: EQUIPO } }]);
     });
 
+    it('acepta el body de «Mi semana» ({ teamId })', async () => {
+        const r = await post(ESCUELA, { teamId: EQUIPO });
+        expect(r.status).toBe(200);
+        expect(estado.avisos).toEqual([{ schoolId: ESCUELA, teamId: EQUIPO }]);
+        expect(estado.sincronizadas).toEqual([{ schoolId: ESCUELA, op: { aplicar: true, soloEquipo: EQUIPO } }]);
+    });
+
     it('sin franjas desde los entrenamientos: avisa, pero no toca el generador', async () => {
         estado.tablas.school_settings = [{ school_id: ESCUELA, courtesy_from_training: false }];
         const r = await post(ESCUELA);
