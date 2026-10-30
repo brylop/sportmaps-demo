@@ -69,7 +69,7 @@ describe('AjustesAgendaClasePrueba', () => {
     expect(screen.queryByText('Cómo agenda el bot')).not.toBeInTheDocument();
   });
 
-  it('Monster: solo sábado y domingo, «clase de prueba», 24 h, aviso al profe → RPC con los cinco valores', async () => {
+  it('Monster: solo sábado y domingo, «clase de prueba», 24 h, aviso al profe → guardar_ajustes_clase_prueba con las cinco claves', async () => {
     pintar();
     expect(await screen.findByText('Cómo agenda el bot')).toBeInTheDocument();
     for (const d of ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes']) fireEvent.click(screen.getByRole('button', { name: d }));
@@ -79,8 +79,9 @@ describe('AjustesAgendaClasePrueba', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'Avisar al entrenador' }));
     fireEvent.click(screen.getByRole('button', { name: /Guardar cómo agenda el bot/ }));
     await waitFor(() => expect(st.rpc).toHaveBeenCalled());
-    expect(st.rpc).toHaveBeenCalledWith('guardar_agenda_clase_prueba', {
-      p_school_id: 's-monster', p_nombre_clase: 'prueba', p_dias_semana: [0, 6], p_separar_horas: 24, p_cupos_por_sesion: null, p_avisar_entrenador: true,
+    expect(st.rpc).toHaveBeenCalledWith('guardar_ajustes_clase_prueba', {
+      p_school_id: 's-monster',
+      p_ajustes: { nombre_clase: 'prueba', dias_semana: [0, 6], separar_horas: 24, cupos_por_sesion: null, avisar_entrenador: true },
     });
     await waitFor(() => expect(st.toast).toHaveBeenCalled());
   });

@@ -39,7 +39,7 @@ vi.mock('@/lib/api/bffClient', () => ({ bffClient: { post: st.post } }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u-coach' } }) }));
 vi.mock('@/hooks/useSchoolContext', () => ({ useSchoolContext: () => ({ schoolId: 's-monster' }) }));
 
-import { useSemanaAjustes } from './useSemanaAjustes';
+import { useSemanaAjustes, _olvidarColumnaMotivo } from './useSemanaAjustes';
 
 const LUNES = '2026-10-26';
 const envoltorio = () => {
@@ -53,6 +53,7 @@ beforeEach(() => {
   st.rpcs = {};
   st.escrituras = [];
   st.post.mockReset().mockResolvedValue({});
+  _olvidarColumnaMotivo();
 });
 
 describe('useSemanaAjustes', () => {
@@ -116,6 +117,10 @@ describe('useSemanaAjustes', () => {
     expect(r).toEqual({ ok: true });
     expect(intentos).toBe(2);
     expect(st.escrituras[1].payload).not.toHaveProperty('motivo');
+    // Ya sabe que la columna no está: la siguiente cancelación no falla primero.
+    await act(async () => { r = await result.current.aplicar({ tipo: 'cancelar', teamId: 't-inf', fecha: '2026-11-01', horaOriginal: '08:00', motivo: 'lluvia' }); });
+    expect(r).toEqual({ ok: true });
+    expect(intentos).toBe(3);
   });
 
   it('un DELETE que la RLS no deja (0 filas) NO se da por hecho, y no se sincroniza', async () => {
@@ -153,6 +158,14 @@ describe('useSemanaAjustes', () => {
     expect(r).toEqual({ ok: true, copiadas: 2 });
     expect(llamadas).toEqual([{ p_team_id: 't-inf', p_lunes: LUNES }, { p_team_id: 't-u17', p_lunes: LUNES }]);
     expect(st.post).toHaveBeenCalledTimes(2);
+  });
+
+  it('marcar un cupo separado: la RPC dice SIN_CLASE_AGENDADA y sale en palabras', async () => {
+    st.rpcs.marcar_clase_prueba_entrenador = () => ({ data: null, error: { code: '22023', message: 'SIN_CLASE_AGENDADA' } });
+    const { result } = usar();
+    let r: unknown;
+    await act(async () => { r = await result.current.marcar({ leadId: 'l1', asistencia: 'asistio' }); });
+    expect(r).toEqual({ ok: false, error: 'La clase todavía no está confirmada (falta el pago).' });
   });
 
   it('marcar sin la RPC: dice que todavía no está activo', async () => {

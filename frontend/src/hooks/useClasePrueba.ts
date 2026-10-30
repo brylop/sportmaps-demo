@@ -54,6 +54,12 @@ export interface ProspectoClasePrueba {
   estado_cupo?: 'separado' | 'agendada' | null;
   /** Hasta cuándo se le guarda el cupo separado. */
   separado_hasta?: string | null;
+  /** Franja del cupo separado (la agendada sigue en fecha_clase / cupo_hora). */
+  separado_fecha?: string | null;
+  separado_hora?: string | null;
+  separado_label?: string | null;
+  sede_id?: string | null;
+  grupo_id?: string | null;
   /** Pago de la clase (payments.signup_lead_id). `awaiting_approval` = comprobante en revisión. */
   pago?: { monto?: number | null; estado?: string | null; metodo?: string | null; fecha?: string | null } | null;
 }
@@ -225,10 +231,12 @@ export function leerAgenda(raw: unknown): AgendaClasePrueba {
 }
 
 /**
- * Lee la agenda con la RLS (la policy de la tabla es de la administración) y la
- * guarda con la RPC `guardar_agenda_clase_prueba` (los cinco valores TAL CUAL:
- * aquí NULL significa «como hoy», no «no tocar»). Sin las columnas, `disponible`
- * es false y la pantalla no muestra la sección.
+ * Lee la agenda con la RLS (la tabla solo tiene policy de SELECT, para la
+ * administración) y la guarda con la RPC `guardar_ajustes_clase_prueba(p_school_id,
+ * p_ajustes jsonb)` (mig. 20261030123543), que cambia solo las claves que llegan.
+ * Se mandan las cinco y NULL significa «como hoy» (todos los días, sin separar,
+ * sin límite). Sin las columnas, `disponible` es false y la pantalla no muestra
+ * la sección; sin la RPC, el guardado dice «todavía no está activa».
  */
 export function useAgendaClasePrueba(schoolId: string | null | undefined, enabled = true) {
   const qc = useQueryClient();
@@ -253,15 +261,21 @@ export function useAgendaClasePrueba(schoolId: string | null | undefined, enable
 
   const guardar = useMutation({
     mutationFn: async (a: AgendaClasePrueba) => {
-      const { error, status } = await (supabase as any).rpc('guardar_agenda_clase_prueba', {
+      const { error, status } = await (supabase as any).rpc('guardar_ajustes_clase_prueba', {
         p_school_id: schoolId,
-        p_nombre_clase: a.nombre_clase,
-        p_dias_semana: a.dias_semana,
-        p_separar_horas: a.separar_horas,
-        p_cupos_por_sesion: a.cupos_por_sesion,
-        p_avisar_entrenador: a.avisar_entrenador,
+        p_ajustes: {
+          nombre_clase: a.nombre_clase,
+          dias_semana: a.dias_semana,
+          separar_horas: a.separar_horas,
+          cupos_por_sesion: a.cupos_por_sesion,
+          avisar_entrenador: a.avisar_entrenador,
+        },
       });
-      if (error) throw new Error(faltaEnLaBase(error, status) ? 'Esta opción todavía no está activa.' : error.message);
+      if (error) {
+        if (faltaEnLaBase(error, status)) throw new Error('Esta opción todavía no está activa.');
+        if (error.code === '42501') throw new Error('Solo la administración de la escuela cambia esto.');
+        throw new Error('No se pudo guardar. Revisa los datos e inténtalo otra vez.');
+      }
       return a;
     },
     onSuccess: (a) => qc.setQueryData(key, { disponible: true, agenda: a }),

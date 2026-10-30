@@ -84,8 +84,15 @@ describe('detalleEmbudo', () => {
     expect(d?.estado?.tono).toBe('pendiente');
   });
 
-  it('el profe que ya viene con «Profe» no se repite', () => {
+  it('el profe que ya viene con «Profe» no se repite; varios profes van en plural', () => {
     expect(detalleEmbudo({ ...embudo, profe: 'Profe Sebastián' })?.agenda).toBe('Sede Norte · Infantil Femenino · Profe Sebastián');
+    expect(detalleEmbudo({ ...embudo, profe: 'Iván Pérez, Laura Gómez' })?.agenda).toBe('Sede Norte · Infantil Femenino · Profes Iván Pérez, Laura Gómez');
+  });
+
+  it('el cupo separado muestra su franja (la agendada ya sale en la etiqueta «Clase …»)', () => {
+    const d = detalleEmbudo({ ...embudo, pago: null, estado_cupo: 'separado', fecha_clase: null, separado_fecha: '2026-11-04', separado_hora: '16:00:00' });
+    expect(d?.agenda).toMatch(/^Sede Norte · Infantil Femenino · Profe Iván · .*4 nov, 4:00 p\. m\.$/);
+    expect(detalleEmbudo(embudo)?.agenda).toBe('Sede Norte · Infantil Femenino · Profe Iván');
   });
 });
 

@@ -20,8 +20,13 @@ export function detalleEmbudo(p: ProspectoClasePrueba): DetalleEmbudo | null {
   const delEmbudo = respuestas.length > 0 || !!p.sede || !!p.grupo || !!p.profe || !!p.estado_cupo || pago != null;
   if (!delEmbudo) return null;
 
-  const profe = p.profe?.trim() ? (/^profe\b/i.test(p.profe.trim()) ? p.profe.trim() : `Profe ${p.profe.trim()}`) : null;
-  const agenda = [p.sede?.trim(), p.grupo?.trim(), profe].filter(Boolean).join(' · ') || null;
+  const nombres = p.profe?.trim() ?? '';
+  const profe = !nombres ? null : /^profes?\b/i.test(nombres) ? nombres : `${nombres.includes(',') ? 'Profes' : 'Profe'} ${nombres}`;
+  // La clase agendada ya sale en la etiqueta «Clase 31 oct 08:00»; la del cupo separado no.
+  const separada = p.estado_cupo === 'separado'
+    ? [fechaCortaConDia(p.separado_fecha), hora12(p.separado_hora)].filter(Boolean).join(', ') || null
+    : null;
+  const agenda = [p.sede?.trim(), p.grupo?.trim(), profe, separada].filter(Boolean).join(' · ') || null;
 
   let estado: DetalleEmbudo['estado'] = null;
   if (pago === 'pagado') {

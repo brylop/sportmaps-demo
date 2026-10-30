@@ -41,12 +41,23 @@ describe('ClasesPruebaDelDia', () => {
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Mariana Gómez: asistió.'));
   });
 
-  it('el grupo recomendado se guarda sin perder la asistencia ya marcada', async () => {
+  it('el grupo recomendado va solo (asistencia NULL = la RPC la deja como está)', async () => {
     const onMarcar = vi.fn().mockResolvedValue({ ok: true });
-    render(<ClasesPruebaDelDia clases={clase(HOY, { asistencia: 'asistio' })} hoy={HOY} equiposEscuela={EQUIPOS} guardando={false} onMarcar={onMarcar} />);
+    render(<ClasesPruebaDelDia clases={clase(HOY, { asistencia: 'asistio', equipo_recomendado: { id: 't-inf', nombre: 'Infantil F' } })}
+      hoy={HOY} equiposEscuela={EQUIPOS} guardando={false} onMarcar={onMarcar} />);
     expect(screen.getByRole('button', { name: 'Asistió' })).toHaveAttribute('aria-pressed', 'true');
+    // Arranca en el grupo que eligió el bot (lead.team_id).
+    expect(screen.getByLabelText('Grupo recomendado')).toHaveValue('t-inf');
     fireEvent.change(screen.getByLabelText('Grupo recomendado'), { target: { value: 't-u15' } });
-    expect(onMarcar).toHaveBeenCalledWith({ leadId: 'l1', asistencia: 'asistio', teamRecomendado: 't-u15' });
+    expect(onMarcar).toHaveBeenCalledWith({ leadId: 'l1', asistencia: null, teamRecomendado: 't-u15' });
+  });
+
+  it('[No vino] no toca el grupo (equipo NULL = solo marca)', () => {
+    const onMarcar = vi.fn().mockResolvedValue({ ok: true });
+    render(<ClasesPruebaDelDia clases={clase(HOY, { equipo_recomendado: { id: 't-inf', nombre: 'Infantil F' } })}
+      hoy={HOY} equiposEscuela={EQUIPOS} guardando={false} onMarcar={onMarcar} />);
+    fireEvent.click(screen.getByRole('button', { name: 'No vino' }));
+    expect(onMarcar).toHaveBeenCalledWith({ leadId: 'l1', asistencia: 'no_vino', teamRecomendado: null });
   });
 
   it('si la base dice que no, muestra el error en palabras', async () => {
@@ -58,8 +69,10 @@ describe('ClasesPruebaDelDia', () => {
     expect(screen.queryByLabelText('Grupo recomendado')).not.toBeInTheDocument();
   });
 
-  it('cupo separado sin comprobante se dice tal cual', () => {
-    render(<ClasesPruebaDelDia clases={clase('2026-11-01', { estado_cupo: 'separado', pago: null })} hoy={HOY} equiposEscuela={EQUIPOS} guardando={false} onMarcar={vi.fn()} />);
+  it('cupo separado sin comprobante: se dice tal cual y no se marca asistencia (la RPC exige clase agendada)', () => {
+    render(<ClasesPruebaDelDia clases={clase(HOY, { estado_cupo: 'separado', pago: null })} hoy={HOY} equiposEscuela={EQUIPOS} guardando={false} onMarcar={vi.fn()} />);
     expect(screen.getByText(/Cupo separado · sin comprobante/)).toBeInTheDocument();
+    expect(screen.getByText(/Falta el comprobante: la clase todavía no está confirmada/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Asistió' })).not.toBeInTheDocument();
   });
 });

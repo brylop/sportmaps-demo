@@ -37,6 +37,14 @@ export interface ResultadoAccion { ok: boolean; error?: string }
 export interface ResultadoRepetir extends ResultadoAccion { copiadas?: number }
 
 export const CLAVE_AJUSTES = 'semana-ajustes';
+
+/**
+ * `team_schedule_exceptions.motivo` no está en la migración 20261030123543: el
+ * primer intento con motivo falla (PGRST204), se guarda sin él y no se vuelve a
+ * mandar en la sesión. Si la columna se agrega después, el motivo se guarda solo.
+ */
+let sinColumnaMotivo = false;
+export function _olvidarColumnaMotivo() { sinColumnaMotivo = false; }
 export const CLAVE_CLASES = 'semana-clases-prueba';
 
 export function useSemanaAjustes({ teamIds, lunes }: { teamIds: string[]; lunes: string }) {
@@ -119,6 +127,7 @@ export function useSemanaAjustes({ teamIds, lunes }: { teamIds: string[]; lunes:
         ({ data, error } = await (supabase as any).from('team_schedule_exceptions').delete().in('id', accion.ajusteIds).select('id'));
       } else {
         const fila = filaDeAccion(accion, { schoolId, userId: user.id });
+        if (sinColumnaMotivo) delete fila.motivo;
         const ajusteId = accion.tipo === 'cancelar' ? undefined : accion.ajusteId;
         const escribir = (f: typeof fila) => (ajusteId
           ? (supabase as any).from('team_schedule_exceptions')
@@ -129,6 +138,7 @@ export function useSemanaAjustes({ teamIds, lunes }: { teamIds: string[]; lunes:
         ({ data, error } = await escribir(fila));
         // `motivo` es opcional: si la base todavía no tiene la columna, se guarda sin él.
         if (error && fila.motivo && faltaLaColumna(error, 'motivo')) {
+          sinColumnaMotivo = true;
           const sinMotivo = { ...fila };
           delete sinMotivo.motivo;
           ({ data, error } = await escribir(sinMotivo));
@@ -183,7 +193,12 @@ export function useSemanaAjustes({ teamIds, lunes }: { teamIds: string[]; lunes:
       });
       if (error) {
         if (faltaEnLaBase(error)) return { ok: false, error: 'Esta opción todavía no está activa.' };
-        return { ok: false, error: error.code === '42501' ? 'Esta clase de prueba no es de tus equipos.' : mensajeDeError(error) };
+        const msg = String(error.message ?? '');
+        if (error.code === '42501') return { ok: false, error: 'Esta clase de prueba no es de tus equipos.' };
+        if (msg.includes('SIN_CLASE_AGENDADA')) return { ok: false, error: 'La clase todavía no está confirmada (falta el pago).' };
+        if (msg.includes('PROSPECTO_DESCARTADO')) return { ok: false, error: 'La escuela ya descartó a este interesado.' };
+        if (msg.includes('EQUIPO_INVALIDO')) return { ok: false, error: 'Ese grupo no es de esta escuela.' };
+        return { ok: false, error: mensajeDeError(error) };
       }
       await qc.invalidateQueries({ queryKey: [CLAVE_CLASES] });
       return { ok: true };

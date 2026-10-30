@@ -81,8 +81,11 @@ describe('Semana del profe', () => {
       error: null,
     });
     st.rpcs.clases_prueba_semana = () => ({
-      data: [{ lead_id: 'l1', nombre: 'Mariana Gómez', anio: 2011, fecha: '2026-10-31', hora: '08:00', team_id: 't-inf', equipo: 'Infantil F',
-        respuestas: { posicion: 'Punta' }, estado_cupo: 'agendada', pago: { estado: 'paid' } }],
+      // Forma exacta de clases_prueba_semana (mig. 20261030123543).
+      data: [{ lead_id: 'l1', nombre: 'Mariana Gómez', anio: 2011, sexo: 'female', respuestas: { posicion: 'Punta' },
+        estado_cupo: 'agendada', separado_hasta: null,
+        franja: { id: 's1', fecha: '2026-10-31', hora_inicio: '08:00:00', hora_fin: '10:00:00', etiqueta: 'Infantil F', lugar: 'Pinar 2' },
+        equipo: { id: 't-inf', nombre: 'Infantil F' }, equipo_recomendado: null, pago: { estado: 'paid' }, asistencia: null, etapa: 'agendado' }],
       error: null,
     });
     pintar();

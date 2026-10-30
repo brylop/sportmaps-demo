@@ -211,6 +211,24 @@ describe('lo que se guarda respeta los CHECK de la tabla', () => {
 });
 
 describe('clases de prueba de la semana (RPC clases_prueba_semana)', () => {
+  it('lee la forma de la migración 20261030123543 (franja, equipo y equipo_recomendado anidados)', () => {
+    const [c] = leerClasesPruebaSemana([{
+      lead_id: 'l1', nombre: 'Mariana Gómez', anio: 2011, sexo: 'female', respuestas: { posicion: 'Punta' },
+      estado_cupo: 'agendada', separado_hasta: null,
+      franja: { id: 's1', fecha: SAB, hora_inicio: '08:00:00', hora_fin: '10:00:00', etiqueta: 'Infantil F · Pinar 2', lugar: 'Pinar 2' },
+      equipo: { id: 't-inf', nombre: 'Infantil F' },
+      equipo_recomendado: { id: 't-u15', nombre: 'U15 F' },
+      pago: { estado: 'awaiting_approval' }, asistencia: 'asistio', etapa: 'asistio',
+    }]);
+    expect(c).toEqual({
+      leadId: 'l1', nombre: 'Mariana Gómez', anio: 2011, sexo: 'Mujer', respuestas: ['Punta'], fecha: SAB, hora: '08:00',
+      teamId: 't-inf', equipo: 'Infantil F', estadoCupo: 'agendada', pago: 'en_revision', asistencia: 'asistio', teamRecomendado: 't-u15',
+    });
+    // Sin equipo en la franja (cupo cargado a mano): no es de nadie, y la vista la descarta.
+    const [sinEquipo] = leerClasesPruebaSemana([{ lead_id: 'l2', nombre: 'X', equipo: null, franja: { fecha: SAB, etiqueta: 'Manual' } }]);
+    expect(sinEquipo).toMatchObject({ teamId: null, equipo: 'Manual', estadoCupo: null });
+  });
+
   it('lee las claves canónicas y las alternativas, sin teléfono', () => {
     const r = leerClasesPruebaSemana([
       { lead_id: 'l1', nombre: 'Mariana Gómez', anio: 2011, sexo: 'F', respuestas: { posicion: 'Punta', trayectoria: 'Club y torneos', trayectoria_detalle: 'Club Titanes' },

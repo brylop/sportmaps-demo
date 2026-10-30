@@ -329,13 +329,18 @@ export interface ClasePruebaSemana {
 }
 
 const texto = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
+const objeto = (v: unknown): Record<string, unknown> | null =>
+  (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 
 /**
- * La respuesta de la RPC → clases de prueba. Tolerante con los nombres de las
- * claves (la RPC la escribe el agente de base): acepta `lead_id`/`id`,
- * `nombre`/`full_name`, `fecha`/`slot_date`, `hora`/`start_time`,
- * `team_id`/`slot_team_id`, `estado_cupo` 'separado'|'separada'|'agendada',
- * `pago` (objeto con estado) o `pago_estado`. Sin teléfono, a propósito.
+ * La respuesta de la RPC → clases de prueba. Forma de la migración
+ * 20261030123543: `{ lead_id, nombre, anio, sexo, respuestas, estado_cupo
+ * ('agendada'|'separado'), separado_hasta, franja: { id, fecha, hora_inicio,
+ * hora_fin, etiqueta, lugar }, equipo: { id, nombre } | null,
+ * equipo_recomendado: { id, nombre } | null (= lead.team_id: al principio, el
+ * grupo que eligió el bot), pago: { estado, … } | null, asistencia, etapa }`.
+ * También acepta claves planas (`fecha`, `hora`, `team_id`…) por si cambia.
+ * Sin teléfono, a propósito.
  */
 export function leerClasesPruebaSemana(raw: unknown): ClasePruebaSemana[] {
   const filas = Array.isArray(raw) ? raw : raw && typeof raw === 'object' && Array.isArray((raw as { clases?: unknown }).clases)
@@ -348,20 +353,23 @@ export function leerClasesPruebaSemana(raw: unknown): ClasePruebaSemana[] {
     if (!leadId || !nombre) continue;
     const cupo = String(r.estado_cupo ?? '').toLowerCase();
     const asis = String(r.asistencia ?? '');
+    const franja = objeto(r.franja);
+    const equipo = objeto(r.equipo);
+    const recomendado = objeto(r.equipo_recomendado);
     out.push({
       leadId,
       nombre,
       anio: anioDe(r.anio ?? r.birth_year ?? r.birth_date),
       sexo: sexoTexto(r.sexo ?? r.gender),
       respuestas: textoRespuestas(r.respuestas),
-      fecha: (texto(r.fecha) ?? texto(r.slot_date) ?? texto(r.fecha_clase))?.slice(0, 10) ?? null,
-      hora: hhmm(texto(r.hora) ?? texto(r.start_time) ?? texto(r.cupo_hora)),
-      teamId: texto(r.slot_team_id) ?? texto(r.franja_team_id) ?? texto(r.team_id),
-      equipo: texto(r.equipo) ?? texto(r.team_name) ?? texto(r.cupo_label),
+      fecha: (texto(franja?.fecha) ?? texto(r.fecha) ?? texto(r.slot_date) ?? texto(r.fecha_clase))?.slice(0, 10) ?? null,
+      hora: hhmm(texto(franja?.hora_inicio) ?? texto(r.hora) ?? texto(r.start_time) ?? texto(r.cupo_hora)),
+      teamId: texto(equipo?.id) ?? texto(r.slot_team_id) ?? texto(r.team_id),
+      equipo: texto(equipo?.nombre) ?? texto(r.equipo) ?? texto(r.team_name) ?? texto(franja?.etiqueta),
       estadoCupo: cupo.startsWith('separad') ? 'separada' : cupo === 'agendada' ? 'agendada' : null,
       pago: estadoDePago(r.pago ?? r.pago_estado),
       asistencia: asis === 'asistio' || asis === 'no_vino' ? asis : null,
-      teamRecomendado: texto(r.team_recomendado) ?? texto(r.team_id_recomendado),
+      teamRecomendado: texto(recomendado?.id) ?? texto(r.team_recomendado),
     });
   }
   return out.sort((a, b) => `${a.fecha ?? ''}${a.hora ?? ''}`.localeCompare(`${b.fecha ?? ''}${b.hora ?? ''}`));
