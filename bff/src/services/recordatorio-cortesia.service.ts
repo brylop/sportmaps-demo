@@ -162,6 +162,8 @@ export interface DepsRecordatorio {
     cerrar: (id: string, c: Cierre) => Promise<void>;
     botEncendido: (integrationId: string) => Promise<boolean>;
     tomada: (conversationId: string) => Promise<boolean>;
+    /** Modo discreto: ¿una persona de la escuela escribió en el chat en las últimas 12 h? */
+    escuelaActiva?: (conversationId: string) => Promise<boolean>;
     dadoDeBaja: (integrationId: string, waId: string) => Promise<boolean>;
     enviarTexto: (integ: WhatsAppIntegration, waId: string, texto: string) => Promise<SendTextResult>;
     registrarTexto: (a: { integ: WhatsAppIntegration; conversationId: string; waId: string; waMessageId: string | null; texto: string; payload: Record<string, unknown> }) => Promise<void>;
@@ -243,6 +245,10 @@ const DEPS: DepsRecordatorio = {
     async tomada(conversationId) {
         const { conversacionTomada } = await import('./whatsapp-tomada.service');
         return conversacionTomada(conversationId);
+    },
+    async escuelaActiva(conversationId) {
+        const { modoDiscreto, escuelaActiva } = await import('./whatsapp-modo-discreto');
+        return modoDiscreto() && escuelaActiva(conversationId);
     },
     async dadoDeBaja(integrationId, waId) {
         const { estaDadoDeBaja } = await import('./whatsapp-optin.service');
@@ -340,6 +346,11 @@ async function enviarUno(
 ): Promise<Cierre> {
     if (!(await d.botEncendido(integ.id))) return { estado: 'no_enviado', motivo: 'bot_apagado' };
     if (conv && await d.tomada(conv.id)) return { estado: 'no_enviado', motivo: 'conversacion_tomada' };
+    // Modo discreto: si la escuela está coordinando en el chat, el recordatorio
+    // automático puede contradecirla (Milena reprogramó a mano y salió el de la franja vieja).
+    if (conv && d.escuelaActiva && await d.escuelaActiva(conv.id)) {
+        return { estado: 'no_enviado', motivo: 'escuela_en_la_conversacion' };
+    }
 
     if (!escuelas.has(r.schoolId)) escuelas.set(r.schoolId, await d.escuela(r.schoolId));
     const esc = escuelas.get(r.schoolId)!;

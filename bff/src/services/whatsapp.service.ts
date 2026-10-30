@@ -22,6 +22,7 @@
 import crypto from 'crypto';
 import { supabase } from '../config/supabase';
 import { enCortafuegos } from '../config/cortafuegos-simulacion';
+import { aLetrasNormales } from './whatsapp-letras-decorativas';
 
 const GRAPH_API_VERSION = process.env.WHATSAPP_GRAPH_VERSION || 'v21.0';
 const GRAPH_BASE_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
@@ -812,7 +813,9 @@ export function parseInboundMessages(body: any): ParsedInboundMessage[] {
                 const type: string = TIPOS_GUARDABLES.has(m?.type) ? m.type : 'unsupported';
                 let textBody: string | null = null;
                 let botonId: string | null = null;
-                if (type === 'text') textBody = m?.text?.body ?? null;
+                // Versalitas («ᴍɪʟᴇ») y letras matemáticas a letras normales: si no, ninguna
+                // regla del bot las lee. El original queda en `raw`.
+                if (type === 'text') textBody = aLetrasNormales(m?.text?.body ?? null);
                 else if (type === 'button') {
                     textBody = m?.button?.text ?? null;
                     botonId = m?.button?.payload ?? null;
@@ -830,7 +833,7 @@ export function parseInboundMessages(body: any): ParsedInboundMessage[] {
                 const conArchivo = ['image', 'document', 'audio', 'video', 'sticker'].includes(type);
                 const mediaId: string | null = conArchivo ? (mediaNode?.id ?? null) : null;
                 const mediaMimeType: string | null = conArchivo ? (mediaNode?.mime_type ?? null) : null;
-                const mediaCaption: string | null = conArchivo ? (mediaNode?.caption ?? null) : null;
+                const mediaCaption: string | null = conArchivo ? aLetrasNormales(mediaNode?.caption ?? null) : null;
 
                 const epoch = Number(m?.timestamp || 0);
                 out.push({
