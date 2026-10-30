@@ -4,9 +4,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Loader2, MessageCircle, Plus, Store, X } from 'lucide-react';
+import { Banknote, Loader2, MessageCircle, Plus, Store, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useConfigClasePrueba, useCuposClasePrueba, type ConfigClasePrueba } from '@/hooks/useClasePrueba';
+import { useValorClasePrueba } from '@/hooks/useCobrosClasePrueba';
 
 /**
  * Interruptor general + canales de la clase de prueba (configuración única,
@@ -18,11 +19,21 @@ export function CanalesClasePrueba({ schoolId }: { schoolId: string | null | und
   const { config, isLoading, guardar } = useConfigClasePrueba(schoolId);
   const whatsappVisible = !!config?.enabled && !!config?.whatsapp_enabled;
   const { cupos, crear, cerrar } = useCuposClasePrueba(schoolId, whatsappVisible);
+  // Valor de la clase: lo cobra Gestión de Pagos → «Clases de prueba» (solo admin).
+  const { valor, guardar: guardarValor } = useValorClasePrueba(schoolId, !!config?.es_admin);
 
   const [indicaciones, setIndicaciones] = useState('');
+  const [valorTexto, setValorTexto] = useState('');
   const [nuevoCupo, setNuevoCupo] = useState<null | { label: string; fecha: string; inicio: string; fin: string; lugar: string; capacidad: string }>(null);
 
   useEffect(() => { setIndicaciones(config?.indicaciones ?? ''); }, [config?.indicaciones]);
+  useEffect(() => { setValorTexto(valor ? String(valor) : ''); }, [valor]);
+
+  const guardarValorClase = () =>
+    guardarValor.mutate(valorTexto ? Number(valorTexto) : null, {
+      onSuccess: () => toast({ title: 'Valor de la clase de prueba guardado' }),
+      onError: (e: Error) => toast({ title: 'No se pudo guardar el valor', description: e.message, variant: 'destructive' }),
+    });
 
   const cambiar = (cambios: Partial<ConfigClasePrueba>) =>
     guardar.mutate(cambios, {
@@ -63,6 +74,34 @@ export function CanalesClasePrueba({ schoolId }: { schoolId: string | null | und
 
       {config.enabled && (
         <>
+          {config.es_admin && (
+            <div className="space-y-2 rounded-xl border border-border/50 bg-muted/20 p-4">
+              <div className="flex items-center gap-2">
+                <Banknote className="h-4 w-4 text-primary" />
+                <div>
+                  <p className="font-semibold text-sm">Valor de la clase de prueba</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Se cobra en Gestión de Pagos → Clases de prueba; ahí sale precargado y se puede cambiar. Vacío = sin costo fijo.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  inputMode="numeric"
+                  placeholder="Sin valor"
+                  value={valorTexto ? `$${Number(valorTexto).toLocaleString('es-CO')}` : ''}
+                  onChange={(e) => setValorTexto(e.target.value.replace(/\D/g, ''))}
+                  className="h-8 text-xs bg-background max-w-44"
+                />
+                {valorTexto !== (valor ? String(valor) : '') && (
+                  <Button size="sm" className="h-8 text-xs" onClick={guardarValorClase} disabled={guardarValor.isPending}>
+                    {guardarValor.isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />} Guardar valor
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center justify-between rounded-xl border border-border/50 bg-muted/20 p-4">
             <div className="flex items-center gap-2">
               <Store className="h-4 w-4 text-primary" />
