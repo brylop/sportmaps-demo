@@ -215,3 +215,25 @@ describe('caracterización: las 10 categorías viejas como hoy', () => {
         expect(describirCategorias(['inscripcion', 'torneo', 'viaje'])).toBe('inscripciones, torneos y viajes');
     });
 });
+
+describe('clase_prueba y reserva en las llaves y en el veredicto (2026-10-30)', () => {
+    it('categoriaDeCobro las reconoce (antes null: receipt-context y only_for no las conocían)', () => {
+        expect(categoriaDeCobro('clase_prueba', null)).toBe('clase_prueba');
+        expect(categoriaDeCobro('reserva', 'Reserva cancha 5')).toBe('reserva');
+        expect(CATEGORIAS_COBRO).toContain('clase_prueba');
+        expect(CATEGORIAS_COBRO).toContain('reserva');
+    });
+
+    it('una llave only_for clase_prueba vale para la clase de prueba y no para la mensualidad', () => {
+        const [cuenta] = parseCuentasDePago([{ type: 'nequi', value: '3194505150', only_for: ['clase_prueba'] }]);
+        expect(cuenta.onlyFor).toEqual(['clase_prueba']);
+        expect(cuentaAplicaA(cuenta, 'clase_prueba')).toBe(true);
+        expect(cuentaAplicaA(cuenta, 'mensualidad')).toBe(false);
+    });
+
+    it('nombres', () => {
+        expect(etiquetaDeCobro({ payment_category: 'clase_prueba', concept: null })).toBe('Clase de prueba');
+        expect(etiquetaDeCobro({ payment_category: 'reserva', concept: null })).toBe('Reserva');
+        expect(describirCategorias(['clase_prueba', 'reserva'])).toBe('clases de prueba y reservas');
+    });
+});

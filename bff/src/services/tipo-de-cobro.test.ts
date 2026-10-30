@@ -183,3 +183,17 @@ describe('caracterización: nombres de HOY de las categorías viejas', () => {
         expect(etiquetaCortaDelCobro({ payment_category: 'uniforme_gala' })).toBe('Uniforme');
     });
 });
+
+describe('motivos nuevos del catálogo único (2026-10-30)', () => {
+    it('clase de prueba: «Clase de prueba» / «Prueba» (antes «Clase», igual que la clase extra)', () => {
+        expect(etiquetaDelCobro({ payment_category: 'clase_prueba' })).toBe('Clase de prueba');
+        expect(etiquetaCortaDelCobro({ payment_category: 'clase_prueba' })).toBe('Prueba');
+        expect(etiquetaCortaDelCobro({ payment_category: 'clase_extra' })).toBe('Clase');
+    });
+
+    it('reserva: «Reserva»', () => {
+        expect(etiquetaDelCobro({ payment_category: 'reserva' })).toBe('Reserva');
+        expect(etiquetaCortaDelCobro({ payment_category: 'reserva' })).toBe('Reserva');
+        expect(esPagoUnico({ payment_category: 'reserva' })).toBe(true);
+    });
+});

@@ -155,3 +155,33 @@ describe('caracterización: lo que se detecta hoy', () => {
         expect(p(null, 'Mensualidad 10/2026')).toBeNull();
     });
 });
+
+describe('«clínica» y «clase de prueba» en todas las escuelas (plan B4, 2026-10-30)', () => {
+    it.each([
+        ['Clínica de armadores y atacantes', 'clase_extra'],
+        ['pago clinica Mariana', 'clase_extra'],
+        ['pago de la clase de prueba', 'clase_prueba'],
+        ['clase de cortesía del sábado', 'clase_prueba'],
+    ])('«%s» → %s', (texto, concepto) => {
+        expect(conceptoNombrado(texto)).toBe(concepto);
+    });
+
+    it('a quien escribió «clínica» se le dice «clínica», no «clase de perfeccionamiento»', () => {
+        const s = detectarOtroConcepto({ pie: 'Clínica de armadores — Mariana' })!;
+        expect(s.concepto).toBe('clase_extra');
+        expect(mensajeOtroConcepto(s)).toBe(
+            'Recibí tu comprobante de *clínica* 📄 Se lo paso a la escuela para que lo registre; no lo apliqué a la mensualidad.');
+        expect(motivoOtroConcepto(s)).toMatch(/^otro_concepto: clínica \(pie: «Clínica de armadores — Mariana»\)/);
+    });
+
+    it('la clase de prueba sale de la mensualidad: va a su cobro si cuadra, si no a la escuela', () => {
+        const s = detectarOtroConcepto({ pie: 'pago clase de prueba' });
+        expect(s?.concepto).toBe('clase_prueba');
+        const prueba = { ...P('cp', 15000, 'Clase de prueba — Mariana'), categoria: 'clase_prueba' };
+        expect(decidirOtroConcepto(s, [P('m', 180000, 'Mensualidad 10/2026'), prueba], 15000))
+            .toMatchObject({ tipo: 'aplicar', pago: { id: 'cp' } });
+        expect(decidirOtroConcepto(s, [P('m', 180000, 'Mensualidad 10/2026')], 15000)).toMatchObject({ tipo: 'a_la_escuela' });
+        expect(mensajeOtroConcepto(s!)).toContain('*clase de prueba*');
+        expect(conceptoDePago({ concept: 'Cobro', categoria: 'clase_prueba' })).toBe('clase_prueba');
+    });
+});
