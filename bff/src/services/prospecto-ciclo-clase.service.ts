@@ -220,7 +220,7 @@ export interface DepsSeguimiento {
     enviar: (integ: WhatsAppIntegration, conversationId: string, waId: string, texto: string, payload: Record<string, unknown>) => Promise<boolean>;
 }
 
-const PASO_SEGUIMIENTO_CLASE = 'cortesia_seguimiento_noche';
+export const PASO_SEGUIMIENTO_CLASE = 'cortesia_seguimiento_noche';
 
 const DEPS_SEGUIMIENTO: DepsSeguimiento = {
     async reservasDelDia(fecha) {

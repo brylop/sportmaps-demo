@@ -167,6 +167,12 @@ export interface SalidaSimulada {
     opciones?: { id: string; title: string; descripcion?: string }[];
     /** Botón URL (cta_url) que habría salido. */
     cta?: { texto: string; url: string };
+    /**
+     * El `context` con que `deliver` lo habría guardado en el payload del
+     * saliente. Los flujos de varios pasos (cortesía, puerta) leen de ahí dónde
+     * van; sin esto, en el número de pruebas no pasan del primer paso.
+     */
+    payload?: Record<string, unknown>;
 }
 const simulacion = new AsyncLocalStorage<SalidaSimulada[]>();
 export async function simularEnvios<T>(fn: () => Promise<T>): Promise<{ resultado: T; salidas: SalidaSimulada[] }> {
@@ -4496,7 +4502,8 @@ export async function deliver(
             opciones: (conBotones?.botones ?? []).map((b: any) => ({ id: String(b.id), title: String(b.title),
                 ...(b.descripcion ? { descripcion: String(b.descripcion) } : {}) })),
             ...(conBotones?.cta ? { cta: conBotones.cta } : {}),
-            ...(conBotones?.imagen ? { imagen: conBotones.imagen } : {}) });
+            ...(conBotones?.imagen ? { imagen: conBotones.imagen } : {}),
+            payload: context });
         return;
     }
     // ¿Modo auto vigente? (auto solo si mode='auto' y ya pasó assisted_until)
