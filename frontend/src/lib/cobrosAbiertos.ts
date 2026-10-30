@@ -211,7 +211,7 @@ export async function fetchAjustesDeCobros(paymentIds: string[]): Promise<Map<st
   const ids = [...new Set(paymentIds.filter(Boolean))];
   const out = new Map<string, AjusteCobro>();
   if (!ids.length) return out;
-  const { data, error } = await (supabase.from as any)('payment_adjustments')
+  const { data, error } = await (supabase.from as any)('payment_corrections')
     .select('payment_id, kind, amount_before, amount_after, motivo, created_at')
     .in('payment_id', ids)
     .order('created_at', { ascending: false });
